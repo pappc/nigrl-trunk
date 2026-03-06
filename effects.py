@@ -631,6 +631,53 @@ class SoulPairEffect(Effect):
 
 
 @register
+class GlassShardsEffect(Effect):
+    """Debuff (Broken Bong): deals 1 damage per active stack per turn.
+    Each stack has its own independent timer; new stacks never reset existing timers."""
+    id = "glass_shards"
+    category = "debuff"
+    priority = 5
+
+    def __init__(self, stacks: int = 1, duration: int = 5, **kwargs):
+        super().__init__(duration=1, **kwargs)  # base duration unused; expiry tracked via stack_timers
+        self.stack_timers: list = [duration] * stacks
+
+    @property
+    def expired(self) -> bool:
+        return len(self.stack_timers) == 0
+
+    @property
+    def display_name(self) -> str:
+        n = len(self.stack_timers)
+        return f"Glass Shards x{n}"
+
+    def tick(self, entity, engine):
+        n = len(self.stack_timers)
+        if entity.alive and n > 0:
+            entity.take_damage(n)
+            if entity == engine.player:
+                engine.messages.append(
+                    f"Glass Shards ({n} stack{'s' if n != 1 else ''}) cut for {n} damage! "
+                    f"({entity.hp}/{entity.max_hp} HP)"
+                )
+                if not entity.alive:
+                    engine.event_bus.emit("entity_died", entity=entity, killer=None)
+            else:
+                if not entity.alive:
+                    engine.event_bus.emit("entity_died", entity=entity, killer=None)
+        self.stack_timers = [t - 1 for t in self.stack_timers if t - 1 > 0]
+
+    def on_reapply(self, existing, entity, engine):
+        new_duration = self.stack_timers[0] if self.stack_timers else 5
+        existing.stack_timers.append(new_duration)
+        n = len(existing.stack_timers)
+        if entity == engine.player:
+            engine.messages.append(f"Glass Shards stacks! ({n} stack{'s' if n != 1 else ''})")
+        else:
+            engine.messages.append(f"{entity.name} has {n} Glass Shards stacks!")
+
+
+@register
 class BksmtBuffEffect(Effect):
     """Buff (Dosidos monster effect): temporarily boosts Book-Smarts stat."""
     id = "bksmt_buff"
@@ -658,6 +705,22 @@ class BksmtBuffEffect(Effect):
         existing.duration = max(existing.duration, self.duration)
         if isinstance(getattr(entity, 'base_stats', None), dict):
             entity.base_stats["book_smarts"] = entity.base_stats.get("book_smarts", 5) + self.amount
+
+
+@register
+class AcidArmorEffect(Effect):
+    """Debuff (Blue Lobster): when attacked, 5-10% chance to break a random equipped item (player only)."""
+    id = "acid_armor"
+    category = "debuff"
+    priority = 0
+
+    def __init__(self, duration: int = 10, break_chance: float = 0.05, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self.break_chance = break_chance
+
+    @property
+    def display_name(self) -> str:
+        return "Acid Armor"
 
 
 # ---------------------------------------------------------------------------

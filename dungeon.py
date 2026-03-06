@@ -14,26 +14,19 @@ from config import (
     ROOM_MAX_SIZE,
     MAX_ROOMS,
     MAX_MONSTERS_PER_ROOM,
-    MAX_ITEMS_PER_ROOM,
     BASE_HP,
     BASE_POWER,
     BASE_DEFENSE,
 )
 from entity import Entity
-from items import create_item_entity, get_random_chain, get_random_jordans, STRAINS
+from items import create_item_entity
 from enemies import create_enemy, ZONE_SPAWN_TABLES, MONSTER_REGISTRY
+from loot import generate_floor_loot
 
 
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
-
-def _get_item_strain(item_id):
-    """Return a random strain for cannabis items, None for others."""
-    if item_id in ("weed_nug", "kush", "joint"):
-        return random.choice(STRAINS)
-    return None
-
 
 # ---------------------------------------------------------------------------
 # Room shapes
@@ -521,7 +514,7 @@ class Dungeon:
                 blocks_movement=False,
             ))
 
-    def spawn_entities(self, player, floor_num=0):
+    def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None):
         """Spawn monsters and items in rooms."""
         self.entities.append(player)
 
@@ -531,7 +524,7 @@ class Dungeon:
                 continue
 
             # Zone-based monster spawning
-            zone_table = ZONE_SPAWN_TABLES.get("crack_den", [])
+            zone_table = ZONE_SPAWN_TABLES.get(zone, [])
             if zone_table:
                 enemy_types   = [t[0] for t in zone_table]
                 enemy_weights = [t[1] for t in zone_table]
@@ -575,22 +568,20 @@ class Dungeon:
                                 escort.ai_state = None  # Let do_ai_turn reinit based on ai_type
                                 self.entities.append(escort)
 
-            # Weighted item spawn table
-            # "chain" and "jordans" are pseudo-ids resolved to random variants at spawn
-            _ITEM_IDS     = ["knife", "weed_nug", "grinder", "rolling_paper", "kush", "joint", "chain", "jordans"]
-            _ITEM_WEIGHTS = [     3,          4,         4,               3,       1,       1,       2,        2]
 
-            for _ in range(random.randint(0, MAX_ITEMS_PER_ROOM)):
-                x, y = random.choice(floor_tiles)
-                if not self.is_blocked(x, y):
-                    item_id = random.choices(_ITEM_IDS, weights=_ITEM_WEIGHTS, k=1)[0]
-                    if item_id == "chain":
-                        item_id = get_random_chain("crack_den")
-                    elif item_id == "jordans":
-                        item_id = get_random_jordans()
-                    strain = _get_item_strain(item_id)
-                    kwargs = create_item_entity(item_id, x, y, strain=strain)
-                    self.entities.append(Entity(**kwargs))
+        # Spawn floor loot via zone-based loot system (round-robin across rooms)
+        floor_loot = generate_floor_loot(zone, floor_num, player_skills)
+        random.shuffle(floor_loot)
+        spawnable_rooms = self.rooms[1:]
+        if spawnable_rooms:
+            for i, (item_id, strain) in enumerate(floor_loot):
+                room = spawnable_rooms[i % len(spawnable_rooms)]
+                floor_tiles = room.floor_tiles(self)
+                if floor_tiles:
+                    x, y = random.choice(floor_tiles)
+                    if not self.is_blocked(x, y):
+                        kwargs = create_item_entity(item_id, x, y, strain=strain)
+                        self.entities.append(Entity(**kwargs))
 
         # Spawn cash piles: 7-10 total on the floor, 0-3 per room
         # Amounts 1-15 with decreasing probability (weight 15 for $1, weight 1 for $15)

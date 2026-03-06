@@ -20,6 +20,28 @@ STRAINS = [
     "Dosidos",
 ]
 
+# Smoking skill XP values per strain
+# Higher complexity/power strains = more XP
+STRAIN_SMOKING_XP = {
+    "OG Kush": 50,           # Simple healing strain
+    "Agent Orange": 75,      # Debuff effects
+    "Columbian Gold": 100,   # Power-based buff with DoT
+    "Blue Lobster": 125,     # Complex damage/defense mechanic
+    "Jungle Boyz": 150,      # Multiple attack-based effects
+    "Dosidos": 175,          # Complex spellcasting effects
+}
+
+# Rolling skill XP values per strain
+# Grinding and rolling give similar XP per strain complexity
+STRAIN_ROLLING_XP = {
+    "OG Kush": 50,           # Simple healing strain
+    "Agent Orange": 75,      # Debuff effects
+    "Columbian Gold": 100,   # Power-based buff with DoT
+    "Blue Lobster": 125,     # Complex damage/defense mechanic
+    "Jungle Boyz": 150,      # Multiple attack-based effects
+    "Dosidos": 175,          # Complex spellcasting effects
+}
+
 
 # ---------------------------------------------------------------------------
 # Strain effect tables
@@ -40,6 +62,15 @@ STRAIN_TABLES = {
         (30,  49, {"type": "random_dot_debuff", "duration_mode": "tlr"},                        None),
         (11,  29, {"type": "random_dot_debuff", "duration": 20},                                None),
         ( 1,  10, {"type": "agent_orange_debuff", "duration": 10},                              None),
+    ],
+    "Blue Lobster": [
+        (90, 100, {"type": "blue_lobster"},                                                      {"type": "blue_lobster"}),
+        (83,  89, {"type": "blue_lobster"},                                                      {"type": "blue_lobster"}),
+        (60,  82, {"type": "blue_lobster"},                                                      {"type": "blue_lobster"}),
+        (45,  59, {"type": "blue_lobster"},                                                      {"type": "blue_lobster"}),
+        (20,  44, {"type": "blue_lobster"},                                                      {"type": "blue_lobster"}),
+        ( 5,  19, {"type": "blue_lobster"},                                                      {"type": "blue_lobster"}),
+        ( 1,   4, {"type": "blue_lobster"},                                                      {"type": "blue_lobster"}),
     ],
     "Columbian Gold": [
         (99, 100, {"type": "invulnerable",   "duration": 10},                        None),
@@ -175,6 +206,7 @@ def _build_minor_rings():
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr: bonus},
                 "tags": ["minor"],
+                "zones": ["crack_den"],
                 "use_verb": None,
                 "use_effect": None,
             }
@@ -205,6 +237,7 @@ def _build_greater_rings():
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr: bonus},
                 "tags": ["greater"],
+                "zones": ["crack_den"],
                 "use_verb": None,
                 "use_effect": None,
             }
@@ -235,6 +268,7 @@ def _build_divine_rings():
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr: bonus},
                 "tags": ["divine"],
+                "zones": [],
                 "use_verb": None,
                 "use_effect": None,
             }
@@ -283,6 +317,7 @@ def _build_advanced_rings():
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr_1: bonus, stat_attr_2: bonus},
                 "tags": ["advanced"],
+                "zones": [],
                 "use_verb": None,
                 "use_effect": None,
             }
@@ -395,6 +430,7 @@ def _build_chains():
                     "armor_bonus":   _chain_armor(material, brand, style),
                     "stat_bonus":    {},
                     "tags":          ["chain"],
+                    "zones":         ["crack_den"],
                     "use_verb":      None,
                     "use_effect":    None,
                 }
@@ -432,6 +468,7 @@ def _build_jordans():
                 "armor_bonus":   armor,
                 "stat_bonus":    {stat_attr: 1},
                 "tags":          ["jordans"],
+                "zones":         ["crack_den"],
                 "use_verb":      None,
                 "use_effect":    None,
             }
@@ -484,9 +521,85 @@ ITEM_DEFS = {
         "defense_bonus": 0,
         "base_damage": 6,              # base damage when equipped (overrides player base power)
         "str_req": 1,                  # minimum STR to equip
+        "reach": 1,                    # melee reach in Chebyshev tiles (1 = adjacent)
         "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above str_req
+        "weapon_type": "stabbing",
+        "zones": ["crack_den"],
         "use_verb": None,              # action label shown in menu (None = no direct use)
         "use_effect": None,            # effect dict applied on use (None = no effect)
+    },
+    "sharp_pole": {
+        "name": "Sharp Pole",
+        "char": "/",
+        "color": (170, 140, 90),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 10,
+        "str_req": 7,
+        "reach": 2,
+        "str_scaling": {"type": "tiered", "divisor": 1},  # +1 dmg per STR above 7
+        "weapon_type": "stabbing",
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "kids_basketball_pole": {
+        "name": "Kids Basketball Pole",
+        "char": "/",
+        "color": (220, 90, 30),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 9,
+        "str_req": 9,
+        "reach": 3,
+        "stat_scaling": {"type": "threshold", "stat": "street_smarts", "threshold": 7},  # +1 dmg per STSMT above 7
+        "weapon_type": "blunt",
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "broken_bong": {
+        "name": "Broken Bong",
+        "char": "/",
+        "color": (80, 200, 180),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 4,
+        "str_req": 1,
+        "reach": 1,
+        "on_hit_effect": {"type": "glass_shards", "stacks": 1, "duration": 5},
+        "weapon_type": "stabbing",
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "broken_crack_pipe": {
+        "name": "Broken Crack Pipe",
+        "char": "/",
+        "color": (200, 175, 145),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 6,
+        "str_req": 1,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above 1
+        "on_hit_skill_xp": {"skill": "Crack-Head", "amount": 1},
+        "weapon_type": "stabbing",
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
     },
     "weed_nug": {
         "name": "1g nug",  # strain appended in brackets via build_item_name
@@ -497,6 +610,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "primary_skill": "Smoking",
         "use_verb": None,
         "use_effect": None,
     },
@@ -509,6 +623,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "primary_skill": "Grinding",
         "use_verb": None,
         "use_effect": None,
     },
@@ -521,6 +636,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
     },
@@ -533,6 +649,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "primary_skill": "Rolling",
         "use_verb": None,
         "use_effect": None,
     },
@@ -545,6 +662,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "primary_skill": "Smoking",
         "use_verb": "Smoke",
         "use_effect": {"type": "strain_roll"},
         "throw_verb": "Throw",
@@ -554,6 +672,56 @@ ITEM_DEFS = {
 
 
 # ---------------------------------------------------------------------------
+# Dismantling XP
+# ---------------------------------------------------------------------------
+
+ITEM_DISMANTLING_XP = {
+    "weed_nug": 15,
+    "kush": 15,
+    "rolling_paper": 9,
+    "joint": 15,
+    "grinder": 75,
+    "knife": 35,
+    "sharp_pole": 50,
+    "kids_basketball_pole": 55,
+    "broken_bong": 40,
+    "broken_crack_pipe": 45,
+}
+
+
+def get_dismantling_xp(item_id: str) -> int:
+    """Return base dismantling XP for an item.
+
+    Checks explicit lookup first, then uses formula-based computation
+    for generated items (rings, chains, jordans). Falls back to 10 XP.
+    """
+    if item_id in ITEM_DISMANTLING_XP:
+        return ITEM_DISMANTLING_XP[item_id]
+
+    item_def = ITEM_DEFS.get(item_id)
+    if item_def is None:
+        return 10
+
+    # Rings: scale by sum of all stat bonuses
+    if item_def.get("equip_slot") == "ring":
+        total_bonus = sum(item_def.get("stat_bonus", {}).values())
+        return 20 + total_bonus * 20
+
+    tags = item_def.get("tags", [])
+
+    # Chains: armor_bonus range 10–60 → XP 50–200
+    if "chain" in tags:
+        armor = item_def.get("armor_bonus", 10)
+        return round(50 + (armor - 10) * 3)
+
+    # Jordans: armor_bonus range 1–15 → XP 15–75
+    if "jordans" in tags:
+        armor = item_def.get("armor_bonus", 1)
+        return round(15 + (armor - 1) * (60 / 14))
+
+    return 10
+
+
 # Ring tag helpers
 # ---------------------------------------------------------------------------
 

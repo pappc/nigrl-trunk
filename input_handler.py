@@ -47,6 +47,10 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.s:
             return {"type": "toggle_skills"}
 
+        # Skills menu navigation (always emitted; engine ignores outside SKILLS state)
+        elif key_sym == tcod.event.KeySym.BACKSPACE:
+            return {"type": "skills_backspace"}
+
         # Character sheet
         elif key_sym == tcod.event.KeySym.c:
             return {"type": "open_char_sheet"}
@@ -60,12 +64,11 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.ESCAPE:
             return {"type": "close_menu"}
 
-        # Number keys 0-9 — action selection in menus
-        elif tcod.event.KeySym.N0 == key_sym:
-            return {"type": "select_action", "index": 9}
-        elif tcod.event.KeySym.N1 <= key_sym <= tcod.event.KeySym.N9:
-            index = key_sym - tcod.event.KeySym.N1  # 0-indexed
-            return {"type": "select_action", "index": index}
+        # Number keys 0-9 — action selection in menus or skills spend input
+        elif tcod.event.KeySym.N0 <= key_sym <= tcod.event.KeySym.N9:
+            digit = str(key_sym - tcod.event.KeySym.N0)
+            index = 9 if key_sym == tcod.event.KeySym.N0 else key_sym - tcod.event.KeySym.N1
+            return {"type": "select_action", "index": index, "digit": digit}
 
         # Descend stairs (> = Shift+Period; SDL2 on Windows reports PERIOD+shift,
         # other platforms may report GREATER directly)
@@ -90,6 +93,10 @@ def handle_input(key):
         # Enter — confirm targeting
         elif key_sym in (tcod.event.KeySym.RETURN, tcod.event.KeySym.KP_ENTER):
             return {"type": "confirm_target"}
+
+        # F — enter entity targeting mode
+        elif key_sym == tcod.event.KeySym.f:
+            return {"type": "start_entity_targeting"}
 
         # A — toggle Abilities menu (checked before inventory letter keys)
         elif key_sym == tcod.event.KeySym.a:

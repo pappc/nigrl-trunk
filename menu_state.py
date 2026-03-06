@@ -18,3 +18,4 @@ class MenuState(Enum):
     TARGETING = "targeting"
     ABILITIES = "abilities"
     RING_REPLACE = "ring_replace"
+    ENTITY_TARGETING = "entity_targeting"

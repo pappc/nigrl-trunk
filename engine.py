@@ -14,7 +14,7 @@ from config import (
 )
 from dungeon import Dungeon
 from entity import Entity
-from skills import Skills
+from skills import Skills, SKILL_NAMES
 from stats import PlayerStats
 from items import get_item_def, find_recipe, get_actions, create_item_entity, get_craft_result_strain, is_stackable, build_inventory_display_name, get_strain_effect, get_random_ring_by_tags
 from ai import do_ai_turn, prepare_ai_tick
@@ -95,7 +95,8 @@ class GameEngine:
         # --- FOV ---
         self.fov_radius = FOV_RADIUS   # base radius; items/buffs can modify this
 
-        self.dungeon.spawn_entities(self.player, floor_num=0)
+        self.skills = Skills()
+        self.dungeon.spawn_entities(self.player, floor_num=0, zone="crack_den", player_skills=self.skills)
         self.dungeon.compute_fov(self.player.x, self.player.y, self.fov_radius)
 
         # --- Core state ---
@@ -103,7 +104,9 @@ class GameEngine:
         self.kills = 0
         self.running = True
         self.game_over = False
-        self.skills = Skills()
+        self.skills_cursor: int = 0        # selected skill row (0-14)
+        self.skills_spend_mode: bool = False   # spend-amount prompt open
+        self.skills_spend_input: str = ""      # digits typed by user
         self.messages: deque = deque(maxlen=LOG_HISTORY_SIZE)
         self.log_scroll: int = 0   # 0 = newest; higher = further back in history
         self.cash = 0
@@ -133,6 +136,10 @@ class GameEngine:
         self.targeting_spell: dict | None = None
         self.targeting_ability_index: int | None = None  # ability whose charge to consume on fire
 
+        # --- Entity targeting state (f-key target select) ---
+        self.entity_target_list: list = []  # visible monsters within weapon range
+        self.entity_target_index: int = 0   # currently selected target index
+
         # --- Ability system ---
         # Players start with no abilities; abilities are granted by items and skills.
         self.player_abilities: list[AbilityInstance] = []
@@ -152,6 +159,7 @@ class GameEngine:
             "close_menu": self._action_close_menu,
             "quit": self._action_quit,
             "descend_stairs": self._action_descend_stairs,
+            "start_entity_targeting": self._action_start_entity_targeting,
         }
 
         self._menu_handlers = {
@@ -163,6 +171,7 @@ class GameEngine:
             MenuState.TARGETING: self._handle_targeting_input,
             MenuState.ABILITIES: self._handle_abilities_menu_input,
             MenuState.RING_REPLACE: self._handle_ring_replace_input,
+            MenuState.ENTITY_TARGETING: self._handle_entity_targeting_input,
         }
 
     # ------------------------------------------------------------------
@@ -216,6 +225,45 @@ class GameEngine:
             return self._action_toggle_skills(action)
 
         if self.menu_state == MenuState.SKILLS:
+            unlocked_skills = self.skills.unlocked()
+            if not unlocked_skills:
+                if action_type in ("close_menu", "toggle_skills"):
+                    self.menu_state = MenuState.NONE
+                return False
+
+            if not self.skills_spend_mode:
+                if action_type == "move":
+                    dy = action.get("dy", 0)
+                    # Navigate through unlocked skills only
+                    current_skill_name = SKILL_NAMES[self.skills_cursor] if self.skills_cursor < len(SKILL_NAMES) else unlocked_skills[0].name
+                    unlocked_names = [s.name for s in unlocked_skills]
+                    if current_skill_name in unlocked_names:
+                        current_idx = unlocked_names.index(current_skill_name)
+                    else:
+                        current_idx = 0
+                    new_idx = (current_idx + dy) % len(unlocked_names)
+                    self.skills_cursor = SKILL_NAMES.index(unlocked_names[new_idx])
+                elif action_type == "confirm_target":
+                    self.skills_spend_mode = True
+                    self.skills_spend_input = ""
+                elif action_type in ("close_menu", "toggle_skills"):
+                    self.menu_state = MenuState.NONE
+            else:
+                if action_type == "select_action" and "digit" in action:
+                    self.skills_spend_input += action["digit"]
+                elif action_type == "skills_backspace":
+                    self.skills_spend_input = self.skills_spend_input[:-1]
+                elif action_type == "confirm_target":
+                    amount = int(self.skills_spend_input or "0")
+                    skill_name = SKILL_NAMES[self.skills_cursor]
+                    gained = self.skills.spend_on_skill(skill_name, amount)
+                    if gained:
+                        self.messages.append(f"{skill_name} leveled up!")
+                    self.skills_spend_mode = False
+                    self.skills_spend_input = ""
+                elif action_type == "close_menu":
+                    self.skills_spend_mode = False
+                    self.skills_spend_input = ""
             return False
 
         if action_type == "open_char_sheet":
@@ -370,8 +418,18 @@ class GameEngine:
     def _action_toggle_skills(self, _action):
         if self.menu_state == MenuState.NONE:
             self.menu_state = MenuState.SKILLS
+            # Set cursor to first unlocked skill, or 0 if none unlocked
+            unlocked = self.skills.unlocked()
+            if unlocked:
+                self.skills_cursor = SKILL_NAMES.index(unlocked[0].name)
+            else:
+                self.skills_cursor = 0
+            self.skills_spend_mode = False
+            self.skills_spend_input = ""
         elif self.menu_state == MenuState.SKILLS:
             self.menu_state = MenuState.NONE
+            self.skills_spend_mode = False
+            self.skills_spend_input = ""
         return False
 
     def _action_toggle_char_sheet(self, _action):
@@ -425,7 +483,7 @@ class GameEngine:
                 x, y = new_dungeon.rooms[0].center()
                 self.player.x = x
                 self.player.y = y
-            new_dungeon.spawn_entities(self.player, floor_num=next_floor)
+            new_dungeon.spawn_entities(self.player, floor_num=next_floor, zone="crack_den", player_skills=self.skills)
         else:
             new_dungeon = self.dungeons[next_floor]
             if new_dungeon.rooms:
@@ -537,21 +595,28 @@ class GameEngine:
     # ------------------------------------------------------------------
 
     def _compute_str_bonus(self, weapon_item):
-        """Return the STR damage bonus for the given weapon (or unarmed)."""
+        """Return the stat damage bonus for the given weapon (or unarmed)."""
         strength = self.player_stats.effective_strength
         if weapon_item is None:
             return strength - UNARMED_STR_BASE
         defn = get_item_def(weapon_item.item_id)
+        # STR-based scaling
         scaling = defn.get("str_scaling")
-        if not scaling:
-            return 0
-        if scaling["type"] == "tiered":
-            req = defn.get("str_req", 1)
-            divisor = scaling.get("divisor", 2)
-            return (strength - req) // divisor
-        if scaling["type"] == "linear":
-            base = scaling.get("base", UNARMED_STR_BASE)
-            return strength - base
+        if scaling:
+            if scaling["type"] == "tiered":
+                req = defn.get("str_req", 1)
+                divisor = scaling.get("divisor", 2)
+                return max(0, (strength - req) // divisor)
+            if scaling["type"] == "linear":
+                base = scaling.get("base", UNARMED_STR_BASE)
+                return max(0, strength - base)
+        # Arbitrary stat threshold scaling (e.g. street_smarts for Kids Basketball Pole)
+        stat_scaling = defn.get("stat_scaling")
+        if stat_scaling and stat_scaling["type"] == "threshold":
+            stat_name = stat_scaling["stat"]
+            threshold = stat_scaling["threshold"]
+            stat_value = getattr(self.player_stats, f"effective_{stat_name}", 0)
+            return max(0, stat_value - threshold)
         return 0
 
     def _compute_player_attack_power(self):
@@ -673,6 +738,45 @@ class GameEngine:
         if attacker == self.player:
             for eff in list(self.player.status_effects):
                 eff.on_player_melee_hit(self, defender, damage)
+
+        # Weapon on-hit effects (e.g. Glass Shards, Crack-Head XP)
+        if attacker == self.player:
+            weapon = self.equipment.get("weapon")
+            if weapon:
+                wdefn = get_item_def(weapon.item_id)
+                if wdefn:
+                    on_hit = wdefn.get("on_hit_effect")
+                    if on_hit:
+                        effects.apply_effect(
+                            defender, self, on_hit["type"],
+                            stacks=on_hit.get("stacks", 1),
+                            duration=on_hit.get("duration", 5),
+                            silent=True,
+                        )
+                    skill_xp = wdefn.get("on_hit_skill_xp")
+                    if skill_xp:
+                        xp_amount = round(skill_xp["amount"] * self.player_stats.xp_multiplier)
+                        self.skills.gain_potential_exp(
+                            skill_xp["skill"], xp_amount,
+                            self.player_stats.effective_book_smarts
+                        )
+            # Melee skill XP: equal to damage dealt
+            _WEAPON_TYPE_SKILL = {"stabbing": "Stabbing", "blunt": "Beating"}
+            if weapon and wdefn:
+                melee_skill = _WEAPON_TYPE_SKILL.get(wdefn.get("weapon_type"))
+            else:
+                melee_skill = "Smacking"
+            if melee_skill:
+                self._gain_melee_xp(melee_skill, damage)
+
+        # Acid Armor counterattack: when monster is hit, chance to break player's equipment
+        if attacker == self.player and defender != self.player:
+            acid_armor_effect = next(
+                (e for e in defender.status_effects if getattr(e, 'id', '') == 'acid_armor'),
+                None
+            )
+            if acid_armor_effect and random.random() < acid_armor_effect.break_chance:
+                self._acid_armor_break_equipment()
 
         # Passive monsters become provoked when hit
         if hasattr(defender, "provoked") and not defender.provoked:
@@ -1036,6 +1140,50 @@ class GameEngine:
             )
         self.player.inventory.sort(key=_key)
 
+    def _add_item_to_inventory(self, item_id, strain=None, quantity=1):
+        """Create an item and add it to player inventory, stacking if possible."""
+        for _ in range(quantity):
+            # Try to stack with existing item
+            if is_stackable(item_id):
+                for existing in self.player.inventory:
+                    if existing.item_id == item_id and existing.strain == strain:
+                        existing.quantity += 1
+                        return
+            # Create new item
+            kwargs = create_item_entity(item_id, self.player.x, self.player.y, strain=strain)
+            new_item = Entity(**kwargs)
+            self.player.inventory.append(new_item)
+        self._sort_inventory()
+
+    def _acid_armor_break_equipment(self):
+        """Break a random piece of equipped equipment from Acid Armor effect."""
+        equipped_items = []
+        if self.equipment.get("weapon"):
+            equipped_items.append(("weapon", self.equipment["weapon"]))
+        if self.equipment.get("neck"):
+            equipped_items.append(("neck", self.equipment["neck"]))
+        for i, ring in enumerate(self.rings):
+            if ring:
+                equipped_items.append((f"ring_{i}", ring))
+        if self.equipment.get("feet"):
+            equipped_items.append(("feet", self.equipment["feet"]))
+
+        if equipped_items:
+            slot, item = random.choice(equipped_items)
+            # Unequip the item
+            if slot == "weapon":
+                self.equipment["weapon"] = None
+            elif slot == "neck":
+                self.equipment["neck"] = None
+            elif slot == "feet":
+                self.equipment["feet"] = None
+            elif slot.startswith("ring_"):
+                idx = int(slot.split("_")[1])
+                self.rings[idx] = None
+            self.messages.append(f"Acid Armor breaks your {item.name}!")
+        else:
+            self.messages.append("Acid Armor attacks, but you have no equipped items!")
+
     # ------------------------------------------------------------------
     # Drop / Use
     # ------------------------------------------------------------------
@@ -1089,6 +1237,9 @@ class GameEngine:
             ])
             self._apply_strain_effect(self.player, item.strain, roll, "player")
 
+            # Gain smoking skill XP based on strain
+            self._gain_smoking_xp(item.strain)
+
         elif effect_type == "stat_boost" or "effect_id" in effect:
             amount = effect.get("amount", 0)
             stat = effect.get("stat")
@@ -1103,9 +1254,10 @@ class GameEngine:
         if skill_xp:
             for skill_name, xp_amount in skill_xp.items():
                 adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
-                gained = self.skills.add_xp(skill_name, adjusted_xp)
-                if gained:
-                    self.messages.append(f"{skill_name} leveled up!")
+                self.skills.gain_potential_exp(
+                    skill_name, adjusted_xp,
+                    self.player_stats.effective_book_smarts
+                )
 
         if effect.get("consumed", True):
             # Use identity search instead of index — apply_effect may have mutated the inventory
@@ -1134,6 +1286,7 @@ class GameEngine:
     def _destroy_item(self, index):
         item = self.player.inventory[index]
         qty = getattr(item, "quantity", 1)
+        self._gain_dismantling_xp(item.item_id)
         self.destroyed_items.append({"name": item.name, "quantity": qty})
         self.player.inventory.pop(index)
         self.messages.append([
@@ -1270,6 +1423,10 @@ class GameEngine:
                     (display, existing.color),
                     ("!", _C_MSG_NEUTRAL),
                 ])
+                # Award rolling skill XP for grinding (nug -> kush) or rolling (kush -> joint)
+                if result_strain and result_id in ("joint", "kush"):
+                    is_grinding = result_id == "kush"
+                    self._gain_rolling_xp(result_strain, is_grinding=is_grinding)
                 return
 
         kwargs = create_item_entity(result_id, 0, 0, strain=result_strain)
@@ -1281,10 +1438,84 @@ class GameEngine:
             (result_item.name, result_item.color),
             ("!", _C_MSG_NEUTRAL),
         ])
+        # Award rolling skill XP for grinding (nug -> kush) or rolling (kush -> joint)
+        if result_strain and result_id in ("joint", "kush"):
+            is_grinding = result_id == "kush"
+            self._gain_rolling_xp(result_strain, is_grinding=is_grinding)
 
     # ------------------------------------------------------------------
     # Targeting mode
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Entity targeting (f-key: cycle visible monsters within weapon range)
+    # ------------------------------------------------------------------
+
+    def _get_weapon_reach(self) -> int:
+        """Return the reach of the equipped weapon (1 = adjacent, 2+ = extended)."""
+        weapon = self.equipment.get("weapon")
+        if weapon:
+            defn = get_item_def(weapon.item_id)
+            return defn.get("reach", 1)
+        return 1
+
+    def _build_entity_target_list(self, reach: int) -> list:
+        """Return visible living monsters within Chebyshev reach, sorted closest-first."""
+        targets = []
+        for entity in self.dungeon.get_monsters():
+            if not entity.alive:
+                continue
+            dx = abs(entity.x - self.player.x)
+            dy = abs(entity.y - self.player.y)
+            dist = max(dx, dy)  # Chebyshev distance
+            if dist <= reach and self.dungeon.visible[entity.y, entity.x]:
+                targets.append((dist, entity.x, entity))
+        targets.sort(key=lambda t: (t[0], t[1]))
+        return [e for _, _, e in targets]
+
+    def _action_start_entity_targeting(self, _action):
+        """Enter entity targeting mode if there are valid targets in weapon range."""
+        reach = self._get_weapon_reach()
+        target_list = self._build_entity_target_list(reach)
+        if not target_list:
+            self.messages.append("No targets in range.")
+            return False
+        self.entity_target_list = target_list
+        self.entity_target_index = 0
+        self.menu_state = MenuState.ENTITY_TARGETING
+        return False
+
+    def _handle_entity_targeting_input(self, action):
+        """Left/right cycle targets; Enter attacks; Esc cancels."""
+        action_type = action.get("type")
+
+        if action_type == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.entity_target_list = []
+            return False
+
+        if action_type == "move":
+            dx = action.get("dx", 0)
+            if dx != 0 and self.entity_target_list:
+                n = len(self.entity_target_list)
+                self.entity_target_index = (self.entity_target_index + dx) % n
+            return False
+
+        if action_type == "confirm_target":
+            if not self.entity_target_list:
+                self.menu_state = MenuState.NONE
+                return False
+            target = self.entity_target_list[self.entity_target_index]
+            self.entity_target_list = []
+            self.menu_state = MenuState.NONE
+            if target.alive:
+                self.handle_attack(self.player, target)
+                if self.running and self.player.alive:
+                    self.player.energy -= ENERGY_THRESHOLD
+                    self._run_energy_loop()
+            return True
+
+        return False
 
     def _enter_targeting(self, item_index):
         """Enter targeting mode for a throw action. Cursor starts at player position."""
@@ -2022,6 +2253,9 @@ class GameEngine:
                 (f" applied to {entity.name}!", (100, 200, 100)),
             ])
 
+        elif eff_type == "blue_lobster":
+            self._apply_blue_lobster_effect(entity, roll, is_player)
+
         elif eff_type == "none":
             if is_player:
                 self.messages.append("You feel nothing.")
@@ -2074,6 +2308,248 @@ class GameEngine:
             self.messages.append(
                 f"{entity.name} gains +{amount} Book-Smarts from the Dosidos smoke!"
             )
+
+    def _gain_smoking_xp(self, strain):
+        """Award smoking skill XP based on the strain smoked."""
+        from items import STRAIN_SMOKING_XP
+
+        xp_amount = STRAIN_SMOKING_XP.get(strain, 5)  # Default 5 XP for unknown strains
+        adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
+        self.skills.gain_potential_exp(
+            "Smoking", adjusted_xp,
+            self.player_stats.effective_book_smarts
+        )
+        # Provide feedback to the player
+        self.messages.append([
+            ("Smoking skill: +", (100, 150, 200)),
+            (str(adjusted_xp), (150, 200, 255)),
+            (" potential XP", (100, 150, 200)),
+        ])
+
+    def _gain_rolling_xp(self, strain, is_grinding=False):
+        """Award rolling skill XP based on the strain rolled/ground."""
+        from items import STRAIN_ROLLING_XP
+
+        xp_amount = STRAIN_ROLLING_XP.get(strain, 5)  # Default 5 XP for unknown strains
+        adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
+        self.skills.gain_potential_exp(
+            "Rolling", adjusted_xp,
+            self.player_stats.effective_book_smarts
+        )
+        # Provide feedback to the player
+        action = "Grinding" if is_grinding else "Rolling"
+        self.messages.append([
+            ("Rolling skill: +", (100, 150, 200)),
+            (str(adjusted_xp), (150, 200, 255)),
+            (" potential XP", (100, 150, 200)),
+        ])
+
+    def _gain_dismantling_xp(self, item_id: str) -> None:
+        """Award Dismantling skill XP based on the item destroyed."""
+        from items import get_dismantling_xp
+        xp_amount = get_dismantling_xp(item_id)
+        adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
+        self.skills.gain_potential_exp(
+            "Dismantling", adjusted_xp,
+            self.player_stats.effective_book_smarts
+        )
+        self.messages.append([
+            ("Dismantling skill: +", (100, 150, 200)),
+            (str(adjusted_xp), (150, 200, 255)),
+            (" potential XP", (100, 150, 200)),
+        ])
+
+    def _gain_melee_xp(self, skill_name: str, damage: int) -> None:
+        """Award melee skill potential XP equal to damage dealt. Silent (no message)."""
+        adjusted_xp = round(damage * self.player_stats.xp_multiplier)
+        self.skills.gain_potential_exp(
+            skill_name, adjusted_xp,
+            self.player_stats.effective_book_smarts
+        )
+
+    def _apply_blue_lobster_effect(self, entity, roll, is_player):
+        """Apply Blue Lobster strain effect based on roll (1-100).
+
+        Player effects: gain items, lose items
+        Monster effects: drop cash, gain Acid Armor
+        """
+        from items import (
+            ITEM_DEFS, get_random_ring_by_tags, get_random_chain, STRAINS
+        )
+        from loot import _resolve_equipment
+
+        if is_player:
+            # Player effects
+            if 90 <= roll <= 100:
+                # Add random tool
+                candidates = [iid for iid, defn in ITEM_DEFS.items()
+                             if defn.get("category") == "tool" and "crack_den" in defn.get("zones", [])]
+                if candidates:
+                    tool_id = random.choice(candidates)
+                    self._add_item_to_inventory(tool_id, strain=None)
+                    self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[tool_id]['name']}!")
+                else:
+                    self.messages.append("The Blue Lobster would grant a tool, but found none!")
+
+            elif 83 <= roll <= 89:
+                # Add 1-3 random joints
+                num_joints = random.randint(1, 3)
+                strain = random.choice(STRAINS)
+                for _ in range(num_joints):
+                    self._add_item_to_inventory("joint", strain=strain)
+                self.messages.append(f"Blue Lobster grants {num_joints} {strain} joint{'s' if num_joints > 1 else ''}!")
+
+            elif 60 <= roll <= 82:
+                # Add random ring (80% minor, 10% greater, 5% divine, 5% advanced)
+                roll_ring = random.randint(1, 100)
+                if roll_ring <= 80:
+                    tags = ["minor"]
+                elif roll_ring <= 90:
+                    tags = ["greater"]
+                elif roll_ring <= 95:
+                    tags = ["divine"]
+                else:
+                    tags = ["advanced"]
+                ring_id = get_random_ring_by_tags(tags)
+                if ring_id:
+                    self._add_item_to_inventory(ring_id, strain=None)
+                    self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[ring_id]['name']}!")
+                else:
+                    self.messages.append("The Blue Lobster would grant a ring, but found none!")
+
+            elif 45 <= roll <= 59:
+                # Add random neck from floor table
+                neck_id = _resolve_equipment("crack_den")
+                if neck_id:
+                    # Try to get only necklaces/chains
+                    attempts = 0
+                    while neck_id and ITEM_DEFS[neck_id].get("subcategory") != "neck" and attempts < 5:
+                        neck_id = _resolve_equipment("crack_den")
+                        attempts += 1
+                    if neck_id and ITEM_DEFS[neck_id].get("subcategory") == "neck":
+                        self._add_item_to_inventory(neck_id, strain=None)
+                        self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[neck_id]['name']}!")
+                    else:
+                        self.messages.append("The Blue Lobster would grant a neck, but found none!")
+                else:
+                    self.messages.append("The Blue Lobster would grant a neck, but found none!")
+
+            elif 20 <= roll <= 44:
+                # Add random weapon from floor table
+                weapon_id = _resolve_equipment("crack_den")
+                if weapon_id:
+                    # Try to get only weapons
+                    attempts = 0
+                    while weapon_id and ITEM_DEFS[weapon_id].get("subcategory") != "weapon" and attempts < 5:
+                        weapon_id = _resolve_equipment("crack_den")
+                        attempts += 1
+                    if weapon_id and ITEM_DEFS[weapon_id].get("subcategory") == "weapon":
+                        self._add_item_to_inventory(weapon_id, strain=None)
+                        self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[weapon_id]['name']}!")
+                    else:
+                        self.messages.append("The Blue Lobster would grant a weapon, but found none!")
+                else:
+                    self.messages.append("The Blue Lobster would grant a weapon, but found none!")
+
+            elif 5 <= roll <= 19:
+                # Delete random item from inventory
+                if self.player.inventory:
+                    idx = random.randint(0, len(self.player.inventory) - 1)
+                    deleted = self.player.inventory.pop(idx)
+                    self.messages.append(f"Blue Lobster curse: {deleted.name} deleted!")
+                else:
+                    self.messages.append("The Blue Lobster would curse an item, but you have none!")
+
+            elif 1 <= roll <= 4:
+                # Delete random equipped item
+                equipped_items = []
+                if self.equipment.get("weapon"):
+                    equipped_items.append(("weapon", self.equipment["weapon"]))
+                if self.equipment.get("neck"):
+                    equipped_items.append(("neck", self.equipment["neck"]))
+                for i, ring in enumerate(self.rings):
+                    if ring:
+                        equipped_items.append((f"ring_{i}", ring))
+                if self.equipment.get("feet"):
+                    equipped_items.append(("feet", self.equipment["feet"]))
+
+                if equipped_items:
+                    slot, item = random.choice(equipped_items)
+                    # Unequip the item
+                    if slot == "weapon":
+                        self.equipment["weapon"] = None
+                    elif slot == "neck":
+                        self.equipment["neck"] = None
+                    elif slot == "feet":
+                        self.equipment["feet"] = None
+                    elif slot.startswith("ring_"):
+                        idx = int(slot.split("_")[1])
+                        self.rings[idx] = None
+                    self.messages.append(f"Blue Lobster curse: {item.name} unequipped!")
+                else:
+                    self.messages.append("The Blue Lobster would curse equipped items, but you have none!")
+
+        else:
+            # Monster effects
+            if 90 <= roll <= 100:
+                # Drop 100-50 cash
+                cash = random.randint(50, 100)
+                cash_entity = Entity(
+                    x=entity.x, y=entity.y,
+                    char="$", color=(255, 215, 0),
+                    name=f"${cash}",
+                    entity_type="cash",
+                    blocks_movement=False,
+                    cash_amount=cash,
+                )
+                self.dungeon.add_entity(cash_entity)
+                self.messages.append(f"Blue Lobster grants ${cash}!")
+
+            elif 83 <= roll <= 89:
+                # Drop 75-50 cash
+                cash = random.randint(50, 75)
+                cash_entity = Entity(
+                    x=entity.x, y=entity.y,
+                    char="$", color=(255, 215, 0),
+                    name=f"${cash}",
+                    entity_type="cash",
+                    blocks_movement=False,
+                    cash_amount=cash,
+                )
+                self.dungeon.add_entity(cash_entity)
+                self.messages.append(f"Blue Lobster grants ${cash}!")
+
+            elif 60 <= roll <= 82:
+                # Drop 60-30 cash
+                cash = random.randint(30, 60)
+                cash_entity = Entity(
+                    x=entity.x, y=entity.y,
+                    char="$", color=(255, 215, 0),
+                    name=f"${cash}",
+                    entity_type="cash",
+                    blocks_movement=False,
+                    cash_amount=cash,
+                )
+                self.dungeon.add_entity(cash_entity)
+                self.messages.append(f"Blue Lobster grants ${cash}!")
+
+            elif 45 <= roll <= 59:
+                # Nothing
+                self.messages.append(f"{entity.name} seems unaffected by the Blue Lobster.")
+
+            elif 20 <= roll <= 44:
+                # Nothing
+                self.messages.append(f"{entity.name} seems unaffected by the Blue Lobster.")
+
+            elif 5 <= roll <= 19:
+                # Gain Acid Armor (5% break chance, 10 turns)
+                effects.apply_effect(entity, self, "acid_armor", duration=10, break_chance=0.05, silent=True)
+                self.messages.append(f"{entity.name} gains Acid Armor!")
+
+            elif 1 <= roll <= 4:
+                # Gain Acid Armor (10% break chance, 20 turns)
+                effects.apply_effect(entity, self, "acid_armor", duration=20, break_chance=0.10, silent=True)
+                self.messages.append(f"{entity.name} gains Acid Armor!")
 
     # ------------------------------------------------------------------
     # Status effects

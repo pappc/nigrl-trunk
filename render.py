@@ -63,6 +63,8 @@ def render_all(console, engine):
         render_bestiary_menu(console, engine)
     elif engine.menu_state == MenuState.TARGETING:
         render_targeting_mode(console, engine)
+    elif engine.menu_state == MenuState.ENTITY_TARGETING:
+        render_entity_targeting_mode(console, engine)
     elif engine.menu_state == MenuState.ABILITIES:
         render_abilities_menu(console, engine)
 
@@ -182,20 +184,42 @@ def _draw_panel(console, x, y, w, h, bg):
 
 
 def render_skills_menu(console, engine):
-    """Render the skills/stats overlay panel."""
+    """Render the skills overlay panel with potential/real exp and spend prompt."""
     BG       = (22, 22, 32)
     C_TITLE  = (255, 255, 180)
     C_HEAD   = (180, 180, 255)
     C_LABEL  = (180, 180, 180)
-    C_VALUE  = (255, 255, 255)  # white for stat values
+    C_VALUE  = (255, 255, 255)
     C_XP     = (120, 200, 120)
     C_MAXED  = (255, 200, 50)
     C_HINT   = (100, 100, 100)
     C_DIV    = (80,  80, 120)
+    C_CURSOR = (50,  50,  80)   # highlighted row bg
+    C_SP     = (255, 200, 100)  # skill points colour
+    C_POT    = (160, 200, 255)  # potential exp colour
 
-    panel_w = 46
-    # header(3) + divider(1) + stats(3) + divider(1) + skill rows(14) + footer(2) + borders(2)
-    panel_h = 26
+    unlocked_skills = engine.skills.unlocked()
+    num_skills = len(unlocked_skills)
+
+    # Handle empty case
+    if num_skills == 0:
+        panel_w = 40
+        panel_h = 5
+        panel_x = (SCREEN_WIDTH  - panel_w) // 2
+        panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+        _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+        title = "SKILLS"
+        console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1,
+                      title, fg=C_TITLE, bg=BG)
+        msg = "No skills unlocked yet"
+        console.print(panel_x + (panel_w - len(msg)) // 2, panel_y + 2,
+                      msg, fg=C_LABEL, bg=BG)
+        return
+
+    # borders(2) + title(1) + sp(1) + div(1) + header(1) + div(1) + skills(n) + gap(1) + footer(1)
+    panel_w = 58
+    panel_h = num_skills + 9
     panel_x = (SCREEN_WIDTH  - panel_w) // 2
     panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
 
@@ -206,61 +230,69 @@ def render_skills_menu(console, engine):
     console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1,
                   title, fg=C_TITLE, bg=BG)
 
+    # Skill Points row
+    sp_label = "Skill Points: "
+    sp_val   = str(int(engine.skills.skill_points))
+    console.print(panel_x + 2, panel_y + 2, sp_label, fg=C_LABEL, bg=BG)
+    console.print(panel_x + 2 + len(sp_label), panel_y + 2, sp_val, fg=C_SP, bg=BG)
+
     # Divider
     for px in range(1, panel_w - 1):
-        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+        console.print(panel_x + px, panel_y + 3, "─", fg=C_DIV, bg=BG)
 
-    # Stats row — compact format
-    p = engine.player
-    hp_str = f"{p.hp}/{p.max_hp}"
-    console.print(panel_x + 2,  panel_y + 3, f"HP {hp_str}", fg=C_LABEL, bg=BG)
-    console.print(panel_x + 2 + 3 + 1, panel_y + 3, hp_str, fg=C_VALUE, bg=BG)
-
-    kills_str = str(engine.kills)
-    console.print(panel_x + 24, panel_y + 3, f"Kills {kills_str}", fg=C_LABEL, bg=BG)
-    console.print(panel_x + 24 + 6 + 1, panel_y + 3, kills_str, fg=C_VALUE, bg=BG)
-
-    power_str = str(p.power)
-    console.print(panel_x + 2,  panel_y + 4, f"Power {power_str}", fg=C_LABEL, bg=BG)
-    console.print(panel_x + 2 + 5 + 1, panel_y + 4, power_str, fg=C_VALUE, bg=BG)
-
-    turn_str = str(engine.turn)
-    console.print(panel_x + 24, panel_y + 4, f"Turn {turn_str}", fg=C_LABEL, bg=BG)
-    console.print(panel_x + 24 + 5 + 1, panel_y + 4, turn_str, fg=C_VALUE, bg=BG)
-
-    # Divider + skills header
-    for px in range(1, panel_w - 1):
-        console.print(panel_x + px, panel_y + 5, "─", fg=C_DIV, bg=BG)
-    console.print(panel_x + 2,  panel_y + 6, "Skill",   fg=C_HEAD, bg=BG)
-    console.print(panel_x + 18, panel_y + 6, "Lv",      fg=C_HEAD, bg=BG)
-    console.print(panel_x + 24, panel_y + 6, "XP",      fg=C_HEAD, bg=BG)
-    console.print(panel_x + 34, panel_y + 6, "Next",    fg=C_HEAD, bg=BG)
+    # Column headers  — Skill=2, Lv=18, Pot=23, Real=32, Next=41
+    console.print(panel_x + 2,  panel_y + 4, "Skill", fg=C_HEAD, bg=BG)
+    console.print(panel_x + 18, panel_y + 4, "Lv",    fg=C_HEAD, bg=BG)
+    console.print(panel_x + 23, panel_y + 4, "Pot",   fg=C_HEAD, bg=BG)
+    console.print(panel_x + 32, panel_y + 4, "Real",  fg=C_HEAD, bg=BG)
+    console.print(panel_x + 41, panel_y + 4, "Next",  fg=C_HEAD, bg=BG)
 
     # Divider under column headers
     for px in range(1, panel_w - 1):
-        console.print(panel_x + px, panel_y + 7, "─", fg=C_DIV, bg=BG)
+        console.print(panel_x + px, panel_y + 5, "─", fg=C_DIV, bg=BG)
 
-    # Skill rows
-    for i, skill in enumerate(engine.skills.all()):
-        row = panel_y + 8 + i
+    # Skill rows (only unlocked skills)
+    for i, skill in enumerate(unlocked_skills):
+        row = panel_y + 6 + i
+        is_selected = (skill.name == engine.skills.all()[engine.skills_cursor].name if engine.skills_cursor < len(engine.skills.all()) else False)
+        row_bg = C_CURSOR if is_selected else BG
+        cursor_char = "►" if is_selected else " "
+
         if skill.is_maxed():
-            color_xp   = C_MAXED
-            xp_str     = "MAX"
-            next_str   = "---"
+            real_str = "MAX"
+            next_str = "---"
+            c_real   = C_MAXED
         else:
-            color_xp   = C_XP
-            xp_str     = str(skill.xp)
-            next_str   = str(skill.xp_needed())
+            real_str = str(int(skill.real_exp))
+            next_str = str(skill.xp_needed())
+            c_real   = C_XP
 
-        console.print(panel_x + 2,  row, skill.name,      fg=C_LABEL,  bg=BG)
-        console.print(panel_x + 18, row, str(skill.level), fg=C_VALUE, bg=BG)
-        console.print(panel_x + 24, row, xp_str,          fg=color_xp, bg=BG)
-        console.print(panel_x + 34, row, next_str,        fg=C_LABEL,  bg=BG)
+        pot_str = str(int(skill.potential_exp))
 
-    # Close hint
-    hint = "[S] Close"
-    console.print(panel_x + (panel_w - len(hint)) // 2,
-                  panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
+        # Fill row bg for selected
+        if is_selected:
+            for px in range(1, panel_w - 1):
+                console.print(panel_x + px, row, " ", bg=row_bg)
+
+        console.print(panel_x + 1,  row, cursor_char,       fg=C_SP,    bg=row_bg)
+        console.print(panel_x + 2,  row, skill.name,        fg=C_LABEL, bg=row_bg)
+        console.print(panel_x + 18, row, str(skill.level),  fg=C_VALUE, bg=row_bg)
+        console.print(panel_x + 23, row, pot_str,           fg=C_POT,   bg=row_bg)
+        console.print(panel_x + 32, row, real_str,          fg=c_real,  bg=row_bg)
+        console.print(panel_x + 41, row, next_str,          fg=C_LABEL, bg=row_bg)
+
+    # Footer
+    footer_y = panel_y + panel_h - 2
+    if engine.skills_spend_mode:
+        skill_name = engine.skills.all()[engine.skills_cursor].name
+        max_spend  = min(int(engine.skills.skill_points),
+                         int(engine.skills.all()[engine.skills_cursor].potential_exp))
+        prompt = f"Spend on {skill_name} (max {max_spend}): {engine.skills_spend_input}_"
+        console.print(panel_x + 2, footer_y, prompt, fg=C_SP, bg=BG)
+    else:
+        hint = "[Enter] Spend  [↑↓] Nav  [S/Esc] Close"
+        console.print(panel_x + (panel_w - len(hint)) // 2,
+                      footer_y, hint, fg=C_HINT, bg=BG)
 
 
 def render_stats_panel(console, engine):
@@ -1029,6 +1061,67 @@ def render_targeting_mode(console, engine):
     popup_console.print(2, 1, line0, fg=C_INFO,      bg=BG)
     popup_console.print(2, 2, line1, fg=line1_color, bg=BG)
     popup_console.print(2, 3, line2, fg=C_HINT,      bg=BG)
+    popup_console.blit(console, popup_x, popup_y, fg_alpha=1.0, bg_alpha=0.72)
+
+
+def render_entity_targeting_mode(console, engine):
+    """Highlight all valid targets; dim yellow for all, red for selected; popup near selected."""
+    target_list = engine.entity_target_list
+    sel_idx = engine.entity_target_index
+
+    C_ALL_BG = (100, 80, 10)   # dim yellow — all valid targets
+    C_SEL_BG = (180, 40, 40)   # red — currently selected target
+
+    for i, entity in enumerate(target_list):
+        map_ex = entity.x + MAP_OFFSET_X
+        map_ey = entity.y + HEADER_HEIGHT
+        bg = C_SEL_BG if i == sel_idx else C_ALL_BG
+        console.print(map_ex, map_ey, entity.char, fg=entity.color, bg=bg)
+
+    if not target_list:
+        return
+
+    selected = target_list[sel_idx]
+    n = len(target_list)
+
+    BG       = (20, 15, 30)
+    C_BORDER = (160, 160, 210)
+    C_ENEMY  = (255, 140, 140)
+    C_INFO   = (220, 235, 255)
+    C_HINT   = (140, 140, 170)
+
+    line0 = f"Target: {selected.name} ({selected.hp}/{selected.max_hp} HP)"
+    line1 = f"[</> ] Cycle ({sel_idx + 1}/{n})"
+    line2 = "[Enter] Attack   [Esc] Cancel"
+
+    popup_w = max(len(line0), len(line1), len(line2)) + 4
+    popup_h = 5
+
+    map_sx = selected.x + MAP_OFFSET_X
+    map_sy = selected.y + HEADER_HEIGHT
+    map_h  = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT
+    popup_x = max(MAP_OFFSET_X, min(map_sx - 1, MAP_OFFSET_X + MAP_WIDTH - popup_w - 1))
+    popup_y = map_sy + 3
+    if popup_y + popup_h > HEADER_HEIGHT + map_h:
+        popup_y = map_sy - popup_h - 2
+
+    popup_console = tcod.console.Console(popup_w, popup_h)
+    for py in range(popup_h):
+        for px in range(popup_w):
+            popup_console.print(px, py, " ", bg=BG)
+    for px in range(popup_w):
+        popup_console.print(px, 0,           "─", fg=C_BORDER, bg=BG)
+        popup_console.print(px, popup_h - 1, "─", fg=C_BORDER, bg=BG)
+    for py in range(popup_h):
+        popup_console.print(0,           py, "│", fg=C_BORDER, bg=BG)
+        popup_console.print(popup_w - 1, py, "│", fg=C_BORDER, bg=BG)
+    popup_console.print(0,           0,           "┌", fg=C_BORDER, bg=BG)
+    popup_console.print(popup_w - 1, 0,           "┐", fg=C_BORDER, bg=BG)
+    popup_console.print(0,           popup_h - 1, "└", fg=C_BORDER, bg=BG)
+    popup_console.print(popup_w - 1, popup_h - 1, "┘", fg=C_BORDER, bg=BG)
+    popup_console.print(2, 1, line0, fg=C_ENEMY, bg=BG)
+    popup_console.print(2, 2, line1, fg=C_INFO,  bg=BG)
+    popup_console.print(2, 3, line2, fg=C_HINT,  bg=BG)
     popup_console.blit(console, popup_x, popup_y, fg_alpha=1.0, bg_alpha=0.72)
 
 
