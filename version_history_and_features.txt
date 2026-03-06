@@ -1,0 +1,50 @@
+version 0.1 completed 3/4/2026 approx 1 am
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+verson 0.2 initialized 3/4/2026 11:45 am -> completed 3/4/2026 5:30 pm
+-UI Overhaul
+	-NEW LEFT PANEL
+	-additional ui tweaks
+	-extended log feature
+-realized buff/debuff system
+-cash added as ground and monster loot
+-enemies creted
+	-8 unique units each with unique ai and stat blocks
+-enhanced map generation
+-floors 2-4 of the crack den added
+	-identical to floor 1, features not implemented yet
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+version 0.3 initialized 3/4/2026 5:30 pm closed 3/5/2026 3:00 am
+-game now integrated on github
+-code moved from claude window client to claude code terminal using Cursor ide
+-6 strands in the game (4 fully implemented)
+	-built into UI seamlessly
+	-strands have a variety of effecs both for player and monsters
+		-og kush
+		-columbian gold
+		-agent orange
+		-Jungle Boyz
+-joints can be thrown to apply an effect to enemy
+-inventory and item handling improved
+-added ability to desroy items
+-player and monster line of sight implemented
+-beastiary implemented
+-status effect system refactored
+UI tweaks
+bug fixes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Future Features:
+-6 strains of marijuana implemented (3/6)
+	-Jungle boyz: adds on hit effects, most beneficial, does an effect when enemies are hit by it
+	-Blue lobster: related to making items
+		-requires item and inventory system development
+	-Dosidos: grants abilities that have low amounts of use; 
+		-requires building abilities system
+-each weed strain has seperate tables for what can happen to enemies and the player
+-work on item and enemy placement throughout the dungeon; 
+	-unique room encounters
+	-move off purely random item spawn system
+-dev tools for in game testing
+-make monster stats relevant
+-add abilities - a menu that pops up, and a valid ability is selected
+-add skill functionality
+-future add ability to make a hotbar to easilty select abilities

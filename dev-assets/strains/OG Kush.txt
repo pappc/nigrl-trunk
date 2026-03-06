@@ -1,0 +1,30 @@
+OG Kush: Healing + regenative buffs:
+Range
+Player
+Monster
+100-95
+Heals 100% of max hp
+~~~
+94-90
+Heals 75% of max hp
+~~~
+90-80
+Heals 100 hp
+~~~
+79-66
+Heals 70 hp
+~~~
+65-40
+Heals 50 hp
+~~~
+39-20
+Heals 20 hp
+~~~
+19-10
+No effect
+~~~
+9-1
+Lose health equal to 10% of your max hp
+~~~
+
+

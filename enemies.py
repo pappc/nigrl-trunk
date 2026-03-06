@@ -1,0 +1,844 @@
+"""
+Enemy definitions, spawn tables, and factory system for NIGRL.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW TO ADD A NEW ENEMY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1. Add a MonsterTemplate(...) entry to MONSTER_REGISTRY with a unique
+     snake_case key. All field docs live on the dataclasses themselves —
+     see MonsterTemplate, SpecialAttack, OnHitEffect, SpawnEscort below.
+
+  2. Add the key + weight to ZONE_SPAWN_TABLES for every zone it appears in.
+
+  3. Run validate_registry() at startup (or your test suite) to catch
+     typos, missing references, and bad ranges instantly.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BLANK TEMPLATE  (copy, fill in, drop into MONSTER_REGISTRY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    "enemy_key": MonsterTemplate(
+        name         = "",
+        char         = "",
+        color        = (255, 255, 255),
+        constitution  = (1, 1),
+        strength      = (1, 1),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        hp           = (10, 20),
+        damage       = (1,  4),
+        defense      = 0,
+        male_chance  = 0.5,
+        spawn_min    = 1,
+        spawn_max    = 2,
+        spawn_with   = [],
+        ai           = AIType.MEANDER,
+        sight_radius = 6,
+        move_speed   = 1,
+        move_chance  = None,
+        move_skip_max = 0,
+        chase_speed  = 1,
+        special_attacks = [],
+        on_hit_effects  = [],
+        cash_drop    = (0, 5),
+    ),
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VARIANT SHORTHAND  (inherit from an existing enemy, override a few fields)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    "elite_tweaker": variant("tweaker",
+        name   = "Elite Tweaker",
+        color  = (200, 160, 130),
+        hp     = (20, 35),
+        damage = (4, 7),
+        defense = 1,
+    ),
+"""
+
+from __future__ import annotations
+
+import copy
+import dataclasses
+import random
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENUMS — central source of truth for AI modes and effect categories
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AIType(Enum):
+    """
+    Every AI behavior mode the engine supports.
+    Adding a new pattern = add an entry here + implement its tick handler.
+    """
+    MEANDER           = "meander"            # Drifts toward player, attacks adjacent
+    WANDER_AMBUSH     = "wander_ambush"      # Wanders until player enters sight_radius, then chases
+    PASSIVE_UNTIL_HIT = "passive_until_hit"  # Ignores player until damaged, then chases
+    ROOM_GUARD        = "room_guard"         # Wanders in spawn room; chases permanently once player enters
+    ALARM_CHASER      = "alarm_chaser"       # Wanders normally; chases everywhere after first floor kill
+    ESCORT            = "escort"             # Follows a leader around the room; chases when player enters
+    HIT_AND_RUN       = "hit_and_run"        # Ambushes from a distance, attacks once, then flees
+    FEMALE_ALARM      = "female_alarm"       # Wanders passively; chases everywhere when any female dies on the floor
+
+
+class EffectKind(Enum):
+    """
+    Status-effect categories.  The combat system dispatches on these.
+    """
+    DOT           = "dot"            # X damage per turn for N turns
+    FEAR          = "fear"           # Mechanics TBD — tracked as a flag
+    STUN          = "stun"           # Target skips actions
+    CHILD_SUPPORT = "child_support"  # Drains $1 per player move for N turns
+    MOGGED        = "mogged"         # Stacking debuff that reduces swagger
+    WELL_FED      = "well_fed"       # Buff that increases damage and defense
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  COMPONENT DATACLASSES — validated building blocks for monster templates
+# ══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class OnHitEffect:
+    """
+    A status effect that can proc when a monster lands a hit.
+
+    Fields
+    ------
+    name     : Display name shown in the message log.
+    kind     : EffectKind enum (or its string value — auto-coerced).
+    amount   : Per-turn payload (damage for DOT, 0 for flag-only effects).
+    duration : How many turns the effect lasts.
+    chance   : Probability this fires per qualifying hit.
+               Defaults to 1.0 so effects nested inside a SpecialAttack
+               always apply when that attack fires.
+    """
+    name:     str
+    kind:     EffectKind
+    amount:   int
+    duration: int
+    chance:   float = 1.0
+
+    def __post_init__(self):
+        if isinstance(self.kind, str):
+            try:
+                self.kind = EffectKind(self.kind)
+            except ValueError:
+                valid = ", ".join(e.value for e in EffectKind)
+                raise ValueError(
+                    f"Effect '{self.name}': unknown kind '{self.kind}'. Valid: {valid}"
+                )
+        if not 0.0 <= self.chance <= 1.0:
+            raise ValueError(f"Effect '{self.name}': chance {self.chance} not in 0.0–1.0")
+        if self.duration <= 0:
+            raise ValueError(f"Effect '{self.name}': duration must be > 0, got {self.duration}")
+
+
+@dataclass
+class SpecialAttack:
+    """
+    A special attack checked before every normal attack.
+    First entry whose chance roll succeeds fires; normal attack is skipped.
+
+    Fields
+    ------
+    name         : Name shown in the message log.
+    chance       : 0.0–1.0 probability this replaces the normal attack.
+    damage_mult  : Multiplier on base damage.  None → randomized 2.0–3.0 at spawn.
+    on_hit_effect: Optional status effect applied on hit (always procs if attack fires).
+    """
+    name:          str
+    chance:        float
+    damage_mult:   Optional[float] = None
+    on_hit_effect: Optional[OnHitEffect] = None
+
+    def __post_init__(self):
+        if not 0.0 <= self.chance <= 1.0:
+            raise ValueError(f"Attack '{self.name}': chance {self.chance} not in 0.0–1.0")
+        if isinstance(self.on_hit_effect, dict):
+            self.on_hit_effect = OnHitEffect(**self.on_hit_effect)
+
+
+@dataclass
+class SpawnEscort:
+    """
+    An enemy type that spawns alongside the parent monster.
+
+    Fields
+    ------
+    type  : Registry key of the escort enemy.
+    count : (min, max) — rolled randomly per spawn event.
+    """
+    type:  str
+    count: tuple[int, int]
+
+    def __post_init__(self):
+        if isinstance(self.count, list):
+            self.count = tuple(self.count)
+        if self.count[0] > self.count[1]:
+            raise ValueError(
+                f"Escort '{self.type}': count min ({self.count[0]}) > max ({self.count[1]})"
+            )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MONSTER TEMPLATE
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Fields that accept (min, max) tuples but might arrive as lists (future JSON/YAML)
+_TUPLE_FIELDS = (
+    "color", "constitution", "strength", "street_smarts", "book_smarts",
+    "tolerance", "swagger", "hp", "damage", "cash_drop",
+)
+
+
+@dataclass
+class MonsterTemplate:
+    """
+    Validated blueprint for a monster type.
+    Individual monsters are rolled from these ranges at spawn time.
+
+    IDENTITY
+      name          Display name shown to the player.
+      char          Single ASCII character for the map.
+      color         (R, G, B) tuple, each 0–255.
+
+    BASE STATS — flavour/RPG stats, each a (min, max) range rolled per individual.
+      constitution, strength, street_smarts,
+      book_smarts, tolerance, swagger
+
+    COMBAT — mechanical values set directly (NOT derived from base stats).
+      hp            (min, max) hit-point range.
+      damage        (min, max) base damage range, stored as `power` on Entity.
+      defense       Flat damage reduction per hit taken.
+
+    GENDER
+      male_chance   0.0–1.0 probability of being male.
+
+    SPAWN
+      spawn_min     Min individuals per spawn group.
+      spawn_max     Max individuals per spawn group.
+      spawn_with    List of SpawnEscort — other enemies that appear alongside.
+
+    AI
+      ai            AIType enum — selects behavior handler.
+      sight_radius  Detection radius in tiles.
+      move_speed    Turns between actions (deterministic).  Ignored when move_chance is set.
+      move_chance   Per-turn probability of acting.  None = use move_speed.
+      move_skip_max If using move_chance, guarantee an action after this many skips. 0 = off.
+      chase_speed   Turns between moves while chasing (wander_ambush / passive_until_hit).
+
+    ABILITIES
+      special_attacks  List of SpecialAttack.
+      on_hit_effects   List of OnHitEffect (checked on every normal hit).
+
+    DROPS
+      cash_drop     (min, max) cash awarded on death.
+    """
+
+    # ── Identity ──────────────────────────────────────────────────────────
+    name:  str
+    char:  str
+    color: tuple[int, int, int]
+
+    # ── Base stats (min, max) ─────────────────────────────────────────────
+    constitution:  tuple[int, int]
+    strength:      tuple[int, int]
+    street_smarts: tuple[int, int]
+    book_smarts:   tuple[int, int]
+    tolerance:     tuple[int, int]
+    swagger:       tuple[int, int]
+
+    # ── Combat ────────────────────────────────────────────────────────────
+    hp:      tuple[int, int]
+    damage:  tuple[int, int]
+    defense: int
+
+    # ── Gender ────────────────────────────────────────────────────────────
+    male_chance: float
+
+    # ── Spawn ─────────────────────────────────────────────────────────────
+    spawn_min:  int                  = 1
+    spawn_max:  int                  = 1
+    spawn_with: list[SpawnEscort]    = field(default_factory=list)
+
+    # ── AI ────────────────────────────────────────────────────────────────
+    ai:            AIType            = AIType.MEANDER
+    sight_radius:  int               = 6
+    move_speed:    int               = 1
+    move_chance:   Optional[float]   = None
+    move_skip_max: int               = 0
+    chase_speed:   int               = 1
+
+    # ── Abilities ─────────────────────────────────────────────────────────
+    special_attacks: list[SpecialAttack] = field(default_factory=list)
+    on_hit_effects:  list[OnHitEffect]   = field(default_factory=list)
+
+    # ── Drops ─────────────────────────────────────────────────────────────
+    cash_drop: tuple[int, int] = (0, 0)
+
+    # ── Validation & coercion ─────────────────────────────────────────────
+
+    def __post_init__(self):
+        # Coerce lists → tuples for range / tuple fields
+        for fname in _TUPLE_FIELDS:
+            val = getattr(self, fname)
+            if isinstance(val, list):
+                setattr(self, fname, tuple(val))
+
+        # Coerce string → AIType enum
+        if isinstance(self.ai, str):
+            try:
+                self.ai = AIType(self.ai)
+            except ValueError:
+                valid = ", ".join(e.value for e in AIType)
+                raise ValueError(
+                    f"{self.name}: unknown ai '{self.ai}'. Valid: {valid}"
+                )
+
+        # Coerce nested raw dicts → typed dataclasses
+        self.spawn_with = [
+            SpawnEscort(**e) if isinstance(e, dict) else e
+            for e in self.spawn_with
+        ]
+        self.special_attacks = [
+            SpecialAttack(**a) if isinstance(a, dict) else a
+            for a in self.special_attacks
+        ]
+        self.on_hit_effects = [
+            OnHitEffect(**e) if isinstance(e, dict) else e
+            for e in self.on_hit_effects
+        ]
+
+        # ── Hard validations ──
+        if len(self.char) != 1:
+            raise ValueError(
+                f"{self.name}: char must be exactly 1 character, got '{self.char}'"
+            )
+        if not all(0 <= c <= 255 for c in self.color):
+            raise ValueError(
+                f"{self.name}: color values must be 0–255, got {self.color}"
+            )
+        if not 0.0 <= self.male_chance <= 1.0:
+            raise ValueError(f"{self.name}: male_chance must be 0.0–1.0")
+        if self.defense < 0:
+            raise ValueError(f"{self.name}: defense cannot be negative")
+        if self.spawn_min > self.spawn_max:
+            raise ValueError(
+                f"{self.name}: spawn_min ({self.spawn_min}) > spawn_max ({self.spawn_max})"
+            )
+        if self.move_chance is not None and not 0.0 <= self.move_chance <= 1.0:
+            raise ValueError(f"{self.name}: move_chance must be 0.0–1.0 or None")
+
+        # Validate all (min, max) ranges
+        for fname in ("constitution", "strength", "street_smarts", "book_smarts",
+                       "tolerance", "swagger", "hp", "damage", "cash_drop"):
+            lo, hi = getattr(self, fname)
+            if lo > hi:
+                raise ValueError(f"{self.name}: {fname} min ({lo}) > max ({hi})")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  VARIANT HELPER — create enemies that inherit from a base template
+# ══════════════════════════════════════════════════════════════════════════════
+
+def variant(base_key: str, **overrides) -> MonsterTemplate:
+    """
+    Create a MonsterTemplate that copies everything from an existing entry
+    and overrides only the fields you specify.
+
+    Mutable fields (spawn_with, special_attacks, on_hit_effects) are
+    deep-copied so the new template doesn't share lists with the base.
+
+    Usage:
+        "elite_tweaker": variant("tweaker",
+            name   = "Elite Tweaker",
+            hp     = (20, 35),
+            damage = (4, 7),
+        ),
+    """
+    base = MONSTER_REGISTRY[base_key]
+    fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base)}
+
+    # Deep-copy mutable fields so variants don't share references
+    for mutable in ("spawn_with", "special_attacks", "on_hit_effects"):
+        fields[mutable] = copy.deepcopy(fields[mutable])
+
+    fields.update(overrides)
+    return MonsterTemplate(**fields)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MONSTER REGISTRY
+# ══════════════════════════════════════════════════════════════════════════════
+
+MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
+
+    # ── TWEAKER ──────────────────────────────────────────────────────────
+    # The common grunt of the crack den.  Shambles toward the player slowly
+    # and swings weakly when close.  Individually pathetic; dangerous in groups.
+    "tweaker": MonsterTemplate(
+        name          = "Tweaker",
+        char          = "t",
+        color         = (160, 130, 100),
+        constitution  = (2, 4),
+        strength      = (2, 4),
+        street_smarts = (2, 4),
+        book_smarts   = (1, 2),
+        tolerance     = (6, 9),
+        swagger       = (1, 3),
+        hp            = (10, 20),
+        damage        = (2,  4),
+        defense       = 0,
+        male_chance   = 0.6,
+        spawn_min     = 1,
+        spawn_max     = 3,
+        ai            = AIType.ROOM_GUARD,
+        sight_radius  = 6,
+        move_speed    = 1,
+        move_chance   = 0.70,
+        move_skip_max = 3,
+        chase_speed   = 1,
+        cash_drop     = (0, 3),
+    ),
+
+    # ── CRACK ADDICT ─────────────────────────────────────────────────────
+    # Zones out wandering until you get too close — then sprints at you.
+    "crack_addict": MonsterTemplate(
+        name          = "Crack Addict",
+        char          = "c",
+        color         = (200, 80, 50),
+        constitution  = (2, 4),
+        strength      = (4, 7),
+        street_smarts = (2, 4),
+        book_smarts   = (1, 3),
+        tolerance     = (7, 10),
+        swagger       = (1, 3),
+        hp            = (12, 22),
+        damage        = (4,  8),
+        defense       = 0,
+        male_chance   = 0.65,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 3,
+        move_speed    = 3,
+        chase_speed   = 1,
+        cash_drop     = (0, 5),
+    ),
+
+    # ── DRUG DEALER ──────────────────────────────────────────────────────
+    # Never shows up alone — always brings tweaker bodyguards.
+    "drug_dealer": MonsterTemplate(
+        name          = "Drug Dealer",
+        char          = "D",
+        color         = (60, 180, 60),
+        constitution  = (2, 5),
+        strength      = (2, 5),
+        street_smarts = (5, 8),
+        book_smarts   = (4, 7),
+        tolerance     = (4, 7),
+        swagger       = (5, 8),
+        hp            = (15, 25),
+        damage        = (3,  5),
+        defense       = 1,
+        male_chance   = 0.75,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        spawn_with    = [
+            SpawnEscort(type="tweaker", count=(1, 3)),
+        ],
+        ai            = AIType.ROOM_GUARD,
+        sight_radius  = 6,
+        move_speed    = 1,
+        chase_speed   = 1,
+        cash_drop     = (5, 15),
+    ),
+
+    # ── UGLY STRIPPER ────────────────────────────────────────────────────
+    # Low HP but hits hard.  20% stiletto kick (bleed), 20% fear on normals.
+    "ugly_stripper": MonsterTemplate(
+        name          = "Ugly Stripper",
+        char          = "S",
+        color         = (220, 80, 180),
+        constitution  = (2, 4),
+        strength      = (3, 6),
+        street_smarts = (5, 8),
+        book_smarts   = (2, 4),
+        tolerance     = (4, 7),
+        swagger       = (5, 8),
+        hp            = (12, 22),
+        damage        = (4,  7),
+        defense       = 0,
+        male_chance   = 0.1,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.ALARM_CHASER,
+        sight_radius  = 6,
+        move_speed    = 1,
+        chase_speed   = 1,
+        special_attacks = [
+            SpecialAttack(
+                name         = "High Heel Kick",
+                chance       = 0.20,
+                damage_mult  = None,            # randomized 2.0–3.0 at spawn
+                on_hit_effect = OnHitEffect(
+                    name     = "Bleeding",
+                    kind     = EffectKind.DOT,
+                    amount   = 1,
+                    duration = 4,
+                ),
+            ),
+        ],
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Frightened",
+                kind     = EffectKind.FEAR,
+                chance   = 0.20,
+                amount   = 0,
+                duration = 10,
+            ),
+        ],
+        cash_drop     = (0, 8),
+    ),
+
+    # ── BABY MOMMA ───────────────────────────────────────────────────────
+    # Tough and passive until attacked.  Slaps you with child-support.
+    "baby_momma": MonsterTemplate(
+        name          = "Baby Momma",
+        char          = "B",
+        color         = (230, 200, 50),
+        constitution  = (5, 8),
+        strength      = (2, 4),
+        street_smarts = (4, 7),
+        book_smarts   = (3, 6),
+        tolerance     = (4, 7),
+        swagger       = (4, 7),
+        hp            = (25, 45),
+        damage        = (2,  4),
+        defense       = 1,
+        male_chance   = 0.0,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.PASSIVE_UNTIL_HIT,
+        sight_radius  = 6,
+        move_speed    = 1,
+        chase_speed   = 1,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Child Support",
+                kind     = EffectKind.CHILD_SUPPORT,
+                chance   = 0.30,
+                amount   = 0,
+                duration = 20,
+            ),
+        ],
+        cash_drop     = (0, 4),
+    ),
+
+    # ── NIGLET ───────────────────────────────────────────────────────────
+    # Sneaky street urchin.  Attacks once from ambush to steal your cash,
+    # then runs away.  Low HP, fast movement, but cowardly. Damage ignores defense.
+    "niglet": MonsterTemplate(
+        name          = "Niglet",
+        char          = "n",
+        color         = (150, 100, 50),
+        constitution  = (1, 2),
+        strength      = (1, 2),
+        street_smarts = (4, 7),
+        book_smarts   = (1, 2),
+        tolerance     = (2, 4),
+        swagger       = (2, 4),
+        hp            = (10, 20),
+        damage        = (1,  2),
+        defense       = 0,
+        male_chance   = 0.5,
+        spawn_min     = 1,
+        spawn_max     = 3,
+        ai            = AIType.HIT_AND_RUN,
+        sight_radius  = 4,
+        move_speed    = 2,
+        chase_speed   = 1,
+        special_attacks = [
+            SpecialAttack(
+                name         = "Pickpocket",
+                chance       = 0.85,  # 85% chance to steal instead of normal attack
+                damage_mult  = 0.0,   # No physical damage, steals cash instead
+            ),
+        ],
+        cash_drop     = (1, 3),
+    ),
+
+    # ── FAT GOONER ───────────────────────────────────────────────────────
+    # Docile slob who wanders aimlessly — until a woman dies anywhere on the
+    # floor.  Then he flies into a rage and chases the player permanently.
+    # Tanky with high defense, slow and lethargic, but hits hard.
+    "fat_gooner": MonsterTemplate(
+        name          = "Fat Gooner",
+        char          = "G",
+        color         = (180, 140, 80),
+        constitution  = (6, 9),
+        strength      = (1, 2),
+        street_smarts = (1, 3),
+        book_smarts   = (2, 4),
+        tolerance     = (2, 5),
+        swagger       = (1, 3),
+        hp            = (30, 40),
+        damage        = (3,  3),
+        defense       = 3,
+        male_chance   = 1.0,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.FEMALE_ALARM,
+        sight_radius  = 8,
+        move_chance   = 0.5,
+        move_skip_max = 2,
+        chase_speed   = 1,
+        cash_drop     = (0, 5),
+    ),
+
+    # ── THUG ──────────────────────────────────────────────────────────────
+    # Street punk who lurks and watches. Ambushes when player gets close,
+    # then relentlessly chases. Applies stacking "Mogged" debuff to humiliate.
+    "thug": MonsterTemplate(
+        name          = "Thug",
+        char          = "T",
+        color         = (120, 80, 200),
+        constitution  = (3, 5),
+        strength      = (4, 6),
+        street_smarts = (3, 5),
+        book_smarts   = (2, 3),
+        tolerance     = (3, 5),
+        swagger       = (4, 7),
+        hp            = (25, 30),
+        damage        = (5,  5),
+        defense       = 1,
+        male_chance   = 0.8,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 6,
+        move_speed    = 1,
+        chase_speed   = 1,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Mogged",
+                kind     = EffectKind.MOGGED,
+                chance   = 0.50,
+                amount   = 1,
+                duration = 10,
+            ),
+        ],
+        cash_drop     = (5, 12),
+    ),
+
+    # ── BIG NIGGA JEROME ──────────────────────────────────────────────────
+    # Boss monster at the bottom of the crack den.  Tough, aggressive, and
+    # dangerous.  Defense penetrating damage, knockback attacks, and self-healing
+    # when low on health.  Will be spawn-locked to a specific room.
+    "big_nigga_jerome": MonsterTemplate(
+        name          = "Big Nigga Jerome",
+        char          = "J",
+        color         = (200, 120, 50),
+        constitution  = (10, 10),
+        strength      = (8, 8),
+        street_smarts = (6, 8),
+        book_smarts   = (3, 5),
+        tolerance     = (5, 7),
+        swagger       = (8, 10),
+        hp            = (50, 50),
+        damage        = (4,  4),
+        defense       = 2,
+        male_chance   = 1.0,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.MEANDER,
+        sight_radius  = 8,
+        move_speed    = 1,
+        chase_speed   = 1,
+        special_attacks = [
+            SpecialAttack(
+                name         = "Knockback Punch",
+                chance       = 0.25,
+                damage_mult  = 1.0,
+                on_hit_effect = OnHitEffect(
+                    name     = "Knocked Back",
+                    kind     = EffectKind.DOT,  # Marker (handled specially in engine)
+                    amount   = 0,
+                    duration = 1,
+                ),
+            ),
+        ],
+        cash_drop     = (20, 50),
+    ),
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ZONE SPAWN TABLES  — single source of truth for per-zone weights
+# ══════════════════════════════════════════════════════════════════════════════
+
+ZONE_SPAWN_TABLES: dict[str, list[tuple[str, int]]] = {
+    "crack_den": [
+        ("tweaker",        40),
+        ("crack_addict",   25),
+        ("drug_dealer",    15),
+        ("ugly_stripper",  20),
+        ("baby_momma",     20),
+        ("niglet",         15),
+        ("fat_gooner",     10),
+        ("thug",           20),
+    ],
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  STARTUP VALIDATION — call once when the game boots
+# ══════════════════════════════════════════════════════════════════════════════
+
+def validate_registry() -> None:
+    """
+    Validates cross-references and invariants that can't be checked inside
+    a single dataclass __post_init__ (because the full registry doesn't
+    exist yet at that point).
+
+    Call once at startup.  Raises ValueError with ALL problems collected
+    so you can fix them in one pass instead of whack-a-mole.
+
+    Checks performed
+    ----------------
+    - Every spawn_with escort type exists in MONSTER_REGISTRY.
+    - Every enemy key in every zone table exists in MONSTER_REGISTRY.
+    - Zone table weights are positive.
+    - No duplicate enemy keys within a single zone table.
+    """
+    errors: list[str] = []
+
+    # ── Escort references ──
+    for key, tmpl in MONSTER_REGISTRY.items():
+        for escort in tmpl.spawn_with:
+            if escort.type not in MONSTER_REGISTRY:
+                errors.append(
+                    f"  [{key}] spawn_with references unknown type '{escort.type}'"
+                )
+
+    # ── Zone table references ──
+    for zone, table in ZONE_SPAWN_TABLES.items():
+        seen_keys: set[str] = set()
+        for enemy_key, weight in table:
+            if enemy_key not in MONSTER_REGISTRY:
+                errors.append(
+                    f"  zone '{zone}': references unknown enemy '{enemy_key}'"
+                )
+            if weight <= 0:
+                errors.append(
+                    f"  zone '{zone}': weight for '{enemy_key}' must be > 0, got {weight}"
+                )
+            if enemy_key in seen_keys:
+                errors.append(
+                    f"  zone '{zone}': duplicate entry for '{enemy_key}'"
+                )
+            seen_keys.add(enemy_key)
+
+    if errors:
+        raise ValueError(
+            "Enemy registry validation failed:\n" + "\n".join(errors)
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FACTORY — turns a template + coordinates into a live Entity
+# ══════════════════════════════════════════════════════════════════════════════
+
+def create_enemy(enemy_type: str, x: int, y: int):
+    """
+    Instantiate a fully-configured Entity from a registry template.
+
+    Every individual is randomly rolled within its template's ranges so two
+    monsters of the same type can have noticeably different stats.
+
+    The Entity constructor interface is UNCHANGED — this function serializes
+    dataclass fields back into the dicts/primitives Entity already expects.
+    """
+    from entity import Entity          # deferred to avoid circular import
+
+    tmpl = MONSTER_REGISTRY[enemy_type]
+
+    # ── Roll the six base stats ──
+    base_stats = {
+        "constitution":  random.randint(*tmpl.constitution),
+        "strength":      random.randint(*tmpl.strength),
+        "street_smarts": random.randint(*tmpl.street_smarts),
+        "book_smarts":   random.randint(*tmpl.book_smarts),
+        "tolerance":     random.randint(*tmpl.tolerance),
+        "swagger":       random.randint(*tmpl.swagger),
+    }
+
+    hp     = random.randint(*tmpl.hp)
+    damage = random.randint(*tmpl.damage)
+    gender = "male" if random.random() < tmpl.male_chance else "female"
+    cash   = random.randint(*tmpl.cash_drop)
+
+    # ── Serialize special attacks (dataclass → dict for Entity) ──
+    special_attacks = []
+    for sa in tmpl.special_attacks:
+        sa_dict = {
+            "name":        sa.name,
+            "chance":      sa.chance,
+            "damage_mult": sa.damage_mult,
+        }
+        # Randomize damage_mult marked None at spawn time
+        if sa.damage_mult is None:
+            sa_dict["damage_mult"] = round(random.uniform(2.0, 3.0), 2)
+        # Serialize nested on-hit effect
+        if sa.on_hit_effect is not None:
+            sa_dict["on_hit_effect"] = {
+                "name":     sa.on_hit_effect.name,
+                "kind":     sa.on_hit_effect.kind.value,
+                "amount":   sa.on_hit_effect.amount,
+                "duration": sa.on_hit_effect.duration,
+            }
+        special_attacks.append(sa_dict)
+
+    # ── Serialize on-hit effects (dataclass → dict for Entity) ──
+    on_hit_effects = []
+    for eff in tmpl.on_hit_effects:
+        on_hit_effects.append({
+            "name":     eff.name,
+            "kind":     eff.kind.value,
+            "chance":   eff.chance,
+            "amount":   eff.amount,
+            "duration": eff.duration,
+        })
+
+    return Entity(
+        x=x,
+        y=y,
+        char=tmpl.char,
+        color=tmpl.color,
+        name=tmpl.name,
+        entity_type="monster",
+        blocks_movement=True,
+        hp=hp,
+        power=damage,
+        defense=tmpl.defense,
+        enemy_type=enemy_type,
+        gender=gender,
+        base_stats=base_stats,
+        ai_type=tmpl.ai.value,         # AIType enum → string for Entity
+        sight_radius=tmpl.sight_radius,
+        move_speed=tmpl.move_speed,
+        move_chance=tmpl.move_chance,
+        move_skip_max=tmpl.move_skip_max,
+        chase_speed=tmpl.chase_speed,
+        move_timer=0,
+        is_chasing=False,
+        special_attacks=special_attacks,
+        on_hit_effects=on_hit_effects,
+        cash_drop=cash,
+    )
