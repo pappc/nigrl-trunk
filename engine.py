@@ -63,6 +63,7 @@ class GameEngine:
         self.current_floor = 0
         self.total_floors = 4
         self.dungeons: dict[int, Dungeon] = {}
+        self.special_rooms_spawned: set[str] = set()  # tracks once-per-game special rooms
 
         # --- Dungeon ---
         self.dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT)
@@ -96,8 +97,26 @@ class GameEngine:
         self.fov_radius = FOV_RADIUS   # base radius; items/buffs can modify this
 
         self.skills = Skills()
-        self.dungeon.spawn_entities(self.player, floor_num=0, zone="crack_den", player_skills=self.skills)
+        self.dungeon.spawn_entities(self.player, floor_num=0, zone="crack_den", player_skills=self.skills, special_rooms_spawned=self.special_rooms_spawned)
         self.dungeon.compute_fov(self.player.x, self.player.y, self.fov_radius)
+
+        # --- Testing: Add starting items and skills ---
+        # Add one of each alcoholic beverage
+        for drink_id in ("40oz", "fireball_shooter", "malt_liquor", "wizard_mind_bomb", "homemade_hennessy", "steel_reserve"):
+            item_entity = Entity(
+                x=0, y=0,
+                char="!",
+                color=(210, 180, 80),
+                name=get_item_def(drink_id)["name"],
+                entity_type="item",
+                item_id=drink_id,
+                quantity=1,
+            )
+            self.player.inventory.append(item_entity)
+
+        # Unlock all skills to level 1
+        for skill_name in SKILL_NAMES:
+            self.skills.get(skill_name).level = 1
 
         # --- Core state ---
         self.turn = 0
@@ -110,7 +129,10 @@ class GameEngine:
         self.messages: deque = deque(maxlen=LOG_HISTORY_SIZE)
         self.log_scroll: int = 0   # 0 = newest; higher = further back in history
         self.cash = 0
+        self.picked_up_items: set[str] = set()  # tracks item instance_ids that have been looted (prevents drop/pickup abuse)
+        self.visited_rooms: dict[int, set[int]] = {0: {0}}  # floor -> visited room indices; room 0 pre-visited (player spawn)
         self.destroyed_items: list[dict] = []  # {"name": str, "quantity": int}
+        self.pending_hangover_stacks: int = 0  # cumulative hangover stacks pending application on next floor descent
 
         # --- Equipment ---
         self.equipment: dict[str, Entity | None] = {
@@ -144,6 +166,11 @@ class GameEngine:
         # Players start with no abilities; abilities are granted by items and skills.
         self.player_abilities: list[AbilityInstance] = []
         self.selected_ability_index: int | None = None
+
+        # Testing: Add one of each spell ability with 1 charge for playtesting
+        spell_abilities = ["warp", "dimension_door", "chain_lightning", "ray_of_frost", "firebolt", "arcane_missile", "breath_fire"]
+        for ability_id in spell_abilities:
+            self.grant_ability_charges(ability_id, 1)
 
         # --- Action dispatch tables ---
         self._gameplay_handlers = {
@@ -356,6 +383,8 @@ class GameEngine:
                 for effect in entity.status_effects:
                     if hasattr(effect, "modify_energy_gain"):
                         gain = effect.modify_energy_gain(gain, entity)
+                # Hard minimum: entities always gain at least 10 energy/tick
+                gain = max(gain, 10.0)
                 entity.energy += gain
 
             # 2. Process all monsters that have enough energy, highest energy first
@@ -472,6 +501,9 @@ class GameEngine:
             self.messages.append("This is the deepest floor of this zone.")
             return False
 
+        # Award abandoning XP for items/cash left on this floor
+        self._gain_abandoning_xp()
+
         # Remove player from current floor
         self.dungeon.remove_entity(self.player)
 
@@ -483,7 +515,7 @@ class GameEngine:
                 x, y = new_dungeon.rooms[0].center()
                 self.player.x = x
                 self.player.y = y
-            new_dungeon.spawn_entities(self.player, floor_num=next_floor, zone="crack_den", player_skills=self.skills)
+            new_dungeon.spawn_entities(self.player, floor_num=next_floor, zone="crack_den", player_skills=self.skills, special_rooms_spawned=self.special_rooms_spawned)
         else:
             new_dungeon = self.dungeons[next_floor]
             if new_dungeon.rooms:
@@ -496,6 +528,9 @@ class GameEngine:
         self.current_floor = next_floor
         self.dungeon = new_dungeon
         self.dungeon.first_kill_happened = False
+        # Pre-mark spawn room as visited so no XP is awarded for the landing tile
+        if next_floor not in self.visited_rooms:
+            self.visited_rooms[next_floor] = {0}
         self.dungeon.female_kill_happened = False
         self.dungeon.compute_fov(self.player.x, self.player.y, self.fov_radius)
         self.player.energy = ENERGY_THRESHOLD  # player acts first on new floor
@@ -505,6 +540,20 @@ class GameEngine:
             defn = ABILITY_REGISTRY.get(inst.ability_id)
             if defn:
                 inst.reset_floor(defn)
+
+        # Handle hangover from previous floor's alcohol consumption
+        from effects import apply_effect
+        # Expire existing hangover first
+        for eff in list(self.player.status_effects):
+            if eff.id == "hangover":
+                eff.expire(self.player, self)
+                self.player.status_effects.remove(eff)
+
+        # Apply pending hangover stacks
+        if self.pending_hangover_stacks > 0:
+            apply_effect(self.player, self, "hangover", stacks=self.pending_hangover_stacks)
+            self.messages.append(f"Your hangover hits... (-{self.pending_hangover_stacks} all stats this floor)")
+            self.pending_hangover_stacks = 0
 
         # Refill armor at floor start
         self.player.armor = self.player.max_armor
@@ -540,6 +589,14 @@ class GameEngine:
         # Move player through spatial index
         self.dungeon.move_entity(self.player, new_x, new_y)
 
+        # Jaywalking XP: award on first entry into each room
+        room_idx = self.dungeon.get_room_index_at(new_x, new_y)
+        if room_idx is not None:
+            floor_visited = self.visited_rooms.setdefault(self.current_floor, {0})
+            if room_idx not in floor_visited:
+                floor_visited.add(room_idx)
+                self._gain_jaywalking_xp()
+
         # Child Support debuff: drain $1 per step
         for effect in self.player.status_effects:
             if effect.id == "child_support":
@@ -559,6 +616,11 @@ class GameEngine:
                 continue
             if entity.entity_type == "item":
                 self.dungeon.remove_entity(entity)
+                # Check if this item instance has been looted before (prevent drop/pickup abuse)
+                is_first_pickup = entity.instance_id not in self.picked_up_items
+                if is_first_pickup:
+                    self.picked_up_items.add(entity.instance_id)
+                    self._gain_item_skill_xp("Stealing", entity.item_id)
                 # Try to merge into an existing stack
                 if is_stackable(entity.item_id):
                     existing = next(
@@ -696,7 +758,8 @@ class GameEngine:
             defn = get_item_def(self.feet.item_id)
             if defn:
                 max_armor += defn.get("armor_bonus", 0)
-        # Add temporary armor bonuses from effects
+        # Add permanent and temporary armor bonuses
+        max_armor += getattr(self.player_stats, 'permanent_armor_bonus', 0)
         max_armor += getattr(self.player_stats, 'temporary_armor_bonus', 0)
         return max_armor
 
@@ -728,6 +791,13 @@ class GameEngine:
         else:
             def_defense = defender.defense
 
+        # Check dodge before applying damage
+        defender_dodge_chance = self.player_stats.dodge_chance if defender == self.player else defender.dodge_chance
+        if random.random() * 100 < defender_dodge_chance:
+            msg = f"{defender.name} dodges the attack!"
+            self.messages.append(msg)
+            return
+
         damage = max(MIN_DAMAGE, atk_power - def_defense)
         if is_crit:
             damage *= 2
@@ -755,11 +825,20 @@ class GameEngine:
                         )
                     skill_xp = wdefn.get("on_hit_skill_xp")
                     if skill_xp:
+                        # Check if skill is newly unlocked (no XP before this call)
+                        skill = self.skills.get(skill_xp["skill"])
+                        was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
                         xp_amount = round(skill_xp["amount"] * self.player_stats.xp_multiplier)
                         self.skills.gain_potential_exp(
                             skill_xp["skill"], xp_amount,
                             self.player_stats.effective_book_smarts
                         )
+                        # Add unlock notification if this is the first XP
+                        if was_locked:
+                            self.messages.append([
+                                (f"[NEW SKILL UNLOCKED] {skill_xp['skill']}!", (255, 215, 0)),
+                            ])
             # Melee skill XP: equal to damage dealt
             _WEAPON_TYPE_SKILL = {"stabbing": "Stabbing", "blunt": "Beating"}
             if weapon and wdefn:
@@ -906,6 +985,9 @@ class GameEngine:
     def _apply_monster_hit_effect(self, effect):
         """Apply a status debuff from a monster hit to the player."""
         effect_id = effect["kind"]
+        # Map specific named effects to their custom effect IDs
+        if effect.get("name") == "Bleeding":
+            effect_id = "bleeding"
         duration = effect["duration"]
         amount = effect.get("amount", 0)
         effects.apply_effect(self.player, self, effect_id, duration=duration, amount=amount)
@@ -1227,9 +1309,6 @@ class GameEngine:
             ])
 
         elif effect_type == "strain_roll":
-            if any(getattr(e, 'id', None) == 'chill' for e in self.player.status_effects):
-                self.messages.append("You're too chilled out to smoke right now!")
-                return
             roll = random.randint(1, 100)
             self.messages.append([
                 ("You smoke the ", _C_MSG_USE), (item.name, item.color),
@@ -1240,6 +1319,19 @@ class GameEngine:
             # Gain smoking skill XP based on strain
             self._gain_smoking_xp(item.strain)
 
+            # Check for double-smoking effects (e.g., Hennessy)
+            # Any effect that grants double smoking has a 20% chance to trigger
+            for effect_obj in self.player.status_effects:
+                if getattr(effect_obj, 'id', '') == 'hennessy':
+                    if random.random() < 0.20:
+                        # Re-apply the same strain effect
+                        self.messages.append([
+                            ("The Hennessy amplifies the high! ", (200, 100, 100)),
+                        ])
+                        self._apply_strain_effect(self.player, item.strain, random.randint(1, 100), "player")
+                        self._gain_smoking_xp(item.strain)
+                    break
+
         elif effect_type == "stat_boost" or "effect_id" in effect:
             amount = effect.get("amount", 0)
             stat = effect.get("stat")
@@ -1249,15 +1341,28 @@ class GameEngine:
             effects.apply_effect(self.player, self, effect_id,
                                  duration=duration, amount=amount, stat=stat)
 
+        elif effect_type == "alcohol":
+            drink_id = effect.get("drink_id")
+            self._handle_alcohol(item, drink_id)
+
         # Skill XP
         skill_xp = effect.get("skill_xp")
         if skill_xp:
             for skill_name, xp_amount in skill_xp.items():
+                # Check if skill is newly unlocked (no XP before this call)
+                skill = self.skills.get(skill_name)
+                was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
                 adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
                 self.skills.gain_potential_exp(
                     skill_name, adjusted_xp,
                     self.player_stats.effective_book_smarts
                 )
+                # Add unlock notification if this is the first XP
+                if was_locked:
+                    self.messages.append([
+                        (f"[NEW SKILL UNLOCKED] {skill_name}!", (255, 215, 0)),
+                    ])
 
         if effect.get("consumed", True):
             # Use identity search instead of index — apply_effect may have mutated the inventory
@@ -1286,7 +1391,7 @@ class GameEngine:
     def _destroy_item(self, index):
         item = self.player.inventory[index]
         qty = getattr(item, "quantity", 1)
-        self._gain_dismantling_xp(item.item_id)
+        self._gain_item_skill_xp("Dismantling", item.item_id)
         self.destroyed_items.append({"name": item.name, "quantity": qty})
         self.player.inventory.pop(index)
         self.messages.append([
@@ -1476,6 +1581,9 @@ class GameEngine:
     def _action_start_entity_targeting(self, _action):
         """Enter entity targeting mode if there are valid targets in weapon range."""
         reach = self._get_weapon_reach()
+        if reach < 1:
+            self.messages.append("Your weapon cannot be used at range.")
+            return False
         target_list = self._build_entity_target_list(reach)
         if not target_list:
             self.messages.append("No targets in range.")
@@ -1622,8 +1730,8 @@ class GameEngine:
         elif spell_type == "chain_lightning":
             if self._spell_chain_lightning(tx, ty, spell.get("total_hits", 4)):
                 self._consume_ability_charge()
-            self.menu_state = MenuState.NONE
-            self.targeting_spell = None
+                self.menu_state = MenuState.NONE
+                self.targeting_spell = None
             return False
 
         elif spell_type == "ray_of_frost":
@@ -1670,6 +1778,13 @@ class GameEngine:
                 else:
                     self.menu_state = MenuState.NONE
                     self.targeting_spell = None
+            return False
+
+        elif spell_type == "breath_fire":
+            if self._spell_breath_fire(tx, ty):
+                self._consume_ability_charge()
+                self.menu_state = MenuState.NONE
+                self.targeting_spell = None
             return False
 
         self.menu_state = MenuState.NONE
@@ -1741,7 +1856,7 @@ class GameEngine:
         Returns True if the spell fired, False if the target was invalid."""
         stsmt = self.player_stats.effective_street_smarts
         tlr   = self.player_stats.effective_tolerance
-        damage = 5 + stsmt + tlr
+        damage = 5 + stsmt + tlr + self._get_wizard_bomb_bonus()
 
         target = next(
             (e for e in self.dungeon.get_entities_at(tx, ty)
@@ -1779,7 +1894,7 @@ class GameEngine:
         """Fire a Ray of Frost in direction (dx, dy). Deals 12+BKSMT damage to all monsters
         in a 10-tile line; stops at walls."""
         bksmt  = self.player_stats.effective_book_smarts
-        damage = 12 + bksmt
+        damage = 12 + bksmt + self._get_wizard_bomb_bonus()
         tiles  = self._ray_tiles(self.player.x, self.player.y, dx, dy, max_dist=10)
         hit_count = 0
         for x, y in tiles:
@@ -1819,7 +1934,7 @@ class GameEngine:
     def _spell_firebolt(self, tx: int, ty: int) -> bool:
         """Fire a Firebolt toward (tx, ty). Blocked by walls and entities. Returns True on hit."""
         bksmt  = self.player_stats.effective_book_smarts
-        damage = 10 + bksmt
+        damage = 10 + bksmt + self._get_wizard_bomb_bonus()
         if not self.dungeon.visible[ty, tx]:
             self.messages.append("Firebolt: no line of sight to that tile.")
             return False
@@ -1844,7 +1959,7 @@ class GameEngine:
     def _spell_arcane_missile(self, tx: int, ty: int) -> bool:
         """Fire an Arcane Missile at a visible target at (tx, ty). Returns True on hit."""
         bksmt  = self.player_stats.effective_book_smarts
-        damage = math.ceil(8 + bksmt / 2)
+        damage = math.ceil(8 + bksmt / 2 + self._get_wizard_bomb_bonus())
         if not self.dungeon.visible[ty, tx]:
             self.messages.append("Arcane Missile: target not in view.")
             return False
@@ -1862,6 +1977,147 @@ class GameEngine:
         if not target.alive:
             self.event_bus.emit("entity_died", entity=target, killer=self.player)
         return True
+
+    def _spell_breath_fire(self, tx: int, ty: int) -> bool:
+        """Breathe a cone of fire toward (tx, ty). Cone: 5-tile range, 90° spread.
+        Affected by walls, passes through enemies."""
+        bksmt = self.player_stats.effective_book_smarts
+        damage = 20 + bksmt + self._get_wizard_bomb_bonus()
+
+        # Determine center direction toward target
+        dx = tx - self.player.x
+        dy = ty - self.player.y
+        if dx == 0 and dy == 0:
+            self.messages.append("Breath Fire: aim away from yourself!")
+            return False
+
+        # Normalize to unit vector
+        dist = math.sqrt(dx*dx + dy*dy)
+        center_dx = dx / dist
+        center_dy = dy / dist
+
+        # Get cone tiles (5-tile range, 90° spread)
+        # For simplicity: create tiles in a cone pattern
+        # Center: -2 to +2 angle from center direction, 1-5 tiles out
+        cone_tiles = self._get_cone_tiles(self.player.x, self.player.y, center_dx, center_dy, range_dist=5)
+
+        if not cone_tiles:
+            self.messages.append("Breath Fire: no valid targets!")
+            return False
+
+        # Apply damage to all enemies in cone
+        hit_targets = set()
+        for cx, cy in cone_tiles:
+            for entity in self.dungeon.get_entities_at(cx, cy):
+                if entity.entity_type == "monster" and entity.alive and entity not in hit_targets:
+                    entity.take_damage(damage)
+                    effects.apply_effect(entity, self, "ignite", duration=5, stacks=3, silent=True)
+                    hit_targets.add(entity)
+
+        if not hit_targets:
+            self.messages.append("Breath Fire: no enemies in range!")
+            return False
+
+        self.messages.append(f"You breathe a cone of fire! {len(hit_targets)} enemy(ies) engulfed.")
+        for entity in hit_targets:
+            if not entity.alive:
+                self.event_bus.emit("entity_died", entity=entity, killer=self.player)
+
+        return True
+
+    def _get_cone_tiles(self, cx: int, cy: int, dir_x: float, dir_y: float, range_dist: int = 5):
+        """Get all tiles in a cone (5-range, 90° spread) centered on direction.
+        Blocked by walls, passes through enemies."""
+        import math
+        tiles = []
+
+        # Get perpendicular vector for spread
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        # For each distance level (1 to range_dist)
+        for dist in range(1, range_dist + 1):
+            # Get the center point at this distance
+            center_x = cx + dir_x * dist
+            center_y = cy + dir_y * dist
+
+            # Determine spread angle (wider at further distances)
+            # 90° spread means 45° left/right from center
+            spread = max(1, dist // 2)
+
+            # Get tiles in the spread
+            for spread_offset in range(-spread, spread + 1):
+                tx = int(center_x + perp_x * spread_offset)
+                ty = int(center_y + perp_y * spread_offset)
+
+                # Check bounds
+                if not (0 <= tx < DUNGEON_WIDTH and 0 <= ty < DUNGEON_HEIGHT):
+                    continue
+
+                # Check if blocked by wall
+                if self.dungeon.is_terrain_blocked(tx, ty):
+                    continue
+
+                if (tx, ty) not in tiles:
+                    tiles.append((tx, ty))
+
+        return tiles
+
+    def _get_wizard_bomb_bonus(self) -> int:
+        """Return spell damage bonus from Wizard Mind-Bomb effect, if active."""
+        for effect in self.player.status_effects:
+            if getattr(effect, 'id', '') == 'wizard_mind_bomb':
+                return self.player_stats.effective_book_smarts
+        return 0
+
+    # ------------------------------------------------------------------
+    # Spell targeting visualization
+    # ------------------------------------------------------------------
+
+    def get_spell_affected_tiles(self, spell_type: str, tx: int, ty: int) -> list[tuple[int, int]]:
+        """Get list of tiles that will be affected by a spell at target location (tx, ty).
+        Used for rendering visualization during targeting mode."""
+        if spell_type == "breath_fire":
+            return self._get_breath_fire_affected_tiles(tx, ty)
+        elif spell_type == "ray_of_frost":
+            return self._get_ray_of_frost_affected_tiles(tx, ty)
+        elif spell_type == "chain_lightning":
+            # Single target, but show it
+            if any(e for e in self.dungeon.get_entities_at(tx, ty) if e.entity_type == "monster" and e.alive):
+                return [(tx, ty)]
+            return []
+        elif spell_type in ("firebolt", "arcane_missile", "dimension_door"):
+            # Single target spells
+            if any(e for e in self.dungeon.get_entities_at(tx, ty) if e.entity_type == "monster" and e.alive):
+                return [(tx, ty)]
+            return []
+        return []
+
+    def _get_breath_fire_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
+        """Get all tiles in the breath fire cone."""
+        dx = tx - self.player.x
+        dy = ty - self.player.y
+        if dx == 0 and dy == 0:
+            return []
+
+        dist = math.sqrt(dx*dx + dy*dy)
+        center_dx = dx / dist
+        center_dy = dy / dist
+
+        return self._get_cone_tiles(self.player.x, self.player.y, center_dx, center_dy, range_dist=5)
+
+    def _get_ray_of_frost_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
+        """Get all tiles in the ray of frost line."""
+        dx = tx - self.player.x
+        dy = ty - self.player.y
+        if dx == 0 and dy == 0:
+            return []
+
+        steps = max(abs(dx), abs(dy))
+        unit_dx = (1 if dx > 0 else -1) if dx != 0 else 0
+        unit_dy = (1 if dy > 0 else -1) if dy != 0 else 0
+
+        return self._ray_tiles(self.player.x, self.player.y, unit_dx, unit_dy, max_dist=10)
 
     # ------------------------------------------------------------------
     # Ability system
@@ -1918,8 +2174,18 @@ class GameEngine:
 
         if action_type == "select_action":
             idx = action["index"]
-            if 0 <= idx < len(self.player_abilities):
-                return self._execute_ability(idx)
+            # Build filtered list of usable abilities (same as render logic)
+            usable_abilities = []
+            for inst in self.player_abilities:
+                if inst.can_use():
+                    usable_abilities.append(inst)
+
+            # Map display index to actual ability
+            if 0 <= idx < len(usable_abilities):
+                # Find the actual index in player_abilities
+                target_ability = usable_abilities[idx]
+                actual_index = self.player_abilities.index(target_ability)
+                return self._execute_ability(actual_index)
             return False
 
         return False
@@ -1957,6 +2223,11 @@ class GameEngine:
                 continue
             if entity.entity_type == "item":
                 self.dungeon.remove_entity(entity)
+                # Check if this item instance has been looted before (prevent drop/pickup abuse)
+                is_first_pickup = entity.instance_id not in self.picked_up_items
+                if is_first_pickup:
+                    self.picked_up_items.add(entity.instance_id)
+                    self._gain_item_skill_xp("Stealing", entity.item_id)
                 if is_stackable(entity.item_id):
                     existing = next(
                         (i for i in self.player.inventory
@@ -2125,13 +2396,9 @@ class GameEngine:
             entity.status_effects = [e for e in entity.status_effects if getattr(e, 'category', 'debuff') != 'debuff']
             effects.apply_effect(entity, self, "zoned_out", duration=10, silent=True)
             if is_player:
-                self.messages.append([
-                    ("You float above it all — ", (220, 220, 220)),
-                    ("Zoned Out", (100, 220, 255)),
-                    (" for 10 turns!", (220, 220, 220)),
-                ])
+                self.messages.append("You seem out of it! (10 turns)")
             else:
-                self.messages.append(f"{entity.name} looks untouchable!")
+                self.messages.append(f"{entity.name} seems out of it!")
 
         elif eff_type == "random_dot_debuff":
             duration_mode = eff.get("duration_mode")
@@ -2313,12 +2580,21 @@ class GameEngine:
         """Award smoking skill XP based on the strain smoked."""
         from items import STRAIN_SMOKING_XP
 
+        # Check if skill is newly unlocked (no XP before this call)
+        skill = self.skills.get("Smoking")
+        was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
         xp_amount = STRAIN_SMOKING_XP.get(strain, 5)  # Default 5 XP for unknown strains
         adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
         self.skills.gain_potential_exp(
             "Smoking", adjusted_xp,
             self.player_stats.effective_book_smarts
         )
+        # Add unlock notification if this is the first XP
+        if was_locked:
+            self.messages.append([
+                ("[NEW SKILL UNLOCKED] Smoking!", (255, 215, 0)),
+            ])
         # Provide feedback to the player
         self.messages.append([
             ("Smoking skill: +", (100, 150, 200)),
@@ -2330,12 +2606,21 @@ class GameEngine:
         """Award rolling skill XP based on the strain rolled/ground."""
         from items import STRAIN_ROLLING_XP
 
+        # Check if skill is newly unlocked (no XP before this call)
+        skill = self.skills.get("Rolling")
+        was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
         xp_amount = STRAIN_ROLLING_XP.get(strain, 5)  # Default 5 XP for unknown strains
         adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
         self.skills.gain_potential_exp(
             "Rolling", adjusted_xp,
             self.player_stats.effective_book_smarts
         )
+        # Add unlock notification if this is the first XP
+        if was_locked:
+            self.messages.append([
+                ("[NEW SKILL UNLOCKED] Rolling!", (255, 215, 0)),
+            ])
         # Provide feedback to the player
         action = "Grinding" if is_grinding else "Rolling"
         self.messages.append([
@@ -2344,28 +2629,174 @@ class GameEngine:
             (" potential XP", (100, 150, 200)),
         ])
 
-    def _gain_dismantling_xp(self, item_id: str) -> None:
-        """Award Dismantling skill XP based on the item destroyed."""
-        from items import get_dismantling_xp
-        xp_amount = get_dismantling_xp(item_id)
+    def _gain_alcohol_xp(self, drink_id: str):
+        """Award alcoholism and drinking skill XP based on drink type."""
+        from items import ITEM_DEFS
+
+        # Get value from item definition (for consistency)
+        base_xp = ITEM_DEFS.get(drink_id, {}).get("value", 20)
+        adjusted = round(base_xp * self.player_stats.xp_multiplier)
+        bksmt = self.player_stats.effective_book_smarts
+
+        # Award primary skill (Alcoholism)
+        self.skills.gain_potential_exp("Alcoholism", adjusted, bksmt)
+        # Award secondary skill (Drinking) at half rate
+        self.skills.gain_potential_exp("Drinking", adjusted // 2, bksmt)
+
+        # Feedback
+        self.messages.append([
+            ("Alcoholism skill: +", (100, 150, 200)),
+            (str(adjusted), (150, 200, 255)),
+            (" potential XP", (100, 150, 200)),
+        ])
+
+    def _handle_alcohol(self, item, drink_id: str):
+        """Handle alcohol consumable effects."""
+        from abilities import ABILITY_REGISTRY
+
+        # Gain skill XP first
+        self._gain_alcohol_xp(drink_id)
+
+        # Apply drink-specific effects
+        if drink_id == "40oz":
+            restore = self.player.max_armor // 2
+            self.player.armor = min(self.player.armor + restore, self.player.max_armor)
+            effects.apply_effect(self.player, self, "forty_oz")
+            self.pending_hangover_stacks += 1
+
+        elif drink_id == "fireball_shooter":
+            self.grant_ability_charges("breath_fire", 3)
+            self.pending_hangover_stacks += 2
+
+        elif drink_id == "malt_liquor":
+            effects.apply_effect(self.player, self, "malt_liquor")
+            self.pending_hangover_stacks += 1
+
+        elif drink_id == "wizard_mind_bomb":
+            # Grant breath_fire ability with 3 charges
+            self.grant_ability_charges("breath_fire", 3)
+            # Add 2 charges to all active magic spells
+            for inst in self.player_abilities:
+                defn = ABILITY_REGISTRY.get(inst.ability_id)
+                if defn and defn.is_spell and inst.can_use():
+                    inst.charges_remaining += 2
+            effects.apply_effect(self.player, self, "wizard_mind_bomb")
+            self.pending_hangover_stacks += 1
+
+        elif drink_id == "homemade_hennessy":
+            effects.apply_effect(self.player, self, "hennessy")
+            self.pending_hangover_stacks += 1
+
+        elif drink_id == "steel_reserve":
+            heal = self.player.max_hp // 2
+            self.player.heal(heal)
+            self.player_stats.permanent_armor_bonus += 3
+            self._compute_player_max_armor()
+            self.player.armor = min(self.player.armor + 3, self.player.max_armor)
+            effects.apply_effect(self.player, self, "steel_reserve")
+            self.pending_hangover_stacks += 1
+
+        self.messages.append([
+            ("You drink the ", (200, 200, 200)), (item.name, item.color), (".", (200, 200, 200))
+        ])
+
+    def _gain_item_skill_xp(self, skill_name: str, item_id: str, silent: bool = False) -> None:
+        """Award potential XP to a skill based on item value * skill multiplier."""
+        from items import get_skill_xp
+
+        # Check if skill is newly unlocked (no XP before this call)
+        skill = self.skills.get(skill_name)
+        was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
+        xp_amount = get_skill_xp(item_id, skill_name)
         adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
         self.skills.gain_potential_exp(
-            "Dismantling", adjusted_xp,
+            skill_name, adjusted_xp,
             self.player_stats.effective_book_smarts
         )
+        if not silent:
+            # Add unlock notification if this is the first XP
+            if was_locked:
+                self.messages.append([
+                    (f"[NEW SKILL UNLOCKED] {skill_name}!", (255, 215, 0)),
+                ])
+            self.messages.append([
+                (f"{skill_name} skill: +", (100, 150, 200)),
+                (str(adjusted_xp), (150, 200, 255)),
+                (" potential XP", (100, 150, 200)),
+            ])
+
+    def _gain_jaywalking_xp(self) -> None:
+        """Award Jaywalking XP when the player enters a room for the first time."""
+        from config import ZONE_JAYWALK_MULT
+        zone = "crack_den"
+        zone_mult = ZONE_JAYWALK_MULT.get(zone, 1.0)
+        floor_mult = self.current_floor + 1
+        base_xp = 10 * zone_mult * floor_mult
+        adjusted_xp = round(base_xp * self.player_stats.xp_multiplier)
+
+        skill = self.skills.get("Jaywalking")
+        was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
+        self.skills.gain_potential_exp(
+            "Jaywalking", adjusted_xp,
+            self.player_stats.effective_book_smarts
+        )
+
+        if was_locked:
+            self.messages.append([
+                ("[NEW SKILL UNLOCKED] Jaywalking!", (255, 215, 0)),
+            ])
+
+    def _gain_abandoning_xp(self) -> None:
+        """Award Abandoning XP for items and cash left on the current floor."""
+        from items import get_skill_xp
+
+        total_xp = 0
+        for entity in self.dungeon.entities:
+            if entity.entity_type == "item":
+                total_xp += get_skill_xp(entity.item_id, "Abandoning")
+            elif entity.entity_type == "cash":
+                total_xp += entity.cash_amount
+
+        if total_xp <= 0:
+            return
+
+        skill = self.skills.get("Abandoning")
+        was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
+        adjusted_xp = round(total_xp * self.player_stats.xp_multiplier)
+        self.skills.gain_potential_exp(
+            "Abandoning", adjusted_xp,
+            self.player_stats.effective_book_smarts
+        )
+
+        if was_locked:
+            self.messages.append([
+                ("[NEW SKILL UNLOCKED] Abandoning!", (255, 215, 0)),
+            ])
         self.messages.append([
-            ("Dismantling skill: +", (100, 150, 200)),
+            ("Abandoning skill: +", (100, 150, 200)),
             (str(adjusted_xp), (150, 200, 255)),
             (" potential XP", (100, 150, 200)),
         ])
 
     def _gain_melee_xp(self, skill_name: str, damage: int) -> None:
-        """Award melee skill potential XP equal to damage dealt. Silent (no message)."""
+        """Award melee skill potential XP equal to damage dealt. Shows unlock notification only."""
+        # Check if skill is newly unlocked (no XP before this call)
+        skill = self.skills.get(skill_name)
+        was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
         adjusted_xp = round(damage * self.player_stats.xp_multiplier)
         self.skills.gain_potential_exp(
             skill_name, adjusted_xp,
             self.player_stats.effective_book_smarts
         )
+        # Show unlock notification (no regular message for melee XP)
+        if was_locked:
+            self.messages.append([
+                (f"[NEW SKILL UNLOCKED] {skill_name}!", (255, 215, 0)),
+            ])
 
     def _apply_blue_lobster_effect(self, entity, roll, is_player):
         """Apply Blue Lobster strain effect based on roll (1-100).

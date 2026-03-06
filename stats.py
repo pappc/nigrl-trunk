@@ -75,6 +75,10 @@ class PlayerStats:
         }
         # Temporary armor bonus from effects
         self.temporary_armor_bonus: int = 0
+        # Permanent armor bonus from items/effects (survives floor transitions)
+        self.permanent_armor_bonus: int = 0
+        # Dodge chance — integer percentage (0-90); no base stat grants it
+        self.dodge_chance: int = 0
 
     # --- Ring bonus application ---
 
@@ -97,6 +101,14 @@ class PlayerStats:
         """Add to temporary stat bonus for a given stat."""
         if stat in self.temporary_stat_bonuses:
             self.temporary_stat_bonuses[stat] += amount
+
+    def set_dodge_chance(self, amount: int):
+        """Set dodge chance, clamping to [0, 90]."""
+        self.dodge_chance = max(0, min(90, amount))
+
+    def add_dodge_chance(self, amount: int):
+        """Add to dodge chance, clamping to [0, 90]."""
+        self.set_dodge_chance(self.dodge_chance + amount)
 
     def _tb(self, stat: str) -> int:
         """Shorthand: temporary bonus for a named stat."""

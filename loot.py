@@ -56,8 +56,19 @@ ZONE_STRAIN_WEIGHTS = {
 ZONE_CONSUMABLE_TABLES = {
     "crack_den": [
         ("joint", 1),
+        ("alcohol_drink", 1.5),
     ],
 }
+
+# Secondary alcohol drink table — rolled when alcohol_drink is selected
+ALCOHOL_DRINK_SUBTABLE = [
+    ("40oz", 1),
+    ("fireball_shooter", 1),
+    ("malt_liquor", 1),
+    ("wizard_mind_bomb", 1),
+    ("homemade_hennessy", 1),
+    ("steel_reserve", 1),
+]
 
 ZONE_MATERIAL_TABLES = {
     "crack_den": [
@@ -108,21 +119,48 @@ def _pick_strain(zone):
 def _weighted_pick(table, player_skills, use_skill_weighting=True):
     """Pick one item_id from a table, applying skill multipliers when requested.
 
-    effective_weight = base_weight * (skill_level + 1)
-    Level 0 → 1× (unchanged), level 1 → 2×, level 2 → 3×, etc.
+    For items with only primary_skill:
+        effective_weight = base_weight * (level + 1)
+
+    For items with secondary_skill (and optional tertiary_skill):
+        effective_weight = base_weight * (1.0 + primary_level * 1.0 + secondary_level * 0.5 + tertiary_level * 0.33)
     """
     item_ids = [t[0] for t in table]
     weights  = []
     for item_id, base_w in table:
-        level = 0
-        if use_skill_weighting and player_skills:
-            primary_skill = ITEM_DEFS.get(item_id, {}).get("primary_skill")
-            if primary_skill:
+        if not use_skill_weighting or not player_skills:
+            weights.append(base_w)
+            continue
+
+        primary_skill = ITEM_DEFS.get(item_id, {}).get("primary_skill")
+        secondary_skill = ITEM_DEFS.get(item_id, {}).get("secondary_skill")
+        tertiary_skill = ITEM_DEFS.get(item_id, {}).get("tertiary_skill")
+
+        try:
+            primary_level = player_skills.get(primary_skill).level if primary_skill else 0
+        except (KeyError, AttributeError):
+            primary_level = 0
+
+        if secondary_skill:
+            # Multi-skill scaling formula
+            try:
+                secondary_level = player_skills.get(secondary_skill).level
+            except (KeyError, AttributeError):
+                secondary_level = 0
+
+            tertiary_level = 0
+            if tertiary_skill:
                 try:
-                    level = player_skills.get(primary_skill).level
+                    tertiary_level = player_skills.get(tertiary_skill).level
                 except (KeyError, AttributeError):
-                    level = 0
-        weights.append(base_w * (level + 1))
+                    tertiary_level = 0
+
+            weight = base_w * (1.0 + primary_level * 1.0 + secondary_level * 0.5 + tertiary_level * 0.33)
+            weights.append(weight)
+        else:
+            # Single skill: original formula
+            weights.append(base_w * (primary_level + 1))
+
     return random.choices(item_ids, weights=weights, k=1)[0]
 
 
@@ -187,6 +225,11 @@ def generate_floor_loot(zone, floor_num, player_skills=None):
         if table:
             for _ in range(random.randint(lo, hi)):
                 item_id = _weighted_pick(table, player_skills, use_skill_weighting=True)
+
+                # Special case: alcohol_drink picks a specific drink from subtable
+                if item_id == "alcohol_drink":
+                    item_id = _weighted_pick(ALCOHOL_DRINK_SUBTABLE, player_skills, use_skill_weighting=True)
+
                 strain  = _pick_strain(zone) if item_id in _STRAIN_ITEMS else None
                 result.append((item_id, strain))
 

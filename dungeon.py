@@ -22,6 +22,7 @@ from entity import Entity
 from items import create_item_entity
 from enemies import create_enemy, ZONE_SPAWN_TABLES, MONSTER_REGISTRY
 from loot import generate_floor_loot
+from items import STRAINS, build_item_name
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +356,8 @@ class Dungeon:
         # Used by the female_alarm AI (fat gooners).
         self.female_kill_happened = False
 
+        self.room_tile_map: dict[tuple, int] = {}  # (x, y) -> room_index
+
         self.generate()
 
     def generate(self):
@@ -383,6 +386,9 @@ class Dungeon:
                 j = random.randint(0, len(self.rooms) - 1)
                 if i != j:
                     self.carve_corridor(self.rooms[i].center(), self.rooms[j].center())
+
+        # Build room tile map after all corridors are carved
+        self._build_room_tile_map()
 
     def _random_room(self):
         """Pick a random room shape and position."""
@@ -514,11 +520,30 @@ class Dungeon:
                 blocks_movement=False,
             ))
 
-    def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None):
+    def _build_room_tile_map(self):
+        """Map each floor tile to the room index it belongs to."""
+        self.room_tile_map = {}
+        for room_idx, room in enumerate(self.rooms):
+            for x, y in room.floor_tiles(self):
+                self.room_tile_map[(x, y)] = room_idx
+
+    def get_room_index_at(self, x: int, y: int) -> "int | None":
+        """Return the room index at (x, y), or None if in a corridor."""
+        return self.room_tile_map.get((x, y))
+
+    def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None, special_rooms_spawned=None):
         """Spawn monsters and items in rooms."""
         self.entities.append(player)
 
-        for room in self.rooms[1:]:
+        # Roll for special rooms and claim rooms before normal spawning
+        special_room_indices = set()
+        if special_rooms_spawned is not None:
+            special_room_indices = self._roll_special_rooms(floor_num, zone, special_rooms_spawned)
+
+        for room_idx, room in enumerate(self.rooms[1:], start=1):
+            if room_idx in special_room_indices:
+                continue  # special rooms handle their own spawns
+
             floor_tiles = room.floor_tiles(self)
             if not floor_tiles:
                 continue
@@ -616,6 +641,112 @@ class Dungeon:
         # Spawn staircase on floors that aren't the last one (4 floors total: 0-3)
         if floor_num < 3:
             self._spawn_staircase()
+
+    # ------------------------------------------------------------------
+    # Special rooms
+    # ------------------------------------------------------------------
+
+    # Each entry: (room_key, eligible_floors, chance)
+    SPECIAL_ROOM_DEFS = [
+        ("niglet_den",   {0, 1, 2}, 0.10),  # floors 1-3 (0-indexed), 10% chance
+        ("smoke_lounge", {1, 2, 3}, 0.10),  # floors 2-4 (0-indexed), 10% chance
+    ]
+
+    def _roll_special_rooms(self, floor_num, zone, special_rooms_spawned):
+        """Roll for special rooms on this floor. Returns set of room indices claimed."""
+        claimed = set()
+        # Need at least 3 rooms (room 0 is player spawn, need 1+ for normal + 1 for special)
+        available_indices = [i for i in range(1, len(self.rooms)) if i not in claimed]
+
+        for room_key, eligible_floors, chance in self.SPECIAL_ROOM_DEFS:
+            if room_key in special_rooms_spawned:
+                continue  # already spawned this game
+            if floor_num not in eligible_floors:
+                continue
+            if random.random() > chance:
+                continue
+            if not available_indices:
+                break
+
+            # Pick a room — prefer smaller rooms for niglet den, larger for smoke lounge
+            room_idx = random.choice(available_indices)
+            room = self.rooms[room_idx]
+            floor_tiles = room.floor_tiles(self)
+            if not floor_tiles or len(floor_tiles) < 6:
+                continue
+
+            if room_key == "niglet_den":
+                self._spawn_niglet_den(room, floor_tiles)
+            elif room_key == "smoke_lounge":
+                self._spawn_smoke_lounge(room, floor_tiles, zone)
+
+            special_rooms_spawned.add(room_key)
+            claimed.add(room_idx)
+            available_indices = [i for i in available_indices if i not in claimed]
+
+        return claimed
+
+    def _spawn_niglet_den(self, room, floor_tiles):
+        """Spawn a trap room packed with niglets. No loot — pure punishment."""
+        room_tile_set = frozenset(floor_tiles)
+        count = random.randint(5, 8)
+        for _ in range(count):
+            free = [(x, y) for x, y in floor_tiles if not self.is_blocked(x, y)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            monster = create_enemy("niglet", x, y)
+            monster.spawn_room_tiles = room_tile_set
+            self.entities.append(monster)
+
+    def _spawn_smoke_lounge(self, room, floor_tiles, zone):
+        """Spawn a lounge guarded by thugs with guaranteed smoking/rolling drops."""
+        room_tile_set = frozenset(floor_tiles)
+
+        # Spawn 2-3 thugs
+        thug_count = random.randint(2, 3)
+        for _ in range(thug_count):
+            free = [(x, y) for x, y in floor_tiles if not self.is_blocked(x, y)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            monster = create_enemy("thug", x, y)
+            monster.spawn_room_tiles = room_tile_set
+            self.entities.append(monster)
+
+        # Guaranteed loot drops
+        loot_list = []
+
+        # 1 grinder
+        loot_list.append(("grinder", None))
+
+        # 2-3 rolling papers
+        for _ in range(random.randint(2, 3)):
+            loot_list.append(("rolling_paper", None))
+
+        # 2-3 kush (random strains)
+        for _ in range(random.randint(2, 3)):
+            strain = random.choice(STRAINS)
+            loot_list.append(("kush", strain))
+
+        # 1-2 joints (random strains)
+        for _ in range(random.randint(1, 2)):
+            strain = random.choice(STRAINS)
+            loot_list.append(("joint", strain))
+
+        # 1-2 weed nugs (random strains)
+        for _ in range(random.randint(1, 2)):
+            strain = random.choice(STRAINS)
+            loot_list.append(("weed_nug", strain))
+
+        # Place loot on free tiles in the room
+        for item_id, strain in loot_list:
+            free = [(x, y) for x, y in floor_tiles if not self.is_blocked(x, y)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            kwargs = create_item_entity(item_id, x, y, strain=strain)
+            self.entities.append(Entity(**kwargs))
 
     def is_terrain_blocked(self, x, y):
         """Check if terrain alone blocks a tile (ignores entities)."""

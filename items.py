@@ -205,6 +205,7 @@ def _build_minor_rings():
                 "power_bonus": 0,
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr: bonus},
+                "value": 20 + bonus * 20,
                 "tags": ["minor"],
                 "zones": ["crack_den"],
                 "use_verb": None,
@@ -236,6 +237,7 @@ def _build_greater_rings():
                 "power_bonus": 0,
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr: bonus},
+                "value": 20 + bonus * 20,
                 "tags": ["greater"],
                 "zones": ["crack_den"],
                 "use_verb": None,
@@ -267,6 +269,7 @@ def _build_divine_rings():
                 "power_bonus": 0,
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr: bonus},
+                "value": 20 + bonus * 20,
                 "tags": ["divine"],
                 "zones": [],
                 "use_verb": None,
@@ -316,6 +319,7 @@ def _build_advanced_rings():
                 "power_bonus": 0,
                 "defense_bonus": 0,
                 "stat_bonus": {stat_attr_1: bonus, stat_attr_2: bonus},
+                "value": 20 + bonus * 2 * 20,
                 "tags": ["advanced"],
                 "zones": [],
                 "use_verb": None,
@@ -418,6 +422,7 @@ def _build_chains():
         for brand in _CHAIN_BRANDS:
             for style in _CHAIN_STYLES:
                 item_id = _chain_item_id(material, brand, style)
+                armor = _chain_armor(material, brand, style)
                 chains[item_id] = {
                     "name":          _chain_display_name(material, brand, style),
                     "char":          '"',
@@ -427,7 +432,8 @@ def _build_chains():
                     "equip_slot":    "neck",
                     "power_bonus":   0,
                     "defense_bonus": 0,
-                    "armor_bonus":   _chain_armor(material, brand, style),
+                    "armor_bonus":   armor,
+                    "value":         round(50 + (armor - 10) * 3),
                     "stat_bonus":    {},
                     "tags":          ["chain"],
                     "zones":         ["crack_den"],
@@ -466,6 +472,7 @@ def _build_jordans():
                 "power_bonus":   0,
                 "defense_bonus": 0,
                 "armor_bonus":   armor,
+                "value":         round(15 + (armor - 1) * (60 / 14)),
                 "stat_bonus":    {stat_attr: 1},
                 "tags":          ["jordans"],
                 "zones":         ["crack_den"],
@@ -524,6 +531,7 @@ ITEM_DEFS = {
         "reach": 1,                    # melee reach in Chebyshev tiles (1 = adjacent)
         "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above str_req
         "weapon_type": "stabbing",
+        "value": 35,
         "zones": ["crack_den"],
         "use_verb": None,              # action label shown in menu (None = no direct use)
         "use_effect": None,            # effect dict applied on use (None = no effect)
@@ -542,6 +550,7 @@ ITEM_DEFS = {
         "reach": 2,
         "str_scaling": {"type": "tiered", "divisor": 1},  # +1 dmg per STR above 7
         "weapon_type": "stabbing",
+        "value": 50,
         "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
@@ -560,6 +569,7 @@ ITEM_DEFS = {
         "reach": 3,
         "stat_scaling": {"type": "threshold", "stat": "street_smarts", "threshold": 7},  # +1 dmg per STSMT above 7
         "weapon_type": "blunt",
+        "value": 55,
         "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
@@ -578,6 +588,7 @@ ITEM_DEFS = {
         "reach": 1,
         "on_hit_effect": {"type": "glass_shards", "stacks": 1, "duration": 5},
         "weapon_type": "stabbing",
+        "value": 40,
         "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
@@ -597,6 +608,7 @@ ITEM_DEFS = {
         "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above 1
         "on_hit_skill_xp": {"skill": "Crack-Head", "amount": 1},
         "weapon_type": "stabbing",
+        "value": 45,
         "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
@@ -610,6 +622,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "value": 15,
         "primary_skill": "Smoking",
         "use_verb": None,
         "use_effect": None,
@@ -623,6 +636,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "value": 15,
         "primary_skill": "Grinding",
         "use_verb": None,
         "use_effect": None,
@@ -636,6 +650,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "value": 75,
         "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
@@ -649,6 +664,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "value": 9,
         "primary_skill": "Rolling",
         "use_verb": None,
         "use_effect": None,
@@ -662,64 +678,151 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "value": 15,
         "primary_skill": "Smoking",
         "use_verb": "Smoke",
         "use_effect": {"type": "strain_roll"},
         "throw_verb": "Throw",
         "throw_effect": {"type": "strain_roll"},
     },
+    # Alcohol consumables
+    "40oz": {
+        "name": "40oz bottle",
+        "char": "!",
+        "color": (210, 180, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "primary_skill": "Alcoholism",
+        "secondary_skill": "Drinking",
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "40oz"},
+    },
+    "fireball_shooter": {
+        "name": "Fireball Shooter",
+        "char": "!",
+        "color": (255, 80, 30),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "primary_skill": "Alcoholism",
+        "secondary_skill": "Drinking",
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "fireball_shooter"},
+    },
+    "malt_liquor": {
+        "name": "Malt Liquor can",
+        "char": "!",
+        "color": (200, 200, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "primary_skill": "Alcoholism",
+        "secondary_skill": "Drinking",
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "malt_liquor"},
+    },
+    "wizard_mind_bomb": {
+        "name": "Wizard Mind Bomb bottle",
+        "char": "!",
+        "color": (120, 80, 220),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "primary_skill": "Alcoholism",
+        "secondary_skill": "Drinking",
+        "tertiary_skill": "Blackkk Magic",
+        "zones": ["crack_den"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "wizard_mind_bomb"},
+    },
+    "homemade_hennessy": {
+        "name": "Homemade Hennessy bottle",
+        "char": "!",
+        "color": (200, 150, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "primary_skill": "Alcoholism",
+        "secondary_skill": "Drinking",
+        "tertiary_skill": "Smoking",
+        "zones": ["crack_den"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "homemade_hennessy"},
+    },
+    "steel_reserve": {
+        "name": "Steel Reserve can",
+        "char": "!",
+        "color": (160, 160, 160),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "primary_skill": "Alcoholism",
+        "secondary_skill": "Drinking",
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "steel_reserve"},
+    },
 }
 
 
 # ---------------------------------------------------------------------------
-# Dismantling XP
+# Item value and skill XP
 # ---------------------------------------------------------------------------
 
-ITEM_DISMANTLING_XP = {
-    "weed_nug": 15,
-    "kush": 15,
-    "rolling_paper": 9,
-    "joint": 15,
-    "grinder": 75,
-    "knife": 35,
-    "sharp_pole": 50,
-    "kids_basketball_pole": 55,
-    "broken_bong": 40,
-    "broken_crack_pipe": 45,
+# Per-skill multiplier applied to item value to get skill XP.
+# Add a new skill here when it needs item-value-based XP gain.
+SKILL_VALUE_MULTIPLIERS = {
+    "Dismantling": 1.0,
+    "Stealing":    0.5,
+    "Abandoning":  1.0,
 }
 
 
-def get_dismantling_xp(item_id: str) -> int:
-    """Return base dismantling XP for an item.
+def get_item_value(item_id: str) -> int:
+    """Return the base value of an item.
 
-    Checks explicit lookup first, then uses formula-based computation
-    for generated items (rings, chains, jordans). Falls back to 10 XP.
+    Reads the 'value' field from ITEM_DEFS. Falls back to 10 for unknown items.
     """
-    if item_id in ITEM_DISMANTLING_XP:
-        return ITEM_DISMANTLING_XP[item_id]
-
     item_def = ITEM_DEFS.get(item_id)
     if item_def is None:
         return 10
+    return item_def.get("value", 10)
 
-    # Rings: scale by sum of all stat bonuses
-    if item_def.get("equip_slot") == "ring":
-        total_bonus = sum(item_def.get("stat_bonus", {}).values())
-        return 20 + total_bonus * 20
 
-    tags = item_def.get("tags", [])
+def get_skill_xp(item_id: str, skill_name: str) -> int:
+    """Return the base XP gain for a skill interaction with an item.
 
-    # Chains: armor_bonus range 10–60 → XP 50–200
-    if "chain" in tags:
-        armor = item_def.get("armor_bonus", 10)
-        return round(50 + (armor - 10) * 3)
-
-    # Jordans: armor_bonus range 1–15 → XP 15–75
-    if "jordans" in tags:
-        armor = item_def.get("armor_bonus", 1)
-        return round(15 + (armor - 1) * (60 / 14))
-
-    return 10
+    XP = item_value * SKILL_VALUE_MULTIPLIERS[skill_name]
+    Falls back to a multiplier of 1.0 for unregistered skills.
+    """
+    multiplier = SKILL_VALUE_MULTIPLIERS.get(skill_name, 1.0)
+    return round(get_item_value(item_id) * multiplier)
 
 
 # Ring tag helpers

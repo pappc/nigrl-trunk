@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls C:/Users/pappc/claude-projects/nigrl/*.py)",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(source:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "Bash(rm:*)",
+      "Bash(gh:*)",
+      "Bash(git config:*)"
+    ]
+  }
+}

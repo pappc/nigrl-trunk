@@ -45,8 +45,7 @@ version 0.4 opened 3/5/2026 11:30 am; closed 3/5/2026 8:00 pm
 	 	-one new pair of shoes, scuffed jordans.
 -changing from turn structre engine to energy and tick based
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~1~~~~~~~
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-version 0.5 opened 3/5/2026 8:00 pm
+version 0.5 opened 3/5/2026 8:00 pm closed 3/6/2026 2:45 pm
 -skill leveling struture implemented
 -loot table and item generation restructured
 -implementing skill exp gain for several skills
@@ -55,18 +54,24 @@ version 0.5 opened 3/5/2026 8:00 pm
 	-stabbing
 	-beating
 	-smacking
+	-dismantling
+	-looting
+	-abandoning
 -blue lobster funcitonality implemented
 -4 new weapons implemented
+-added 2 new rooms to the crack den
+	-niglet den & smoke lounge\
+-added new var "value" to all items
+-implemented dodge chance
+-bug fixes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~1~~~~~~~
+version 0.6 opened 3/6/2026 2:45 pm
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
--6 strains of marijuana implemented (5/6)
-	-Blue lobster: related to making items
-		-requires item and inventory system development
 -work on item and enemy placement throughout the dungeon; 
 	-unique room encounters
-	-move off purely random item spawn system
 -dev tools for in game testing
 -make monster stats relevant
 -add skill functionality
 -future add ability to make a hotbar to easilty select abilities
--
+-implement tolerance in drug tables

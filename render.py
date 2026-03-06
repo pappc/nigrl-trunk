@@ -17,6 +17,42 @@ from enemies import MONSTER_REGISTRY
 from abilities import ABILITY_REGISTRY
 
 
+def wrap_text_for_width(text, max_width, indent_width=0):
+    """
+    Wrap text to fit within max_width.
+    Returns a list of lines, each <= max_width characters.
+    First line has no indent, subsequent lines are indented by indent_width.
+    """
+    if len(text) <= max_width:
+        return [text]
+
+    lines = []
+    words = text.split(" ")
+    current_line = ""
+    indent = " " * indent_width
+    first_line = True
+
+    for word in words:
+        prefix = "" if first_line else indent
+        if not current_line:
+            test_line = prefix + word
+        else:
+            test_line = current_line + " " + word
+
+        if len(test_line) <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = prefix + word
+            first_line = False
+
+    if current_line:
+        lines.append(current_line)
+
+    return lines
+
+
 def render_header(console, engine):
     """Render the top header with zone and floor info."""
     zone_name = "Crack Den"  # TODO: support multiple zones
@@ -418,14 +454,32 @@ def render_stats_panel(console, engine):
                 is_buff   = getattr(effect, "category", "debuff") == "buff"
                 color     = C_BUFF if is_buff else C_DEBUFF
                 marker    = "+" if is_buff else "-"
-            name      = effect.display_name[: pw - 7]   # truncate
-            # Append stack count for mogged effects
+
+            # Build the effect name with mogged stack count
+            name = effect.display_name
             if effect_id == "mogged" and getattr(effect, "amount", 0) > 0:
                 name = f"{name} ({effect.amount})"
+
+            # Calculate available width: account for marker (1) + space (1) + turns on right
             turns_str = str(effect.duration)
-            console.print(1, row, f"{marker} {name}", fg=color, bg=BG)
-            console.print(pw - 2 - len(turns_str), row, turns_str, fg=color, bg=BG)
-            row += 1
+            turns_width = len(turns_str) + 1  # +1 for spacing
+            available_width = pw - 2 - turns_width - 3  # -3 for borders/margins + space before turn #
+
+            # Wrap text to fit available width
+            text_lines = wrap_text_for_width(name, available_width, indent_width=2)
+
+            # Render text lines
+            for i, text_line in enumerate(text_lines):
+                if row >= cash_section_y - 1:
+                    break
+                if i == 0:
+                    # First line: print marker + text + turns
+                    console.print(1, row, f"{marker} {text_line}", fg=color, bg=BG)
+                    console.print(pw - 2 - len(turns_str), row, turns_str, fg=color, bg=BG)
+                else:
+                    # Continuation lines: just print indented text
+                    console.print(1, row, text_line, fg=color, bg=BG)
+                row += 1
 
     # ── Cash ─────────────────────────────────────────────────────────
     for x in range(pw - 1):
@@ -772,6 +826,7 @@ def render_char_sheet(console, engine):
         ("Armor",         f"{p.armor}/{p.max_armor}", f"From equipment/effects, refills per floor"),
         ("Unarmed Bonus", f"{unarmed_str} dmg",       f"STR-5 (weapons scale differently)"),
         ("Crit Chance",   f"{ps.crit_chance:.0%}",    f"SS*3% per point, crits deal x2 dmg"),
+        ("Dodge Chance",  f"{ps.dodge_chance}%",      f"Chance to dodge melee attacks (0–90%)"),
         ("XP Bonus",      f"x{ps.xp_multiplier:.1f}", f"BSM: +10% per point above 5"),
         ("Drug Potency",  f"x{ps.drug_multiplier:.1f}", f"TOL: lower = stronger drug effects"),
     ]
@@ -985,6 +1040,22 @@ def render_targeting_mode(console, engine):
 
     is_visible = engine.dungeon.visible[cy, cx]
     cursor_bg  = (30, 60, 180) if is_visible else (160, 30, 30)
+
+    # Highlight spell affected tiles (if applicable)
+    if engine.targeting_spell is not None:
+        spell_type = engine.targeting_spell.get("type", "spell")
+        affected_tiles = engine.get_spell_affected_tiles(spell_type, cx, cy)
+        for tx, ty in affected_tiles:
+            map_tx = tx + MAP_OFFSET_X
+            map_ty = ty + HEADER_HEIGHT
+            if 0 <= map_tx < SCREEN_WIDTH and 0 <= map_ty < SCREEN_HEIGHT:
+                # Get the character and color already at this tile
+                tile = console.tiles_rgb[map_ty, map_tx]
+                ch = chr(tile['ch']) if tile['ch'] else ' '
+                ch_color = tuple(tile['fg'][:3]) if tile['fg'] is not None else (255, 255, 255)
+                # Overlay with semi-transparent highlight
+                highlight_bg = (100, 150, 80) if engine.dungeon.visible[ty, tx] else (60, 80, 40)
+                console.print(map_tx, map_ty, ch, fg=ch_color, bg=highlight_bg)
 
     # Draw cursor over whatever is already rendered at that tile
     console.print(map_cx, map_cy, "X", fg=(255, 255, 255), bg=cursor_bg)

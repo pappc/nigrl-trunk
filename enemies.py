@@ -213,6 +213,7 @@ class MonsterTemplate:
       hp            (min, max) hit-point range.
       damage        (min, max) base damage range, stored as `power` on Entity.
       defense       Flat damage reduction per hit taken.
+      dodge_chance  Integer percentage (0-90) chance to dodge melee attacks.
 
     GENDER
       male_chance   0.0–1.0 probability of being male.
@@ -249,12 +250,15 @@ class MonsterTemplate:
     swagger:       tuple[int, int]
 
     # ── Combat ────────────────────────────────────────────────────────────
-    hp:      tuple[int, int]
-    damage:  tuple[int, int]
-    defense: int
+    hp:            tuple[int, int]
+    damage:        tuple[int, int]
+    defense:       int
 
     # ── Gender ────────────────────────────────────────────────────────────
     male_chance: float
+
+    # ── Dodge ──────────────────────────────────────────────────────────────
+    dodge_chance: int = 0
 
     # ── Spawn ─────────────────────────────────────────────────────────────
     spawn_min:  int                  = 1
@@ -538,6 +542,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         hp            = (10, 20),
         damage        = (1,  2),
         defense       = 0,
+        dodge_chance  = 10,
         male_chance   = 0.5,
         spawn_min     = 1,
         spawn_max     = 3,
@@ -813,4 +818,5 @@ def create_enemy(enemy_type: str, x: int, y: int):
         special_attacks=special_attacks,
         on_hit_effects=on_hit_effects,
         cash_drop=cash,
+        dodge_chance=tmpl.dodge_chance,
     )

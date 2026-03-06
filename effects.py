@@ -121,6 +121,40 @@ class DotEffect(Effect):
 
 
 @register
+class BleedingEffect(Effect):
+    """Bleeding — damage over time from wounds."""
+    id = "bleeding"
+    category = "debuff"
+    priority = 5
+
+    def __init__(self, duration: int = 4, amount: int = 1, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self.amount = amount
+
+    @property
+    def display_name(self) -> str:
+        return "Bleeding"
+
+    def tick(self, entity, engine):
+        if entity.alive and self.amount > 0:
+            entity.take_damage(self.amount)
+            if entity == engine.player:
+                engine.messages.append(
+                    f"{self.display_name} deals {self.amount} damage! "
+                    f"({entity.hp}/{entity.max_hp} HP)"
+                )
+                if not entity.alive:
+                    engine.event_bus.emit("entity_died", entity=entity, killer=None)
+            else:
+                if not entity.alive:
+                    engine.event_bus.emit("entity_died", entity=entity, killer=None)
+                    engine.messages.append(
+                        f"{entity.name} dies from {self.display_name}!"
+                    )
+        self.duration -= 1
+
+
+@register
 class HotEffect(Effect):
     """Heal-over-time — heals amount HP per turn."""
     id = "hot"
@@ -408,14 +442,29 @@ class IgniteEffect(Effect):
 
 @register
 class ChillEffect(Effect):
-    """Debuff: cannot smoke joints. Removed when ignite is applied."""
+    """Debuff: reduces speed by 10 per stack (hard minimum 10 energy/tick).
+    Removed when ignite is applied."""
     id = "chill"
     category = "debuff"
     priority = 5
 
+    def __init__(self, duration: int = 5, stacks: int = 1, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self.stacks = stacks
+
     @property
     def display_name(self) -> str:
-        return "Chill"
+        return f"Chill x{self.stacks}" if self.stacks > 1 else "Chill"
+
+    def modify_energy_gain(self, amount: float, entity) -> float:
+        """Reduce energy gain by 10 per stack."""
+        return amount - (10 * self.stacks)
+
+    def on_reapply(self, existing, entity, engine):
+        existing.stacks += 1
+        existing.duration = max(existing.duration, self.duration)
+        if entity == engine.player:
+            engine.messages.append(f"You feel chillier! (Chill x{existing.stacks})")
 
 
 @register
@@ -721,6 +770,178 @@ class AcidArmorEffect(Effect):
     @property
     def display_name(self) -> str:
         return "Acid Armor"
+
+
+# ---------------------------------------------------------------------------
+# Alcohol consumables effects
+# ---------------------------------------------------------------------------
+
+@register
+class HangoverEffect(Effect):
+    """Debuff: Accumulates from drinking alcohol; applies stat penalties for the next floor.
+    Not affected by zoned_out immunity — must be endured."""
+    id = "hangover"
+    category = "debuff"
+    priority = 0
+
+    # Stats affected by hangover
+    STATS = ["constitution", "strength", "book_smarts", "street_smarts", "tolerance", "swagger"]
+
+    def __init__(self, stacks: int = 1, **kwargs):
+        super().__init__(duration=999999, **kwargs)  # Floor-managed, not turn-managed
+        self.stacks = stacks
+
+    @property
+    def display_name(self) -> str:
+        return f"Hangover x{self.stacks}" if self.stacks > 1 else "Hangover"
+
+    def apply(self, entity, engine):
+        for stat in self.STATS:
+            engine.player_stats.add_temporary_stat_bonus(stat, -self.stacks)
+
+    def on_reapply(self, existing, entity, engine):
+        # Revert old penalty, increase stacks, apply new penalty
+        for stat in self.STATS:
+            engine.player_stats.add_temporary_stat_bonus(stat, existing.stacks)
+        existing.stacks += self.stacks
+        for stat in self.STATS:
+            engine.player_stats.add_temporary_stat_bonus(stat, -existing.stacks)
+
+    def expire(self, entity, engine):
+        for stat in self.STATS:
+            engine.player_stats.add_temporary_stat_bonus(stat, self.stacks)
+
+
+@register
+class FortyOzEffect(Effect):
+    """Buff (40oz bottle): +5 Swagger for 50 turns."""
+    id = "forty_oz"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, duration: int = 50, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "40oz Buzz"
+
+    def apply(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("swagger", 5)
+
+    def expire(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("swagger", -5)
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
+
+
+@register
+class MaltLiquorEffect(Effect):
+    """Buff (Malt Liquor): +8 Strength, -2 Constitution, +20 temporary armor for 50 turns."""
+    id = "malt_liquor"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, duration: int = 50, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Malt Liquor"
+
+    def apply(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("strength", 8)
+            engine.player_stats.add_temporary_stat_bonus("constitution", -2)
+            engine.player_stats.temporary_armor_bonus += 20
+            engine._compute_player_max_armor()
+            engine.player.armor = min(engine.player.armor + 20, engine.player.max_armor)
+
+    def expire(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("strength", -8)
+            engine.player_stats.add_temporary_stat_bonus("constitution", 2)
+            engine.player_stats.temporary_armor_bonus -= 20
+            engine._compute_player_max_armor()
+            engine.player.armor = min(engine.player.armor, engine.player.max_armor)
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
+
+
+@register
+class WizardMindBombEffect(Effect):
+    """Buff (Wizard Mind-Bomb): +5 Book-Smarts, spells gain bonus damage for 50 turns."""
+    id = "wizard_mind_bomb"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, duration: int = 50, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Wizard Mind Bomb"
+
+    def apply(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("book_smarts", 5)
+
+    def expire(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("book_smarts", -5)
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
+
+
+@register
+class HennessyEffect(Effect):
+    """Buff (Homemade Hennessy): -2 Strength, +5 Tolerance, enables double smoking for 50 turns."""
+    id = "hennessy"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, duration: int = 50, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Hennessy High"
+
+    def apply(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("strength", -2)
+            engine.player_stats.add_temporary_stat_bonus("tolerance", 5)
+
+    def expire(self, entity, engine):
+        if entity == engine.player:
+            engine.player_stats.add_temporary_stat_bonus("strength", 2)
+            engine.player_stats.add_temporary_stat_bonus("tolerance", -5)
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
+
+
+@register
+class SteelReserveEffect(Effect):
+    """Buff (Steel Reserve): +3 permanent armor for 50 turns (armor bonus survives floor transition)."""
+    id = "steel_reserve"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, duration: int = 50, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Steel Reserve"
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
 
 
 # ---------------------------------------------------------------------------

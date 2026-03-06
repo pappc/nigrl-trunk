@@ -2,6 +2,7 @@
 Entity class for all game objects (player, monsters, items).
 """
 
+import uuid
 from config import BASE_HP, BASE_POWER, BASE_DEFENSE
 
 
@@ -38,6 +39,7 @@ class Entity:
         special_attacks=None,   # List of special-attack dicts (see enemies.py guide)
         on_hit_effects=None,    # List of on-hit-effect dicts (see enemies.py guide)
         cash_drop=0,            # Cash awarded to player on this monster's death
+        dodge_chance=0,         # Melee dodge chance as integer percentage (0-90)
     ):
         self.x = x
         self.y = y
@@ -60,6 +62,7 @@ class Entity:
         self.quantity = quantity        # stack size (1 for non-stackable items)
         self.strain = strain            # marijuana strain (e.g., "OG Kush") for cannabis items
         self.status_effects = []        # list of active status effect dicts
+        self.instance_id = str(uuid.uuid4())  # unique ID for tracking loot instances
 
         # Enemy-specific fields
         self.enemy_type     = enemy_type
@@ -75,6 +78,7 @@ class Entity:
         self.special_attacks = special_attacks or []
         self.on_hit_effects  = on_hit_effects or []
         self.cash_drop      = cash_drop
+        self.dodge_chance   = dodge_chance
 
     def move(self, dx, dy):
         """Move entity by delta x, y."""

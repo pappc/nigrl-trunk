@@ -5,11 +5,11 @@ SCREEN_WIDTH = 114
 SCREEN_HEIGHT = 64
 
 # Left stats panel (Character / Health / Status)
-LEFT_PANEL_WIDTH = 20
+LEFT_PANEL_WIDTH = 22
 MAP_OFFSET_X     = LEFT_PANEL_WIDTH   # dungeon & entities render starting at this column
 
 # Map/panel split (SCREEN_WIDTH = LEFT_PANEL_WIDTH + MAP_WIDTH + PANEL_WIDTH)
-MAP_WIDTH   = 66
+MAP_WIDTH   = 64
 PANEL_WIDTH = 28
 
 # Dungeon dimensions
@@ -60,6 +60,11 @@ RING_FINGER_NAMES = [
     "Right Thumb",
 ]
 
+# Jaywalking skill XP zone multipliers (zone_key -> float)
+ZONE_JAYWALK_MULT = {
+    "crack_den": 1.0,
+}
+
 # Inventory key labels — letters available for item selection.
 # Excludes keys already bound to menus: c (char sheet), e (equipment), s (skills)
-INVENTORY_KEYS = "bdfghijklmnopqrtuvwxyz"  # 'a' reserved for Abilities menu
+INVENTORY_KEYS = "bghijklmnopqrtuvwxyz"  # 'a' reserved for Abilities, 'f' reserved for firing

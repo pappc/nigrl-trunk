@@ -33,6 +33,7 @@ class ChargeType(Enum):
     PER_FLOOR = "per_floor"  # max_charges uses per floor; resets on floor change.
     TOTAL = "total"          # max_charges uses total; permanently consumed.
     ONCE = "once"            # Exactly 1 use ever (shorthand for TOTAL + max_charges=1).
+    FLOOR_ONLY = "floor_only" # max_charges uses per floor; resets to 0 on floor change (consumed permanently).
 
 
 @dataclass
@@ -48,6 +49,7 @@ class AbilityDef:
     max_charges: int = 0           # Used by PER_FLOOR / TOTAL. Ignored for INFINITE / ONCE.
     tags: frozenset[str] = field(default_factory=frozenset)
     execute: Callable = field(default=None, repr=False)
+    is_spell: bool = False         # If True, this is a magic spell (affected by Wizard Mind-Bomb bonus)
 
 
 class AbilityInstance:
@@ -70,6 +72,9 @@ class AbilityInstance:
         elif defn.charge_type == ChargeType.ONCE:
             self.charges_remaining = 1
             self.floor_charges_remaining = -1
+        elif defn.charge_type == ChargeType.FLOOR_ONLY:
+            self.charges_remaining = -1
+            self.floor_charges_remaining = defn.max_charges
 
     def can_use(self) -> bool:
         """True if at least one use remains."""
@@ -90,6 +95,8 @@ class AbilityInstance:
         """Called when the player descends to a new floor."""
         if defn.charge_type == ChargeType.PER_FLOOR:
             self.floor_charges_remaining = defn.max_charges
+        elif defn.charge_type == ChargeType.FLOOR_ONLY:
+            self.floor_charges_remaining = 0  # Consumed permanently, resets to 0
 
     def charge_display(self, defn: AbilityDef) -> str:
         """Human-readable charge string for the UI."""
@@ -175,6 +182,12 @@ def _execute_arcane_missile(engine) -> bool:
     return False
 
 
+def _execute_breath_fire(engine) -> bool:
+    """Enter cone targeting mode for breath fire spell."""
+    engine._enter_spell_targeting({"type": "breath_fire", "damage": 20})
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Registry — add new abilities here; nothing else in the codebase changes.
 # ---------------------------------------------------------------------------
@@ -191,6 +204,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=0,
         tags=frozenset({"spell", "movement", "teleport", "self_cast", "active"}),
         execute=_execute_warp,
+        is_spell=True,
     ),
     "dimension_door": AbilityDef(
         ability_id="dimension_door",
@@ -203,6 +217,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=0,
         tags=frozenset({"spell", "movement", "teleport", "targeted", "arcane", "active"}),
         execute=_execute_dimension_door,
+        is_spell=True,
     ),
     "chain_lightning": AbilityDef(
         ability_id="chain_lightning",
@@ -215,6 +230,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=0,
         tags=frozenset({"spell", "lightning", "damage", "chain", "targeted", "active"}),
         execute=_execute_chain_lightning,
+        is_spell=True,
     ),
     "ray_of_frost": AbilityDef(
         ability_id="ray_of_frost",
@@ -227,6 +243,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=0,
         tags=frozenset({"spell", "frost", "cold", "damage", "line", "active"}),
         execute=_execute_ray_of_frost,
+        is_spell=True,
     ),
     "firebolt": AbilityDef(
         ability_id="firebolt",
@@ -239,6 +256,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=0,
         tags=frozenset({"spell", "fire", "damage", "targeted", "ignite", "active"}),
         execute=_execute_firebolt,
+        is_spell=True,
     ),
     "arcane_missile": AbilityDef(
         ability_id="arcane_missile",
@@ -251,6 +269,20 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=0,
         tags=frozenset({"spell", "arcane", "damage", "targeted", "active"}),
         execute=_execute_arcane_missile,
+        is_spell=True,
+    ),
+    "breath_fire": AbilityDef(
+        ability_id="breath_fire",
+        name="Breathe Fire",
+        description="Breathe a cone of fire (5-tile range, 90° spread). Dmg: 20 + Book-Smarts. Charges lost at floor end.",
+        char="f",
+        color=(255, 100, 0),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.FLOOR_ONLY,
+        max_charges=0,
+        tags=frozenset({"spell", "fire", "damage", "cone", "active"}),
+        execute=_execute_breath_fire,
+        is_spell=True,
     ),
 }
 

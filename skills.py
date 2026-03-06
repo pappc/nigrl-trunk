@@ -33,6 +33,7 @@ SKILL_NAMES = [
     "Jaywalking",
     "Deep-Frying",
     "Drinking",
+    "Alcoholism",
     "Munching",
     "Dismantling",
     "Abandoning",
