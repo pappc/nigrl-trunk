@@ -10,6 +10,7 @@ from config import (
     BASE_HP, BASE_POWER, BASE_DEFENSE,
     DUNGEON_WIDTH, DUNGEON_HEIGHT, MAX_MESSAGES, LOG_HISTORY_SIZE,
     MIN_DAMAGE, UNARMED_STR_BASE, EQUIPMENT_SLOTS, RING_SLOTS, FOV_RADIUS,
+    ENERGY_THRESHOLD, PLAYER_BASE_SPEED,
 )
 from dungeon import Dungeon
 from entity import Entity
@@ -83,6 +84,8 @@ class GameEngine:
         self.player_stats = PlayerStats()
         self.player.max_hp = self.player_stats.max_hp
         self.player.hp = self.player_stats.max_hp
+        self.player.speed = PLAYER_BASE_SPEED
+        self.player.energy = ENERGY_THRESHOLD  # player acts first
 
         if self.dungeon.rooms:
             x, y = self.dungeon.rooms[0].center()
@@ -120,6 +123,10 @@ class GameEngine:
         self.selected_item_index: int | None = None
         self.selected_item_actions: list[str] = []
 
+        # --- Ring replacement state ---
+        self.pending_ring_item_index: int | None = None  # inventory index of ring being equipped
+        self.ring_replace_cursor: int = 0  # which equipped ring to replace (0-9)
+
         # --- Targeting mode state ---
         self.targeting_item_index: int | None = None
         self.targeting_cursor: list[int] = [0, 0]
@@ -155,6 +162,7 @@ class GameEngine:
             MenuState.DESTROY_CONFIRM: self._handle_destroy_confirm_input,
             MenuState.TARGETING: self._handle_targeting_input,
             MenuState.ABILITIES: self._handle_abilities_menu_input,
+            MenuState.RING_REPLACE: self._handle_ring_replace_input,
         }
 
     # ------------------------------------------------------------------
@@ -246,6 +254,13 @@ class GameEngine:
                 action = {"type": "confirm_no"}
             action_type = action.get("type")
 
+        # --- Convert number key selections to ring slot selections in ring replacement menu ---
+        if self.menu_state == MenuState.RING_REPLACE and action_type == "select_action":
+            slot_index = action.get("index")
+            if 0 <= slot_index < RING_SLOTS:
+                action = {"type": "select_ring_slot", "slot": slot_index}
+                action_type = action.get("type")
+
         # --- Delegate to menu handler if a menu is active ---
         if self.menu_state != MenuState.NONE:
             handler = self._menu_handlers.get(self.menu_state)
@@ -260,20 +275,61 @@ class GameEngine:
 
         result = handler(action)
 
-        # End-of-turn processing
+        # Energy tick: player spends energy, then run ticks until player can act again
         if result and self.running and self.player.alive:
-            self._end_of_turn()
+            self.player.energy -= ENERGY_THRESHOLD
+            self._run_energy_loop()
 
         return result
 
-    def _end_of_turn(self):
-        """Consolidated end-of-turn tick."""
-        self.turn += 1
-        self.update_monsters()
-        self.tick_status_effects(self.player)
-        for entity in self.dungeon.get_monsters():
-            if entity.alive:
-                self.tick_status_effects(entity)
+    def _run_energy_loop(self):
+        """Advance the game clock by ticking energy until the player can act again.
+
+        Each iteration of the while loop is one "tick":
+          1. Every living entity gains energy equal to its speed (modified by effects).
+          2. All monsters with energy >= ENERGY_THRESHOLD act (sorted by energy desc),
+             each subtracting ENERGY_THRESHOLD per action; fast monsters may act multiple
+             times if they accumulate >= 2× the threshold in a single tick.
+          3. Effects tick once per energy cycle (duration counts down by 1).
+        The loop exits when the player has accumulated enough energy to act again.
+        """
+        while self.player.energy < ENERGY_THRESHOLD:
+            if not self.player.alive or not self.running:
+                break
+
+            monsters = list(self.dungeon.get_monsters())
+            tick_data = prepare_ai_tick(self.player, self.dungeon, monsters)
+
+            # 1. Distribute energy to all living entities
+            for entity in [self.player] + monsters:
+                if not entity.alive:
+                    continue
+                gain = float(entity.speed)
+                for effect in entity.status_effects:
+                    if hasattr(effect, "modify_energy_gain"):
+                        gain = effect.modify_energy_gain(gain, entity)
+                entity.energy += gain
+
+            # 2. Process all monsters that have enough energy, highest energy first
+            acting = sorted(
+                [m for m in monsters if m.alive and m.energy >= ENERGY_THRESHOLD],
+                key=lambda m: -m.energy,
+            )
+            for monster in acting:
+                while monster.alive and monster.energy >= ENERGY_THRESHOLD:
+                    do_ai_turn(monster, self.player, self.dungeon, self, **tick_data)
+                    monster.energy -= ENERGY_THRESHOLD
+
+            # 3. Tick status effects once per energy cycle
+            self.turn += 1
+            effects.tick_all_effects(self.player, self)
+            for monster in monsters:
+                if monster.alive:
+                    effects.tick_all_effects(monster, self)
+
+            if not self.player.alive:
+                self.game_over = True
+                return
 
     # ------------------------------------------------------------------
     # Gameplay action handlers
@@ -384,6 +440,7 @@ class GameEngine:
         self.dungeon.first_kill_happened = False
         self.dungeon.female_kill_happened = False
         self.dungeon.compute_fov(self.player.x, self.player.y, self.fov_radius)
+        self.player.energy = ENERGY_THRESHOLD  # player acts first on new floor
 
         # Reset per-floor ability charges
         for inst in self.player_abilities:
@@ -855,7 +912,10 @@ class GameEngine:
         elif slot == "ring":
             empty = next((i for i, r in enumerate(self.rings) if r is None), None)
             if empty is None:
-                self.messages.append("All 10 ring slots are full! Unequip a ring first.")
+                # All ring slots are full; open menu to select which ring to replace
+                self.pending_ring_item_index = index
+                self.ring_replace_cursor = 0
+                self.menu_state = MenuState.RING_REPLACE
                 return
             self.rings[empty] = self.player.inventory.pop(index)
         else:
@@ -1081,6 +1141,68 @@ class GameEngine:
             (item.name, item.color),
             (".", (200, 80, 80)),
         ])
+
+    # ------------------------------------------------------------------
+    # Ring Replacement
+    # ------------------------------------------------------------------
+
+    def _handle_ring_replace_input(self, action):
+        """Handle input for selecting which ring to replace."""
+        action_type = action.get("type")
+
+        if action_type == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.pending_ring_item_index = None
+            return False
+
+        if action_type == "move":
+            # Up/down to move cursor through rings
+            dy = action.get("dy", 0)
+            self.ring_replace_cursor = max(0, min(9, self.ring_replace_cursor + dy))
+            return False
+
+        if action_type == "select_ring_slot":
+            # Converted from select_action in process_action
+            slot = action.get("slot")
+            self._replace_ring_at_slot(slot)
+            self.menu_state = MenuState.NONE
+            self.pending_ring_item_index = None
+            return False
+
+        if action_type == "confirm_target":
+            # Enter key to confirm selection
+            self._replace_ring_at_slot(self.ring_replace_cursor)
+            self.menu_state = MenuState.NONE
+            self.pending_ring_item_index = None
+            return False
+
+        return False
+
+    def _replace_ring_at_slot(self, slot_index: int):
+        """Replace the ring at the given slot with the pending ring item."""
+        if not (0 <= slot_index < RING_SLOTS):
+            return
+
+        if self.pending_ring_item_index is None:
+            return
+
+        # Get the new ring from inventory
+        new_ring = self.player.inventory[self.pending_ring_item_index]
+
+        # Get the old ring at this slot
+        old_ring = self.rings[slot_index]
+
+        # Equip the new ring (pop from inventory first to avoid index issues after sorting)
+        self.rings[slot_index] = self.player.inventory.pop(self.pending_ring_item_index)
+
+        # Return the old ring to inventory and sort
+        if old_ring is not None:
+            self.player.inventory.append(old_ring)
+            self._sort_inventory()
+            self.messages.append([("Unequipped ", _C_MSG_NEUTRAL), (old_ring.name, old_ring.color)])
+
+        self._refresh_ring_stat_bonuses()
+        self.messages.append([("Equipped ", _C_MSG_NEUTRAL), (new_ring.name, new_ring.color)])
 
     # ------------------------------------------------------------------
     # Crafting / Combine

@@ -17,3 +17,4 @@ class MenuState(Enum):
     BESTIARY = "bestiary"
     TARGETING = "targeting"
     ABILITIES = "abilities"
+    RING_REPLACE = "ring_replace"

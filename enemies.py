@@ -36,10 +36,7 @@ BLANK TEMPLATE  (copy, fill in, drop into MONSTER_REGISTRY)
         spawn_with   = [],
         ai           = AIType.MEANDER,
         sight_radius = 6,
-        move_speed   = 1,
-        move_chance  = None,
-        move_skip_max = 0,
-        chase_speed  = 1,
+        speed        = 100,
         special_attacks = [],
         on_hit_effects  = [],
         cash_drop    = (0, 5),
@@ -228,10 +225,7 @@ class MonsterTemplate:
     AI
       ai            AIType enum — selects behavior handler.
       sight_radius  Detection radius in tiles.
-      move_speed    Turns between actions (deterministic).  Ignored when move_chance is set.
-      move_chance   Per-turn probability of acting.  None = use move_speed.
-      move_skip_max If using move_chance, guarantee an action after this many skips. 0 = off.
-      chase_speed   Turns between moves while chasing (wander_ambush / passive_until_hit).
+      speed         Energy gained per tick (100 = same as player; 200 = twice as fast).
 
     ABILITIES
       special_attacks  List of SpecialAttack.
@@ -270,10 +264,7 @@ class MonsterTemplate:
     # ── AI ────────────────────────────────────────────────────────────────
     ai:            AIType            = AIType.MEANDER
     sight_radius:  int               = 6
-    move_speed:    int               = 1
-    move_chance:   Optional[float]   = None
-    move_skip_max: int               = 0
-    chase_speed:   int               = 1
+    speed:         int               = 100
 
     # ── Abilities ─────────────────────────────────────────────────────────
     special_attacks: list[SpecialAttack] = field(default_factory=list)
@@ -332,9 +323,6 @@ class MonsterTemplate:
             raise ValueError(
                 f"{self.name}: spawn_min ({self.spawn_min}) > spawn_max ({self.spawn_max})"
             )
-        if self.move_chance is not None and not 0.0 <= self.move_chance <= 1.0:
-            raise ValueError(f"{self.name}: move_chance must be 0.0–1.0 or None")
-
         # Validate all (min, max) ranges
         for fname in ("constitution", "strength", "street_smarts", "book_smarts",
                        "tolerance", "swagger", "hp", "damage", "cash_drop"):
@@ -400,10 +388,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 3,
         ai            = AIType.ROOM_GUARD,
         sight_radius  = 6,
-        move_speed    = 1,
-        move_chance   = 0.70,
-        move_skip_max = 3,
-        chase_speed   = 1,
+        speed         = 70,
         cash_drop     = (0, 3),
     ),
 
@@ -427,8 +412,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 2,
         ai            = AIType.WANDER_AMBUSH,
         sight_radius  = 3,
-        move_speed    = 3,
-        chase_speed   = 1,
+        speed         = 100,
         cash_drop     = (0, 5),
     ),
 
@@ -455,8 +439,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         ],
         ai            = AIType.ROOM_GUARD,
         sight_radius  = 6,
-        move_speed    = 1,
-        chase_speed   = 1,
+        speed         = 100,
         cash_drop     = (5, 15),
     ),
 
@@ -480,8 +463,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 2,
         ai            = AIType.ALARM_CHASER,
         sight_radius  = 6,
-        move_speed    = 1,
-        chase_speed   = 1,
+        speed         = 100,
         special_attacks = [
             SpecialAttack(
                 name         = "High Heel Kick",
@@ -527,8 +509,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 2,
         ai            = AIType.PASSIVE_UNTIL_HIT,
         sight_radius  = 6,
-        move_speed    = 1,
-        chase_speed   = 1,
+        speed         = 100,
         on_hit_effects = [
             OnHitEffect(
                 name     = "Child Support",
@@ -562,8 +543,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 3,
         ai            = AIType.HIT_AND_RUN,
         sight_radius  = 4,
-        move_speed    = 2,
-        chase_speed   = 1,
+        speed         = 120,
         special_attacks = [
             SpecialAttack(
                 name         = "Pickpocket",
@@ -596,9 +576,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 2,
         ai            = AIType.FEMALE_ALARM,
         sight_radius  = 8,
-        move_chance   = 0.5,
-        move_skip_max = 2,
-        chase_speed   = 1,
+        speed         = 50,
         cash_drop     = (0, 5),
     ),
 
@@ -623,8 +601,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 2,
         ai            = AIType.WANDER_AMBUSH,
         sight_radius  = 6,
-        move_speed    = 1,
-        chase_speed   = 1,
+        speed         = 100,
         on_hit_effects = [
             OnHitEffect(
                 name     = "Mogged",
@@ -659,8 +636,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 1,
         ai            = AIType.MEANDER,
         sight_radius  = 8,
-        move_speed    = 1,
-        chase_speed   = 1,
+        speed         = 100,
         special_attacks = [
             SpecialAttack(
                 name         = "Knockback Punch",
@@ -832,11 +808,7 @@ def create_enemy(enemy_type: str, x: int, y: int):
         base_stats=base_stats,
         ai_type=tmpl.ai.value,         # AIType enum → string for Entity
         sight_radius=tmpl.sight_radius,
-        move_speed=tmpl.move_speed,
-        move_chance=tmpl.move_chance,
-        move_skip_max=tmpl.move_skip_max,
-        chase_speed=tmpl.chase_speed,
-        move_timer=0,
+        speed=tmpl.speed,
         is_chasing=False,
         special_attacks=special_attacks,
         on_hit_effects=on_hit_effects,

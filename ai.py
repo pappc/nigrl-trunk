@@ -67,13 +67,6 @@ def _apply_before_turn(monster, player, dungeon):
     return False
 
 
-def _apply_modify_speed(threshold, monster):
-    """Let every active effect modify the speed threshold."""
-    for effect in _sorted_effects(monster):
-        if hasattr(effect, "modify_speed"):
-            threshold = effect.modify_speed(threshold, monster)
-    return threshold
-
 
 def _apply_modify_movement(dx, dy, monster, player, dungeon):
     """Let every active effect modify the movement vector."""
@@ -182,8 +175,10 @@ def prepare_ai_tick(player, dungeon, monsters):
         for monster in monsters:
             ai.do_ai_turn(monster, player, dungeon, engine, **tick_data)
     """
+    positions = build_creature_positions(monsters)
+    positions.add((player.x, player.y))  # player tile is occupied; blocks wandering monsters
     return {
-        "creature_positions": build_creature_positions(monsters),
+        "creature_positions": positions,
         "step_map":           build_step_map(player, dungeon),
     }
 
@@ -492,7 +487,6 @@ BEHAVIORS = {
     # Single state.  Always plods toward the player.
     "meander": {
         "initial_state": AIState.CHASING,
-        "fast_states":   set(),
         "transitions":   {},
         "actions": {
             AIState.CHASING: chase,
@@ -503,7 +497,6 @@ BEHAVIORS = {
     # Two states with bidirectional transitions.
     "wander_ambush": {
         "initial_state": AIState.WANDERING,
-        "fast_states":   {AIState.CHASING},
         "transitions": {
             AIState.WANDERING: [(player_in_sight, AIState.CHASING)],
             AIState.CHASING:   [(player_lost,     AIState.WANDERING)],
@@ -518,7 +511,6 @@ BEHAVIORS = {
     # One-way transition: once provoked, never reverts.
     "passive_until_hit": {
         "initial_state": AIState.WANDERING,
-        "fast_states":   set(),
         "transitions": {
             AIState.WANDERING: [(was_provoked, AIState.CHASING)],
         },
@@ -533,7 +525,6 @@ BEHAVIORS = {
     # it permanently switches to chasing (follows the player anywhere).
     "room_guard": {
         "initial_state": AIState.WANDERING,
-        "fast_states":   {AIState.CHASING},
         "transitions": {
             AIState.WANDERING: [(player_in_monster_room, AIState.CHASING)],
             # No revert — once triggered it chases forever.
@@ -549,7 +540,6 @@ BEHAVIORS = {
     # chases from anywhere — permanently.
     "alarm_chaser": {
         "initial_state": AIState.WANDERING,
-        "fast_states":   {AIState.CHASING},
         "transitions": {
             AIState.WANDERING: [(floor_alarm_triggered, AIState.CHASING)],
         },
@@ -564,7 +554,6 @@ BEHAVIORS = {
     # Then permanently rages and chases the player.
     "female_alarm": {
         "initial_state": AIState.WANDERING,
-        "fast_states":   {AIState.CHASING},
         "transitions": {
             AIState.WANDERING: [(female_killed_on_floor, AIState.CHASING)],
         },
@@ -579,7 +568,6 @@ BEHAVIORS = {
     # Once the player enters the room, permanently switches to chasing.
     "escort": {
         "initial_state": AIState.WANDERING,
-        "fast_states":   {AIState.CHASING},
         "transitions": {
             AIState.WANDERING: [(player_in_monster_room, AIState.CHASING)],
         },
@@ -595,7 +583,6 @@ BEHAVIORS = {
     # flees and doesn't return unless the player is far away.
     "hit_and_run": {
         "initial_state": AIState.WANDERING,
-        "fast_states":   {AIState.CHASING, AIState.FLEEING},
         "transitions": {
             AIState.WANDERING: [(player_in_sight, AIState.CHASING)],
             AIState.CHASING:   [
@@ -712,32 +699,6 @@ def do_ai_turn(monster, player, dungeon, engine,
     # Lazy-init ai_state for monsters that predate the state machine
     if not hasattr(monster, "ai_state") or monster.ai_state is None:
         monster.ai_state = behavior["initial_state"]
-
-    # ── Move timer ───────────────────────────────────────────────────────
-    monster.move_timer += 1
-
-    if monster.move_chance is not None:
-        # Probabilistic movement
-        forced = (
-            monster.move_skip_max > 0
-            and monster.move_timer >= monster.move_skip_max
-        )
-        if not forced and random.random() >= monster.move_chance:
-            return
-        monster.move_timer = 0
-    else:
-        # Deterministic: act every N turns
-        fast_states = behavior.get("fast_states", set())
-        threshold = (
-            monster.chase_speed
-            if monster.ai_state in fast_states
-            else monster.move_speed
-        )
-        # Status effects can modify the speed threshold
-        threshold = _apply_modify_speed(threshold, monster)
-        if monster.move_timer < threshold:
-            return
-        monster.move_timer = 0
 
     # ── Run state machine ────────────────────────────────────────────────
     old_pos = (monster.x, monster.y)

@@ -69,9 +69,9 @@ class Effect:
         """Return True to skip the entity's entire AI turn."""
         return False
 
-    def modify_speed(self, threshold, entity) -> int:
-        """Return a modified speed threshold (higher = slower)."""
-        return threshold
+    def modify_energy_gain(self, amount: float, entity) -> float:
+        """Return modified energy gained per tick. Return 0 to freeze accumulation."""
+        return amount
 
     def modify_movement(self, dx, dy, entity, player, dungeon):
         """Return a modified (dx, dy) movement vector."""
@@ -144,10 +144,13 @@ class HotEffect(Effect):
 
 @register
 class StunEffect(Effect):
-    """Entity skips its AI turn each tick."""
+    """Entity cannot accumulate energy and skips its AI turn."""
     id = "stun"
     category = "debuff"
     priority = 100
+
+    def modify_energy_gain(self, amount: float, entity) -> float:
+        return 0.0
 
     def before_turn(self, entity, player, dungeon) -> bool:
         return True
@@ -155,17 +158,18 @@ class StunEffect(Effect):
 
 @register
 class SlowEffect(Effect):
-    """Increases the entity's move-speed threshold, making it act less often."""
+    """Reduces the entity's energy gain per tick, making it act less often.
+    ratio=0.5 halves speed; ratio=0.9 is a minor slow; ratio=0.1 is near-frozen."""
     id = "slow"
     category = "debuff"
     priority = 50
 
-    def __init__(self, duration: int = 3, factor: float = 2.0, **kwargs):
+    def __init__(self, duration: int = 3, ratio: float = 0.5, **kwargs):
         super().__init__(duration=duration, **kwargs)
-        self.factor = factor
+        self.ratio = ratio
 
-    def modify_speed(self, threshold, entity) -> int:
-        return int(threshold * self.factor)
+    def modify_energy_gain(self, amount: float, entity) -> float:
+        return amount * self.ratio
 
 
 @register

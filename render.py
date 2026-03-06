@@ -57,6 +57,8 @@ def render_all(console, engine):
         render_log_menu(console, engine)
     elif engine.menu_state == MenuState.DESTROY_CONFIRM:
         render_destroy_confirm(console, engine)
+    elif engine.menu_state == MenuState.RING_REPLACE:
+        render_ring_replace_menu(console, engine)
     elif engine.menu_state == MenuState.BESTIARY:
         render_bestiary_menu(console, engine)
     elif engine.menu_state == MenuState.TARGETING:
@@ -856,6 +858,59 @@ def render_destroy_confirm(console, engine):
     no_text  = "[N] Cancel"
     console.print(popup_x + 3,                        popup_y + 7, yes_text, fg=C_YES, bg=BG)
     console.print(popup_x + popup_w - 3 - len(no_text), popup_y + 7, no_text,  fg=C_NO,  bg=BG)
+
+
+def render_ring_replace_menu(console, engine):
+    """Render the ring replacement menu to select which ring to replace."""
+    BG       = (20, 20, 30)
+    C_TITLE  = (255, 200, 100)
+    C_TEXT   = (220, 220, 220)
+    C_CURSOR = (255, 255, 100)
+    C_HINT   = (150, 150, 150)
+
+    # Get the pending ring item for display
+    if engine.pending_ring_item_index is None:
+        return
+    pending_ring = engine.player.inventory[engine.pending_ring_item_index]
+
+    popup_w = 40
+    popup_h = 5 + RING_SLOTS + 2  # title + spacing + ring rows + padding
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    # Title
+    title = "Which ring to replace?"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    # Ring being equipped
+    ring_name = pending_ring.name[:popup_w - 4]
+    console.print(popup_x + 2, popup_y + 3, f"Equipping: {ring_name}", fg=C_TEXT, bg=BG)
+
+    # Ring slots
+    start_y = popup_y + 5
+    for slot in range(RING_SLOTS):
+        ring = engine.rings[slot]
+        slot_text = f"[{slot}] "
+
+        if ring is None:
+            slot_display = f"{slot_text}(empty)"
+            slot_color = C_HINT
+        else:
+            ring_display = ring.name[:popup_w - len(slot_text) - 4]
+            slot_display = f"{slot_text}{ring_display}"
+            slot_color = ring.color
+
+        y = start_y + slot
+
+        # Highlight cursor
+        if slot == engine.ring_replace_cursor:
+            console.print(popup_x + 1, y, ">", fg=C_CURSOR, bg=BG)
+            console.print(popup_x + 2, y, slot_display, fg=C_CURSOR, bg=BG)
+        else:
+            console.print(popup_x + 2, y, slot_display, fg=slot_color, bg=BG)
 
 
 def render_bestiary_menu(console, engine):

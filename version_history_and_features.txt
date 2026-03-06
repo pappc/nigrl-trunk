@@ -32,19 +32,27 @@ version 0.3 initialized 3/4/2026 5:30 pm closed 3/5/2026 3:00 am
 UI tweaks
 bug fixes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+version 0.4 opened 3/4/2026 5:30 pm; closed 3/5/2026 8:00 pm
+-ability system implmeneted
+-dosidos strain effects implemented
+-equipment system reworked
+	-equipment ui tweaked
+	-80 unique rings added
+	-armor and max armor implemented
+	-neck slot added
+		-60 different chains
+	-feet slot added
+	 	-one new pair of shoes, scuffed jordans.
+-changing from turn structre engine to energy and tick based
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
--6 strains of marijuana implemented (3/6)
-	-Jungle boyz: adds on hit effects, most beneficial, does an effect when enemies are hit by it
+-6 strains of marijuana implemented (5/6)
 	-Blue lobster: related to making items
 		-requires item and inventory system development
-	-Dosidos: grants abilities that have low amounts of use; 
-		-requires building abilities system
--each weed strain has seperate tables for what can happen to enemies and the player
 -work on item and enemy placement throughout the dungeon; 
 	-unique room encounters
 	-move off purely random item spawn system
 -dev tools for in game testing
 -make monster stats relevant
--add abilities - a menu that pops up, and a valid ability is selected
 -add skill functionality
 -future add ability to make a hotbar to easilty select abilities

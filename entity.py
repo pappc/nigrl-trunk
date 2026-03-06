@@ -30,11 +30,8 @@ class Entity:
         base_stats=None,        # dict: {"constitution":n,"strength":n,"street_smarts":n,"book_smarts":n,"tolerance":n,"swagger":n}
         ai_type="meander",      # AI behavior mode (see ai.py)
         sight_radius=6,         # Detection radius in tiles
-        move_speed=1,           # Turns between moves (1=every turn, 2=every other, …)
-        chase_speed=1,          # Turns between moves while actively chasing
-        move_timer=0,           # Internal counter; incremented each game turn
-        move_chance=None,       # float 0–1: probability to act each turn (None = use move_speed)
-        move_skip_max=0,        # Guaranteed act after this many skipped turns (0 = disabled)
+        speed=100,              # Energy gained per tick (higher = faster; 100 = same as player)
+        energy=0.0,             # Current energy pool; entity acts when energy >= ENERGY_THRESHOLD
         is_chasing=False,       # State flag used by wander_ambush AI (legacy)
         provoked=False,         # State flag: passive_until_hit switches to chase when True
         ai_state=None,          # AIState enum — managed by the AI state machine
@@ -70,11 +67,8 @@ class Entity:
         self.base_stats     = base_stats or {}
         self.ai_type        = ai_type
         self.sight_radius   = sight_radius
-        self.move_speed     = move_speed
-        self.chase_speed    = chase_speed
-        self.move_timer     = move_timer
-        self.move_chance    = move_chance
-        self.move_skip_max  = move_skip_max
+        self.speed          = speed
+        self.energy         = energy
         self.is_chasing     = is_chasing
         self.provoked       = provoked
         self.ai_state       = ai_state

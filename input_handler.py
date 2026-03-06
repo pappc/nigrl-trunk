@@ -60,7 +60,9 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.ESCAPE:
             return {"type": "close_menu"}
 
-        # Number keys 1-9 — action selection in menus
+        # Number keys 0-9 — action selection in menus
+        elif tcod.event.KeySym.N0 == key_sym:
+            return {"type": "select_action", "index": 9}
         elif tcod.event.KeySym.N1 <= key_sym <= tcod.event.KeySym.N9:
             index = key_sym - tcod.event.KeySym.N1  # 0-indexed
             return {"type": "select_action", "index": index}

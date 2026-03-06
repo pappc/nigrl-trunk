@@ -28,6 +28,10 @@ MAX_ITEMS_PER_ROOM = 4
 # Player field of view
 FOV_RADIUS = 9   # base light radius; increase via items/buffs with engine.fov_radius
 
+# Energy / tick system
+ENERGY_THRESHOLD = 100   # energy needed to take an action
+PLAYER_BASE_SPEED = 100  # energy gained per tick at baseline
+
 # Combat defaults
 BASE_POWER = 4      # unarmed (fists) base damage
 BASE_DEFENSE = 1
@@ -47,18 +51,13 @@ LOG_HISTORY_SIZE = 200    # total messages kept in memory for the log menu
 
 # Equipment slots
 EQUIPMENT_SLOTS = ["weapon"]  # dedicated ring slots handled separately
-RING_SLOTS = 10                # number of simultaneous rings
+RING_SLOTS = 5                # number of simultaneous rings
 RING_FINGER_NAMES = [
     "Right Pinky",
     "Right Ring",
     "Right Middle",
     "Right Index",
     "Right Thumb",
-    "Left Thumb",
-    "Left Index",
-    "Left Middle",
-    "Left Ring",
-    "Left Pinky",
 ]
 
 # Inventory key labels — letters available for item selection.
