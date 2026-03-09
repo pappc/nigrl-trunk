@@ -20,7 +20,7 @@ from config import (
 )
 from entity import Entity
 from items import create_item_entity
-from enemies import create_enemy, ZONE_SPAWN_TABLES, MONSTER_REGISTRY
+from enemies import create_enemy, get_spawn_table, MONSTER_REGISTRY
 from loot import generate_floor_loot
 from items import STRAINS, build_item_name
 
@@ -348,6 +348,9 @@ class Dungeon:
         self.visible = np.zeros((height, width), dtype=bool)
         self.explored = np.zeros((height, width), dtype=bool)
 
+        # Entities revealed as landmarks this FOV update (cleared each compute_fov call).
+        self.newly_revealed_landmarks: list = []
+
         # Set to True the first time any monster dies on this floor.
         # Used by the alarm_chaser AI (ugly strippers).
         self.first_kill_happened = False
@@ -518,6 +521,7 @@ class Dungeon:
                 name="Stairs Down",
                 entity_type="staircase",
                 blocks_movement=False,
+                reveals_on_sight=True,
             ))
 
     def _build_room_tile_map(self):
@@ -533,6 +537,7 @@ class Dungeon:
 
     def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None, special_rooms_spawned=None):
         """Spawn monsters and items in rooms."""
+        self.zone = zone
         self.entities.append(player)
 
         # Roll for special rooms and claim rooms before normal spawning
@@ -548,8 +553,8 @@ class Dungeon:
             if not floor_tiles:
                 continue
 
-            # Zone-based monster spawning
-            zone_table = ZONE_SPAWN_TABLES.get(zone, [])
+            # Zone-based monster spawning (per-floor weighted tables)
+            zone_table = get_spawn_table(zone, floor_num)
             if zone_table:
                 enemy_types   = [t[0] for t in zone_table]
                 enemy_weights = [t[1] for t in zone_table]
@@ -558,7 +563,22 @@ class Dungeon:
                 # so every monster spawned here can reference it cheaply.
                 room_tile_set = frozenset(floor_tiles)
 
-                for _ in range(random.randint(0, MAX_MONSTERS_PER_ROOM)):
+                # Dynamic monster count: size-scaling + floor bonus + populated/empty gate
+                size_max = max(1, len(floor_tiles) // 10)
+                floor_bonus = floor_num // 2  # +1 at floor 3, +2 at floor 5, etc.
+                room_max = size_max + floor_bonus
+
+                # 65% of rooms are "populated", 35% are empty — creates natural pacing
+                if random.random() < 0.65:
+                    # Weighted distribution: favor 1 group, allow occasional spikes
+                    options = list(range(1, room_max + 1))
+                    # Weights peak at 1 and taper linearly: [4, 3, 2, 1, ...]
+                    weights = [max(1, room_max + 1 - i) for i in range(len(options))]
+                    n_groups = random.choices(options, weights=weights, k=1)[0]
+                else:
+                    n_groups = 0
+
+                for _ in range(n_groups):
                     enemy_type = random.choices(enemy_types, weights=enemy_weights, k=1)[0]
                     tmpl = MONSTER_REGISTRY[enemy_type]
 
@@ -594,6 +614,15 @@ class Dungeon:
                                 self.entities.append(escort)
 
 
+        # Spawn staircase first so its tile can be excluded from item/cash placement
+        if floor_num < 3:
+            self._spawn_staircase()
+
+        # Collect staircase positions to exclude from item/cash spawning
+        stair_tiles = frozenset(
+            (e.x, e.y) for e in self.entities if getattr(e, "entity_type", None) == "staircase"
+        )
+
         # Spawn floor loot via zone-based loot system (round-robin across rooms)
         floor_loot = generate_floor_loot(zone, floor_num, player_skills)
         random.shuffle(floor_loot)
@@ -604,7 +633,7 @@ class Dungeon:
                 floor_tiles = room.floor_tiles(self)
                 if floor_tiles:
                     x, y = random.choice(floor_tiles)
-                    if not self.is_blocked(x, y):
+                    if not self.is_blocked(x, y) and (x, y) not in stair_tiles:
                         kwargs = create_item_entity(item_id, x, y, strain=strain)
                         self.entities.append(Entity(**kwargs))
 
@@ -625,7 +654,7 @@ class Dungeon:
             n_cash = random.randint(0, min(3, remaining))
             for _ in range(n_cash):
                 x, y = random.choice(floor_tiles)
-                if not self.is_blocked(x, y):
+                if not self.is_blocked(x, y) and (x, y) not in stair_tiles:
                     amount = random.choices(_CASH_AMOUNTS, weights=_CASH_WEIGHTS, k=1)[0]
                     self.entities.append(Entity(
                         x=x, y=y,
@@ -638,10 +667,6 @@ class Dungeon:
                     ))
                     cash_total += 1
 
-        # Spawn staircase on floors that aren't the last one (4 floors total: 0-3)
-        if floor_num < 3:
-            self._spawn_staircase()
-
     # ------------------------------------------------------------------
     # Special rooms
     # ------------------------------------------------------------------
@@ -650,6 +675,7 @@ class Dungeon:
     SPECIAL_ROOM_DEFS = [
         ("niglet_den",   {0, 1, 2}, 0.10),  # floors 1-3 (0-indexed), 10% chance
         ("smoke_lounge", {1, 2, 3}, 0.10),  # floors 2-4 (0-indexed), 10% chance
+        ("jerome_room",  {3},       1.00),  # floor 4 only (0-indexed), guaranteed
     ]
 
     def _roll_special_rooms(self, floor_num, zone, special_rooms_spawned):
@@ -668,8 +694,17 @@ class Dungeon:
             if not available_indices:
                 break
 
-            # Pick a room — prefer smaller rooms for niglet den, larger for smoke lounge
-            room_idx = random.choice(available_indices)
+            # Jerome's room needs the largest available room (many entities to fit)
+            if room_key == "jerome_room":
+                large = [i for i in available_indices
+                         if len(self.rooms[i].floor_tiles(self)) >= 20]
+                if not large:
+                    continue  # no room large enough; skip this floor
+                room_idx = max(large, key=lambda i: len(self.rooms[i].floor_tiles(self)))
+            else:
+                # Pick a room — prefer smaller rooms for niglet den, larger for smoke lounge
+                room_idx = random.choice(available_indices)
+
             room = self.rooms[room_idx]
             floor_tiles = room.floor_tiles(self)
             if not floor_tiles or len(floor_tiles) < 6:
@@ -679,6 +714,8 @@ class Dungeon:
                 self._spawn_niglet_den(room, floor_tiles)
             elif room_key == "smoke_lounge":
                 self._spawn_smoke_lounge(room, floor_tiles, zone)
+            elif room_key == "jerome_room":
+                self._spawn_jerome_room(room, floor_tiles)
 
             special_rooms_spawned.add(room_key)
             claimed.add(room_idx)
@@ -739,6 +776,10 @@ class Dungeon:
             strain = random.choice(STRAINS)
             loot_list.append(("weed_nug", strain))
 
+        # 1-2 chickens (food)
+        for _ in range(random.randint(1, 2)):
+            loot_list.append(("chicken", None))
+
         # Place loot on free tiles in the room
         for item_id, strain in loot_list:
             free = [(x, y) for x, y in floor_tiles if not self.is_blocked(x, y)]
@@ -747,6 +788,125 @@ class Dungeon:
             x, y = random.choice(free)
             kwargs = create_item_entity(item_id, x, y, strain=strain)
             self.entities.append(Entity(**kwargs))
+
+    def _spawn_jerome_room(self, room, floor_tiles):
+        """Spawn Jerome's guarded chamber on floor 4.
+
+        Layout (y-axis, top=min_y, bottom=max_y):
+          Back  (max_y row) — Jerome stands here, a door entity is placed in
+                              the wall tile just behind him.
+          Front (min_y half) — 2 Thugs + 2 Drug Dealers (each brings tweakers).
+        """
+        room_tile_set = frozenset(floor_tiles)
+
+        min_x = min(x for x, y in floor_tiles)
+        max_x = max(x for x, y in floor_tiles)
+        min_y = min(y for x, y in floor_tiles)
+        max_y = max(y for x, y in floor_tiles)
+        center_x = (min_x + max_x) // 2
+        mid_y    = (min_y + max_y) // 2
+
+        # ── Door entity + 2×2 back room ──────────────────────────────────
+        door_x = center_x
+        door_y = max_y + 1  # one tile into the back wall
+
+        if 0 < door_y < self.height - 3:  # need 3 more rows for door + 2×2 room
+            # Carve the door tile
+            self.tiles[door_y][door_x] = TILE_FLOOR
+            door_entity = Entity(
+                x=door_x, y=door_y,
+                char='+',
+                color=(139, 90, 43),
+                name="Door",
+                entity_type="hazard",
+                hazard_type="door",
+                blocks_movement=True,
+                blocks_fov=True,
+            )
+            self.entities.append(door_entity)
+
+            # Carve 2×2 room behind the door
+            room_left  = door_x - 1
+            room_right = door_x
+            room_top   = door_y + 1
+            room_bot   = door_y + 2
+            back_room_tiles = []
+            for ry in range(room_top, room_bot + 1):
+                for rx in range(room_left, room_right + 1):
+                    if 0 < rx < self.width - 1 and 0 < ry < self.height - 1:
+                        self.tiles[ry][rx] = TILE_FLOOR
+                        back_room_tiles.append((rx, ry))
+
+            # Place meth_zone_stairs in the back room
+            if back_room_tiles:
+                sx, sy = random.choice(back_room_tiles)
+                stairs = Entity(
+                    x=sx, y=sy,
+                    char='>',
+                    color=(255, 255, 255),
+                    name="meth_zone_stairs",
+                    entity_type="staircase",
+                    blocks_movement=False,
+                    reveals_on_sight=True,
+                )
+                self.entities.append(stairs)
+
+        # ── Jerome: back row, centered, one tile in front of the door ────
+        jerome_x = center_x
+        jerome_y = max_y
+        # Shift jerome_x slightly if the center tile is already blocked
+        for candidate_x in [center_x, center_x - 1, center_x + 1,
+                             center_x - 2, center_x + 2]:
+            if (candidate_x, jerome_y) in room_tile_set and \
+               not self.is_blocked(candidate_x, jerome_y):
+                jerome_x = candidate_x
+                break
+        jerome = create_enemy("big_nigga_jerome", jerome_x, jerome_y)
+        jerome.spawn_room_tiles = room_tile_set
+        self.entities.append(jerome)
+
+        # ── Front group: 2 thugs + 2 drug dealers (each with tweakers) ──
+        front_tiles = [(x, y) for x, y in floor_tiles if y <= mid_y]
+        if not front_tiles:
+            front_tiles = floor_tiles  # fallback
+
+        # Thugs
+        for _ in range(2):
+            free = [(x, y) for x, y in front_tiles if not self.is_blocked(x, y)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            thug = create_enemy("thug", x, y)
+            thug.spawn_room_tiles = room_tile_set
+            self.entities.append(thug)
+
+        # Drug dealers + their tweaker escorts
+        for _ in range(2):
+            free = [(x, y) for x, y in front_tiles if not self.is_blocked(x, y)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            dealer = create_enemy("drug_dealer", x, y)
+            dealer.spawn_room_tiles = room_tile_set
+            self.entities.append(dealer)
+
+            # Spawn tweakers around each dealer (1–3 per dealer)
+            tweaker_count = random.randint(1, 3)
+            for _ in range(tweaker_count):
+                nearby = [
+                    (nx, ny) for nx, ny in floor_tiles
+                    if abs(nx - x) <= 4 and abs(ny - y) <= 4
+                    and not self.is_blocked(nx, ny)
+                ]
+                if not nearby:
+                    break
+                ex, ey = random.choice(nearby)
+                tweaker = create_enemy("tweaker", ex, ey)
+                tweaker.spawn_room_tiles = room_tile_set
+                tweaker.leader   = dealer
+                tweaker.ai_type  = "escort"
+                tweaker.ai_state = None
+                self.entities.append(tweaker)
 
     def is_terrain_blocked(self, x, y):
         """Check if terrain alone blocks a tile (ignores entities)."""
@@ -793,8 +953,15 @@ class Dungeon:
         entity.y = new_y
 
     def compute_fov(self, x, y, radius=8):
-        """Compute field of view using tcod symmetric shadowcasting. Walls block LOS."""
+        """Compute field of view using tcod symmetric shadowcasting. Walls and
+        entities with blocks_fov=True (e.g. closed doors) block LOS."""
         transparency = np.array(self.tiles, dtype=np.int8) != TILE_WALL
+
+        # Overlay entity-based FOV blockers (e.g. closed doors)
+        for entity in self.entities:
+            if getattr(entity, "blocks_fov", False) and getattr(entity, "alive", True):
+                if 0 <= entity.y < self.height and 0 <= entity.x < self.width:
+                    transparency[entity.y, entity.x] = False
 
         self.visible = tcod.map.compute_fov(
             transparency,
@@ -804,6 +971,18 @@ class Dungeon:
             algorithm=tcod.constants.FOV_SYMMETRIC_SHADOWCAST,
         )
         self.explored |= self.visible
+
+        # Landmark reveal: first time player sees a reveals_on_sight entity, mark it always_visible.
+        self.newly_revealed_landmarks = []
+        for entity in self.entities:
+            if (
+                entity.reveals_on_sight
+                and not entity.always_visible
+                and entity.alive
+                and self.visible[entity.y, entity.x]
+            ):
+                entity.always_visible = True
+                self.newly_revealed_landmarks.append(entity)
 
     def remove_entity(self, entity):
         """Remove entity from dungeon."""

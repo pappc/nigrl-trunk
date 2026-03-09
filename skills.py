@@ -37,11 +37,154 @@ SKILL_NAMES = [
     "Munching",
     "Dismantling",
     "Abandoning",
-    "Crack-Head",
+    "Meth-Head",
 ]
 
 DEFAULT_EXP_CURVE = [200, 400, 600, 800, 2000, 6000, 15000, 25000, 100000, 500000]
 MAX_LEVEL = 10
+
+# Placeholder perk data for all 17 skills × 10 levels.
+# Each entry: {"name": str, "perk_type": str, "effect": dict | None}
+# perk_type: "none" (placeholder), "stat", "passive", "activated"
+_PLACEHOLDER = {"name": "Placeholder", "perk_type": "none", "effect": None}
+
+SKILL_PERKS: dict[str, list[dict]] = {
+    skill_name: [_PLACEHOLDER] * 10
+    for skill_name in [
+        "Smoking", "Rolling", "Pyromania", "Negromancy", "Blackkk Magic",
+        "Stabbing", "Beating", "Smacking", "Stealing", "Jaywalking",
+        "Deep-Frying", "Drinking", "Alcoholism", "Munching", "Dismantling",
+        "Abandoning", "Meth-Head",
+    ]
+}
+
+SKILL_PERKS["Deep-Frying"] = [
+    {"name": "Fry Shot",     "perk_type": "activated", "effect": {"ability": "fry_shot"}},  # level 1
+    {"name": "Extra Greasy", "perk_type": "passive",   "effect": None},                     # level 2
+    {"name": "Double Batch", "perk_type": "passive",   "effect": None},                     # level 3: 20% no consume
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                # levels 4-10
+]
+
+SKILL_PERKS["Dismantling"] = [
+    {"name": "Stat Up!",    "perk_type": "stat",    "effect": {"book_smarts": 2, "constitution": 2}},  # level 1
+    {"name": "Chop Shop",   "perk_type": "passive", "effect": None},   # level 2: +5 armor +20 cash on destroy
+    {"name": "Nigga Armor", "perk_type": "passive", "effect": None},   # level 3: stack of Nigga Armor on destroy
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                          # levels 4-10
+]
+
+SKILL_PERKS["Abandoning"] = [
+    {"name": "Stat Up!", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}},  # level 1
+    {"name": "Stat Up!", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}},  # level 2
+    {"name": "Anotha Motha", "perk_type": "passive", "effect": None},  # level 3: 5 extra items on descend
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                          # levels 4-10
+]
+
+SKILL_PERKS["Smoking"] = [
+    {"name": "Phat Cloud",  "perk_type": "passive", "effect": None},                                      # level 1
+    {"name": "Stat Up!",    "perk_type": "stat",    "effect": {"tolerance": 2, "constitution": 2}},       # level 2
+    {"name": "Roach Fiend", "perk_type": "stat",    "effect": {"tolerance": 2}},                          # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+]
+
+SKILL_PERKS["Pyromania"] = [
+    {"name": "Fire!",         "perk_type": "activated", "effect": {"ability": "place_fire"}},                  # level 1
+    {"name": "Stat Up!",      "perk_type": "stat",      "effect": {"constitution": 3}},                        # level 2
+    {"name": "Ignite",        "perk_type": "activated", "effect": {"ability": "ignite_spell"}},                # level 3
+    {"name": "Neva Burn Out", "perk_type": "passive",   "effect": None},                                       # level 4
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                        # levels 5-10
+]
+
+SKILL_PERKS["Rolling"] = [
+    {"name": "Stat Up!",       "perk_type": "stat",    "effect": {"strength": 1, "tolerance": 1}},        # level 1
+    {"name": "Seeing Double",  "perk_type": "passive", "effect": None},                                   # level 2
+    {"name": "Spectral Paper", "perk_type": "passive", "effect": None},                                   # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+]
+
+SKILL_PERKS["Alcoholism"] = [
+    {"name": "Im Drinkin Here", "perk_type": "passive", "effect": None},                                     # level 1
+    {"name": "Stat Up!",        "perk_type": "stat",    "effect": {"tolerance": 2}},                         # level 2
+    {"name": "Throw Bottle",    "perk_type": "activated", "effect": {"ability": "throw_bottle"}},            # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                                 # levels 4-10
+]
+
+SKILL_PERKS["Drinking"] = [
+    {"name": "Liquid Bandage",  "perk_type": "passive",   "effect": None},                                   # level 1: +10% max HP heal on any drink
+    {"name": "One More Sip",    "perk_type": "passive",   "effect": None},                                   # level 2: 20% chance drink not consumed
+    {"name": "Slow Metabolism", "perk_type": "activated", "effect": {"ability": "slow_metabolism"}},         # level 3: double active drink buff durations (2/floor)
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                                 # levels 4-10
+]
+
+SKILL_PERKS["Beating"] = [
+    {"name": "Stat Up!",  "perk_type": "stat",      "effect": {"strength": 3}},               # level 1
+    {"name": "Bash",      "perk_type": "activated",  "effect": {"ability": "bash"}},           # level 2
+    {"name": "Crit+",     "perk_type": "passive",    "effect": None},                          # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                  # levels 4-10
+]
+
+SKILL_PERKS["Stabbing"] = [
+    {"name": "Gouge",     "perk_type": "activated", "effect": {"ability": "gouge"}},               # level 1
+    {"name": "Stat Up!",  "perk_type": "stat",      "effect": {"street_smarts": 2}},               # level 2
+    {"name": "Windfury",  "perk_type": "passive",   "effect": None},                               # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                       # levels 4-10
+]
+
+SKILL_PERKS["Blackkk Magic"] = [
+    {"name": "Stat Up!",            "perk_type": "stat",      "effect": {"book_smarts": 2}},           # level 1
+    {"name": "Force Be With You",   "perk_type": "activated", "effect": {"ability": "force_push"}},    # level 2
+    {"name": "Arcane Intelligence", "perk_type": "passive",   "effect": None},                         # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                           # levels 4-10
+]
+
+SKILL_PERKS["Smacking"] = [
+    {"name": "Bitch Slap",  "perk_type": "activated", "effect": {"ability": "black_eye_slap"}},  # level 1
+    {"name": "Stat Up!",    "perk_type": "stat",       "effect": {"strength": 3, "constitution": 3}},  # level 2
+    {"name": "Black Eye",   "perk_type": "passive",    "effect": None},                               # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 4-10
+]
+
+SKILL_PERKS["Munching"] = [
+    {"name": "Fatter",       "perk_type": "stat",    "effect": {"constitution": 1}},                      # level 1
+    {"name": "Even Fatter",  "perk_type": "stat",    "effect": {"constitution": 2}},                      # level 2
+    {"name": "Better Later", "perk_type": "passive", "effect": None},                                     # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+]
+
+SKILL_PERKS["Jaywalking"] = [
+    {"name": "Air Jordans",   "perk_type": "passive",   "effect": None},                                  # level 1: move cost -5
+    {"name": "Dash",          "perk_type": "activated", "effect": {"ability": "dash"}},                   # level 2: dash ability
+    {"name": "Airer Jordans", "perk_type": "passive",   "effect": None},                                  # level 3: +10 speed
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+]
+
+SKILL_PERKS["Stealing"] = [
+    {"name": "Street Smarter",        "perk_type": "stat",      "effect": {"street_smarts": 3}},           # level 1: +3 StSmt
+    {"name": "Pickpocket",           "perk_type": "activated", "effect": {"ability": "pickpocket"}},      # level 2: attack ability
+    {"name": "Sticky Fingers",       "perk_type": "passive",   "effect": None},                           # level 3: chance +1 StSmt on first pickup
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+]
+
+
+def get_perk(skill_name: str, level: int) -> dict | None:
+    """Return perk dict for skill at given level (1-10), or None if invalid."""
+    perks = SKILL_PERKS.get(skill_name)
+    if not perks or level < 1 or level > 10:
+        return None
+    return perks[level - 1]
 
 def bksmt_mod(bksmt: int) -> float:
     """Sqrt-based skill_point gain rate from book_smarts.

@@ -577,6 +577,20 @@ BEHAVIORS = {
         },
     },
 
+    # ── Stationary Guard ─────────────────────────────────────────────────
+    # Stands motionless until struck by the player.  Once provoked, chases
+    # permanently (never reverts to idle).  Used by Jerome.
+    "stationary_guard": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(was_provoked, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.WANDERING: idle,
+            AIState.CHASING:   chase,
+        },
+    },
+
     # ── Hit and Run (Niglet) ──────────────────────────────────────────────
     # Cowardly enemy that ambushes from a distance. Wanders until player is
     # spotted, then chases briefly. After one successful attack, immediately

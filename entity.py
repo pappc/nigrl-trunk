@@ -25,6 +25,9 @@ class Entity:
         cash_amount=0,
         quantity=1,             # Stack size (stackable items only; always 1 for non-stackable)
         strain=None,            # Marijuana strain (e.g., "OG Kush") for cannabis items
+        prefix=None,            # Active food prefix ("greasy", etc.); None = no prefix
+        charges=None,           # Remaining uses for prefixed food; None = no charge system
+        max_charges=None,       # Max uses at prefix-apply time
         # --- Enemy fields (None/default for non-monsters) ---
         enemy_type=None,        # Registry key e.g. "tweaker", "crack_addict"
         gender=None,            # "male" | "female"
@@ -40,6 +43,14 @@ class Entity:
         on_hit_effects=None,    # List of on-hit-effect dicts (see enemies.py guide)
         cash_drop=0,            # Cash awarded to player on this monster's death
         dodge_chance=0,         # Melee dodge chance as integer percentage (0-90)
+        crit_chance=0,          # Crit chance as integer percentage (0-90), derived from street_smarts × 3
+        bonus_spell_damage=0,   # Bonus spell damage, derived from book_smarts (future use)
+        bonus_ranged_damage=0,  # Bonus ranged damage, derived from swagger (future use)
+        reveals_on_sight=False, # If True, becomes always_visible the first time player sees it
+        blocks_fov=False,       # If True, entity blocks line-of-sight in FOV computation
+        hazard_type=None,       # "crate" | "fire" | "door" | None — used when entity_type == "hazard"
+        death_drop_chance=0.0,  # Probability (0.0–1.0) of dropping an item on death
+        death_drop_table=None,  # List of item_ids to pick from on death drop
     ):
         self.x = x
         self.y = y
@@ -61,8 +72,15 @@ class Entity:
         self.cash_amount = cash_amount  # dollar value for cash pile entities
         self.quantity = quantity        # stack size (1 for non-stackable items)
         self.strain = strain            # marijuana strain (e.g., "OG Kush") for cannabis items
+        self.prefix = prefix            # active food prefix ("greasy", etc.); None = no prefix
+        self.charges = charges          # remaining uses for prefixed food; None = no charge system
+        self.max_charges = max_charges  # max uses at prefix-apply time
         self.status_effects = []        # list of active status effect dicts
         self.instance_id = str(uuid.uuid4())  # unique ID for tracking loot instances
+        self.dev_invincible = False     # DEV TOOL: if True, take_damage always no-ops
+        self.reveals_on_sight = reveals_on_sight  # marks always_visible when first seen
+        self.always_visible = False     # if True, render even outside FOV (set by landmark system)
+        self.blocks_fov = blocks_fov   # if True, blocks line-of-sight in FOV computation
 
         # Enemy-specific fields
         self.enemy_type     = enemy_type
@@ -79,6 +97,13 @@ class Entity:
         self.on_hit_effects  = on_hit_effects or []
         self.cash_drop      = cash_drop
         self.dodge_chance   = dodge_chance
+        self.crit_chance    = crit_chance
+        self.bonus_spell_damage  = bonus_spell_damage
+        self.bonus_ranged_damage = bonus_ranged_damage
+        self.hazard_type    = hazard_type
+        self.death_drop_chance = death_drop_chance
+        self.death_drop_table  = death_drop_table or []
+        self.toxicity: int  = 0  # meth lab zone: damage-taken multiplier via power scaling
 
     def move(self, dx, dy):
         """Move entity by delta x, y."""
@@ -87,6 +112,8 @@ class Entity:
 
     def take_damage(self, damage):
         """Reduce armor first. If armor > 0, overflow damage is blocked. If armor = 0, damage goes to HP. Returns True if dead."""
+        if self.dev_invincible:
+            return False
         if any(getattr(e, 'id', None) == 'invulnerable' for e in self.status_effects):
             return False
 

@@ -10,7 +10,9 @@
       "Bash(python3:*)",
       "Bash(rm:*)",
       "Bash(gh:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(pip install:*)",
+      "Bash(git stash:*)"
     ]
   }
 }

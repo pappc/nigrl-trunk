@@ -64,14 +64,53 @@ version 0.5 opened 3/5/2026 8:00 pm closed 3/6/2026 2:45 pm
 -added new var "value" to all items
 -implemented dodge chance
 -bug fixes
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~1~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 version 0.6 opened 3/6/2026 2:45 pm
+-All 16(15) skills implemented
+	- first 3 perks available for each
+	- all have methods for gaining exp
+-6 new drinks (alcoholic)
+-targeting visualization for area of effect spells
+bug fixes
+spell targeting fixes
+-6 new foods
+	-3 additonal spells
+-dev tools implemented
+-stairs now highlighted when discovered
+-added tile hazards: crate and fire tiles
+-effect funtionality and UI optimized
+-consumable turn usage
+-6 new weapons + 5 more
+-stats realized on monsters
+-examine verb added
+-verb intuitive keybind
+-graphical enhancements
+-UI enhancements
+-tolerance implemented
+-death screen and reset
+
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
--work on item and enemy placement throughout the dungeon; 
-	-unique room encounters
--dev tools for in game testing
--make monster stats relevant
--add skill functionality
--future add ability to make a hotbar to easilty select abilities
+-unique room encounters
+-future add ability to make a hotbar to easily select abilities
 -implement tolerance in drug tables
+-smart targeting
+-autoexplore
+-autoplay
+-on death automatically start new game
+-main menu
+	-fullscreen options
+	-handling game restarts
+-implement new zone meth_lab
+	-2 major mechanics
+		-radiation and mutation system
+		-toxicity system in technically
+		-each mechanic has it's own suite of items and stats related to them
+	-2 cartel factions aldor and scryer
+-armeor changes so it is more intuitive
+-when ugly stripper is hit make her hostile
+
+
+tolerance
+
+fix hangover 9999999 duration

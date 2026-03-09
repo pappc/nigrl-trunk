@@ -43,9 +43,13 @@ The codebase follows a clean, modular design with clear separation of concerns:
 - **ai.py**: Behavioral state machine with AIState enum (IDLE, WANDERING, CHASING, FLEEING, ALERTING). Each AI mode declaratively specified. Status effects as pluggable lifecycle hooks. Central functions: `prepare_ai_tick()`, `do_ai_turn()`.
 - **enemies.py**: `MonsterTemplate` dataclass-based registry system. Declarative enemy definitions with easy validation via `validate_registry()`. Supports variants, special attacks, on-hit effects, and spawn tables per zone.
 - **items.py**: Item definition dict + crafting recipes. Factory function `create_item_entity()` instantiates items as Entity objects linked via `item_id`.
+- **foods.py**: Food item definitions (`FOOD_DEFS`) separate from `items.py`. Foods require multi-turn eating; effects apply on completion. Effect types: `heal`, `hot` (HoT), `speed_boost`, `hot_cheetos`.
+- **hazards.py**: Factory functions `create_crate()` and `create_fire()`. Hazards use `entity_type="hazard"` with custom graphical tiles injected at startup (`0xE000` crate, `0xE001` fire).
+- **abilities.py**: Ability system. `AbilityDef` (declarative, data-only) + `AbilityInstance` (mutable runtime state). `ABILITY_REGISTRY` keyed by string id. `TargetType` enum: SELF, SINGLE_ENEMY_LOS, LINE_FROM_PLAYER, AOE_CIRCLE. `ChargeType` enum: INFINITE, PER_FLOOR, TOTAL, ONCE, FLOOR_ONLY. Abilities granted via `engine.grant_ability()`.
+- **loot.py**: Zone-based loot generation. `generate_floor_loot(zone, floor_num, player_skills)` returns `(item_id, strain_or_None)` tuples. Zone configs define per-floor budgets by category (consumable, material, tool, equipment).
 - **stats.py**: `PlayerStats` class. Stat calculations (HP, damage, defense) derived from base stats (Constitution, Strength, Street Smarts, Book Smarts, Tolerance, Swagger).
-- **skills.py**: Player skill/unlock system.
-- **status_effect.py**: Base `StatusEffect` class. Subclasses override lifecycle hooks: `tick()`, `on_expire()`, `before_turn()`, `modify_speed()`, `modify_movement()`.
+- **skills.py**: Player skill/unlock system. XP-based progression across multiple skill trees (Smoking, Rolling, Stealing, Munching, Deep-Frying, Blackkk Magic, Jaywalking). Skills unlock perks and abilities at level thresholds.
+- **effects.py**: Central status effect system. Base `Effect` class with lifecycle hooks: `apply()`, `tick()`, `expire()`, `before_turn()`, `modify_movement()`, `modify_energy_gain()`, `modify_incoming_damage()`, `on_player_melee_hit()`. Effects use `@register` class decorator and have `category` (buff/debuff) and `priority` fields. 40+ concrete effect subclasses. (Note: `status_effect.py` is a deprecated stub.)
 - **menu_state.py**: `MenuState` enum (NONE, CHAR_SHEET, INVENTORY, SKILLS, EQUIPMENT, ITEM_MENU, COMBINE_SELECT, LOG).
 - **event_bus.py**: EventBus for decoupled event publishing.
 
@@ -71,7 +75,7 @@ AI modes are stateless; each turn `do_ai_turn()` evaluates transition conditions
 
 ### Status Effects as Lifecycle Hooks
 
-Status effects are objects (not dicts) with pluggable hooks. Old dict-based effects auto-upgraded on first access for backward compatibility.
+Status effects are objects (not dicts) with pluggable hooks defined in **effects.py**. Each effect subclass overrides lifecycle methods. Effects are applied via `apply_effect(entity, effect_name, **kwargs)` and registered with the `@register` decorator.
 
 ### Menu System
 
@@ -99,8 +103,14 @@ Single `menu_state` enum controls which overlay is rendered. `render_all()` disp
 ## Testing
 
 - **test_game.py**: Core mechanics (initialization, movement, combat, pickup, permadeath).
-- **test_jerome.py**, **test_niglet.py**, **test_thug.py**: Individual enemy behavior tests.
+- **test_jerome.py**, **test_niglet.py**, **test_thug.py**, **test_baby_momma.py**, **test_jungle_boyz.py**: Individual enemy behavior tests.
+- **test_food_system.py**: Food eating mechanics and effects.
+- **test_bic_torch.py**, **test_fireball_wizard_bomb.py**, **test_blackkk_magic_xp.py**: Ability/spell system tests.
+- **test_smoking_skill_perks.py**, **test_stealing_xp.py**, **test_ring_replacement.py**, **test_skill_unlock_notifications.py**: Skill and XP system tests.
+- **test_targeting_framework.py**: Ability targeting tests.
+- **test_stack_display.py**: Item stack display formatting tests.
 - Run all: `python -m pytest test_*.py -v`
+- Run single test file: `python -m pytest test_food_system.py -v`
 
 ## Common Tasks
 
@@ -111,10 +121,15 @@ Single `menu_state` enum controls which overlay is rendered. `render_all()` disp
 4. If custom AI or special attacks needed, define in the template; see existing enemies for examples.
 
 ### Adding a New Item
-1. Add entry to `ITEM_DEFS` dict in **items.py** with category, char, color, and effects.
+1. Add entry to `ITEM_DEFS` dict in **items.py** with category, char, color, and effects. For food items, add to `FOOD_DEFS` in **foods.py** instead.
 2. If equippable, set `equip_slot` and stat bonuses (power_bonus, defense_bonus, etc.).
 3. If usable, define `use_verb` (e.g., "Smoke") and `use_effect` dict.
-4. Item automatically appears in dungeon via spawn tables when loot rolls hit its weight.
+4. Tag with `"zones": ["crack_den"]` and set a `weight`; item will appear via `loot.py` generation.
+
+### Adding a New Ability
+1. Add an `AbilityDef` entry to `ABILITY_REGISTRY` in **abilities.py** with `target_type`, `charge_type`, and an `execute` callable.
+2. Grant it via `engine.grant_ability(ability_id)` from an item use effect or skill unlock.
+3. No other files need changing — the targeting/UI system dispatches based on `target_type`.
 
 ### Adding a New Menu
 1. Add enum value to `MenuState` in **menu_state.py**.
@@ -131,7 +146,7 @@ Single `menu_state` enum controls which overlay is rendered. `render_all()` disp
 - FOV uses simple distance check; shadowcasting recommended for complex room layouts.
 - Floors 2–4 are placeholders (identical to floor 1).
 - Item placement purely random; unique room encounters planned.
-- Inventory system basic; item stacking not yet implemented.
+- Inventory uses item stacking with count-based display.
 
 ## Code Style
 

@@ -18,7 +18,7 @@ class PlayerStats:
 
     Constitution  — determines max HP (base 30 + CON × 10)
     Strength      — weapon damage bonus; scaling varies per weapon
-    Book-Smarts   — skill XP multiplier (1.0x – 1.7x)
+    Book-Smarts   — skill point gain rate (higher = faster conversion)
     Street-Smarts — critical strike chance (SS × 3%, range 15%-36%)
     Tolerance     — drug effect multiplier; lower = stronger (1.0x – 1.7x)
     Swagger       — melee defence bonus; +1 defence per 2 points above 5 (SWG 5=0, 7=+1, 9=+2);
@@ -79,6 +79,9 @@ class PlayerStats:
         self.permanent_armor_bonus: int = 0
         # Dodge chance — integer percentage (0-90); no base stat grants it
         self.dodge_chance: int = 0
+        # Spell damage — flat bonus added to all spell formulas
+        self.spell_damage: int = 0
+        self.temporary_spell_damage: int = 0
 
     # --- Ring bonus application ---
 
@@ -109,6 +112,19 @@ class PlayerStats:
     def add_dodge_chance(self, amount: int):
         """Add to dodge chance, clamping to [0, 90]."""
         self.set_dodge_chance(self.dodge_chance + amount)
+
+    def set_temporary_spell_damage(self, amount: int):
+        """Set temporary spell damage bonus."""
+        self.temporary_spell_damage = amount
+
+    def add_temporary_spell_damage(self, amount: int):
+        """Add to temporary spell damage bonus."""
+        self.temporary_spell_damage += amount
+
+    @property
+    def total_spell_damage(self) -> int:
+        """Total spell damage = permanent + temporary."""
+        return self.spell_damage + self.temporary_spell_damage
 
     def _tb(self, stat: str) -> int:
         """Shorthand: temporary bonus for a named stat."""
@@ -152,13 +168,8 @@ class PlayerStats:
 
     @property
     def xp_multiplier(self):
-        """Skill XP multiplier from Book-Smarts (including ring bonuses)."""
-        return 1.0 + (self.effective_book_smarts - _STAT_MIN) * 0.1
-
-    @property
-    def drug_multiplier(self):
-        """Drug potency multiplier — lower Tolerance = stronger effects (including ring bonuses)."""
-        return 1.0 + (_STAT_MAX - self.effective_tolerance) * 0.1
+        """Skill XP multiplier (always 1.0; Book-Smarts affects skill_point gain instead)."""
+        return 1.0
 
     def stat_delta(self, stat_name: str) -> int:
         """current minus base for the named stat. Negative = debuffed, positive = buffed."""

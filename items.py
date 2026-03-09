@@ -6,6 +6,7 @@ Entity objects link to definitions via their `item_id` field.
 """
 
 import math as _math
+from foods import FOOD_DEFS, get_food_prefix_def
 
 # ---------------------------------------------------------------------------
 # Marijuana strains
@@ -40,6 +41,67 @@ STRAIN_ROLLING_XP = {
     "Blue Lobster": 125,     # Complex damage/defense mechanic
     "Jungle Boyz": 150,      # Multiple attack-based effects
     "Dosidos": 175,          # Complex spellcasting effects
+}
+
+# Munching skill XP values per food
+# Eating food grants XP based on food type and effects
+# ---------------------------------------------------------------------------
+# Tolerance bonus-roll thresholds per strain
+#
+# first_bonus_roll: minimum Tolerance to gain 1 extra roll (take best)
+# add_bonus_roll:   each additional N Tolerance beyond first grants another roll
+# ---------------------------------------------------------------------------
+STRAIN_TOLERANCE_THRESHOLDS = {
+    "OG Kush":       {"first_bonus_roll": 8,  "add_bonus_roll": 5},
+    "Columbian Gold": {"first_bonus_roll": 8,  "add_bonus_roll": 5},
+    "Agent Orange":  {"first_bonus_roll": 9,  "add_bonus_roll": 6},
+    "Jungle Boyz":   {"first_bonus_roll": 10, "add_bonus_roll": 6},
+    "Blue Lobster":  {"first_bonus_roll": 10, "add_bonus_roll": 7},
+    "Dosidos":       {"first_bonus_roll": 9,  "add_bonus_roll": 6},
+}
+
+
+def calc_tolerance_rolls(strain: str, tolerance: int) -> tuple[int, int]:
+    """Return (num_rolls, roll_floor) based on tolerance and strain thresholds.
+
+    num_rolls: how many d100 to roll (take best). Minimum 1.
+    roll_floor: minimum value each roll can produce.
+    """
+    thresholds = STRAIN_TOLERANCE_THRESHOLDS.get(strain)
+    if not thresholds:
+        return 1, 0
+
+    first = thresholds["first_bonus_roll"]
+    add = thresholds["add_bonus_roll"]
+
+    if tolerance >= first:
+        bonus = 1 + (tolerance - first) // add
+    else:
+        bonus = 0
+    num_rolls = 1 + bonus
+
+    # Roll floor: max(0, (tolerance - 12) // 2)
+    roll_floor = max(0, (tolerance - 12) // 2)
+
+    return num_rolls, roll_floor
+
+
+FOOD_MUNCHING_XP = {
+    "chicken": 50,           # Simple healing food
+    "instant_ramen": 60,     # Speed boost (value 30 × 2)
+    "hot_cheetos": 110,      # Complex buff (stats + melee effect + expire effect)
+    "cornbread": 50,         # Moderate: stat buff + spell charges
+    "corn_dog": 40,          # Quick eat, melee charges
+    "lightskin_beans": 70,   # Long eat, powerful AoE spell
+    "leftovers": 25,         # Proc'd from Better Later perk
+}
+
+# Deep-Frying skill XP values per food
+# Frying food grants XP equal to the material's value × 2
+ITEM_DEEP_FRYING_XP = {
+    "chicken": 50,           # value 25 × 2
+    "instant_ramen": 60,     # value 30 × 2
+    "hot_cheetos": 80,       # value 40 × 2
 }
 
 
@@ -382,6 +444,23 @@ CHAIN_ZONE_CONFIGS = {
         "brand_weights":    {None: 10, "Fake": 3, "Designer": 2},
         "style_weights":    {None: 10, "Bummy": 1, "Ghetto": 4, "Raw": 4, "Iced-Out": 1},
     },
+    # ── FUTURE ZONES ─────────────────────────────────────────────────────────
+    # TODO: tune per zone as content is built out
+    "meth_lab": {
+        "material_weights": {"Bronze": 1, "Brass": 2, "Steel": 6, "Silver": 1},
+        "brand_weights":    {None: 8, "Fake": 4, "Designer": 1},
+        "style_weights":    {None: 8, "Bummy": 3, "Ghetto": 5, "Raw": 3, "Iced-Out": 1},
+    },
+    "casino_botanical": {
+        "material_weights": {"Bronze": 1, "Brass": 2, "Steel": 4, "Silver": 4},
+        "brand_weights":    {None: 6, "Fake": 2, "Designer": 5},
+        "style_weights":    {None: 6, "Bummy": 1, "Ghetto": 2, "Raw": 4, "Iced-Out": 4},
+    },
+    "the_underprison": {
+        "material_weights": {"Bronze": 4, "Brass": 4, "Steel": 2, "Silver": 1},
+        "brand_weights":    {None: 12, "Fake": 5, "Designer": 1},
+        "style_weights":    {None: 12, "Bummy": 5, "Ghetto": 5, "Raw": 3, "Iced-Out": 1},
+    },
 }
 
 
@@ -555,6 +634,27 @@ ITEM_DEFS = {
         "use_verb": None,
         "use_effect": None,
     },
+    "bottle_tipped_spear": {
+        "name": "Bottle Tipped Spear",
+        "char": "/",
+        "color": (180, 220, 160),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 6,
+        "str_req": 5,
+        "reach": 2,
+        # +1 dmg per 1 STR for first 2 pts over req, then +1 per 2 for next 4,
+        # +1 per 3 for next 6, continuing with increasing divisors, capping at +1 per 8 STR
+        "str_scaling": {"type": "diminishing_tiered"},
+        "weapon_type": "stabbing",
+        "value": 40,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
     "kids_basketball_pole": {
         "name": "Kids Basketball Pole",
         "char": "/",
@@ -565,7 +665,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "base_damage": 9,
-        "str_req": 9,
+        "str_req": 12,
         "reach": 3,
         "stat_scaling": {"type": "threshold", "stat": "street_smarts", "threshold": 7},  # +1 dmg per STSMT above 7
         "weapon_type": "blunt",
@@ -613,6 +713,166 @@ ITEM_DEFS = {
         "use_verb": None,
         "use_effect": None,
     },
+    "crowbar": {
+        "name": "Crowbar",
+        "char": "/",
+        "color": (160, 160, 160),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 5,
+        "str_req": 8,
+        "reach": 1,
+        "weapon_type": "blunt",
+        "str_scaling": {"type": "tiered", "divisor": 1},  # +1 per STR above req
+        "grants_ability": "pry",
+        "value": 50,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "two_by_four": {
+        "name": "2x4",
+        "char": "/",
+        "color": (180, 140, 90),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 2,
+        "str_req": 8,
+        "reach": 1,
+        "weapon_type": "blunt",
+        "stat_scaling": {"type": "swagger_linear", "divisor": 2},
+        "value": 40,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "crooked_baseball_bat": {
+        "name": "Crooked Baseball Bat",
+        "char": "/",
+        "color": (200, 160, 80),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 12,
+        "str_req": 5,
+        "reach": 1,
+        "weapon_type": "blunt",
+        "break_chance": 0.075,
+        "value": 60,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "blackjack": {
+        "name": "Blackjack",
+        "char": "/",
+        "color": (80, 80, 80),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 4,
+        "str_req": 6,
+        "reach": 1,
+        "weapon_type": "blunt",
+        "str_scaling": {"type": "ratio", "numerator": 2, "denominator": 3},  # +2/3 per STR above req
+        "on_hit_stun_chance": 0.10,
+        "stun_duration": 3,
+        "value": 55,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "bone_club": {
+        "name": "Bone Club",
+        "char": "/",
+        "color": (220, 205, 175),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 8,
+        "str_req": 5,
+        "reach": 1,
+        "weapon_type": "blunt",
+        "str_scaling": {"type": "tiered", "divisor": 2},  # +1 per 2 STR above 5
+        "vampiric": 0.30,                                  # heal 30% of damage dealt (after defense)
+        "value": 55,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "monkey_wrench": {
+        "name": "Monkey Wrench",
+        "char": "/",
+        "color": (160, 130, 80),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 7,
+        "str_req": 7,
+        "reach": 1,
+        "weapon_type": "blunt",
+        "stat_scaling": {"type": "threshold", "stat": "street_smarts", "threshold": 5},  # +1 per STSMT above 5
+        "on_hit_disarm_chance": 0.20,
+        "disarm_duration": 3,
+        "value": 52,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "masonry_hammer": {
+        "name": "Masonry Hammer",
+        "char": "/",
+        "color": (170, 100, 60),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 10,
+        "str_req": 9,
+        "reach": 1,
+        "weapon_type": "blunt",
+        "str_scaling": {"type": "tiered", "divisor": 2},  # +1 per 2 STR above 9
+        "on_hit_sunder": 1,                                # permanently reduce defender.defense by 1 per hit
+        "value": 58,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "extension_cord": {
+        "name": "Extension Cord",
+        "char": "/",
+        "color": (220, 100, 30),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 4,
+        "str_req": 3,
+        "reach": 2,
+        "weapon_type": "blunt",
+        "stat_scaling": {"type": "swagger_linear", "divisor": 2},  # +1 per 2 SWAGGER
+        "on_hit_bounce": {"chance": 0.25, "damage_pct": 0.50},     # 25% chance to arc to nearest adj enemy
+        "value": 42,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
     "weed_nug": {
         "name": "1g nug",  # strain appended in brackets via build_item_name
         "char": "*",
@@ -655,6 +915,20 @@ ITEM_DEFS = {
         "use_verb": None,
         "use_effect": None,
     },
+    "fry_daddy": {
+        "name": "Fry Daddy",
+        "char": "Θ",
+        "color": (200, 140, 60),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 60,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
     "rolling_paper": {
         "name": "Rolling Paper",
         "char": "~",
@@ -668,6 +942,34 @@ ITEM_DEFS = {
         "primary_skill": "Rolling",
         "use_verb": None,
         "use_effect": None,
+    },
+    "spectral_paper": {
+        "name": "Spectral Paper",
+        "char": "~",
+        "color": (180, 180, 255),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 0,
+        "primary_skill": "Rolling",
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "bic_torch": {
+        "name": "BIC Torch",
+        "char": "t",
+        "color": (255, 165, 0),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 25,
+        "primary_skill": "Pyromania",
+        "use_verb": "Burn",
+        "use_effect": {"type": "torch_burn"},
     },
     "joint": {
         "name": "Joint",  # strain appended in brackets via build_item_name
@@ -695,7 +997,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 20,
+        "value": 40,
         "primary_skill": "Alcoholism",
         "secondary_skill": "Drinking",
         "tertiary_skill": None,
@@ -712,7 +1014,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 20,
+        "value": 40,
         "primary_skill": "Alcoholism",
         "secondary_skill": "Drinking",
         "tertiary_skill": None,
@@ -729,7 +1031,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 20,
+        "value": 40,
         "primary_skill": "Alcoholism",
         "secondary_skill": "Drinking",
         "tertiary_skill": None,
@@ -746,7 +1048,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 20,
+        "value": 40,
         "primary_skill": "Alcoholism",
         "secondary_skill": "Drinking",
         "tertiary_skill": "Blackkk Magic",
@@ -763,7 +1065,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 20,
+        "value": 40,
         "primary_skill": "Alcoholism",
         "secondary_skill": "Drinking",
         "tertiary_skill": "Smoking",
@@ -780,13 +1082,149 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 20,
+        "value": 40,
         "primary_skill": "Alcoholism",
         "secondary_skill": "Drinking",
         "tertiary_skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
         "use_effect": {"type": "alcohol", "drink_id": "steel_reserve"},
+    },
+    "chicken": {
+        "name": "Chicken",
+        "char": "f",
+        "color": (200, 180, 140),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 25,
+        "primary_skill": "Cooking",
+        "secondary_skill": "Eating",
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "chicken"},
+    },
+    "instant_ramen": {
+        "name": "Instant Ramen",
+        "char": "f",
+        "color": (255, 200, 100),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "instant_ramen"},
+    },
+    "hot_cheetos": {
+        "name": "Hot Cheetos",
+        "char": "f",
+        "color": (255, 140, 40),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 40,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "hot_cheetos"},
+    },
+    "cornbread": {
+        "name": "Cornbread",
+        "char": "f",
+        "color": (220, 180, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 25,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "cornbread"},
+    },
+    "corn_dog": {
+        "name": "Corn Dog",
+        "char": "f",
+        "color": (220, 160, 60),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "corn_dog"},
+    },
+    "lightskin_beans": {
+        "name": "Lightskin Beans",
+        "char": "f",
+        "color": (160, 200, 120),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 35,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "lightskin_beans"},
+    },
+    "leftovers": {
+        "name": "Leftovers",
+        "char": "f",
+        "color": (180, 140, 100),
+        "category": "food",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 5,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": [],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "leftovers"},
+    },
+    "big_niggas_key": {
+        "name": "Big Nigga's Key",
+        "char": "~",
+        "color": (220, 180, 60),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 0,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
     },
 }
 
@@ -825,6 +1263,14 @@ def get_skill_xp(item_id: str, skill_name: str) -> int:
     return round(get_item_value(item_id) * multiplier)
 
 
+def get_deep_frying_xp(food_item_id: str) -> int:
+    """Return the base XP gain for deep-frying a food item.
+
+    Returns the XP value from ITEM_DEEP_FRYING_XP dict, or 0 if unknown.
+    """
+    return ITEM_DEEP_FRYING_XP.get(food_item_id, 0)
+
+
 # Ring tag helpers
 # ---------------------------------------------------------------------------
 
@@ -858,6 +1304,12 @@ def get_random_ring_by_tags(tags):
 # Value: {"result": item_id, "consumed": [item_ids that are removed]}
 # ---------------------------------------------------------------------------
 
+# Maps prefix-tool item_id -> prefix name it applies
+PREFIX_TOOL_ITEMS: dict[str, str] = {
+    "fry_daddy": "greasy",
+}
+
+
 RECIPES = {
     ("weed_nug", "grinder"): {
         "result": "kush",
@@ -866,6 +1318,10 @@ RECIPES = {
     ("kush", "rolling_paper"): {
         "result": "joint",
         "consumed": ["kush", "rolling_paper"],
+    },
+    ("kush", "spectral_paper"): {
+        "result": "joint",
+        "consumed": ["kush"],               # spectral paper is a reusable tool
     },
 }
 
@@ -904,11 +1360,12 @@ def build_item_name(item_id, strain=None):
     return base_name
 
 
-def build_inventory_display_name(item_id, strain, quantity):
+def build_inventory_display_name(item_id, strain, quantity, prefix=None, charges=None, max_charges=None):
     """Build the inventory panel display name for an item, respecting gram-based naming.
 
     weed_nug: "1g nug OG Kush" / "3g nugs OG Kush"
     kush:     "1g OG Kush"     / "3g OG Kush"
+    prefixed food: "Greasy Chicken (2/2)"
     others:   base name + " x{n}" suffix when quantity > 1
     """
     qty = quantity or 1
@@ -922,6 +1379,12 @@ def build_inventory_display_name(item_id, strain, quantity):
         return f"{qty}g{strain_part}"
 
     base = build_item_name(item_id, strain)
+
+    if prefix is not None and charges is not None and max_charges is not None:
+        pdef = get_food_prefix_def(prefix)
+        adj = pdef["display_adjective"] if pdef else prefix.title()
+        return f"{adj} {base} ({charges}/{max_charges})"
+
     if qty > 1:
         return f"{base} x{qty}"
     return base
@@ -956,19 +1419,23 @@ def get_craft_result_strain(item_a, item_b):
         return item_a.strain
     elif item_a.item_id == "grinder" and item_b.item_id == "weed_nug":
         return item_b.strain
-    elif item_a.item_id == "kush" and item_b.item_id == "rolling_paper":
+    elif item_a.item_id == "kush" and item_b.item_id in ("rolling_paper", "spectral_paper"):
         return item_a.strain
-    elif item_a.item_id == "rolling_paper" and item_b.item_id == "kush":
+    elif item_a.item_id in ("rolling_paper", "spectral_paper") and item_b.item_id == "kush":
         return item_b.strain
 
     return None
 
 
 def can_combine(item_id):
-    """Return True if item_id appears as an ingredient in any recipe."""
+    """Return True if item_id can participate in any combine (recipe or prefix-tool)."""
     for a, b in RECIPES:
         if item_id == a or item_id == b:
             return True
+    if item_id in PREFIX_TOOL_ITEMS:
+        return True
+    if item_id in FOOD_DEFS:
+        return True
     return False
 
 
@@ -989,6 +1456,7 @@ def get_actions(item_id):
     if can_combine(item_id):
         actions.append("Use on...")
 
+    actions.append("Examine")
     actions.append("Drop")
     actions.append("Destroy")
     return actions
@@ -996,10 +1464,16 @@ def get_actions(item_id):
 
 def get_combine_targets(item_id, inventory_item_ids):
     """Given a source item_id and a list of other inventory item_ids,
-    return the indices of items that form a valid recipe with item_id."""
+    return the indices of items that form a valid recipe or prefix-tool combine with item_id."""
     targets = []
     for i, other_id in enumerate(inventory_item_ids):
         if find_recipe(item_id, other_id):
+            targets.append(i)
+            continue
+        if item_id in PREFIX_TOOL_ITEMS and other_id in FOOD_DEFS:
+            targets.append(i)
+            continue
+        if item_id in FOOD_DEFS and other_id in PREFIX_TOOL_ITEMS:
             targets.append(i)
     return targets
 
@@ -1008,6 +1482,369 @@ def find_env_interaction(item_id, env_feature):
     """Look up an environment interaction by item_id and feature name.
     Returns interaction dict or None."""
     return ENV_INTERACTIONS.get((item_id, env_feature))
+
+
+def generate_examine_lines(item_id, engine=None):
+    """Generate a list of text lines describing an item for the Examine overlay.
+
+    Each line is either a plain string or a (text, (r,g,b)) tuple for coloring.
+    Returns a list of lists, where each inner list is one visual line
+    (each element is a (text, color) tuple).
+    """
+    defn = ITEM_DEFS.get(item_id)
+    if not defn:
+        return [[("Unknown item.", (200, 200, 200))]]
+
+    lines = []
+    C_LABEL = (180, 180, 220)
+    C_VALUE = (255, 255, 200)
+    C_GOOD  = (100, 220, 100)
+    C_BAD   = (255, 100, 100)
+    C_INFO  = (200, 200, 200)
+    C_HINT  = (150, 150, 180)
+
+    category = defn.get("category", "")
+    subcategory = defn.get("subcategory")
+
+    # --- Category header ---
+    cat_display = category.title()
+    if subcategory:
+        cat_display += f" ({subcategory.title()})"
+    lines.append([(cat_display, C_HINT)])
+
+    # --- WEAPONS ---
+    if subcategory == "weapon":
+        wtype = defn.get("weapon_type", "melee")
+        lines.append([("Type: ", C_LABEL), (wtype.title(), C_VALUE)])
+
+        base_dmg = defn.get("base_damage", 0)
+        lines.append([("Base Damage: ", C_LABEL), (str(base_dmg), C_VALUE)])
+
+        # STR scaling description
+        scaling = defn.get("str_scaling")
+        stat_scaling = defn.get("stat_scaling")
+        req = defn.get("str_req", 1)
+
+        if scaling:
+            stype = scaling["type"]
+            if stype == "tiered":
+                div = scaling.get("divisor", 2)
+                if div == 1:
+                    desc = f"+1 per STR above {req}"
+                else:
+                    desc = f"+1 per {div} STR above {req}"
+            elif stype == "linear":
+                base = scaling.get("base", 5)
+                desc = f"+1 per STR above {base}"
+            elif stype == "diminishing_tiered":
+                desc = f"Diminishing per STR above {req}"
+            elif stype == "ratio":
+                n = scaling.get("numerator", 1)
+                d = scaling.get("denominator", 1)
+                desc = f"+{n}/{d} per STR above {req}"
+            else:
+                desc = "STR scaling"
+            lines.append([("Scaling: ", C_LABEL), (desc, C_INFO)])
+        elif stat_scaling:
+            stype = stat_scaling["type"]
+            if stype == "threshold":
+                stat = stat_scaling["stat"].replace("_", " ").title()
+                thresh = stat_scaling["threshold"]
+                desc = f"+1 per {stat} above {thresh}"
+            elif stype == "swagger_linear":
+                div = stat_scaling.get("divisor", 2)
+                desc = f"+1 per {div} Swagger"
+            else:
+                desc = "Special scaling"
+            lines.append([("Scaling: ", C_LABEL), (desc, C_INFO)])
+
+        # Current total damage
+        if engine:
+            weapon = engine.equipment.get("weapon")
+            if weapon and weapon.item_id == item_id:
+                total = engine._compute_player_attack_power()
+                lines.append([("Current Damage: ", C_LABEL), (str(total), C_GOOD)])
+            else:
+                # Compute what damage would be if equipped
+                # Manually compute for this weapon
+                _str = engine.player_stats.effective_strength
+                bonus = 0
+                if scaling:
+                    stype = scaling["type"]
+                    if stype == "tiered":
+                        bonus = max(0, (_str - req) // scaling.get("divisor", 2))
+                    elif stype == "linear":
+                        bonus = max(0, _str - scaling.get("base", 5))
+                    elif stype == "diminishing_tiered":
+                        excess = max(0, _str - req)
+                        divisor = 1
+                        tier_size = 2
+                        remaining = excess
+                        while remaining > 0:
+                            if divisor >= 8:
+                                bonus += remaining // 8
+                                break
+                            chunk = min(remaining, tier_size)
+                            bonus += chunk // divisor
+                            remaining -= chunk
+                            divisor += 1
+                            tier_size += 2
+                    elif stype == "ratio":
+                        n = scaling.get("numerator", 1)
+                        d = scaling.get("denominator", 1)
+                        bonus = max(0, (_str - req) * n // d)
+                elif stat_scaling:
+                    if stat_scaling["type"] == "threshold":
+                        stat_val = getattr(engine.player_stats, f"effective_{stat_scaling['stat']}", 0)
+                        bonus = max(0, stat_val - stat_scaling["threshold"])
+                    elif stat_scaling["type"] == "swagger_linear":
+                        div = stat_scaling.get("divisor", 2)
+                        bonus = getattr(engine.player_stats, "effective_swagger", 0) // div
+                total = base_dmg + bonus
+                lines.append([("Damage if equipped: ", C_LABEL), (str(total), C_VALUE)])
+
+        lines.append([("STR Required: ", C_LABEL), (str(req), C_VALUE)])
+
+        reach = defn.get("reach", 1)
+        if reach > 1:
+            lines.append([("Reach: ", C_LABEL), (f"{reach} tiles", C_VALUE)])
+
+        # Special weapon properties
+        if defn.get("on_hit_effect"):
+            eff = defn["on_hit_effect"]
+            eff_name = eff.get("type", "").replace("_", " ").title()
+            lines.append([("On Hit: ", C_LABEL), (f"{eff_name}", C_GOOD)])
+        if defn.get("on_hit_stun_chance"):
+            chance = int(defn["on_hit_stun_chance"] * 100)
+            dur = defn.get("stun_duration", 1)
+            lines.append([("On Hit: ", C_LABEL), (f"{chance}% stun ({dur} turns)", C_GOOD)])
+        if defn.get("vampiric"):
+            pct = int(defn["vampiric"] * 100)
+            lines.append([("Vampiric: ", C_LABEL), (f"Heal {pct}% of damage", C_GOOD)])
+        if defn.get("on_hit_sunder"):
+            amt = defn["on_hit_sunder"]
+            lines.append([("Sunder: ", C_LABEL), (f"-{amt} defense per hit", C_GOOD)])
+        if defn.get("on_hit_disarm_chance"):
+            chance = int(defn["on_hit_disarm_chance"] * 100)
+            dur = defn.get("disarm_duration", 1)
+            lines.append([("On Hit: ", C_LABEL), (f"{chance}% disarm ({dur} turns)", C_GOOD)])
+        if defn.get("on_hit_bounce"):
+            b = defn["on_hit_bounce"]
+            chance = int(b.get("chance", 0) * 100)
+            pct = int(b.get("damage_pct", 0) * 100)
+            lines.append([("Chain Hit: ", C_LABEL), (f"{chance}% at {pct}% damage", C_GOOD)])
+        if defn.get("break_chance"):
+            chance = round(defn["break_chance"] * 100, 1)
+            lines.append([("Break Chance: ", C_LABEL), (f"{chance}% per hit", C_BAD)])
+        if defn.get("on_hit_skill_xp"):
+            sk = defn["on_hit_skill_xp"]
+            lines.append([("Trains: ", C_LABEL), (f"{sk['skill']} (+{sk['amount']} XP/hit)", C_INFO)])
+        if defn.get("grants_ability"):
+            lines.append([("Grants: ", C_LABEL), (defn["grants_ability"].replace("_", " ").title(), C_GOOD)])
+
+    # --- NECK EQUIPMENT (chains) ---
+    elif subcategory == "neck":
+        armor = defn.get("armor_bonus", 0)
+        lines.append([("Armor: ", C_LABEL), (f"+{armor}", C_GOOD)])
+        sb = defn.get("stat_bonus", {})
+        for stat, val in sb.items():
+            stat_display = stat.replace("_", " ").title()
+            lines.append([(f"{stat_display}: ", C_LABEL), (f"+{val}", C_GOOD)])
+
+    # --- FEET EQUIPMENT (jordans) ---
+    elif subcategory == "feet":
+        armor = defn.get("armor_bonus", 0)
+        lines.append([("Armor: ", C_LABEL), (f"+{armor}", C_GOOD)])
+        sb = defn.get("stat_bonus", {})
+        for stat, val in sb.items():
+            stat_display = stat.replace("_", " ").title()
+            lines.append([(f"{stat_display}: ", C_LABEL), (f"+{val}", C_GOOD)])
+
+    # --- RINGS ---
+    elif subcategory == "ring":
+        sb = defn.get("stat_bonus", {})
+        for stat, val in sb.items():
+            stat_display = stat.replace("_", " ").title()
+            sign = "+" if val > 0 else ""
+            color = C_GOOD if val > 0 else C_BAD
+            lines.append([(f"{stat_display}: ", C_LABEL), (f"{sign}{val}", color)])
+        pb = defn.get("power_bonus", 0)
+        if pb:
+            lines.append([("Power: ", C_LABEL), (f"+{pb}", C_GOOD)])
+        db = defn.get("defense_bonus", 0)
+        if db:
+            lines.append([("Defense: ", C_LABEL), (f"+{db}", C_GOOD)])
+
+    # --- CONSUMABLES ---
+    elif category == "consumable":
+        use_eff = defn.get("use_effect")
+        if use_eff:
+            etype = use_eff.get("type")
+
+            if etype == "strain_roll":
+                lines.append([("Smoke to trigger a random strain", C_INFO)])
+                lines.append([("effect (roll 1-100).", C_INFO)])
+                skill = defn.get("primary_skill")
+                if skill:
+                    lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
+
+            elif etype == "alcohol":
+                drink_id = use_eff.get("drink_id", "")
+                _drink_descs = {
+                    "40oz": [
+                        "Restores 50% armor.",
+                        "+5 Swagger for 50 turns.",
+                        "+1 hangover stack.",
+                    ],
+                    "fireball_shooter": [
+                        "Grants 3 Breath Fire charges.",
+                        "+2 hangover stacks.",
+                    ],
+                    "malt_liquor": [
+                        "+8 STR, -2 CON, +20 armor",
+                        "for 50 turns.",
+                        "+1 hangover stack.",
+                    ],
+                    "wizard_mind_bomb": [
+                        "Grants 3 Breath Fire charges.",
+                        "+2 charges to all active spells.",
+                        "+5 Book Smarts for 50 turns.",
+                        "+1 hangover stack.",
+                    ],
+                    "homemade_hennessy": [
+                        "-2 STR, +5 Tolerance for",
+                        "50 turns. Enables double smoke.",
+                        "+1 hangover stack.",
+                    ],
+                    "steel_reserve": [
+                        "Heals 50% max HP.",
+                        "+3 permanent armor.",
+                        "+1 hangover stack.",
+                    ],
+                }
+                desc_lines = _drink_descs.get(drink_id, ["Alcohol effect."])
+                for dl in desc_lines:
+                    lines.append([(dl, C_INFO)])
+
+            elif etype == "food":
+                food_id = use_eff.get("food_id", "")
+                from foods import FOOD_DEFS
+                fdef = FOOD_DEFS.get(food_id)
+                if fdef:
+                    eat_len = fdef.get("eat_length", 0)
+                    lines.append([("Eat Time: ", C_LABEL), (f"{eat_len} turns", C_VALUE)])
+                    for eff in fdef.get("effects", []):
+                        ft = eff.get("type")
+                        if ft == "heal":
+                            amt = eff["amount"]
+                            if isinstance(amt, list):
+                                lines.append([("Heals: ", C_LABEL), (f"{amt[0]}-{amt[1]} HP", C_GOOD)])
+                            else:
+                                lines.append([("Heals: ", C_LABEL), (f"{amt} HP", C_GOOD)])
+                        elif ft == "hot":
+                            formula = eff.get("stat_formula", "?")
+                            dur = eff.get("duration", 0)
+                            lines.append([("Heals: ", C_LABEL), (f"{formula} HP/turn for {dur} turns", C_GOOD)])
+                        elif ft == "speed_boost":
+                            amt = eff.get("amount", 0)
+                            dur = eff.get("duration", 0)
+                            lines.append([("Speed Boost: ", C_LABEL), (f"+{amt} energy/tick, {dur} turns", C_GOOD)])
+                        elif ft == "hot_cheetos":
+                            dur = eff.get("duration", 0)
+                            lines.append([("+2 all stats for ", C_GOOD), (f"{dur} turns.", C_GOOD)])
+                            lines.append([("50% melee ignite chance.", C_GOOD)])
+                            lines.append([("Ignites you when it expires.", C_BAD)])
+                        elif ft == "grant_ability_charges":
+                            aid = eff.get("ability_id", "?").replace("_", " ").title()
+                            charges = eff.get("charges", 0)
+                            lines.append([("Grants: ", C_LABEL), (f"{charges}x {aid}", C_GOOD)])
+                        elif ft == "cornbread_buff":
+                            dur = eff.get("duration", 0)
+                            lines.append([("Cornbread buff for ", C_INFO), (f"{dur} turns.", C_INFO)])
+                        elif ft == "leftovers_well_fed":
+                            dur = eff.get("duration", 0)
+                            lines.append([("Well Fed for ", C_INFO), (f"{dur} turns.", C_INFO)])
+
+            elif etype == "torch_burn":
+                lines.append([("Burns an item when used on it.", C_INFO)])
+
+        # Throw info
+        if defn.get("throw_verb"):
+            lines.append([("Can be thrown at enemies.", C_INFO)])
+
+        # Skills trained
+        skill = defn.get("primary_skill")
+        if skill and (not use_eff or use_eff.get("type") not in ("strain_roll",)):
+            lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
+
+    # --- MATERIALS ---
+    elif category == "material":
+        # Show what recipes this participates in
+        recipes_found = []
+        for (a, b), recipe in RECIPES.items():
+            result_name = ITEM_DEFS.get(recipe["result"], {}).get("name", recipe["result"])
+            if a == item_id:
+                other_name = ITEM_DEFS.get(b, {}).get("name", b)
+                recipes_found.append((other_name, result_name))
+            elif b == item_id:
+                other_name = ITEM_DEFS.get(a, {}).get("name", a)
+                recipes_found.append((other_name, result_name))
+        if recipes_found:
+            lines.append([("Recipes:", C_LABEL)])
+            for other, result in recipes_found:
+                lines.append([("  + ", C_HINT), (other, C_VALUE), (" = ", C_HINT), (result, C_GOOD)])
+
+        # Check if it can be prefix-tooled (e.g., food + fry daddy)
+        for tool_id, prefix in PREFIX_TOOL_ITEMS.items():
+            tool_name = ITEM_DEFS.get(tool_id, {}).get("name", tool_id)
+            lines.append([("  + ", C_HINT), (tool_name, C_VALUE), (" = ", C_HINT), (f"{prefix.title()} version", C_GOOD)])
+
+        skill = defn.get("primary_skill")
+        if skill:
+            lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
+
+    # --- TOOLS ---
+    elif category == "tool":
+        # Show what this tool is used for
+        recipes_found = []
+        for (a, b), recipe in RECIPES.items():
+            result_name = ITEM_DEFS.get(recipe["result"], {}).get("name", recipe["result"])
+            consumed = recipe.get("consumed", [])
+            reusable = item_id not in consumed
+            if a == item_id:
+                other_name = ITEM_DEFS.get(b, {}).get("name", b)
+                recipes_found.append((other_name, result_name, reusable))
+            elif b == item_id:
+                other_name = ITEM_DEFS.get(a, {}).get("name", a)
+                recipes_found.append((other_name, result_name, reusable))
+
+        # Check prefix tool
+        if item_id in PREFIX_TOOL_ITEMS:
+            prefix = PREFIX_TOOL_ITEMS[item_id]
+            lines.append([("Applies '", C_INFO), (prefix.title(), C_GOOD), ("' prefix to food.", C_INFO)])
+
+        if recipes_found:
+            lines.append([("Recipes:", C_LABEL)])
+            for other, result, reusable in recipes_found:
+                tag = " (reusable)" if reusable else ""
+                lines.append([("  + ", C_HINT), (other, C_VALUE), (" = ", C_HINT), (result, C_GOOD), (tag, C_HINT)])
+        elif not item_id in PREFIX_TOOL_ITEMS:
+            if defn.get("use_effect"):
+                etype = defn["use_effect"].get("type")
+                if etype == "torch_burn":
+                    lines.append([("Use on items to burn them", C_INFO)])
+                    lines.append([("together.", C_INFO)])
+
+        skill = defn.get("primary_skill")
+        if skill:
+            lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
+
+    # --- Value ---
+    val = defn.get("value", 0)
+    if val > 0:
+        lines.append([("Value: ", C_LABEL), (f"${val}", C_VALUE)])
+
+    return lines
 
 
 def create_item_entity(item_id, x, y, strain=None):

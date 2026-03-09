@@ -27,8 +27,8 @@ BLANK TEMPLATE  (copy, fill in, drop into MONSTER_REGISTRY)
         book_smarts   = (1, 1),
         tolerance     = (1, 1),
         swagger       = (1, 1),
-        hp           = (10, 20),
-        damage       = (1,  4),
+        base_hp      = 0,
+        base_damage  = (0, 0),
         defense      = 0,
         male_chance  = 0.5,
         spawn_min    = 1,
@@ -47,11 +47,12 @@ VARIANT SHORTHAND  (inherit from an existing enemy, override a few fields)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     "elite_tweaker": variant("tweaker",
-        name   = "Elite Tweaker",
-        color  = (200, 160, 130),
-        hp     = (20, 35),
-        damage = (4, 7),
-        defense = 1,
+        name        = "Elite Tweaker",
+        color       = (200, 160, 130),
+        base_hp     = 5,
+        constitution = (3, 5),
+        strength    = (4, 7),
+        defense     = 1,
     ),
 """
 
@@ -82,6 +83,7 @@ class AIType(Enum):
     ESCORT            = "escort"             # Follows a leader around the room; chases when player enters
     HIT_AND_RUN       = "hit_and_run"        # Ambushes from a distance, attacks once, then flees
     FEMALE_ALARM      = "female_alarm"       # Wanders passively; chases everywhere when any female dies on the floor
+    STATIONARY_GUARD  = "stationary_guard"   # Stands completely still until damaged, then chases permanently
 
 
 class EffectKind(Enum):
@@ -89,7 +91,7 @@ class EffectKind(Enum):
     Status-effect categories.  The combat system dispatches on these.
     """
     DOT           = "dot"            # X damage per turn for N turns
-    FEAR          = "fear"           # Mechanics TBD — tracked as a flag
+    FEAR          = "fear"           # Forced flee from source, 50% break on damage
     STUN          = "stun"           # Target skips actions
     CHILD_SUPPORT = "child_support"  # Drains $1 per player move for N turns
     MOGGED        = "mogged"         # Stacking debuff that reduces swagger
@@ -190,7 +192,7 @@ class SpawnEscort:
 # Fields that accept (min, max) tuples but might arrive as lists (future JSON/YAML)
 _TUPLE_FIELDS = (
     "color", "constitution", "strength", "street_smarts", "book_smarts",
-    "tolerance", "swagger", "hp", "damage", "cash_drop",
+    "tolerance", "swagger", "base_damage", "cash_drop",
 )
 
 
@@ -205,13 +207,17 @@ class MonsterTemplate:
       char          Single ASCII character for the map.
       color         (R, G, B) tuple, each 0–255.
 
-    BASE STATS — flavour/RPG stats, each a (min, max) range rolled per individual.
-      constitution, strength, street_smarts,
-      book_smarts, tolerance, swagger
+    BASE STATS — RPG stats, each a (min, max) range rolled per individual.
+      constitution  Drives HP: final HP = base_hp + con × 5
+      strength      Drives melee damage: final power = base_damage + str
+      street_smarts Drives crit chance: crit% = street_smarts × 3
+      book_smarts   Stored as bonus_spell_damage (future use)
+      tolerance     No combat derivation for monsters
+      swagger       Stored as bonus_ranged_damage (future use)
 
-    COMBAT — mechanical values set directly (NOT derived from base stats).
-      hp            (min, max) hit-point range.
-      damage        (min, max) base damage range, stored as `power` on Entity.
+    COMBAT — base values added to stat-derived amounts.
+      base_hp       Fixed int: flat HP added before constitution scaling.
+      base_damage   (min, max) flat damage added before strength scaling, stored as `power` on Entity.
       defense       Flat damage reduction per hit taken.
       dodge_chance  Integer percentage (0-90) chance to dodge melee attacks.
 
@@ -250,8 +256,8 @@ class MonsterTemplate:
     swagger:       tuple[int, int]
 
     # ── Combat ────────────────────────────────────────────────────────────
-    hp:            tuple[int, int]
-    damage:        tuple[int, int]
+    base_hp:       int
+    base_damage:   tuple[int, int]
     defense:       int
 
     # ── Gender ────────────────────────────────────────────────────────────
@@ -276,6 +282,8 @@ class MonsterTemplate:
 
     # ── Drops ─────────────────────────────────────────────────────────────
     cash_drop: tuple[int, int] = (0, 0)
+    death_drop_chance: float     = 0.0    # probability (0.0–1.0) of dropping an item on death
+    death_drop_table:  list[str] = field(default_factory=list)  # item_ids to pick from
 
     # ── Validation & coercion ─────────────────────────────────────────────
 
@@ -329,7 +337,7 @@ class MonsterTemplate:
             )
         # Validate all (min, max) ranges
         for fname in ("constitution", "strength", "street_smarts", "book_smarts",
-                       "tolerance", "swagger", "hp", "damage", "cash_drop"):
+                       "tolerance", "swagger", "base_damage", "cash_drop"):
             lo, hi = getattr(self, fname)
             if lo > hi:
                 raise ValueError(f"{self.name}: {fname} min ({lo}) > max ({hi})")
@@ -378,22 +386,24 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         name          = "Tweaker",
         char          = "t",
         color         = (160, 130, 100),
-        constitution  = (2, 4),
-        strength      = (2, 4),
-        street_smarts = (2, 4),
+        constitution  = (3, 5),
+        strength      = (3, 5),
+        street_smarts = (0, 0),
         book_smarts   = (1, 2),
         tolerance     = (6, 9),
         swagger       = (1, 3),
-        hp            = (10, 20),
-        damage        = (2,  4),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 0,
         male_chance   = 0.6,
         spawn_min     = 1,
         spawn_max     = 3,
         ai            = AIType.ROOM_GUARD,
         sight_radius  = 6,
-        speed         = 70,
+        speed         = 80,
         cash_drop     = (0, 3),
+        death_drop_chance = 0.25,
+        death_drop_table  = ["joint", "kush"],
     ),
 
     # ── CRACK ADDICT ─────────────────────────────────────────────────────
@@ -403,13 +413,13 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         char          = "c",
         color         = (200, 80, 50),
         constitution  = (2, 4),
-        strength      = (4, 7),
-        street_smarts = (2, 4),
+        strength      = (4, 8),
+        street_smarts = (0, 0),
         book_smarts   = (1, 3),
         tolerance     = (7, 10),
         swagger       = (1, 3),
-        hp            = (12, 22),
-        damage        = (4,  8),
+        base_hp       = 2,
+        base_damage   = (0, 0),
         defense       = 0,
         male_chance   = 0.65,
         spawn_min     = 1,
@@ -426,20 +436,20 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         name          = "Drug Dealer",
         char          = "D",
         color         = (60, 180, 60),
-        constitution  = (2, 5),
-        strength      = (2, 5),
-        street_smarts = (5, 8),
+        constitution  = (3, 5),
+        strength      = (3, 5),
+        street_smarts = (0, 0),
         book_smarts   = (4, 7),
         tolerance     = (4, 7),
         swagger       = (5, 8),
-        hp            = (15, 25),
-        damage        = (3,  5),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 1,
         male_chance   = 0.75,
         spawn_min     = 1,
         spawn_max     = 1,
         spawn_with    = [
-            SpawnEscort(type="tweaker", count=(1, 3)),
+            SpawnEscort(type="tweaker", count=(3, 5)),
         ],
         ai            = AIType.ROOM_GUARD,
         sight_radius  = 6,
@@ -453,14 +463,14 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         name          = "Ugly Stripper",
         char          = "S",
         color         = (220, 80, 180),
-        constitution  = (2, 4),
-        strength      = (3, 6),
-        street_smarts = (5, 8),
+        constitution  = (4, 5),
+        strength      = (5, 6),
+        street_smarts = (0, 0),
         book_smarts   = (2, 4),
         tolerance     = (4, 7),
         swagger       = (5, 8),
-        hp            = (12, 22),
-        damage        = (4,  7),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 0,
         male_chance   = 0.1,
         spawn_min     = 1,
@@ -499,14 +509,14 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         name          = "Baby Momma",
         char          = "B",
         color         = (230, 200, 50),
-        constitution  = (5, 8),
+        constitution  = (5, 9),
         strength      = (2, 4),
-        street_smarts = (4, 7),
+        street_smarts = (0, 0),
         book_smarts   = (3, 6),
         tolerance     = (4, 7),
         swagger       = (4, 7),
-        hp            = (25, 45),
-        damage        = (2,  4),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 1,
         male_chance   = 0.0,
         spawn_min     = 1,
@@ -534,13 +544,13 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         char          = "n",
         color         = (150, 100, 50),
         constitution  = (1, 2),
-        strength      = (1, 2),
-        street_smarts = (4, 7),
+        strength      = (6, 7),
+        street_smarts = (0, 0),
         book_smarts   = (1, 2),
         tolerance     = (2, 4),
         swagger       = (2, 4),
-        hp            = (10, 20),
-        damage        = (1,  2),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 0,
         dodge_chance  = 10,
         male_chance   = 0.5,
@@ -567,21 +577,21 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         name          = "Fat Gooner",
         char          = "G",
         color         = (180, 140, 80),
-        constitution  = (6, 9),
-        strength      = (1, 2),
-        street_smarts = (1, 3),
+        constitution  = (8, 10),
+        strength      = (3, 3),
+        street_smarts = (0, 0),
         book_smarts   = (2, 4),
         tolerance     = (2, 5),
         swagger       = (1, 3),
-        hp            = (30, 40),
-        damage        = (3,  3),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 3,
         male_chance   = 1.0,
         spawn_min     = 1,
         spawn_max     = 2,
         ai            = AIType.FEMALE_ALARM,
         sight_radius  = 8,
-        speed         = 50,
+        speed         = 70,
         cash_drop     = (0, 5),
     ),
 
@@ -592,14 +602,14 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         name          = "Thug",
         char          = "T",
         color         = (120, 80, 200),
-        constitution  = (3, 5),
-        strength      = (4, 6),
-        street_smarts = (3, 5),
+        constitution  = (5, 6),
+        strength      = (5, 5),
+        street_smarts = (0, 0),
         book_smarts   = (2, 3),
         tolerance     = (3, 5),
         swagger       = (4, 7),
-        hp            = (25, 30),
-        damage        = (5,  5),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 1,
         male_chance   = 0.8,
         spawn_min     = 1,
@@ -628,18 +638,18 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         char          = "J",
         color         = (200, 120, 50),
         constitution  = (10, 10),
-        strength      = (8, 8),
-        street_smarts = (6, 8),
+        strength      = (4, 4),
+        street_smarts = (3, 3),
         book_smarts   = (3, 5),
         tolerance     = (5, 7),
         swagger       = (8, 10),
-        hp            = (50, 50),
-        damage        = (4,  4),
+        base_hp       = 0,
+        base_damage   = (0, 0),
         defense       = 2,
         male_chance   = 1.0,
         spawn_min     = 1,
         spawn_max     = 1,
-        ai            = AIType.MEANDER,
+        ai            = AIType.STATIONARY_GUARD,
         sight_radius  = 8,
         speed         = 100,
         special_attacks = [
@@ -655,27 +665,84 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
                 ),
             ),
         ],
-        cash_drop     = (20, 50),
+        cash_drop          = (20, 50),
+        death_drop_chance  = 1.0,
+        death_drop_table   = ["big_niggas_key"],
     ),
 }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  ZONE SPAWN TABLES  — single source of truth for per-zone weights
+#  ZONE SPAWN TABLES  — per-floor weighted tables within each zone
 # ══════════════════════════════════════════════════════════════════════════════
+#
+#  Structure:  zone -> floor_num (0-indexed) -> [(enemy_key, weight), ...]
+#  Lookup: get_spawn_table(zone, floor_num) returns the table for that floor,
+#          falling back to the highest defined floor if floor_num exceeds it.
 
-ZONE_SPAWN_TABLES: dict[str, list[tuple[str, int]]] = {
-    "crack_den": [
-        ("tweaker",        40),
-        ("crack_addict",   25),
-        ("drug_dealer",    15),
-        ("ugly_stripper",  20),
-        ("baby_momma",     20),
-        ("niglet",         15),
-        ("fat_gooner",     10),
-        ("thug",           20),
-    ],
+ZONE_SPAWN_TABLES: dict[str, dict[int, list[tuple[str, int]]]] = {
+    "crack_den": {
+        # Floor 1 — mostly fodder, occasional Stripper/Dealer surprise
+        0: [
+            ("tweaker",        40),
+            ("niglet",         10),
+            ("baby_momma",     15),
+            ("crack_addict",   15),
+            ("fat_gooner",      5),
+            ("ugly_stripper",  15),
+            ("thug",            3),
+            ("drug_dealer",    12),
+        ],
+        # Floor 2 — balanced mix, Baby Momma + Crack Addict rise
+        1: [
+            ("tweaker",        30),
+            ("niglet",         20),
+            ("baby_momma",     20),
+            ("crack_addict",   20),
+            ("fat_gooner",     10),
+            ("ugly_stripper",  18),
+            ("thug",            8),
+            ("drug_dealer",    15),
+        ],
+        # Floor 3 — everything common, Gooner + Stripper peak
+        2: [
+            ("tweaker",        20),
+            ("niglet",         15),
+            ("baby_momma",     15),
+            ("crack_addict",   20),
+            ("fat_gooner",     15),
+            ("ugly_stripper",  18),
+            ("thug",           15),
+            ("drug_dealer",    15),
+        ],
+        # Floor 4 — Thug + Dealer dominated (Jerome's floor)
+        3: [
+            ("tweaker",        10),
+            ("niglet",         10),
+            ("baby_momma",     10),
+            ("crack_addict",   15),
+            ("fat_gooner",     15),
+            ("ugly_stripper",  20),
+            ("thug",           20),
+            ("drug_dealer",    18),
+        ],
+    },
+    # ── FUTURE ZONES ─────────────────────────────────────────────────────────
+    "meth_lab":          {},   # TODO: populate when meth lab zone is built
+    "casino_botanical":  {},   # TODO: populate when casino + botanical garden zone is built
+    "the_underprison":   {},   # TODO: populate when The Underprison zone is built
 }
+
+
+def get_spawn_table(zone: str, floor_num: int) -> list[tuple[str, int]]:
+    """Return the spawn table for a zone + floor, falling back to the highest defined floor."""
+    zone_floors = ZONE_SPAWN_TABLES.get(zone, {})
+    if not zone_floors:
+        return []
+    if floor_num in zone_floors:
+        return zone_floors[floor_num]
+    # Fall back to highest defined floor (future-proofs extra floors)
+    return zone_floors[max(zone_floors.keys())]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -708,23 +775,24 @@ def validate_registry() -> None:
                     f"  [{key}] spawn_with references unknown type '{escort.type}'"
                 )
 
-    # ── Zone table references ──
-    for zone, table in ZONE_SPAWN_TABLES.items():
-        seen_keys: set[str] = set()
-        for enemy_key, weight in table:
-            if enemy_key not in MONSTER_REGISTRY:
-                errors.append(
-                    f"  zone '{zone}': references unknown enemy '{enemy_key}'"
-                )
-            if weight <= 0:
-                errors.append(
-                    f"  zone '{zone}': weight for '{enemy_key}' must be > 0, got {weight}"
-                )
-            if enemy_key in seen_keys:
-                errors.append(
-                    f"  zone '{zone}': duplicate entry for '{enemy_key}'"
-                )
-            seen_keys.add(enemy_key)
+    # ── Zone table references (per-floor tables) ──
+    for zone, floor_tables in ZONE_SPAWN_TABLES.items():
+        for floor_num, table in floor_tables.items():
+            seen_keys: set[str] = set()
+            for enemy_key, weight in table:
+                if enemy_key not in MONSTER_REGISTRY:
+                    errors.append(
+                        f"  zone '{zone}' floor {floor_num}: references unknown enemy '{enemy_key}'"
+                    )
+                if weight <= 0:
+                    errors.append(
+                        f"  zone '{zone}' floor {floor_num}: weight for '{enemy_key}' must be > 0, got {weight}"
+                    )
+                if enemy_key in seen_keys:
+                    errors.append(
+                        f"  zone '{zone}' floor {floor_num}: duplicate entry for '{enemy_key}'"
+                    )
+                seen_keys.add(enemy_key)
 
     if errors:
         raise ValueError(
@@ -760,8 +828,19 @@ def create_enemy(enemy_type: str, x: int, y: int):
         "swagger":       random.randint(*tmpl.swagger),
     }
 
-    hp     = random.randint(*tmpl.hp)
-    damage = random.randint(*tmpl.damage)
+    # ── Derive combat stats from base stats ──
+    rolled_con = base_stats["constitution"]
+    rolled_str = base_stats["strength"]
+    rolled_ss  = base_stats["street_smarts"]
+    rolled_bs  = base_stats["book_smarts"]
+    rolled_swg = base_stats["swagger"]
+
+    hp     = tmpl.base_hp + rolled_con * 5
+    damage = random.randint(*tmpl.base_damage) + rolled_str
+    crit_chance        = rolled_ss * 3
+    bonus_spell_damage = rolled_bs
+    bonus_ranged_damage = rolled_swg
+
     gender = "male" if random.random() < tmpl.male_chance else "female"
     cash   = random.randint(*tmpl.cash_drop)
 
@@ -819,4 +898,9 @@ def create_enemy(enemy_type: str, x: int, y: int):
         on_hit_effects=on_hit_effects,
         cash_drop=cash,
         dodge_chance=tmpl.dodge_chance,
+        crit_chance=crit_chance,
+        bonus_spell_damage=bonus_spell_damage,
+        bonus_ranged_damage=bonus_ranged_damage,
+        death_drop_chance=tmpl.death_drop_chance,
+        death_drop_table=list(tmpl.death_drop_table),
     )

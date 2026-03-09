@@ -1,20 +1,23 @@
 # Game configuration constants
 
-# Screen dimensions
-SCREEN_WIDTH = 114
-SCREEN_HEIGHT = 64
+# Developer mode — set to False before shipping to players
+DEV_MODE = True
+
+# Screen dimensions (120×68 tiles × 16px = 1920×1088, nearest 16px fit to 1080p)
+SCREEN_WIDTH = 120
+SCREEN_HEIGHT = 68
 
 # Left stats panel (Character / Health / Status)
 LEFT_PANEL_WIDTH = 22
 MAP_OFFSET_X     = LEFT_PANEL_WIDTH   # dungeon & entities render starting at this column
 
 # Map/panel split (SCREEN_WIDTH = LEFT_PANEL_WIDTH + MAP_WIDTH + PANEL_WIDTH)
-MAP_WIDTH   = 64
-PANEL_WIDTH = 28
+MAP_WIDTH   = 68
+PANEL_WIDTH = 30
 
 # Dungeon dimensions
-DUNGEON_WIDTH  = MAP_WIDTH
-DUNGEON_HEIGHT = 55
+DUNGEON_WIDTH  = MAP_WIDTH  # keep in sync with MAP_WIDTH
+DUNGEON_HEIGHT = 54
 
 # Dungeon generation
 ROOM_MIN_SIZE = 6
@@ -45,8 +48,8 @@ TILE_FLOOR = 1
 
 # UI positioning
 HEADER_HEIGHT = 1
-UI_HEIGHT = 8
-MAX_MESSAGES = 7          # messages visible in the bottom panel (UI_HEIGHT - 1)
+UI_HEIGHT = 13
+MAX_MESSAGES = 11         # messages visible in the bottom panel (UI_HEIGHT - 2, bottom row is border)
 LOG_HISTORY_SIZE = 200    # total messages kept in memory for the log menu
 
 # Equipment slots
@@ -65,6 +68,15 @@ ZONE_JAYWALK_MULT = {
     "crack_den": 1.0,
 }
 
+# Blackkk Magic skill XP zone multipliers (zone_key -> float)
+ZONE_BLACKK_MAGIC_MULT = {
+    "crack_den": 1.0,
+}
+
 # Inventory key labels — letters available for item selection.
-# Excludes keys already bound to menus: c (char sheet), e (equipment), s (skills)
-INVENTORY_KEYS = "bghijklmnopqrtuvwxyz"  # 'a' reserved for Abilities, 'f' reserved for firing
+# Lowercase (19): excludes a (Abilities), c (char sheet), d (drop), e (equipment),
+#                 f (firing), q (quit), s (skills)
+# Uppercase/Shift (22): excludes Shift+B (bestiary), Shift+D (destroy), Shift+L (log),
+#                       Shift+P (perks), Shift+` (dev menu), Shift+. (stairs)
+# RULE: if a Shift+letter is later bound to a feature, remove it from INVENTORY_KEYS here.
+INVENTORY_KEYS = "bghijklmnoprtuvwxyz" + "ACEFGHIJKMOQRSTUVWXYZ"

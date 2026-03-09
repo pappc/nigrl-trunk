@@ -3,7 +3,7 @@ Input handling for player actions.
 """
 
 import tcod
-from config import INVENTORY_KEYS
+from config import INVENTORY_KEYS, DEV_MODE
 
 
 def handle_input(key):
@@ -90,6 +90,32 @@ def handle_input(key):
         ):
             return {"type": "open_bestiary"}
 
+        # Shift+P — open perks menu
+        elif key_sym == tcod.event.KeySym.p and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            return {"type": "open_perks_menu"}
+
+        # Shift+` — open dev tools menu (DEV_MODE only)
+        elif DEV_MODE and key_sym == tcod.event.KeySym.GRAVE and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            return {"type": "open_dev_menu"}
+
+        # Space — item use / confirm in menus
+        elif key_sym == tcod.event.KeySym.SPACE:
+            return {"type": "item_use"}
+
+        # Shift+D — destroy item in item menu
+        elif key_sym == tcod.event.KeySym.d and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            return {"type": "destroy_item"}
+
+        # D (no shift) — drop item in item menu
+        elif key_sym == tcod.event.KeySym.d:
+            return {"type": "drop_item"}
+
         # Enter — confirm targeting
         elif key_sym in (tcod.event.KeySym.RETURN, tcod.event.KeySym.KP_ENTER):
             return {"type": "confirm_target"}
@@ -98,9 +124,22 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.f:
             return {"type": "start_entity_targeting"}
 
+        # Q — quit game
+        elif key_sym == tcod.event.KeySym.q:
+            return {"type": "quit"}
+
         # A — toggle Abilities menu (checked before inventory letter keys)
         elif key_sym == tcod.event.KeySym.a:
             return {"type": "toggle_abilities"}
+
+        # Shift+Letter keys — inventory item selection (uppercase slots in INVENTORY_KEYS)
+        elif tcod.event.KeySym.a <= key_sym <= tcod.event.KeySym.z and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            char = chr(ord("A") + (key_sym - tcod.event.KeySym.a))
+            if char in INVENTORY_KEYS:
+                index = INVENTORY_KEYS.index(char)
+                return {"type": "select_item", "index": index}
 
         # Letter keys — inventory item selection (only keys in INVENTORY_KEYS)
         elif tcod.event.KeySym.a <= key_sym <= tcod.event.KeySym.z:

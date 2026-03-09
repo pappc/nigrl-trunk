@@ -10,11 +10,52 @@ from config import (
     MAP_WIDTH, PANEL_WIDTH,
     LEFT_PANEL_WIDTH, MAP_OFFSET_X,
     INVENTORY_KEYS, LOG_HISTORY_SIZE, RING_SLOTS, RING_FINGER_NAMES,
+    DEV_MODE,
 )
-from items import get_item_def, find_recipe, is_stackable, build_inventory_display_name, get_strain_color
+from items import get_item_def, find_recipe, is_stackable, build_inventory_display_name, get_strain_color, PREFIX_TOOL_ITEMS, generate_examine_lines
+from foods import FOOD_DEFS
 from menu_state import MenuState
 from enemies import MONSTER_REGISTRY
 from abilities import ABILITY_REGISTRY
+from skills import get_perk, SKILL_NAMES as _SKILL_NAMES
+
+# ── Unified border / panel colors ──────────────────────────────────────────
+C_FRAME       = (130, 130, 190)    # outer double-line frame (screen edge)
+C_PANEL_BORDER = (100, 100, 160)   # inner single-line panel dividers
+C_SECTION_DIV  = (60, 60, 100)     # section dividers within panels
+C_PANEL_TITLE  = (255, 255, 180)   # panel / section title text
+C_PANEL_BG     = (18, 18, 28)      # panel background
+
+
+def _draw_title_border(console, x, w, y, title, bg,
+                       fg_border=None, fg_title=None):
+    """Draw a horizontal border with embedded title: ──┤ TITLE ├──"""
+    if fg_border is None:
+        fg_border = C_PANEL_BORDER
+    if fg_title is None:
+        fg_title = C_PANEL_TITLE
+    for px in range(w):
+        console.print(x + px, y, "─", fg=fg_border, bg=bg)
+    label = f"┤ {title} ├"
+    tx = x + (w - len(label)) // 2
+    console.print(tx, y, "┤", fg=fg_border, bg=bg)
+    console.print(tx + 1, y, f" {title} ", fg=fg_title, bg=bg)
+    console.print(tx + len(label) - 1, y, "├", fg=fg_border, bg=bg)
+
+
+def _is_combine_target(src, cand) -> bool:
+    """Return True if cand is a valid combine target for src."""
+    if find_recipe(src.item_id, cand.item_id):
+        return True
+    if src.item_id in PREFIX_TOOL_ITEMS and cand.item_id in FOOD_DEFS:
+        return getattr(cand, "prefix", None) is None
+    if src.item_id in FOOD_DEFS and cand.item_id in PREFIX_TOOL_ITEMS:
+        return getattr(src, "prefix", None) is None
+    # Items with torch_burn use_effect can target any item
+    src_def = get_item_def(src.item_id)
+    if src_def and (src_def.get("use_effect") or {}).get("type") == "torch_burn":
+        return True
+    return False
 
 
 def wrap_text_for_width(text, max_width, indent_width=0):
@@ -54,19 +95,40 @@ def wrap_text_for_width(text, max_width, indent_width=0):
 
 
 def render_header(console, engine):
-    """Render the top header with zone and floor info."""
+    """Render the top header as the outer top border with embedded zone name."""
     zone_name = "Crack Den"  # TODO: support multiple zones
     floor_text = f"{zone_name} - Floor {engine.current_floor + 1}"
 
+    HDR_BG = (45, 32, 12)
+
     # Fill header background
     for x in range(SCREEN_WIDTH):
-        console.print(x, 0, " ", bg=(50, 50, 50))
+        console.print(x, 0, " ", bg=HDR_BG)
 
-    # Center the text in the header
-    console.print(
-        SCREEN_WIDTH // 2 - len(floor_text) // 2, 0,
-        floor_text, fg=(200, 200, 255), bg=(50, 50, 50),
-    )
+    # Double-line top border
+    for x in range(SCREEN_WIDTH):
+        console.print(x, 0, "═", fg=C_FRAME, bg=HDR_BG)
+    console.print(0, 0, "╔", fg=C_FRAME, bg=HDR_BG)
+    console.print(SCREEN_WIDTH - 1, 0, "╗", fg=C_FRAME, bg=HDR_BG)
+    # Junctions where panel borders meet the top
+    console.print(LEFT_PANEL_WIDTH - 1, 0, "╤", fg=C_FRAME, bg=HDR_BG)
+    console.print(MAP_OFFSET_X + MAP_WIDTH, 0, "╤", fg=C_FRAME, bg=HDR_BG)
+
+    # Center the zone text in the map section (between the two panel borders)
+    map_start = LEFT_PANEL_WIDTH
+    map_end = MAP_OFFSET_X + MAP_WIDTH
+    map_mid = map_start + (map_end - map_start) // 2
+    tx = map_mid - len(floor_text) // 2
+    console.print(tx - 1, 0, "╡", fg=C_FRAME, bg=HDR_BG)
+    console.print(tx, 0, f" {floor_text} ", fg=(220, 190, 120), bg=HDR_BG)
+    console.print(tx + len(floor_text) + 1, 0, "╞", fg=C_FRAME, bg=HDR_BG)
+
+    # Dev mode indicator (in the right panel section of the header)
+    if DEV_MODE:
+        inv_active = getattr(engine.player, "dev_invincible", False)
+        dev_label = "[DEV | INV]" if inv_active else "[DEV]"
+        dev_col = (255, 80, 80) if not inv_active else (80, 255, 80)
+        console.print(SCREEN_WIDTH - len(dev_label) - 2, 0, dev_label, fg=dev_col, bg=HDR_BG)
 
 
 def render_all(console, engine):
@@ -93,6 +155,8 @@ def render_all(console, engine):
         render_log_menu(console, engine)
     elif engine.menu_state == MenuState.DESTROY_CONFIRM:
         render_destroy_confirm(console, engine)
+    elif engine.menu_state == MenuState.EXAMINE:
+        render_examine(console, engine)
     elif engine.menu_state == MenuState.RING_REPLACE:
         render_ring_replace_menu(console, engine)
     elif engine.menu_state == MenuState.BESTIARY:
@@ -101,8 +165,25 @@ def render_all(console, engine):
         render_targeting_mode(console, engine)
     elif engine.menu_state == MenuState.ENTITY_TARGETING:
         render_entity_targeting_mode(console, engine)
+    elif engine.menu_state == MenuState.ADJACENT_TILE_TARGETING:
+        render_adjacent_tile_targeting_mode(console, engine)
     elif engine.menu_state == MenuState.ABILITIES:
         render_abilities_menu(console, engine)
+    elif engine.menu_state == MenuState.PERKS:
+        render_perks_menu(console, engine)
+    elif engine.menu_state == MenuState.DEV_MENU:
+        render_dev_menu(console, engine)
+    elif engine.menu_state == MenuState.DEV_ITEM_SELECT:
+        render_dev_item_select(console, engine)
+
+
+def _wall_noise(x, y):
+    """Return two deterministic offsets for a wall tile — subtle grime variation."""
+    h1 = (x * 2654435761 ^ y * 2246822519) & 0xFFFFFFFF
+    h2 = (x * 2246822519 ^ y * 2654435761) & 0xFFFFFFFF
+    n1 = ((h1 >> 16) & 0xFF) % 17 - 8    # -8 to +8  (warm channel variation)
+    n2 = ((h2 >> 16) & 0xFF) % 11 - 5    # -5 to +5  (cool channel suppression)
+    return n1, n2
 
 
 def render_dungeon(console, dungeon):
@@ -117,16 +198,26 @@ def render_dungeon(console, dungeon):
 
             if is_visible:
                 if tile == TILE_WALL:
-                    console.print(cx, cy, "#", fg=(140, 135, 130), bg=(28, 26, 24))
+                    n1, n2 = _wall_noise(x, y)
+                    # Cracked plaster / dirty concrete: warm ochre-gray, faint grime noise
+                    fg = (max(0, min(255, 128 + n1)),
+                          max(0, min(255, 108 + n2)),
+                          max(0, min(255, 80 + n2 // 2)))
+                    console.print(cx, cy, "#", fg=fg, bg=(22, 17, 12))
                 elif tile == TILE_FLOOR:
-                    console.print(cx, cy, ".", fg=(65, 60, 55), bg=(18, 16, 14))
+                    # Stained concrete — warm dark brown
+                    console.print(cx, cy, " ", bg=(36, 28, 19))
             elif is_explored:
                 if tile == TILE_WALL:
-                    console.print(cx, cy, "#", fg=(65, 62, 60), bg=(14, 13, 12))
+                    n1, n2 = _wall_noise(x, y)
+                    fg = (max(0, min(255, 42 + n1 // 3)),
+                          max(0, min(255, 34 + n2 // 3)),
+                          max(0, min(255, 24 + n2 // 4)))
+                    console.print(cx, cy, "#", fg=fg, bg=(9, 7, 4))
                 elif tile == TILE_FLOOR:
-                    console.print(cx, cy, ".", fg=(32, 30, 28), bg=(9, 8, 7))
+                    console.print(cx, cy, " ", bg=(14, 11, 7))
             else:
-                console.print(cx, cy, " ", fg=(0, 0, 0), bg=(0, 0, 0))
+                console.print(cx, cy, " ", bg=(0, 0, 0))
 
 
 def get_entity_color(entity):
@@ -159,12 +250,21 @@ def render_entities(console, dungeon):
             return 2
         elif e.entity_type == "monster":
             return 1
+        elif e.entity_type == "hazard":
+            return -1 if e.hazard_type == "fire" else 0
         return 0  # item, cash
 
     for entity in sorted(dungeon.entities, key=_render_priority):
-        if entity.alive and dungeon.visible[entity.y, entity.x]:
+        if not entity.alive:
+            continue
+        if dungeon.visible[entity.y, entity.x]:
             color = get_entity_color(entity)
             console.print(entity.x + MAP_OFFSET_X, entity.y + HEADER_HEIGHT, entity.char, fg=color)
+        elif entity.always_visible and dungeon.explored[entity.y, entity.x]:
+            # Landmark: dimmed color so player can see it from anywhere on explored map
+            color = get_entity_color(entity)
+            dimmed = tuple(max(0, c // 3) for c in color)
+            console.print(entity.x + MAP_OFFSET_X, entity.y + HEADER_HEIGHT, entity.char, fg=dimmed)
 
 
 def get_message_color(msg):
@@ -182,14 +282,18 @@ def get_message_color(msg):
         return (200, 200, 100)  # Yellow default
 
 
-def _render_msg(console, x, y, msg, max_width, bg):
+def _render_msg(console, x, y, msg, max_width, bg, fade=1.0):
     """Render a message that is either a plain string or a list of (text, color) segments.
 
     Plain strings use get_message_color for the whole line.
     Segment lists render each part in its own color, truncated to max_width total chars.
+    fade: 0.0–1.0 brightness multiplier applied to all colors.
     """
+    def _fade(color):
+        return tuple(int(c * fade) for c in color)
+
     if isinstance(msg, str):
-        console.print(x, y, msg[:max_width], fg=get_message_color(msg), bg=bg)
+        console.print(x, y, msg[:max_width], fg=_fade(get_message_color(msg)), bg=bg)
     else:
         cx        = x
         remaining = max_width
@@ -197,7 +301,7 @@ def _render_msg(console, x, y, msg, max_width, bg):
             if remaining <= 0:
                 break
             chunk = text[:remaining]
-            console.print(cx, y, chunk, fg=color, bg=bg)
+            console.print(cx, y, chunk, fg=_fade(color), bg=bg)
             cx        += len(chunk)
             remaining -= len(chunk)
 
@@ -208,15 +312,15 @@ def _draw_panel(console, x, y, w, h, bg):
         for px in range(w):
             console.print(x + px, y + py, " ", bg=bg)
     for px in range(w):
-        console.print(x + px, y,         "─", fg=(150, 150, 200), bg=bg)
-        console.print(x + px, y + h - 1, "─", fg=(150, 150, 200), bg=bg)
+        console.print(x + px, y,         "─", fg=C_PANEL_BORDER, bg=bg)
+        console.print(x + px, y + h - 1, "─", fg=C_PANEL_BORDER, bg=bg)
     for py in range(h):
-        console.print(x,         y + py, "│", fg=(150, 150, 200), bg=bg)
-        console.print(x + w - 1, y + py, "│", fg=(150, 150, 200), bg=bg)
-    console.print(x,         y,         "┌", fg=(150, 150, 200), bg=bg)
-    console.print(x + w - 1, y,         "┐", fg=(150, 150, 200), bg=bg)
-    console.print(x,         y + h - 1, "└", fg=(150, 150, 200), bg=bg)
-    console.print(x + w - 1, y + h - 1, "┘", fg=(150, 150, 200), bg=bg)
+        console.print(x,         y + py, "│", fg=C_PANEL_BORDER, bg=bg)
+        console.print(x + w - 1, y + py, "│", fg=C_PANEL_BORDER, bg=bg)
+    console.print(x,         y,         "┌", fg=C_PANEL_BORDER, bg=bg)
+    console.print(x + w - 1, y,         "┐", fg=C_PANEL_BORDER, bg=bg)
+    console.print(x,         y + h - 1, "└", fg=C_PANEL_BORDER, bg=bg)
+    console.print(x + w - 1, y + h - 1, "┘", fg=C_PANEL_BORDER, bg=bg)
 
 
 def render_skills_menu(console, engine):
@@ -254,7 +358,9 @@ def render_skills_menu(console, engine):
         return
 
     # borders(2) + title(1) + sp(1) + div(1) + header(1) + div(1) + skills(n) + gap(1) + footer(1)
-    panel_w = 58
+    # Columns: Skill=2, Lv=18, Pot=23, Real=32, Next=41, Perk=51
+    PERK_COL = 51
+    panel_w = 72
     panel_h = num_skills + 9
     panel_x = (SCREEN_WIDTH  - panel_w) // 2
     panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
@@ -276,16 +382,19 @@ def render_skills_menu(console, engine):
     for px in range(1, panel_w - 1):
         console.print(panel_x + px, panel_y + 3, "─", fg=C_DIV, bg=BG)
 
-    # Column headers  — Skill=2, Lv=18, Pot=23, Real=32, Next=41
-    console.print(panel_x + 2,  panel_y + 4, "Skill", fg=C_HEAD, bg=BG)
-    console.print(panel_x + 18, panel_y + 4, "Lv",    fg=C_HEAD, bg=BG)
-    console.print(panel_x + 23, panel_y + 4, "Pot",   fg=C_HEAD, bg=BG)
-    console.print(panel_x + 32, panel_y + 4, "Real",  fg=C_HEAD, bg=BG)
-    console.print(panel_x + 41, panel_y + 4, "Next",  fg=C_HEAD, bg=BG)
+    # Column headers  — Skill=2, Lv=18, Pot=23, Real=32, Next=41, Perk=51
+    console.print(panel_x + 2,        panel_y + 4, "Skill",     fg=C_HEAD, bg=BG)
+    console.print(panel_x + 18,       panel_y + 4, "Lv",        fg=C_HEAD, bg=BG)
+    console.print(panel_x + 23,       panel_y + 4, "Pot",       fg=C_HEAD, bg=BG)
+    console.print(panel_x + 32,       panel_y + 4, "Real",      fg=C_HEAD, bg=BG)
+    console.print(panel_x + 41,       panel_y + 4, "Next",      fg=C_HEAD, bg=BG)
+    console.print(panel_x + PERK_COL, panel_y + 4, "Next Perk", fg=C_HEAD, bg=BG)
 
     # Divider under column headers
     for px in range(1, panel_w - 1):
         console.print(panel_x + px, panel_y + 5, "─", fg=C_DIV, bg=BG)
+
+    perk_max_len = panel_w - PERK_COL - 2  # chars available before right border
 
     # Skill rows (only unlocked skills)
     for i, skill in enumerate(unlocked_skills):
@@ -297,11 +406,17 @@ def render_skills_menu(console, engine):
         if skill.is_maxed():
             real_str = "MAX"
             next_str = "---"
+            perk_str = "---"
             c_real   = C_MAXED
+            c_perk   = C_MAXED
         else:
-            real_str = str(int(skill.real_exp))
-            next_str = str(skill.xp_needed())
-            c_real   = C_XP
+            real_str  = str(int(skill.real_exp))
+            next_str  = str(skill.xp_needed())
+            c_real    = C_XP
+            next_level = skill.level + 1
+            perk = get_perk(skill.name, next_level)
+            perk_str  = (perk["name"] if perk else "???")[:perk_max_len]
+            c_perk    = C_HINT
 
         pot_str = str(int(skill.potential_exp))
 
@@ -310,12 +425,13 @@ def render_skills_menu(console, engine):
             for px in range(1, panel_w - 1):
                 console.print(panel_x + px, row, " ", bg=row_bg)
 
-        console.print(panel_x + 1,  row, cursor_char,       fg=C_SP,    bg=row_bg)
-        console.print(panel_x + 2,  row, skill.name,        fg=C_LABEL, bg=row_bg)
-        console.print(panel_x + 18, row, str(skill.level),  fg=C_VALUE, bg=row_bg)
-        console.print(panel_x + 23, row, pot_str,           fg=C_POT,   bg=row_bg)
-        console.print(panel_x + 32, row, real_str,          fg=c_real,  bg=row_bg)
-        console.print(panel_x + 41, row, next_str,          fg=C_LABEL, bg=row_bg)
+        console.print(panel_x + 1,        row, cursor_char,      fg=C_SP,    bg=row_bg)
+        console.print(panel_x + 2,        row, skill.name,       fg=C_LABEL, bg=row_bg)
+        console.print(panel_x + 18,       row, str(skill.level), fg=C_VALUE, bg=row_bg)
+        console.print(panel_x + 23,       row, pot_str,          fg=C_POT,   bg=row_bg)
+        console.print(panel_x + 32,       row, real_str,         fg=c_real,  bg=row_bg)
+        console.print(panel_x + 41,       row, next_str,         fg=C_LABEL, bg=row_bg)
+        console.print(panel_x + PERK_COL, row, perk_str,         fg=c_perk,  bg=row_bg)
 
     # Footer
     footer_y = panel_y + panel_h - 2
@@ -333,8 +449,7 @@ def render_skills_menu(console, engine):
 
 def render_stats_panel(console, engine):
     """Render the persistent left-side stats / health / status panel."""
-    BG        = (18, 18, 28)
-    C_TITLE   = (255, 255, 180)
+    BG        = C_PANEL_BG
     C_LABEL   = (180, 180, 180)
     C_VALUE   = (255, 255, 255)
     C_HP_OK   = (80, 220, 80)
@@ -343,13 +458,11 @@ def render_stats_panel(console, engine):
     C_HP_EMPTY = (30, 30, 30)
     C_ARMOR_BAR = (100, 180, 255)
     C_ARMOR_EMPTY = (30, 30, 30)
-    C_DIV     = (60, 60, 100)
-    C_BORDER  = (100, 100, 160)
     C_BUFF    = (100, 220, 255)
     C_DEBUFF  = (255, 100, 100)
     C_EMPTY   = (80, 80, 80)
 
-    pw    = LEFT_PANEL_WIDTH          # 20 cols (0..19)
+    pw    = LEFT_PANEL_WIDTH          # 22 cols (0..21)
     map_h = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT  # rows available between header and UI bar
 
     # Background fill
@@ -357,75 +470,74 @@ def render_stats_panel(console, engine):
         for x in range(pw):
             console.print(x, y, " ", bg=BG)
 
+    # Outer left border (screen edge)
+    for y in range(HEADER_HEIGHT, HEADER_HEIGHT + map_h):
+        console.print(0, y, "║", fg=C_FRAME, bg=BG)
+
     # Right border (separator between stats panel and map)
     for y in range(HEADER_HEIGHT, HEADER_HEIGHT + map_h):
-        console.print(pw - 1, y, "│", fg=C_BORDER, bg=BG)
+        console.print(pw - 1, y, "│", fg=C_PANEL_BORDER, bg=BG)
 
-    row = HEADER_HEIGHT + 1
+    # ── Title-in-border ─────────────────────────────────────────────
+    _draw_title_border(console, 1, pw - 2, HEADER_HEIGHT, "CHARACTER", BG)
 
-    # ── Title ────────────────────────────────────────────────────────
-    title = "CHARACTER"
-    console.print((pw - 1 - len(title)) // 2, row, title, fg=C_TITLE, bg=BG)
-    row += 1
-
-    # Divider
-    for x in range(pw - 1):
-        console.print(x, row, "─", fg=C_DIV, bg=BG)
-    row += 1
+    lx = 2                        # left margin (1 col padding from border)
+    row = HEADER_HEIGHT + 2       # 1 row gap after title border
 
     # ── Health ───────────────────────────────────────────────────────
     p = engine.player
     hp_ratio = p.hp / max(1, p.max_hp)
-    hp_color = C_HP_OK if hp_ratio > 0.4 else C_HP_LOW
+    if hp_ratio > 0.75:
+        hp_color = C_HP_OK              # green
+    elif hp_ratio > 0.5:
+        hp_color = (140, 220, 60)       # yellow-green
+    elif hp_ratio > 0.3:
+        hp_color = (220, 200, 50)       # yellow
+    elif hp_ratio > 0.15:
+        hp_color = (220, 120, 40)       # orange
+    else:
+        hp_color = C_HP_LOW             # red
 
     hp_label = "HP"
     hp_value = f"{p.hp}/{p.max_hp}"
-    console.print(1, row, f"{hp_label} {hp_value}", fg=C_LABEL, bg=BG)
-    console.print(1 + len(hp_label) + 1, row, hp_value, fg=hp_color, bg=BG)
+    console.print(lx, row, f"{hp_label} {hp_value}", fg=C_LABEL, bg=BG)
+    console.print(lx + len(hp_label) + 1, row, hp_value, fg=hp_color, bg=BG)
     row += 1
 
-    # HP bar — fills inner width (pw-2 for margins, -1 for border)
-    bar_w   = pw - 3          # 17 usable bar chars
+    # HP bar — fills inner width (left margin + right border margin)
+    bar_w   = pw - lx - 2         # usable bar chars
     filled  = round(bar_w * hp_ratio)
     empty   = bar_w - filled
-    console.print(1, row, "█" * filled, fg=hp_color,  bg=BG)
-    console.print(1 + filled, row, "░" * empty,  fg=C_HP_EMPTY, bg=BG)
+    console.print(lx, row, "█" * filled, fg=hp_color,  bg=BG)
+    console.print(lx + filled, row, "░" * empty,  fg=C_HP_EMPTY, bg=BG)
     row += 1
 
     # ── Armor ────────────────────────────────────────────────────────
     armor_ratio = p.armor / max(1, p.max_armor) if p.max_armor > 0 else 0
     armor_label = "Armor"
     armor_value = f"{p.armor}/{p.max_armor}"
-    console.print(1, row, f"{armor_label} {armor_value}", fg=C_LABEL, bg=BG)
-    console.print(1 + len(armor_label) + 1, row, armor_value, fg=C_VALUE, bg=BG)
+    console.print(lx, row, f"{armor_label} {armor_value}", fg=C_LABEL, bg=BG)
+    console.print(lx + len(armor_label) + 1, row, armor_value, fg=C_VALUE, bg=BG)
     row += 1
 
     # Armor bar
     filled_armor  = round(bar_w * armor_ratio)
     empty_armor   = bar_w - filled_armor
-    console.print(1, row, "█" * filled_armor, fg=C_ARMOR_BAR, bg=BG)
-    console.print(1 + filled_armor, row, "░" * empty_armor, fg=C_ARMOR_EMPTY, bg=BG)
-    row += 1
-
-    # Divider
-    for x in range(pw - 1):
-        console.print(x, row, "─", fg=C_DIV, bg=BG)
-    row += 1
+    console.print(lx, row, "█" * filled_armor, fg=C_ARMOR_BAR, bg=BG)
+    console.print(lx + filled_armor, row, "░" * empty_armor, fg=C_ARMOR_EMPTY, bg=BG)
+    row += 2                      # 1 row gap before status section
 
     # ── Status effects ───────────────────────────────────────────────
-    status_title = "STATUS"
-    console.print((pw - 1 - len(status_title)) // 2, row, status_title, fg=C_TITLE, bg=BG)
-    row += 1
-
-    for x in range(pw - 1):
-        console.print(x, row, "─", fg=C_DIV, bg=BG)
+    _draw_title_border(console, 1, pw - 2, row, "STATUS", BG,
+                       fg_border=C_SECTION_DIV)
     row += 1
 
     cash_section_y = map_h - 3  # reserve bottom 2 rows for cash display
 
     status_effects = engine.player.status_effects
     if not status_effects:
-        console.print(1, row, "(none)", fg=C_EMPTY, bg=BG)
+        console.print(lx, row, "(none)", fg=C_EMPTY, bg=BG)
+        row += 1
     else:
         for effect in status_effects:
             if row >= cash_section_y - 1:
@@ -451,56 +563,41 @@ def render_stats_panel(console, engine):
                 color = (100, 255, 200)
                 marker = "+"
             else:
-                is_buff   = getattr(effect, "category", "debuff") == "buff"
-                color     = C_BUFF if is_buff else C_DEBUFF
-                marker    = "+" if is_buff else "-"
+                is_buff = getattr(effect, "category", "debuff") == "buff"
+                color   = C_BUFF if is_buff else C_DEBUFF
+                marker  = "+" if is_buff else "-"
 
-            # Build the effect name with mogged stack count
+            # Line 1: marker + name, with stack count in parens if stackable
             name = effect.display_name
-            if effect_id == "mogged" and getattr(effect, "amount", 0) > 0:
-                name = f"{name} ({effect.amount})"
+            stack_count = effect.stack_count
+            header = f"{marker} {name}"
+            if stack_count is not None:
+                header += f" ({stack_count})"
+            console.print(lx, row, header, fg=color, bg=BG)
+            row += 1
 
-            # Calculate available width: account for marker (1) + space (1) + turns on right
-            turns_str = str(effect.duration)
-            turns_width = len(turns_str) + 1  # +1 for spacing
-            available_width = pw - 2 - turns_width - 3  # -3 for borders/margins + space before turn #
-
-            # Wrap text to fit available width
-            text_lines = wrap_text_for_width(name, available_width, indent_width=2)
-
-            # Render text lines
-            for i, text_line in enumerate(text_lines):
-                if row >= cash_section_y - 1:
-                    break
-                if i == 0:
-                    # First line: print marker + text + turns
-                    console.print(1, row, f"{marker} {text_line}", fg=color, bg=BG)
-                    console.print(pw - 2 - len(turns_str), row, turns_str, fg=color, bg=BG)
-                else:
-                    # Continuation lines: just print indented text
-                    console.print(1, row, text_line, fg=color, bg=BG)
+            # Line 2: duration (dimmed)
+            if row < cash_section_y - 1:
+                dim = tuple(max(0, c - 70) for c in color)
+                console.print(lx, row, f"  \u25b8 {effect.display_duration}", fg=dim, bg=BG)
                 row += 1
 
     # ── Cash ─────────────────────────────────────────────────────────
-    for x in range(pw - 1):
-        console.print(x, cash_section_y, "─", fg=C_DIV, bg=BG)
+    _draw_title_border(console, 1, pw - 2, cash_section_y, "CASH", BG,
+                       fg_border=C_SECTION_DIV)
     cash_str = f"${engine.cash}"
-    console.print(1, cash_section_y + 1, "CASH:", fg=C_LABEL, bg=BG)
     console.print(pw - 2 - len(cash_str), cash_section_y + 1, cash_str, fg=(255, 215, 0), bg=BG)
 
 
 def render_inventory_panel(console, engine):
     """Render the persistent right-side inventory panel (columns MAP_WIDTH to SCREEN_WIDTH)."""
-    BG       = (18, 18, 28)
-    C_TITLE  = (255, 255, 180)
+    BG       = C_PANEL_BG
     C_LABEL  = (180, 180, 180)
     C_ITEM   = (255, 200, 0)
     C_EMPTY  = (80, 80, 80)
-    C_DIV    = (60, 60, 100)
-    C_BORDER = (100, 100, 160)
 
-    px = MAP_OFFSET_X + MAP_WIDTH   # panel left edge (column 76)
-    pw = PANEL_WIDTH                # 24 columns wide
+    px = MAP_OFFSET_X + MAP_WIDTH   # panel left edge (column 86)
+    pw = PANEL_WIDTH                # 28 columns wide
     map_h = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT  # height of the map area
 
     # Fill background
@@ -510,15 +607,14 @@ def render_inventory_panel(console, engine):
 
     # Left border (separator between map and panel)
     for y in range(HEADER_HEIGHT, HEADER_HEIGHT + map_h):
-        console.print(px, y, "│", fg=C_BORDER, bg=BG)
+        console.print(px, y, "│", fg=C_PANEL_BORDER, bg=BG)
 
-    # Title
-    title = "INVENTORY"
-    console.print(px + (pw - len(title)) // 2, HEADER_HEIGHT + 1, title, fg=C_TITLE, bg=BG)
+    # Outer right border (screen edge)
+    for y in range(HEADER_HEIGHT, HEADER_HEIGHT + map_h):
+        console.print(px + pw - 1, y, "║", fg=C_FRAME, bg=BG)
 
-    # Divider under title
-    for x in range(1, pw):
-        console.print(px + x, HEADER_HEIGHT + 2, "─", fg=C_DIV, bg=BG)
+    # ── Title-in-border ─────────────────────────────────────────────
+    _draw_title_border(console, px + 1, pw - 2, HEADER_HEIGHT, "INVENTORY", BG)
 
     # Category → display label (ALL CAPS for prominence)
     _CAT_LABEL = {
@@ -537,8 +633,8 @@ def render_inventory_panel(console, engine):
         combine_source = engine.player.inventory[engine.selected_item_index]
 
     inventory = engine.player.inventory
-    start_y   = HEADER_HEIGHT + 4
-    end_row   = start_y + (map_h - 5)
+    start_y   = HEADER_HEIGHT + 2
+    end_row   = start_y + (map_h - 3)
 
     if not inventory:
         console.print(px + 1, start_y, " (empty)", fg=C_EMPTY, bg=BG)
@@ -575,7 +671,10 @@ def render_inventory_panel(console, engine):
             qty      = getattr(item, "quantity", 1)
             max_name = pw - 6
             name = build_inventory_display_name(
-                item.item_id, getattr(item, "strain", None), qty
+                item.item_id, getattr(item, "strain", None), qty,
+                prefix=getattr(item, "prefix", None),
+                charges=getattr(item, "charges", None),
+                max_charges=getattr(item, "max_charges", None),
             )[:max_name]
 
             # Item color: strain color if item has a strain, else definition color
@@ -590,8 +689,8 @@ def render_inventory_panel(console, engine):
             if combine_source is not None:
                 if inv_idx == engine.selected_item_index:
                     console.print(px + 4, cur_row, name, fg=C_DIM, bg=BG)
-                elif find_recipe(combine_source.item_id, item.item_id):
-                    console.print(px + 4, cur_row, name, fg=C_COMBINE_TARGET, bg=BG)
+                elif _is_combine_target(combine_source, item):
+                    console.print(px + 4, cur_row, name, fg=item_color, bg=BG)
                 else:
                     console.print(px + 4, cur_row, name, fg=C_DIM, bg=BG)
             else:
@@ -605,8 +704,8 @@ def render_inventory_panel(console, engine):
 
     # Divider above weight/count row
     footer_y = HEADER_HEIGHT + map_h - 2
-    for x in range(1, pw):
-        console.print(px + x, footer_y, "─", fg=C_DIV, bg=BG)
+    for x in range(1, pw - 1):
+        console.print(px + x, footer_y, "─", fg=C_SECTION_DIV, bg=BG)
 
     count_text = f"Items: {len(inventory)}"
     console.print(px + 2, footer_y + 1, count_text, fg=C_LABEL, bg=BG)
@@ -614,16 +713,34 @@ def render_inventory_panel(console, engine):
 
 def render_item_menu(console, engine):
     """Render the item action popup (small overlay near inventory panel)."""
-    BG       = (30, 25, 40)
-    C_TITLE  = (255, 255, 180)
-    C_ACTION = (220, 220, 255)
-    C_HINT   = (100, 100, 100)
+    BG         = (30, 25, 40)
+    C_ACTION   = (220, 220, 255)
+    C_SELECTED = (255, 255, 100)
+    BG_SEL     = (60, 50, 80)
+    C_HINT     = (100, 100, 100)
+    C_KEY      = (160, 160, 160)
 
-    item = engine.player.inventory[engine.selected_item_index]
     actions = engine.selected_item_actions
+    cursor = engine.item_menu_cursor
+
+    # Build keyhint per action
+    item = engine.player.inventory[engine.selected_item_index]
+    defn = get_item_def(item.item_id)
+    use_verb = defn.get("use_verb")
+    throw_verb = defn.get("throw_verb")
+    key_hints = {}
+    for act in actions:
+        if act == use_verb or act == throw_verb or act == "Use on..." or act == "Equip":
+            key_hints[act] = "Spc"
+        elif act == "Examine":
+            key_hints[act] = "e"
+        elif act == "Drop":
+            key_hints[act] = "d"
+        elif act == "Destroy":
+            key_hints[act] = "D"
 
     popup_w = 22
-    popup_h = len(actions) + 4   # title + divider + actions + hint
+    popup_h = len(actions) + 2   # actions + hint line + top padding
 
     # Position left of the inventory panel, aligned with the item row
     popup_x = MAP_OFFSET_X + MAP_WIDTH - popup_w - 2
@@ -636,16 +753,20 @@ def render_item_menu(console, engine):
 
     _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
 
-    # Item name — gram-based for nugs/kush, x{n} suffix for others
-    qty  = getattr(item, "quantity", 1)
-    name = build_inventory_display_name(
-        item.item_id, getattr(item, "strain", None), qty
-    )[:popup_w - 4]
-    console.print(popup_x + 2, popup_y + 1, name, fg=C_TITLE, bg=BG)
-
-    # Numbered actions
+    # Actions with cursor highlight and keyhints
     for i, act in enumerate(actions):
-        console.print(popup_x + 2, popup_y + 2 + i, f"{i + 1}) {act}", fg=C_ACTION, bg=BG)
+        row_y = popup_y + 1 + i
+        is_sel = (i == cursor)
+        fg = C_SELECTED if is_sel else C_ACTION
+        bg = BG_SEL if is_sel else BG
+        prefix = "\x10 " if is_sel else "  "
+        hint = key_hints.get(act, "")
+        # Right-align keyhint
+        label = f"{prefix}{act}"
+        console.print(popup_x + 1, row_y, " " * (popup_w - 2), fg=fg, bg=bg)
+        console.print(popup_x + 2, row_y, label, fg=fg, bg=bg)
+        if hint:
+            console.print(popup_x + popup_w - len(hint) - 2, row_y, hint, fg=C_KEY, bg=bg)
 
     # Hint
     console.print(popup_x + 2, popup_y + popup_h - 1, "[Esc] Cancel", fg=C_HINT, bg=BG)
@@ -827,9 +948,13 @@ def render_char_sheet(console, engine):
         ("Unarmed Bonus", f"{unarmed_str} dmg",       f"STR-5 (weapons scale differently)"),
         ("Crit Chance",   f"{ps.crit_chance:.0%}",    f"SS*3% per point, crits deal x2 dmg"),
         ("Dodge Chance",  f"{ps.dodge_chance}%",      f"Chance to dodge melee attacks (0–90%)"),
-        ("XP Bonus",      f"x{ps.xp_multiplier:.1f}", f"BSM: +10% per point above 5"),
-        ("Drug Potency",  f"x{ps.drug_multiplier:.1f}", f"TOL: lower = stronger drug effects"),
     ]
+    if ps.total_spell_damage > 0:
+        derived.append(("Spell Damage", f"+{ps.total_spell_damage}", "Flat bonus to all spell damage"))
+    if engine.entered_meth_lab:
+        tox = engine.player.toxicity
+        mult = 1.0 + (tox / 100) ** 0.6 if tox > 0 else 1.0
+        derived.append(("Toxicity", f"{tox}  ({mult:.2f}x dmg)", "Meth Lab: damage taken multiplier"))
     for i, (label, val, note) in enumerate(derived):
         row = div_row + 2 + i
         console.print(panel_x + 2,  row, label, fg=C_LABEL,  bg=BG)
@@ -909,27 +1034,35 @@ def render_log_menu(console, engine):
 
 def render_destroy_confirm(console, engine):
     """Render the destroy-item confirmation warning popup."""
-    BG      = (40, 18, 18)
-    C_TITLE = (255, 80, 80)
-    C_TEXT  = (220, 220, 220)
-    C_WARN  = (255, 180, 50)
-    C_YES   = (255, 80, 80)
-    C_NO    = (100, 220, 100)
+    BG      = (22, 18, 28)
+    C_TITLE = (190, 100, 100)
+    C_TEXT  = (200, 200, 200)
+    C_WARN  = (180, 150, 60)
+    C_YES   = (210, 80,  80)
+    C_NO    = (90,  190, 90)
+    C_DIM   = (80,  80,  80)
+    C_HINT  = (70,  70,  90)
+    C_SEL_BG = (40, 28, 48)
+
+    cursor = getattr(engine, "destroy_confirm_cursor", 0)  # 0=No, 1=Yes
 
     item = engine.player.inventory[engine.selected_item_index]
     qty  = getattr(item, "quantity", 1)
     name = build_inventory_display_name(
-        item.item_id, getattr(item, "strain", None), qty
+        item.item_id, getattr(item, "strain", None), qty,
+        prefix=getattr(item, "prefix", None),
+        charges=getattr(item, "charges", None),
+        max_charges=getattr(item, "max_charges", None),
     )
 
-    popup_w = 32
-    popup_h = 9
+    popup_w = 34
+    popup_h = 11
     popup_x = (SCREEN_WIDTH - popup_w) // 2
     popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
 
     _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
 
-    title = "! DESTROY ITEM !"
+    title = "[ DESTROY ITEM ]"
     console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
                   title, fg=C_TITLE, bg=BG)
 
@@ -941,10 +1074,88 @@ def render_destroy_confirm(console, engine):
     console.print(popup_x + (popup_w - len(warn)) // 2, popup_y + 5,
                   warn, fg=C_WARN, bg=BG)
 
-    yes_text = "[Y] Destroy"
-    no_text  = "[N] Cancel"
-    console.print(popup_x + 3,                        popup_y + 7, yes_text, fg=C_YES, bg=BG)
-    console.print(popup_x + popup_w - 3 - len(no_text), popup_y + 7, no_text,  fg=C_NO,  bg=BG)
+    # Buttons — highlight selected with background tint and > cursor
+    yes_label = "[Y] Destroy"
+    no_label  = "[N] Cancel"
+    yes_x = popup_x + 3
+    no_x  = popup_x + popup_w - 3 - len(no_label)
+
+    if cursor == 1:  # Yes selected
+        console.print(yes_x - 2, popup_y + 7, ">", fg=C_YES, bg=C_SEL_BG)
+        console.print(yes_x,     popup_y + 7, yes_label, fg=C_YES, bg=C_SEL_BG)
+        console.print(no_x,      popup_y + 7, no_label,  fg=C_DIM, bg=BG)
+    else:             # No selected (default)
+        console.print(yes_x,     popup_y + 7, yes_label, fg=C_DIM, bg=BG)
+        console.print(no_x - 2,  popup_y + 7, ">", fg=C_NO, bg=C_SEL_BG)
+        console.print(no_x,      popup_y + 7, no_label,  fg=C_NO,  bg=C_SEL_BG)
+
+    hint = "◄/►:move  Y/N  Enter:confirm"
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + 9,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_examine(console, engine):
+    """Render the item examine overlay — centered transparent window with item details."""
+    BG      = (20, 18, 30)
+    C_TITLE = (255, 255, 180)
+    C_HINT  = (100, 100, 100)
+
+    item = engine.player.inventory[engine.selected_item_index]
+    exam_lines = generate_examine_lines(item.item_id, engine)
+
+    # Build title
+    qty = getattr(item, "quantity", 1)
+    title = build_inventory_display_name(
+        item.item_id, getattr(item, "strain", None), qty,
+        prefix=getattr(item, "prefix", None),
+        charges=getattr(item, "charges", None),
+        max_charges=getattr(item, "max_charges", None),
+    )
+
+    # Calculate width: widest line or title, capped at 40
+    max_line_w = len(title)
+    for line_parts in exam_lines:
+        line_len = sum(len(t) for t, *_ in line_parts)
+        if line_len > max_line_w:
+            max_line_w = line_len
+    popup_w = min(42, max_line_w + 6)
+
+    # Height: title + divider + lines + hint + padding
+    popup_h = len(exam_lines) + 5
+
+    # Center on map area
+    map_h = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (map_h - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    # Title
+    title_disp = title[:popup_w - 4]
+    console.print(popup_x + (popup_w - len(title_disp)) // 2, popup_y + 1,
+                  title_disp, fg=C_TITLE, bg=BG)
+
+    # Divider
+    for px in range(1, popup_w - 1):
+        console.print(popup_x + px, popup_y + 2, "─", fg=(80, 80, 120), bg=BG)
+
+    # Content lines
+    for i, line_parts in enumerate(exam_lines):
+        cx = popup_x + 2
+        cy = popup_y + 3 + i
+        for part in line_parts:
+            if isinstance(part, tuple) and len(part) == 2:
+                text, color = part
+            else:
+                text = str(part)
+                color = (200, 200, 200)
+            console.print(cx, cy, text, fg=color, bg=BG)
+            cx += len(text)
+
+    # Hint
+    hint = "[Esc] Back"
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 1,
+                  hint, fg=C_HINT, bg=BG)
 
 
 def render_ring_replace_menu(console, engine):
@@ -1039,18 +1250,23 @@ def render_targeting_mode(console, engine):
     map_cy  = cy + HEADER_HEIGHT
 
     is_visible = engine.dungeon.visible[cy, cx]
-    cursor_bg  = (30, 60, 180) if is_visible else (160, 30, 30)
+    in_range   = engine._is_targeting_in_range(cx, cy)
+    if not is_visible:
+        cursor_bg = (160, 30, 30)    # red: out of sight
+    elif not in_range:
+        cursor_bg = (200, 120, 30)   # orange: visible but out of range
+    else:
+        cursor_bg = (30, 60, 180)    # blue: valid target position
 
     # Highlight spell affected tiles (if applicable)
     if engine.targeting_spell is not None:
-        spell_type = engine.targeting_spell.get("type", "spell")
-        affected_tiles = engine.get_spell_affected_tiles(spell_type, cx, cy)
+        affected_tiles = engine.get_targeting_affected_tiles(cx, cy)
         for tx, ty in affected_tiles:
             map_tx = tx + MAP_OFFSET_X
             map_ty = ty + HEADER_HEIGHT
             if 0 <= map_tx < SCREEN_WIDTH and 0 <= map_ty < SCREEN_HEIGHT:
                 # Get the character and color already at this tile
-                tile = console.tiles_rgb[map_ty, map_tx]
+                tile = console.rgb[map_tx, map_ty]
                 ch = chr(tile['ch']) if tile['ch'] else ' '
                 ch_color = tuple(tile['fg'][:3]) if tile['fg'] is not None else (255, 255, 255)
                 # Overlay with semi-transparent highlight
@@ -1080,7 +1296,10 @@ def render_targeting_mode(console, engine):
         spell_name = stype.replace("_", " ").title()
         count = engine.targeting_spell.get("count") or engine.targeting_spell.get("total_hits")
         line0 = f"Cast: {spell_name}" + (f" (x{count} left)" if count and count > 1 else "")
-        if target_monster:
+        if not in_range:
+            line1 = "Out of range!"
+            line1_color = (255, 160, 30)
+        elif target_monster:
             line1 = f"Target: {target_monster.name} ({target_monster.hp}/{target_monster.max_hp} HP)"
             line1_color = C_ENEMY
         elif not is_visible:
@@ -1161,9 +1380,19 @@ def render_entity_targeting_mode(console, engine):
     C_INFO   = (220, 235, 255)
     C_HINT   = (140, 140, 170)
 
+    # Determine action label: ability name if targeting for an ability, else "Attack"
+    action_label = "Attack"
+    if engine.targeting_ability_index is not None:
+        from abilities import ABILITY_REGISTRY
+        inst_list = engine.player_abilities
+        if 0 <= engine.targeting_ability_index < len(inst_list):
+            _defn = ABILITY_REGISTRY.get(inst_list[engine.targeting_ability_index].ability_id)
+            if _defn:
+                action_label = _defn.name
+
     line0 = f"Target: {selected.name} ({selected.hp}/{selected.max_hp} HP)"
     line1 = f"[</> ] Cycle ({sel_idx + 1}/{n})"
-    line2 = "[Enter] Attack   [Esc] Cancel"
+    line2 = f"[Enter] {action_label}   [Esc] Cancel"
 
     popup_w = max(len(line0), len(line1), len(line2)) + 4
     popup_h = 5
@@ -1192,6 +1421,60 @@ def render_entity_targeting_mode(console, engine):
     popup_console.print(popup_w - 1, popup_h - 1, "┘", fg=C_BORDER, bg=BG)
     popup_console.print(2, 1, line0, fg=C_ENEMY, bg=BG)
     popup_console.print(2, 2, line1, fg=C_INFO,  bg=BG)
+    popup_console.print(2, 3, line2, fg=C_HINT,  bg=BG)
+    popup_console.blit(console, popup_x, popup_y, fg_alpha=1.0, bg_alpha=0.72)
+
+
+def render_adjacent_tile_targeting_mode(console, engine):
+    """Highlight non-wall adjacent tiles and show a direction-prompt popup."""
+    px, py = engine.player.x, engine.player.y
+
+    C_VALID_BG = (80, 40, 0)   # dim orange — valid adjacent tiles
+
+    for dy in range(-1, 2):
+        for dx in range(-1, 2):
+            if dx == 0 and dy == 0:
+                continue
+            tx, ty = px + dx, py + dy
+            if (0 <= tx < engine.dungeon.width and 0 <= ty < engine.dungeon.height
+                    and not engine.dungeon.is_wall(tx, ty)):
+                console.print(tx + MAP_OFFSET_X, ty + HEADER_HEIGHT, " ", bg=C_VALID_BG)
+
+    BG       = (20, 15, 30)
+    C_BORDER = (255, 100, 0)
+    C_TITLE  = (255, 160, 40)
+    C_HINT   = (200, 200, 200)
+
+    line0 = "Fire! — Choose direction"
+    line1 = "[Arrow/Numpad] Place fire"
+    line2 = "[Esc] Cancel"
+    popup_w = max(len(line0), len(line1), len(line2)) + 4
+    popup_h = 5
+
+    map_px = px + MAP_OFFSET_X
+    map_py = py + HEADER_HEIGHT
+    map_h  = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT
+    popup_x = max(MAP_OFFSET_X, min(map_px - 1, MAP_OFFSET_X + MAP_WIDTH - popup_w - 1))
+    popup_y = map_py + 3
+    if popup_y + popup_h > HEADER_HEIGHT + map_h:
+        popup_y = map_py - popup_h - 2
+
+    popup_console = tcod.console.Console(popup_w, popup_h)
+    for iy in range(popup_h):
+        for ix in range(popup_w):
+            popup_console.print(ix, iy, " ", bg=BG)
+    for ix in range(popup_w):
+        popup_console.print(ix, 0,           "─", fg=C_BORDER, bg=BG)
+        popup_console.print(ix, popup_h - 1, "─", fg=C_BORDER, bg=BG)
+    for iy in range(popup_h):
+        popup_console.print(0,           iy, "│", fg=C_BORDER, bg=BG)
+        popup_console.print(popup_w - 1, iy, "│", fg=C_BORDER, bg=BG)
+    popup_console.print(0,           0,           "┌", fg=C_BORDER, bg=BG)
+    popup_console.print(popup_w - 1, 0,           "┐", fg=C_BORDER, bg=BG)
+    popup_console.print(0,           popup_h - 1, "└", fg=C_BORDER, bg=BG)
+    popup_console.print(popup_w - 1, popup_h - 1, "┘", fg=C_BORDER, bg=BG)
+    popup_console.print(2, 1, line0, fg=C_TITLE, bg=BG)
+    popup_console.print(2, 2, line1, fg=C_HINT,  bg=BG)
     popup_console.print(2, 3, line2, fg=C_HINT,  bg=BG)
     popup_console.blit(console, popup_x, popup_y, fg_alpha=1.0, bg_alpha=0.72)
 
@@ -1251,21 +1534,27 @@ def render_abilities_menu(console, engine):
             if not usable:
                 continue
             row = panel_y + 5 + display_idx
-            name_color = defn.color
+            cd = engine.ability_cooldowns.get(inst.ability_id, 0)
+            on_cooldown = cd > 0
+            name_color = C_CANT if on_cooldown else defn.color
 
             # Key number (1-9)
             key_str = str(display_idx + 1) if display_idx < 9 else "-"
             console.print(panel_x + 2, row, f"{key_str})", fg=C_KEY, bg=BG)
 
             # Ability char glyph
-            console.print(panel_x + 5, row, defn.char, fg=defn.color, bg=BG)
+            console.print(panel_x + 5, row, defn.char, fg=name_color, bg=BG)
 
             # Name
             console.print(panel_x + 7, row, defn.name[:12], fg=name_color, bg=BG)
 
-            # Charges
-            charge_str = inst.charge_display(defn)
-            console.print(panel_x + 20, row, charge_str[:11], fg=C_AVAIL, bg=BG)
+            # Charges / cooldown
+            if on_cooldown:
+                charge_str = f"CD:{cd}t"
+                console.print(panel_x + 20, row, charge_str[:11], fg=C_CANT, bg=BG)
+            else:
+                charge_str = inst.charge_display(defn)
+                console.print(panel_x + 20, row, charge_str[:11], fg=C_AVAIL, bg=BG)
 
             display_idx += 1
 
@@ -1275,14 +1564,187 @@ def render_abilities_menu(console, engine):
                   panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
 
 
+def render_perks_menu(console, engine):
+    """Render the perks overlay: all skills and their 10 perks, scrollable."""
+    BG       = (18, 18, 28)
+    C_TITLE  = (255, 255, 180)
+    C_DIV    = (80, 80, 120)
+    C_SKILL  = (180, 180, 255)
+    C_EARNED = (120, 200, 120)
+    C_FUTURE = (100, 100, 100)
+    C_HINT   = (100, 100, 130)
+    C_CHECK  = (100, 200, 100)
+
+    # Build flat list of content lines: (text, colour, indent)
+    lines: list[tuple[str, tuple, int]] = []
+    for skill_name in _SKILL_NAMES:
+        skill = engine.skills.get(skill_name)
+        lines.append((skill_name, C_SKILL, 0))
+        for lvl in range(1, 11):
+            perk = get_perk(skill_name, lvl)
+            perk_name = perk["name"] if perk else "???"
+            earned = skill.level >= lvl
+            marker = "[+]" if earned else "[ ]"
+            colour = C_EARNED if earned else C_FUTURE
+            lines.append((f"  {marker} Lv{lvl:2d}: {perk_name}", colour, 2))
+
+    panel_w = 50
+    # Visible rows = total lines but capped to avoid overflowing screen
+    max_rows = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - 6
+    visible = min(len(lines), max_rows)
+    panel_h = visible + 5  # border(2) + title(1) + div(1) + rows + hint(1)
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    # Clamp scroll
+    max_scroll = max(0, len(lines) - visible)
+    engine.perks_scroll = min(engine.perks_scroll, max_scroll)
+    scroll = engine.perks_scroll
+
+    _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+
+    title = "PERKS"
+    console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+
+    for i, (text, colour, _indent) in enumerate(lines[scroll:scroll + visible]):
+        console.print(panel_x + 2, panel_y + 3 + i, text[:panel_w - 4], fg=colour, bg=BG)
+
+    scroll_info = f" {scroll + 1}-{min(scroll + visible, len(lines))}/{len(lines)} " if len(lines) > visible else ""
+    hint = f"[↑↓] Scroll{scroll_info} [Shift+P/Esc] Close"
+    console.print(panel_x + (panel_w - len(hint)) // 2,
+                  panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
+
+
+def render_dev_menu(console, engine):
+    """Render the dev tools overlay menu."""
+    if not DEV_MODE:
+        return
+
+    BG       = (10, 10, 30)
+    C_TITLE  = (255, 80, 80)
+    C_DIV    = (100, 40, 40)
+    C_OPTION = (220, 220, 220)
+    C_CURSOR = (40, 40, 80)
+    C_KEY    = (255, 200, 80)
+    C_HINT   = (100, 100, 130)
+    C_ON     = (80, 255, 80)
+    C_OFF    = (160, 160, 160)
+
+    options = [
+        ("Max All Skills (Lv 10)",        "max_skills"),
+        ("Add 10,000 Skill Points",        "add_skillpoints"),
+        ("Spawn Item...",                  "spawn_item"),
+        ("Kill All Monsters in View",      "kill_in_view"),
+        ("Invincibility",                  "toggle_invincible"),
+        ("Reveal Entire Map",              "reveal_map"),
+        ("Add $1,000 Cash",                "add_cash"),
+        ("Full Heal",                      "full_heal"),
+        ("Teleport to Stairs",             "teleport_stairs"),
+        ("Add +5 to All Stats",            "add_stats"),
+    ]
+
+    panel_w = 42
+    panel_h = len(options) + 6  # border(2) + title(1) + div(1) + options + hint(1) + gap(1)
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+
+    title = "[ DEV TOOLS ]"
+    console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+
+    for i, (label, key) in enumerate(options):
+        row_y = panel_y + 3 + i
+        row_bg = C_CURSOR if i == engine.dev_menu_cursor else BG
+        for px in range(1, panel_w - 1):
+            console.print(panel_x + px, row_y, " ", bg=row_bg)
+
+        num = str((i + 1) % 10)
+        console.print(panel_x + 2, row_y, f"[{num}]", fg=C_KEY, bg=row_bg)
+
+        # Special label for toggle option
+        if key == "toggle_invincible":
+            state_text = "ON " if engine.player.dev_invincible else "OFF"
+            state_col  = C_ON if engine.player.dev_invincible else C_OFF
+            console.print(panel_x + 6, row_y, label, fg=C_OPTION, bg=row_bg)
+            console.print(panel_x + 6 + len(label) + 1, row_y, state_text, fg=state_col, bg=row_bg)
+        else:
+            console.print(panel_x + 6, row_y, label, fg=C_OPTION, bg=row_bg)
+
+    hint = "[1-0/↑↓+Enter] Select  [Shift+`/Esc] Close"
+    console.print(panel_x + (panel_w - len(hint)) // 2, panel_y + panel_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_dev_item_select(console, engine):
+    """Render the dev item spawn picker."""
+    if not DEV_MODE:
+        return
+
+    from items import get_item_def
+
+    BG       = (10, 10, 30)
+    C_TITLE  = (255, 80, 80)
+    C_DIV    = (100, 40, 40)
+    C_ITEM   = (220, 220, 220)
+    C_CURSOR = (40, 40, 80)
+    C_HINT   = (100, 100, 130)
+    C_CAT    = (180, 180, 100)
+
+    items = engine.dev_item_list
+    n = len(items)
+    rows = 20
+    panel_w = 50
+    panel_h = rows + 6
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    # Keep cursor in view
+    if engine.dev_item_cursor < engine.dev_item_scroll:
+        engine.dev_item_scroll = engine.dev_item_cursor
+    elif engine.dev_item_cursor >= engine.dev_item_scroll + rows:
+        engine.dev_item_scroll = engine.dev_item_cursor - rows + 1
+
+    _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+
+    title = "[ SPAWN ITEM ]"
+    console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+
+    for row in range(rows):
+        idx = engine.dev_item_scroll + row
+        if idx >= n:
+            break
+        item_id = items[idx]
+        defn = get_item_def(item_id)
+        name = defn.get("name", item_id) if defn else item_id
+        cat  = (defn.get("category", "") if defn else "")[:3].upper()
+        row_y  = panel_y + 3 + row
+        row_bg = C_CURSOR if idx == engine.dev_item_cursor else BG
+        for px in range(1, panel_w - 1):
+            console.print(panel_x + px, row_y, " ", bg=row_bg)
+        console.print(panel_x + 2, row_y, f"{cat:<3}", fg=C_CAT, bg=row_bg)
+        console.print(panel_x + 6, row_y, name[:panel_w - 8], fg=C_ITEM, bg=row_bg)
+
+    scroll_info = f" {engine.dev_item_scroll + 1}-{min(engine.dev_item_scroll + rows, n)}/{n} "
+    hint = f"[↑↓]{scroll_info}[Enter] Spawn  [Esc] Back"
+    console.print(panel_x + (panel_w - len(hint)) // 2, panel_y + panel_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
 def render_ui(console, engine):
     """Render the bottom panel: messages on the left, stats on the right."""
     BG       = (28, 28, 38)
-    C_SEP    = (120, 120, 160)
-    C_BORDER = (100, 100, 160)
     C_HINT   = (80, 80, 110)
     C_TURN   = (160, 160, 180)
-    C_TITLE  = (255, 255, 180)
     C_LABEL  = (180, 180, 180)
     C_VALUE  = (255, 255, 255)
     C_BASE   = (110, 110, 110)   # muted gray for base value in parens
@@ -1290,23 +1752,46 @@ def render_ui(console, engine):
     C_DEBUFF = (255, 100, 100)
 
     ui_y    = SCREEN_HEIGHT - UI_HEIGHT
-    stats_x = MAP_OFFSET_X + MAP_WIDTH   # col 90 — aligns with inventory panel above
+    stats_x = MAP_OFFSET_X + MAP_WIDTH   # col 86 — aligns with inventory panel above
+    bottom_y = SCREEN_HEIGHT - 1          # last row for bottom border
 
     # Fill background
     for x in range(SCREEN_WIDTH):
         for y in range(UI_HEIGHT):
             console.print(x, ui_y + y, " ", bg=BG)
 
-    # Top separator — full width with junction char at stats column
+    # ── Top separator with junction pieces ──────────────────────────
     for x in range(SCREEN_WIDTH):
-        console.print(x, ui_y, "─", fg=C_SEP, bg=BG)
-    console.print(stats_x, ui_y, "┬", fg=C_SEP, bg=BG)
+        console.print(x, ui_y, "─", fg=C_PANEL_BORDER, bg=BG)
+    # Left edge: double-line meets single horizontal
+    console.print(0, ui_y, "╟", fg=C_FRAME, bg=BG)
+    # Left panel border terminates here
+    console.print(LEFT_PANEL_WIDTH - 1, ui_y, "┴", fg=C_PANEL_BORDER, bg=BG)
+    # Right panel / stats border continues through
+    console.print(stats_x, ui_y, "┼", fg=C_PANEL_BORDER, bg=BG)
+    # Right edge: double-line meets single horizontal
+    console.print(SCREEN_WIDTH - 1, ui_y, "╢", fg=C_FRAME, bg=BG)
+
+    # Outer left border
+    for dy in range(1, UI_HEIGHT - 1):
+        console.print(0, ui_y + dy, "║", fg=C_FRAME, bg=BG)
 
     # Vertical border down the left edge of the stats area
-    for dy in range(1, UI_HEIGHT):
-        console.print(stats_x, ui_y + dy, "│", fg=C_BORDER, bg=BG)
+    for dy in range(1, UI_HEIGHT - 1):
+        console.print(stats_x, ui_y + dy, "│", fg=C_PANEL_BORDER, bg=BG)
 
-    # Log hint (left of separator)
+    # Outer right border
+    for dy in range(1, UI_HEIGHT - 1):
+        console.print(SCREEN_WIDTH - 1, ui_y + dy, "║", fg=C_FRAME, bg=BG)
+
+    # ── Bottom border (double-line) ─────────────────────────────────
+    for x in range(SCREEN_WIDTH):
+        console.print(x, bottom_y, "═", fg=C_FRAME, bg=BG)
+    console.print(0, bottom_y, "╚", fg=C_FRAME, bg=BG)
+    console.print(stats_x, bottom_y, "╧", fg=C_FRAME, bg=BG)
+    console.print(SCREEN_WIDTH - 1, bottom_y, "╝", fg=C_FRAME, bg=BG)
+
+    # Log hint (left of separator, on the top border)
     hint_text = "[Shift+L] Log"
     console.print(2, ui_y, hint_text, fg=C_HINT, bg=BG)
 
@@ -1314,12 +1799,9 @@ def render_ui(console, engine):
     turn_text = f"Turn: {engine.turn}"
     console.print(stats_x - len(turn_text) - 2, ui_y, turn_text, fg=C_TURN, bg=BG)
 
-    # "STATS" header centred in the right section, overwriting separator dashes
-    stats_title = "STATS"
-    console.print(
-        stats_x + (PANEL_WIDTH - len(stats_title)) // 2,
-        ui_y, stats_title, fg=C_TITLE, bg=BG,
-    )
+    # "STATS" title-in-border on the top separator
+    _draw_title_border(console, stats_x + 1, PANEL_WIDTH - 2, ui_y, "STATS", BG,
+                       fg_border=C_PANEL_BORDER)
 
     # Stat rows — one per line in the right column
     # Current value = base + ring bonuses + temporary effects
@@ -1333,8 +1815,10 @@ def render_ui(console, engine):
         ("Tolerance",     ps.effective_tolerance,     "tolerance"),
         ("Swagger",       ps.effective_swagger,       "swagger"),
     ]
+    C_SEP     = (45, 45, 65)
+    sep_width = PANEL_WIDTH - 4
     for i, (label, current, attr) in enumerate(stat_rows):
-        sy    = ui_y + 1 + i
+        sy    = ui_y + 1 + i * 2
         base  = ps._base[attr]
         # Color based on whether current differs from base (includes rings + temporary effects)
         vc    = C_DEBUFF if current < base else (C_BUFF if current > base else C_VALUE)
@@ -1346,25 +1830,76 @@ def render_ui(console, engine):
         console.print(stats_x + 2, sy, f"{label:<16}", fg=C_LABEL,  bg=BG)
         # Value and base together on the right (value + space + base)
         value_and_base = f"{val_str} {base_str}"
-        console.print(stats_x + PANEL_WIDTH - len(value_and_base) - 1, sy, value_and_base, fg=vc,     bg=BG)
+        console.print(stats_x + PANEL_WIDTH - len(value_and_base) - 2, sy, value_and_base, fg=vc,     bg=BG)
         # Recolor just the base portion
-        console.print(stats_x + PANEL_WIDTH - len(base_str) - 1, sy, base_str,               fg=C_BASE, bg=BG)
+        console.print(stats_x + PANEL_WIDTH - len(base_str) - 2, sy, base_str,               fg=C_BASE, bg=BG)
+        # Dot separator between stats (not after the last one)
+        if i < len(stat_rows) - 1:
+            console.print(stats_x + 2, sy + 1, "·" * sep_width, fg=C_SEP, bg=BG)
 
     # Message history — truncated to stay left of the stats border
     msg_width = stats_x - 3   # cols 2 … stats_x-2
     all_msgs  = list(engine.messages)
-    visible   = UI_HEIGHT - 1
+    visible   = UI_HEIGHT - 2  # reserve bottom row for border
     shown     = all_msgs[-visible:] if len(all_msgs) > visible else all_msgs
+    n_shown   = len(shown)
+    # Fade steps: oldest message at 35% brightness, newest at 100%
     for i, msg in enumerate(shown):
-        msg_y = ui_y + 1 + (visible - len(shown)) + i
-        _render_msg(console, 2, msg_y, msg, msg_width, BG)
+        msg_y  = ui_y + 1 + (visible - n_shown) + i
+        # brightness 0.35 for oldest, 1.0 for newest
+        fade   = 0.35 + 0.65 * (i / max(1, n_shown - 1))
+        _render_msg(console, 2, msg_y, msg, msg_width, BG, fade=fade)
 
-    # Game over overlay
+    # Death screen overlay
     if engine.game_over:
-        game_over_text = "GAME OVER - Press Q to quit"
+        # Darken the map area
+        box_w, box_h = 30, 11
+        box_x = SCREEN_WIDTH // 2 - box_w // 2
+        box_y = SCREEN_HEIGHT // 2 - box_h // 2
+
+        # Draw dark background box
+        for bx in range(box_x, box_x + box_w):
+            for by in range(box_y, box_y + box_h):
+                console.print(bx, by, " ", fg=(0, 0, 0), bg=(20, 0, 0))
+
+        # Border
+        for bx in range(box_x, box_x + box_w):
+            console.print(bx, box_y, chr(0x2500), fg=(150, 0, 0), bg=(20, 0, 0))
+            console.print(bx, box_y + box_h - 1, chr(0x2500), fg=(150, 0, 0), bg=(20, 0, 0))
+        for by in range(box_y, box_y + box_h):
+            console.print(box_x, by, chr(0x2502), fg=(150, 0, 0), bg=(20, 0, 0))
+            console.print(box_x + box_w - 1, by, chr(0x2502), fg=(150, 0, 0), bg=(20, 0, 0))
+        # Corners
+        console.print(box_x, box_y, chr(0x250C), fg=(150, 0, 0), bg=(20, 0, 0))
+        console.print(box_x + box_w - 1, box_y, chr(0x2510), fg=(150, 0, 0), bg=(20, 0, 0))
+        console.print(box_x, box_y + box_h - 1, chr(0x2514), fg=(150, 0, 0), bg=(20, 0, 0))
+        console.print(box_x + box_w - 1, box_y + box_h - 1, chr(0x2518), fg=(150, 0, 0), bg=(20, 0, 0))
+
+        # Title
+        title = "YOU DIED"
         console.print(
-            SCREEN_WIDTH // 2 - len(game_over_text) // 2,
-            ui_y + UI_HEIGHT // 2,
-            game_over_text,
-            fg=(255, 0, 0), bg=BG,
+            SCREEN_WIDTH // 2 - len(title) // 2, box_y + 2,
+            title, fg=(255, 0, 0), bg=(20, 0, 0),
         )
+
+        # Stats summary
+        stats_line = f"Floor {engine.current_floor + 1}  |  {engine.kills} kills  |  Turn {engine.turn}"
+        console.print(
+            SCREEN_WIDTH // 2 - len(stats_line) // 2, box_y + 4,
+            stats_line, fg=(180, 180, 180), bg=(20, 0, 0),
+        )
+
+        # Menu options
+        options = ["Restart", "Quit"]
+        for i, opt in enumerate(options):
+            y = box_y + 7 + i
+            if i == engine.death_screen_cursor:
+                label = f"> {opt} <"
+                fg = (255, 255, 0)
+            else:
+                label = f"  {opt}  "
+                fg = (150, 150, 150)
+            console.print(
+                SCREEN_WIDTH // 2 - len(label) // 2, y,
+                label, fg=fg, bg=(20, 0, 0),
+            )

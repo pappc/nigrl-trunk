@@ -1,0 +1,69 @@
+# Meth Lab (Zone 2) Skill Concepts
+
+Skills discovered in the Meth Lab zone. Stronger than Crack Den perks since they come later in progression.
+
+---
+
+## Meth-Head
+
+Tweaking out. Faster, stronger, unstoppable — until the crash hits.
+
+| Level | Name | Type | Effect |
+|-------|------|------|--------|
+| L1 | **Tweakin** | Passive | After killing an enemy, gain +30 energy/tick for 10 turns. Chain kills keep you wired. |
+| L2 | **Stat Up!** | Stat | +4 Strength, +3 Constitution, -2 Book Smarts. Jacked but dumb. |
+| L3 | **Paranoia** | Passive | Enemies within sight radius 3 are always visible even outside FOV. You're so paranoid you can feel them. Also +15% dodge chance when 3+ enemies are visible. |
+
+**XP source**: Gained from taking damage. Pain feeds the tweak.
+
+---
+
+## Cookin (Meth Cooking)
+
+Chemistry class, hood edition. You learned from the best — or the worst.
+
+| Level | Name | Type | Effect |
+|-------|------|------|--------|
+| L1 | **First Batch** | Activated | Combine any 2 consumables to create a random toxin grenade (throwable, AoE poison). Trash items become weapons. |
+| L2 | **Stat Up!** | Stat | +4 Book Smarts, +2 Tolerance |
+| L3 | **Volatile Mix** | Passive | When you use any consumable, 25% chance to trigger its effect twice. Double smoke, double drink, double food — sometimes the batch hits different. |
+
+**XP source**: Using consumables of any kind. Every smoke, drink, and meal is practice.
+
+---
+
+## Tweakin (Mutation Angle)
+
+The radiation changed you. You didn't ask for it, but you're using it.
+
+| Level | Name | Type | Effect |
+|-------|------|------|--------|
+| L1 | **Mutate** | Passive | When you descend a floor, gain a random temporary stat bonus (+2 to +5 in a random stat) for the entire floor. The radiation keeps reshaping you. |
+| L2 | **Stat Up!** | Stat | +3 Tolerance, +3 Constitution. Your body adapts. |
+| L3 | **Toxic Blood** | Passive | When an enemy hits you in melee, they take poison damage equal to 20% of your Tolerance. Your blood is literally toxic. |
+
+**XP source**: Standing on hazard tiles (fire, radiation, toxin). You mutate by exposure.
+
+---
+
+## Snitchin (Faction Manipulation)
+
+Play both sides. Let them kill each other.
+
+| Level | Name | Type | Effect |
+|-------|------|------|--------|
+| L1 | **Rat** | Activated | Target an enemy — all other enemies in LOS aggro onto that target for 8 turns instead of you. 1 use per floor. |
+| L2 | **Stat Up!** | Stat | +4 Street Smarts, +2 Swagger |
+| L3 | **Double Agent** | Passive | Enemies killed by other enemies (from Rat or faction infighting) still grant you full XP and loot drops. You profit from chaos. |
+
+**XP source**: Earned when enemies damage each other. The more infighting, the better.
+
+---
+
+## Design Notes
+
+- All L1 perks are impactful abilities/passives (not small stat bumps) since these are zone 2 skills
+- L3 perks are build-defining power spikes
+- Meth-Head is already in SKILL_NAMES as a placeholder
+- Cookin, Tweakin, and Snitchin are new skill tree proposals
+- Snitchin ties into the planned Aldor/Scryer cartel faction system
