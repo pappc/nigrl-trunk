@@ -4,32 +4,31 @@ Stat systems for player and enemies.
 
 import random
 
-_STAT_MIN = 5
+_STAT_MIN = 6
 _STAT_MAX = 12
-_TOTAL_POINTS = 46   # 6 stats, sum = 46, each clamped to [5, 12]
-_NUM_STATS = 6
+_TOTAL_POINTS = 45   # 5 stats (excluding Swagger), sum = 45, each clamped to [6, 12]
+_NUM_STATS = 5
 
 
 class PlayerStats:
     """
     Randomly distributed RPG stats for the player character.
 
-    40 points distributed across 5 stats, each clamped to [5, 10].
+    45 points distributed across 5 stats, each clamped to [6, 12]. Swagger starts at 0.
 
     Constitution  — determines max HP (base 30 + CON × 10)
     Strength      — weapon damage bonus; scaling varies per weapon
     Book-Smarts   — skill point gain rate (higher = faster conversion)
     Street-Smarts — critical strike chance (SS × 3%, range 15%-36%)
     Tolerance     — drug effect multiplier; lower = stronger (1.0x – 1.7x)
-    Swagger       — melee defence bonus; +1 defence per 2 points above 5 (SWG 5=0, 7=+1, 9=+2);
-                    scales negatively below 5 (SWG 3=-1, 1=-2)
+    Swagger       — melee defence bonus; +1 defence per 3 points (starts at 0, not rolled)
     """
 
     def __init__(self):
         self._roll()
 
     def _roll(self):
-        """Distribute 40 points across 5 stats, each between 5 and 10."""
+        """Distribute 45 points across 5 stats (each [6, 12]). Swagger starts at 0."""
         values = [_STAT_MIN] * _NUM_STATS
         remaining = _TOTAL_POINTS - _STAT_MIN * _NUM_STATS  # 15 extra points
         while remaining > 0:
@@ -44,8 +43,8 @@ class PlayerStats:
             self.book_smarts,
             self.street_smarts,
             self.tolerance,
-            self.swagger,
         ) = values
+        self.swagger = 0
         # Store originals for buff/debuff visual comparison
         self._base = {
             "constitution": self.constitution,
@@ -177,8 +176,8 @@ class PlayerStats:
 
     @property
     def swagger_defence(self) -> int:
-        """Melee defence from Swagger (including ring bonuses). +1 per 2 points above 5."""
-        return (self.effective_swagger - 5) // 2
+        """Melee defence from Swagger. +1 per 3 points, truncates toward zero."""
+        return int(self.effective_swagger / 3)
 
     def as_list(self):
         """Return list of (label, value, description, attr_name) for the character sheet."""

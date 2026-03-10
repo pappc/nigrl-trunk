@@ -33,9 +33,9 @@ def test_bic_torch_burn():
     # Now simulate selecting the joint to burn
     game._try_combine(0, 1)  # Torch at index 0, joint at index 1
 
-    # Check that Pyromania XP was gained (joint value is 15, so 15 XP expected)
+    # Check that Pyromania XP was gained (joint value is 15, so 30 XP expected at 2x)
     joint_value = get_item_value("joint")
-    expected_xp = joint_value * game.player_stats.xp_multiplier
+    expected_xp = joint_value * 2 * game.player_stats.xp_multiplier
 
     print(f"Joint value: {joint_value}")
     print(f"Expected XP: {expected_xp}")

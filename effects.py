@@ -1303,6 +1303,25 @@ class LeftoversWellFedEffect(Effect):
 
 
 @register
+class QuickEatEffect(Effect):
+    """Buff: Next food eaten is consumed instantly (skip multi-turn eating)."""
+    id = "quick_eat"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, duration: int = 999, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Quick Eat"
+
+    def on_reapply(self, existing, entity, engine):
+        """Don't stack — keep existing."""
+        pass
+
+
+@register
 class EatingFoodEffect(Effect):
     """Buff: Player is eating food. Prevents all actions. When expired, applies food effects."""
     id = "eating_food"

@@ -59,123 +59,123 @@ SKILL_PERKS: dict[str, list[dict]] = {
 }
 
 SKILL_PERKS["Deep-Frying"] = [
-    {"name": "Fry Shot",     "perk_type": "activated", "effect": {"ability": "fry_shot"}},  # level 1
-    {"name": "Extra Greasy", "perk_type": "passive",   "effect": None},                     # level 2
-    {"name": "Double Batch", "perk_type": "passive",   "effect": None},                     # level 3: 20% no consume
+    {"name": "Fry Shot",     "perk_type": "activated", "effect": {"ability": "fry_shot"},    "desc": "Hurl a ball of scorching hot oil that deals burn damage in a small area."},   # level 1
+    {"name": "Extra Greasy", "perk_type": "passive",   "effect": None,                       "desc": "Your fried food items restore +20% HP when eaten."},                         # level 2
+    {"name": "Double Batch", "perk_type": "passive",   "effect": None,                       "desc": "20% chance a food item is not consumed when you eat it."},                   # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                # levels 4-10
 ]
 
 SKILL_PERKS["Dismantling"] = [
-    {"name": "Stat Up!",    "perk_type": "stat",    "effect": {"book_smarts": 2, "constitution": 2}},  # level 1
-    {"name": "Chop Shop",   "perk_type": "passive", "effect": None},   # level 2: +5 armor +20 cash on destroy
-    {"name": "Nigga Armor", "perk_type": "passive", "effect": None},   # level 3: stack of Nigga Armor on destroy
+    {"name": "+2 BKS, +2 CON",    "perk_type": "stat",    "effect": {"book_smarts": 2, "constitution": 2}, "desc": "+2 Book Smarts, +2 Constitution. You learn from taking things apart."},  # level 1
+    {"name": "Chop Shop",   "perk_type": "passive", "effect": None,                                  "desc": "Destroying an item grants +5 armor and +$20 cash from salvaged parts."},   # level 2
+    {"name": "Nigga Armor", "perk_type": "passive", "effect": None,                                  "desc": "Gain a stack of Nigga Armor whenever you destroy an item."},               # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                          # levels 4-10
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                         # levels 4-10
 ]
 
 SKILL_PERKS["Abandoning"] = [
-    {"name": "Stat Up!", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}},  # level 1
-    {"name": "Stat Up!", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}},  # level 2
-    {"name": "Anotha Motha", "perk_type": "passive", "effect": None},  # level 3: 5 extra items on descend
+    {"name": "+1 All Stats", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 to all stats. Leaving things behind builds character."},  # level 1
+    {"name": "+1 All Stats", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 to all stats. And it keeps building."},                   # level 2
+    {"name": "Anotha Motha", "perk_type": "passive", "effect": None, "desc": "Receive 5 extra item drops when descending to the next floor."},                                                                                         # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                          # levels 4-10
 ]
 
 SKILL_PERKS["Smoking"] = [
-    {"name": "Phat Cloud",  "perk_type": "passive", "effect": None},                                      # level 1
-    {"name": "Stat Up!",    "perk_type": "stat",    "effect": {"tolerance": 2, "constitution": 2}},       # level 2
-    {"name": "Roach Fiend", "perk_type": "stat",    "effect": {"tolerance": 2}},                          # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
-]
-
-SKILL_PERKS["Pyromania"] = [
-    {"name": "Fire!",         "perk_type": "activated", "effect": {"ability": "place_fire"}},                  # level 1
-    {"name": "Stat Up!",      "perk_type": "stat",      "effect": {"constitution": 3}},                        # level 2
-    {"name": "Ignite",        "perk_type": "activated", "effect": {"ability": "ignite_spell"}},                # level 3
-    {"name": "Neva Burn Out", "perk_type": "passive",   "effect": None},                                       # level 4
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                        # levels 5-10
-]
-
-SKILL_PERKS["Rolling"] = [
-    {"name": "Stat Up!",       "perk_type": "stat",    "effect": {"strength": 1, "tolerance": 1}},        # level 1
-    {"name": "Seeing Double",  "perk_type": "passive", "effect": None},                                   # level 2
-    {"name": "Spectral Paper", "perk_type": "passive", "effect": None},                                   # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
-]
-
-SKILL_PERKS["Alcoholism"] = [
-    {"name": "Im Drinkin Here", "perk_type": "passive", "effect": None},                                     # level 1
-    {"name": "Stat Up!",        "perk_type": "stat",    "effect": {"tolerance": 2}},                         # level 2
-    {"name": "Throw Bottle",    "perk_type": "activated", "effect": {"ability": "throw_bottle"}},            # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                                 # levels 4-10
-]
-
-SKILL_PERKS["Drinking"] = [
-    {"name": "Liquid Bandage",  "perk_type": "passive",   "effect": None},                                   # level 1: +10% max HP heal on any drink
-    {"name": "One More Sip",    "perk_type": "passive",   "effect": None},                                   # level 2: 20% chance drink not consumed
-    {"name": "Slow Metabolism", "perk_type": "activated", "effect": {"ability": "slow_metabolism"}},         # level 3: double active drink buff durations (2/floor)
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                                 # levels 4-10
-]
-
-SKILL_PERKS["Beating"] = [
-    {"name": "Stat Up!",  "perk_type": "stat",      "effect": {"strength": 3}},               # level 1
-    {"name": "Bash",      "perk_type": "activated",  "effect": {"ability": "bash"}},           # level 2
-    {"name": "Crit+",     "perk_type": "passive",    "effect": None},                          # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                  # levels 4-10
-]
-
-SKILL_PERKS["Stabbing"] = [
-    {"name": "Gouge",     "perk_type": "activated", "effect": {"ability": "gouge"}},               # level 1
-    {"name": "Stat Up!",  "perk_type": "stat",      "effect": {"street_smarts": 2}},               # level 2
-    {"name": "Windfury",  "perk_type": "passive",   "effect": None},                               # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                       # levels 4-10
-]
-
-SKILL_PERKS["Blackkk Magic"] = [
-    {"name": "Stat Up!",            "perk_type": "stat",      "effect": {"book_smarts": 2}},           # level 1
-    {"name": "Force Be With You",   "perk_type": "activated", "effect": {"ability": "force_push"}},    # level 2
-    {"name": "Arcane Intelligence", "perk_type": "passive",   "effect": None},                         # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                           # levels 4-10
-]
-
-SKILL_PERKS["Smacking"] = [
-    {"name": "Bitch Slap",  "perk_type": "activated", "effect": {"ability": "black_eye_slap"}},  # level 1
-    {"name": "Stat Up!",    "perk_type": "stat",       "effect": {"strength": 3, "constitution": 3}},  # level 2
-    {"name": "Black Eye",   "perk_type": "passive",    "effect": None},                               # level 3
+    {"name": "Phat Cloud",  "perk_type": "passive", "effect": None,                                    "desc": "Smoking produces a cloud of smoke that obscures enemy vision in the area."},  # level 1
+    {"name": "+2 TOL, +2 CON",    "perk_type": "stat",    "effect": {"tolerance": 2, "constitution": 2},     "desc": "+2 Tolerance, +2 Constitution. Your body adapts to the abuse."},              # level 2
+    {"name": "+2 TOL", "perk_type": "stat",    "effect": {"tolerance": 2},                        "desc": "+2 Tolerance. You smoke the roach. Every last bit."},                         # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 4-10
 ]
 
-SKILL_PERKS["Munching"] = [
-    {"name": "Fatter",       "perk_type": "stat",    "effect": {"constitution": 1}},                      # level 1
-    {"name": "Even Fatter",  "perk_type": "stat",    "effect": {"constitution": 2}},                      # level 2
-    {"name": "Better Later", "perk_type": "passive", "effect": None},                                     # level 3
+SKILL_PERKS["Pyromania"] = [
+    {"name": "Fire!",         "perk_type": "activated", "effect": {"ability": "place_fire"},   "desc": "Place a fire tile on an adjacent square. Enemies that step on it take burn damage."},  # level 1
+    {"name": "+3 CON",      "perk_type": "stat",      "effect": {"constitution": 3},          "desc": "+3 Constitution. Fire hardens the soul."},                                              # level 2
+    {"name": "Ignite",        "perk_type": "activated", "effect": {"ability": "ignite_spell"}, "desc": "Targeted ignite spell — set a visible enemy ablaze from a distance."},                  # level 3
+    {"name": "Neva Burn Out", "perk_type": "passive",   "effect": None,                        "desc": "You are completely immune to fire and burning damage."},                                 # level 4
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,        # levels 5-10
+]
+
+SKILL_PERKS["Rolling"] = [
+    {"name": "+1 STR, +1 TOL",       "perk_type": "stat",    "effect": {"strength": 1, "tolerance": 1}, "desc": "+1 Strength, +1 Tolerance. Rolling builds hands and resistance."},  # level 1
+    {"name": "Seeing Double",  "perk_type": "passive", "effect": None,                             "desc": "Chance to roll an extra blunt when you roll one up."},               # level 2
+    {"name": "Spectral Paper", "perk_type": "passive", "effect": None,                             "desc": "20% chance rolling a blunt doesn't consume your papers."},           # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 4-10
+]
+
+SKILL_PERKS["Alcoholism"] = [
+    {"name": "Im Drinkin Here", "perk_type": "passive",   "effect": None,                           "desc": "Taking damage while drunk has a chance to not interrupt your drinking."},       # level 1
+    {"name": "+2 TOL",        "perk_type": "stat",      "effect": {"tolerance": 2},               "desc": "+2 Tolerance. Your liver is basically pickled at this point."},                 # level 2
+    {"name": "Throw Bottle",    "perk_type": "activated", "effect": {"ability": "throw_bottle"},    "desc": "Hurl a bottle at an enemy for damage with a chance to stun them."},            # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                       # levels 4-10
+]
+
+SKILL_PERKS["Drinking"] = [
+    {"name": "Liquid Bandage",  "perk_type": "passive",   "effect": None,                             "desc": "Any drink heals +10% of your max HP on use, in addition to normal effects."},      # level 1
+    {"name": "One More Sip",    "perk_type": "passive",   "effect": None,                             "desc": "20% chance a drink item is not consumed when used."},                              # level 2
+    {"name": "Slow Metabolism", "perk_type": "activated", "effect": {"ability": "slow_metabolism"},   "desc": "Double the duration of all currently active drink buffs. 2 uses per floor."},      # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                         # levels 4-10
+]
+
+SKILL_PERKS["Beating"] = [
+    {"name": "+3 STR",  "perk_type": "stat",      "effect": {"strength": 3},         "desc": "+3 Strength. Beating people up makes you stronger. Simple as that."},    # level 1
+    {"name": "Bash",      "perk_type": "activated",  "effect": {"ability": "bash"},    "desc": "Bash an adjacent enemy with full force, stunning them for 1 turn."},       # level 2
+    {"name": "Crit+",     "perk_type": "passive",    "effect": None,                   "desc": "Increases your critical hit chance on all melee attacks."},                # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                          # levels 4-10
+]
+
+SKILL_PERKS["Stabbing"] = [
+    {"name": "Gouge",     "perk_type": "activated", "effect": {"ability": "gouge"},        "desc": "Gouge a single target, dealing bonus damage and applying a bleed effect."},   # level 1
+    {"name": "+2 STS",  "perk_type": "stat",      "effect": {"street_smarts": 2},        "desc": "+2 Street Smarts. You learn to read people by poking holes in them."},        # level 2
+    {"name": "Windfury",  "perk_type": "passive",   "effect": None,                        "desc": "Chance to attack a second time immediately after each stab."},                # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                              # levels 4-10
+]
+
+SKILL_PERKS["Blackkk Magic"] = [
+    {"name": "+2 BKS",            "perk_type": "stat",      "effect": {"book_smarts": 2},           "desc": "+2 Book Smarts. Forbidden knowledge has its perks."},                    # level 1
+    {"name": "Force Be With You",   "perk_type": "activated", "effect": {"ability": "force_push"},    "desc": "Force push an enemy backwards several tiles. Works through walls?"},      # level 2
+    {"name": "Arcane Intelligence", "perk_type": "passive",   "effect": None,                         "desc": "All spells and abilities cost significantly less energy to use."},        # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 4-10
+]
+
+SKILL_PERKS["Smacking"] = [
+    {"name": "Bitch Slap",  "perk_type": "activated", "effect": {"ability": "black_eye_slap"},         "desc": "Slap an adjacent enemy. Dmg: STR (vs females: 10 + 2×STR). 25-turn cooldown."},  # level 1
+    {"name": "+3 STR, +3 CON",    "perk_type": "stat",       "effect": {"strength": 3, "constitution": 3},   "desc": "+3 Strength, +3 Constitution. Slapping builds muscle."},                                        # level 2
+    {"name": "Black Eye",   "perk_type": "passive",    "effect": None,                                  "desc": "Unarmed attacks have a 10% chance to cause Black Eye: stun 2 turns, then 10 turns of dazed wandering."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                           # levels 4-10
+]
+
+SKILL_PERKS["Munching"] = [
+    {"name": "Fast Food",    "perk_type": "activated", "effect": {"constitution": 2, "ability": "quick_eat"}, "desc": "+2 Constitution. Grants Quick Eat ability: instantly eat your next food."},  # level 1
+    {"name": "+2 CON",  "perk_type": "stat",    "effect": {"constitution": 2}, "desc": "+2 Constitution. You're a unit. No cap."},                     # level 2
+    {"name": "Better Later", "perk_type": "passive", "effect": None,               "desc": "Food effects last 50% longer before wearing off."},            # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                      # levels 4-10
 ]
 
 SKILL_PERKS["Jaywalking"] = [
-    {"name": "Air Jordans",   "perk_type": "passive",   "effect": None},                                  # level 1: move cost -5
-    {"name": "Dash",          "perk_type": "activated", "effect": {"ability": "dash"}},                   # level 2: dash ability
-    {"name": "Airer Jordans", "perk_type": "passive",   "effect": None},                                  # level 3: +10 speed
+    {"name": "Air Jordans",   "perk_type": "passive",   "effect": None,                    "desc": "Movement costs -5 energy. You move like you own these streets."},     # level 1
+    {"name": "Dash",          "perk_type": "activated", "effect": {"ability": "dash"},     "desc": "Dash in a direction, instantly moving 3 tiles. Great for escaping."},  # level 2
+    {"name": "Airer Jordans", "perk_type": "passive",   "effect": None,                    "desc": "+10 Speed. Even fresher kicks. Even faster feet."},                    # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                               # levels 4-10
 ]
 
 SKILL_PERKS["Stealing"] = [
-    {"name": "Street Smarter",        "perk_type": "stat",      "effect": {"street_smarts": 3}},           # level 1: +3 StSmt
-    {"name": "Pickpocket",           "perk_type": "activated", "effect": {"ability": "pickpocket"}},      # level 2: attack ability
-    {"name": "Sticky Fingers",       "perk_type": "passive",   "effect": None},                           # level 3: chance +1 StSmt on first pickup
+    {"name": "+3 STS",  "perk_type": "stat",      "effect": {"street_smarts": 3},         "desc": "+3 Street Smarts. You learn real quick who to trust and who to rob."},              # level 1
+    {"name": "Pickpocket",      "perk_type": "activated", "effect": {"ability": "pickpocket"},    "desc": "Attempt to pickpocket an adjacent enemy, stealing cash or an item from them."},    # level 2
+    {"name": "Sticky Fingers",  "perk_type": "passive",   "effect": None,                         "desc": "Chance to gain +1 Street Smarts on the first item pickup each floor."},            # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                              # levels 4-10
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 4-10
 ]
 
 

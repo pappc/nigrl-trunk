@@ -489,8 +489,7 @@ def _execute_at_ignite_spell(engine, tx: int, ty: int) -> bool:
 
 
 def _execute_at_black_eye_slap(engine, tx: int, ty: int) -> bool:
-    """Bitch Slap an adjacent enemy. Dmg = STR; vs. females: 10 + 2*STR. Applies Black Eye debuff."""
-    import effects
+    """Bitch Slap an adjacent enemy. Dmg = STR; vs. females: 10 + 2*STR."""
     target = next(
         (e for e in engine.dungeon.get_entities_at(tx, ty)
          if e.entity_type == "monster" and e.alive),
@@ -508,12 +507,11 @@ def _execute_at_black_eye_slap(engine, tx: int, ty: int) -> bool:
         damage = max(1, strength - target.defense)
 
     target.take_damage(damage)
-    effects.apply_effect(target, engine, "black_eye", duration=2, silent=True)
 
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
     gender_str = " (FEMALE BONUS!)" if is_female else ""
     engine.messages.append(
-        f"BITCH SLAP!{gender_str} {target.name} takes {damage} dmg and gets a black eye! ({hp_disp})"
+        f"BITCH SLAP!{gender_str} {target.name} takes {damage} dmg! ({hp_disp})"
     )
     if not target.alive:
         engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
@@ -628,6 +626,22 @@ def _execute_slow_metabolism(engine) -> bool:
         ])
     else:
         engine.messages.append("Slow Metabolism: no active drink buffs to extend.")
+    return True
+
+
+def _execute_quick_eat(engine) -> bool:
+    """Grant 1 stack of the Quick Eat buff. Next food eaten is instant."""
+    from effects import apply_effect
+    # Check if already have the buff
+    existing = next((e for e in engine.player.status_effects if getattr(e, 'id', '') == 'quick_eat'), None)
+    if existing:
+        engine.messages.append("You already have Quick Eat active!")
+        return False
+    apply_effect(engine.player, engine, "quick_eat", duration=999, silent=True)
+    engine.messages.append([
+        ("Quick Eat! ", (255, 200, 50)),
+        ("Your next food will be eaten instantly.", (200, 255, 200)),
+    ])
     return True
 
 
@@ -855,12 +869,12 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "black_eye_slap": AbilityDef(
         ability_id="black_eye_slap",
         name="Bitch Slap",
-        description="Slap an adjacent enemy. Dmg: STR (vs females: 10 + 2×STR). Applies Black Eye: stun 2t then wander 10t. 25-turn cooldown.",
+        description="Slap an adjacent enemy. Dmg: STR (vs females: 10 + 2×STR). 25-turn cooldown.",
         char="S",
         color=(255, 100, 150),
         target_type=TargetType.ADJACENT,
         charge_type=ChargeType.INFINITE,
-        tags=frozenset({"attack", "melee", "damage", "debuff", "stun", "targeted", "active"}),
+        tags=frozenset({"attack", "melee", "damage", "targeted", "active"}),
         execute=None,
         is_spell=False,
         max_range=1.5,
@@ -964,6 +978,19 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         is_spell=False,
         max_range=5.0,
         execute_at=_execute_at_ignite_spell,
+    ),
+    "quick_eat": AbilityDef(
+        ability_id="quick_eat",
+        name="Quick Eat",
+        description="Your next food is eaten instantly — no multi-turn wait.",
+        char="Q",
+        color=(255, 200, 50),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"food", "buff", "self_cast", "active"}),
+        execute=_execute_quick_eat,
+        is_spell=False,
     ),
     "slow_metabolism": AbilityDef(
         ability_id="slow_metabolism",

@@ -13,7 +13,7 @@ from config import (
     BASE_HP, BASE_POWER, BASE_DEFENSE,
     DUNGEON_WIDTH, DUNGEON_HEIGHT, MAX_MESSAGES, LOG_HISTORY_SIZE,
     MIN_DAMAGE, UNARMED_STR_BASE, EQUIPMENT_SLOTS, RING_SLOTS, FOV_RADIUS,
-    ENERGY_THRESHOLD, PLAYER_BASE_SPEED, ZONE_BLACKK_MAGIC_MULT,
+    ENERGY_THRESHOLD, PLAYER_BASE_SPEED, ZONE_BLACKK_MAGIC_MULT, ZONE_DAMAGE_MULT,
     DEV_MODE,
 )
 from dungeon import Dungeon
@@ -140,6 +140,7 @@ class GameEngine:
         self.messages: deque = deque(maxlen=LOG_HISTORY_SIZE)
         self.log_scroll: int = 0   # 0 = newest; higher = further back in history
         self.perks_scroll: int = 0  # scroll offset for the perks menu
+        self.perk_cursor: int = 0   # cursor index into selectable perk rows
         self.cash = 0
         self.picked_up_items: set[str] = set()  # tracks item instance_ids that have been looted (prevents drop/pickup abuse)
         self.visited_rooms: dict[int, set[int]] = {0: {0}}  # floor -> visited room indices; room 0 pre-visited (player spawn)
@@ -160,6 +161,7 @@ class GameEngine:
         self.selected_item_index: int | None = None
         self.selected_item_actions: list[str] = []
         self.item_menu_cursor: int = 0
+        self.combine_target_cursor: int | None = None  # inventory index highlighted in COMBINE_SELECT
 
         # --- Ring replacement state ---
         self.pending_ring_item_index: int | None = None  # inventory index of ring being equipped
@@ -183,6 +185,7 @@ class GameEngine:
         # Players start with no abilities; abilities are granted by items and skills.
         self.player_abilities: list[AbilityInstance] = []
         self.selected_ability_index: int | None = None
+        self.abilities_cursor: int = 0
         self.ability_cooldowns: dict[str, int] = {}  # ability_id -> turns remaining
         self.crit_multiplier: int = 2  # base crit damage multiplier (Crit+ perk increases this)
         self.move_cost_reduction: int = 0  # energy refunded per actual move step (Air Jordans perk)
@@ -484,14 +487,26 @@ class GameEngine:
                 entity.energy += gain
 
             # 2. Process all monsters that have enough energy, highest energy first
+            def _monster_min_cost(m):
+                return min(
+                    getattr(m, "move_cost", 0) or ENERGY_THRESHOLD,
+                    getattr(m, "attack_cost", 0) or ENERGY_THRESHOLD,
+                )
             acting = sorted(
-                [m for m in monsters if m.alive and m.energy >= ENERGY_THRESHOLD],
+                [m for m in monsters if m.alive and m.energy >= _monster_min_cost(m)],
                 key=lambda m: -m.energy,
             )
             for monster in acting:
-                while monster.alive and monster.energy >= ENERGY_THRESHOLD:
-                    do_ai_turn(monster, self.player, self.dungeon, self, **tick_data)
-                    monster.energy -= ENERGY_THRESHOLD
+                min_cost = _monster_min_cost(monster)
+                while monster.alive and monster.energy >= min_cost:
+                    action_type = do_ai_turn(monster, self.player, self.dungeon, self, **tick_data)
+                    if action_type == "attack":
+                        cost = getattr(monster, "attack_cost", 0) or ENERGY_THRESHOLD
+                    elif action_type == "move":
+                        cost = getattr(monster, "move_cost", 0) or ENERGY_THRESHOLD
+                    else:
+                        cost = ENERGY_THRESHOLD
+                    monster.energy -= cost
 
             # 3. Tick status effects once per energy cycle
             self.turn += 1
@@ -544,6 +559,7 @@ class GameEngine:
     def _action_open_perks_menu(self, _action):
         self.menu_state = MenuState.PERKS
         self.perks_scroll = 0
+        self.perk_cursor = 0
         return False
 
     # ------------------------------------------------------------------
@@ -728,15 +744,18 @@ class GameEngine:
         return False
 
     def _handle_perks_input(self, action):
-        """Handle input in the perks overlay. UP/DOWN scroll; anything else closes."""
+        """Handle input in the perks overlay. UP/DOWN move cursor; anything else closes."""
+        from render import count_perks_menu_selectables
         action_type = action.get("type")
         if action_type == "move":
             dy = action.get("dy", 0)
             dx = action.get("dx", 0)
+            n_sel = count_perks_menu_selectables(self)
             if dy == -1 and dx == 0:
-                self.perks_scroll = max(0, self.perks_scroll - 1)
+                self.perk_cursor = max(0, self.perk_cursor - 1)
             elif dy == 1 and dx == 0:
-                self.perks_scroll += 1
+                if n_sel > 0:
+                    self.perk_cursor = min(n_sel - 1, self.perk_cursor + 1)
         else:
             self.menu_state = MenuState.NONE
         return False
@@ -766,6 +785,13 @@ class GameEngine:
         if name == "Spectral Paper":
             self._add_item_to_inventory("spectral_paper")
             self.messages.append("  [Spectral Paper] A ghostly rolling paper materializes in your inventory!")
+
+        if name == "Bitch Slap":
+            self.grant_ability("black_eye_slap")
+            self.messages.append("  [Bitch Slap] You learn to slap enemies senseless!")
+
+        if name == "Black Eye":
+            self.messages.append("  [Black Eye] Unarmed attacks now have a 10% chance to stun enemies!")
 
         if name == "Bash":
             self.grant_ability("bash")
@@ -817,6 +843,15 @@ class GameEngine:
         if name == "Pickpocket":
             self.grant_ability("pickpocket")
             self.messages.append("  [Pickpocket] You can now strike adjacent enemies and snag $25 from them!")
+
+        if name == "Fast Food":
+            ps = self.player_stats
+            ps.constitution += 2
+            ps._base["constitution"] = ps.constitution
+            self.player.max_hp += 20
+            self.player.heal(20)
+            self.grant_ability("quick_eat")
+            self.messages.append("  [Fast Food] +2 Constitution. You learn Quick Eat! Use it to instantly eat your next food.")
 
     def _handle_log_input(self, action):
         """Handle input while the log menu is open. UP/DOWN scroll; anything else closes."""
@@ -1512,7 +1547,7 @@ class GameEngine:
             for eff in list(self.player.status_effects):
                 eff.on_player_melee_hit(self, defender, damage)
 
-        # Weapon on-hit effects (e.g. Glass Shards, Crack-Head XP)
+        # Weapon on-hit effects (e.g. Glass Shards, Meth-Head XP)
         if attacker == self.player:
             weapon = self.equipment.get("weapon")
             if weapon:
@@ -1580,7 +1615,7 @@ class GameEngine:
                             default=None,
                         )
                         if bounce_target:
-                            bounce_dmg = max(1, int(wdefn["base_damage"] * bounce["damage_pct"]))
+                            bounce_dmg = max(1, int(damage * bounce["damage_pct"]))
                             bounce_target.take_damage(bounce_dmg)
                             self.messages.append(
                                 f"The cord arcs to {bounce_target.name}! ({bounce_dmg} dmg)"
@@ -1749,6 +1784,8 @@ class GameEngine:
                     else:
                         player.x, player.y = nx, ny
                         self.messages.append("You're knocked back 1 tile!")
+                    effects.apply_effect(player, self, "stun", duration=2, silent=True)
+                    self.messages.append("You're stunned!")
 
                 hit_eff = sa.get("on_hit_effect")
                 if hit_eff:
@@ -1816,7 +1853,13 @@ class GameEngine:
         item = self.player.inventory[index]
         self.selected_item_index = index
         self.selected_item_actions = get_actions(item.item_id)
-        self.item_menu_cursor = 0
+        # Auto-position cursor on the use_verb if available
+        defn = get_item_def(item.item_id)
+        use_verb = defn.get("use_verb") if defn else None
+        if use_verb and use_verb in self.selected_item_actions:
+            self.item_menu_cursor = self.selected_item_actions.index(use_verb)
+        else:
+            self.item_menu_cursor = 0
         self.menu_state = MenuState.ITEM_MENU
 
     def _handle_item_menu_input(self, action):
@@ -1830,11 +1873,22 @@ class GameEngine:
             self.selected_item_index = None
             return False
 
-        # Cursor navigation
+        # Up/Down — scroll through valid inventory items (those with a use_verb)
         if action_type == "move":
             dy = action.get("dy", 0)
             if dy != 0:
-                self.item_menu_cursor = (self.item_menu_cursor + dy) % len(actions)
+                valid_indices = [
+                    i for i, it in enumerate(self.player.inventory)
+                    if it.item_id and get_item_def(it.item_id) and get_item_def(it.item_id).get("use_verb")
+                ]
+                if len(valid_indices) > 1 and self.selected_item_index in valid_indices:
+                    cur_pos = valid_indices.index(self.selected_item_index)
+                    new_idx = valid_indices[(cur_pos + dy) % len(valid_indices)]
+                    self._open_item_menu(new_idx)
+                    # Position cursor on the use_verb row
+                    new_verb = get_item_def(self.player.inventory[new_idx].item_id).get("use_verb")
+                    if new_verb in self.selected_item_actions:
+                        self.item_menu_cursor = self.selected_item_actions.index(new_verb)
             return False
 
         # Enter — execute action at cursor
@@ -1896,6 +1950,7 @@ class GameEngine:
 
         elif action_name == "Use on...":
             self.menu_state = MenuState.COMBINE_SELECT
+            self._init_combine_cursor()
             return False
 
         elif action_name == defn.get("use_verb"):
@@ -2310,6 +2365,7 @@ class GameEngine:
             # Enter combine mode to select which item to burn
             self.menu_state = MenuState.COMBINE_SELECT
             self.selected_item_index = index
+            self._init_combine_cursor()
             self.messages.append([
                 ("Select an item to burn with ", _C_MSG_USE), (item.name, item.color),
             ])
@@ -2373,6 +2429,30 @@ class GameEngine:
             if pdef:
                 for eff_type in pdef.get("effects", []):
                     food_effects.append({"type": eff_type})
+
+        # Check for Quick Eat buff — if active, consume food instantly
+        quick_eat = next(
+            (e for e in self.player.status_effects if getattr(e, 'id', '') == 'quick_eat'),
+            None,
+        )
+        if quick_eat:
+            self.player.status_effects.remove(quick_eat)
+            self.messages.append([
+                ("[Quick Eat] ", (255, 200, 50)),
+                ("You scarf down the ", (150, 200, 150)),
+                (item.name, item.color),
+                (" instantly!", (150, 200, 150)),
+            ])
+            # Apply food effects immediately by creating a temporary eating effect and expiring it
+            eating = effects.EatingFoodEffect(
+                duration=0,
+                food_id=food_id,
+                food_name=food_name,
+                food_effects=food_effects,
+                well_fed_effect_name=well_fed_effect_name,
+            )
+            eating.expire(self.player, self)
+            return
 
         self.messages.append([
             ("You start eating ", (150, 200, 150)),
@@ -2526,14 +2606,62 @@ class GameEngine:
     # Crafting / Combine
     # ------------------------------------------------------------------
 
+    def _is_valid_combine_target(self, inv_idx):
+        """Return True if the item at inv_idx is a valid combine target for selected_item."""
+        if inv_idx == self.selected_item_index:
+            return False
+        src = self.player.inventory[self.selected_item_index]
+        cand = self.player.inventory[inv_idx]
+        if find_recipe(src.item_id, cand.item_id):
+            return True
+        if src.item_id in PREFIX_TOOL_ITEMS and cand.item_id in FOOD_DEFS:
+            return getattr(cand, "prefix", None) is None
+        if src.item_id in FOOD_DEFS and cand.item_id in PREFIX_TOOL_ITEMS:
+            return getattr(src, "prefix", None) is None
+        src_def = get_item_def(src.item_id)
+        if src_def and (src_def.get("use_effect") or {}).get("type") == "torch_burn":
+            return True
+        return False
+
+    def _get_valid_combine_targets(self):
+        """Return list of inventory indices that are valid combine targets."""
+        return [i for i in range(len(self.player.inventory)) if self._is_valid_combine_target(i)]
+
+    def _init_combine_cursor(self):
+        """Set combine_target_cursor to the first valid target."""
+        targets = self._get_valid_combine_targets()
+        self.combine_target_cursor = targets[0] if targets else None
+
     def _handle_combine_input(self, action):
         action_type = action.get("type")
 
         if action_type == "close_menu":
             self.menu_state = MenuState.NONE
             self.selected_item_index = None
+            self.combine_target_cursor = None
             return False
 
+        # Up/Down — scroll through valid combine targets
+        if action_type == "move":
+            dy = action.get("dy", 0)
+            if dy != 0:
+                targets = self._get_valid_combine_targets()
+                if targets and self.combine_target_cursor is not None:
+                    cur_pos = targets.index(self.combine_target_cursor) if self.combine_target_cursor in targets else 0
+                    self.combine_target_cursor = targets[(cur_pos + dy) % len(targets)]
+            return False
+
+        # Enter — confirm target at cursor
+        if action_type == "confirm_target":
+            if self.combine_target_cursor is not None:
+                result = bool(self._try_combine(self.selected_item_index, self.combine_target_cursor))
+                self.menu_state = MenuState.NONE
+                self.selected_item_index = None
+                self.combine_target_cursor = None
+                return result
+            return False
+
+        # Letter keys — still work as direct selection
         if action_type == "select_item":
             target_index = action["index"]
             if target_index == self.selected_item_index:
@@ -2543,6 +2671,7 @@ class GameEngine:
                 result = bool(self._try_combine(self.selected_item_index, target_index))
             self.menu_state = MenuState.NONE
             self.selected_item_index = None
+            self.combine_target_cursor = None
             return result
 
         return False
@@ -2561,8 +2690,8 @@ class GameEngine:
             target_index = index_a
 
         if torch_item and target_item:
-            # Gain Pyromania XP equal to item value (1:1 ratio)
-            xp_amount = get_item_value(target_item.item_id)
+            # Gain Pyromania XP equal to 2x item value
+            xp_amount = get_item_value(target_item.item_id) * 2
             adjusted_xp = round(xp_amount * self.player_stats.xp_multiplier)
 
             # Check if skill is newly unlocked
@@ -3397,7 +3526,7 @@ class GameEngine:
                     hit_count += 1
         self.messages.append(
             f"Lesser Cloudkill! {hit_count} enem{'y' if hit_count == 1 else 'ies'} hit "
-            f"for {damage} dmg + debuffed."
+            f"for {damage} dmg and are now Smelly."
         )
         for entity in hit_entities:
             if not entity.alive:
@@ -3545,10 +3674,19 @@ class GameEngine:
     def _action_toggle_abilities(self, _action):
         if self.menu_state == MenuState.NONE:
             self.menu_state = MenuState.ABILITIES
+            self.abilities_cursor = 0
         elif self.menu_state == MenuState.ABILITIES:
             self.menu_state = MenuState.NONE
             self.selected_ability_index = None
         return False
+
+    def _get_usable_abilities(self):
+        """Build filtered list of usable abilities (same as render logic)."""
+        usable = []
+        for inst in self.player_abilities:
+            if inst.can_use():
+                usable.append(inst)
+        return usable
 
     def _handle_abilities_menu_input(self, action):
         """Handle input while the abilities menu is open."""
@@ -3559,17 +3697,28 @@ class GameEngine:
             self.selected_ability_index = None
             return False
 
+        usable_abilities = self._get_usable_abilities()
+        n = len(usable_abilities)
+
+        # Arrow key cursor navigation
+        if action_type == "move" and n > 0:
+            dy = action.get("dy", 0)
+            if dy != 0:
+                self.abilities_cursor = (self.abilities_cursor + dy) % n
+            return False
+
+        # Enter key activates cursor selection
+        if action_type == "confirm_target" and n > 0:
+            if 0 <= self.abilities_cursor < n:
+                target_ability = usable_abilities[self.abilities_cursor]
+                actual_index = self.player_abilities.index(target_ability)
+                return self._execute_ability(actual_index)
+            return False
+
+        # Number key shortcuts (existing behavior)
         if action_type == "select_action":
             idx = action["index"]
-            # Build filtered list of usable abilities (same as render logic)
-            usable_abilities = []
-            for inst in self.player_abilities:
-                if inst.can_use():
-                    usable_abilities.append(inst)
-
-            # Map display index to actual ability
-            if 0 <= idx < len(usable_abilities):
-                # Find the actual index in player_abilities
+            if 0 <= idx < n:
                 target_ability = usable_abilities[idx]
                 actual_index = self.player_abilities.index(target_ability)
                 return self._execute_ability(actual_index)
@@ -4361,7 +4510,9 @@ class GameEngine:
         skill = self.skills.get(skill_name)
         was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
 
-        adjusted_xp = round(damage * self.player_stats.xp_multiplier)
+        zone = "crack_den"
+        zone_dmg_mult = ZONE_DAMAGE_MULT.get(zone, 1.0)
+        adjusted_xp = round(damage * zone_dmg_mult * self.player_stats.xp_multiplier)
         self.skills.gain_potential_exp(
             skill_name, adjusted_xp,
             self.player_stats.effective_book_smarts
@@ -4432,7 +4583,6 @@ class GameEngine:
         from items import (
             ITEM_DEFS, get_random_ring_by_tags, get_random_chain, STRAINS
         )
-        from loot import _resolve_equipment
 
         if is_player:
             # Player effects
@@ -4474,36 +4624,25 @@ class GameEngine:
                     self.messages.append("The Blue Lobster would grant a ring, but found none!")
 
             elif 45 <= roll <= 59:
-                # Add random neck from floor table
-                neck_id = _resolve_equipment("crack_den")
+                # Add random neck (chain) directly
+                neck_id = get_random_chain("crack_den")
                 if neck_id:
-                    # Try to get only necklaces/chains
-                    attempts = 0
-                    while neck_id and ITEM_DEFS[neck_id].get("subcategory") != "neck" and attempts < 5:
-                        neck_id = _resolve_equipment("crack_den")
-                        attempts += 1
-                    if neck_id and ITEM_DEFS[neck_id].get("subcategory") == "neck":
-                        self._add_item_to_inventory(neck_id, strain=None)
-                        self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[neck_id]['name']}!")
-                    else:
-                        self.messages.append("The Blue Lobster would grant a neck, but found none!")
+                    self._add_item_to_inventory(neck_id, strain=None)
+                    self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[neck_id]['name']}!")
                 else:
                     self.messages.append("The Blue Lobster would grant a neck, but found none!")
 
             elif 20 <= roll <= 44:
-                # Add random weapon from floor table
-                weapon_id = _resolve_equipment("crack_den")
-                if weapon_id:
-                    # Try to get only weapons
-                    attempts = 0
-                    while weapon_id and ITEM_DEFS[weapon_id].get("subcategory") != "weapon" and attempts < 5:
-                        weapon_id = _resolve_equipment("crack_den")
-                        attempts += 1
-                    if weapon_id and ITEM_DEFS[weapon_id].get("subcategory") == "weapon":
-                        self._add_item_to_inventory(weapon_id, strain=None)
-                        self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[weapon_id]['name']}!")
-                    else:
-                        self.messages.append("The Blue Lobster would grant a weapon, but found none!")
+                # Add random weapon directly
+                candidates = [
+                    iid for iid, defn in ITEM_DEFS.items()
+                    if defn.get("subcategory") == "weapon"
+                    and "crack_den" in defn.get("zones", [])
+                ]
+                if candidates:
+                    weapon_id = random.choice(candidates)
+                    self._add_item_to_inventory(weapon_id, strain=None)
+                    self.messages.append(f"Blue Lobster grants: {ITEM_DEFS[weapon_id]['name']}!")
                 else:
                     self.messages.append("The Blue Lobster would grant a weapon, but found none!")
 

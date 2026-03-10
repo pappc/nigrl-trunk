@@ -568,18 +568,20 @@ def render_stats_panel(console, engine):
                 marker  = "+" if is_buff else "-"
 
             # Line 1: marker + name, with stack count in parens if stackable
+            max_w = pw - lx - 1  # usable columns before right border
             name = effect.display_name
             stack_count = effect.stack_count
             header = f"{marker} {name}"
             if stack_count is not None:
                 header += f" ({stack_count})"
-            console.print(lx, row, header, fg=color, bg=BG)
+            console.print(lx, row, header[:max_w], fg=color, bg=BG)
             row += 1
 
             # Line 2: duration (dimmed)
             if row < cash_section_y - 1:
                 dim = tuple(max(0, c - 70) for c in color)
-                console.print(lx, row, f"  \u25b8 {effect.display_duration}", fg=dim, bg=BG)
+                dur_line = f"\u25b8 {effect.display_duration}"
+                console.print(lx, row, dur_line[:max_w], fg=dim, bg=BG)
                 row += 1
 
     # ── Cash ─────────────────────────────────────────────────────────
@@ -670,12 +672,32 @@ def render_inventory_panel(console, engine):
             # Name — gram-based for nugs/kush, x{n} suffix for others
             qty      = getattr(item, "quantity", 1)
             max_name = pw - 6
-            name = build_inventory_display_name(
+            item_prefix = getattr(item, "prefix", None)
+            item_charges = getattr(item, "charges", None)
+            item_max_charges = getattr(item, "max_charges", None)
+            has_charges = (item_prefix is not None
+                          and item_charges is not None
+                          and item_max_charges is not None)
+
+            full_name = build_inventory_display_name(
                 item.item_id, getattr(item, "strain", None), qty,
-                prefix=getattr(item, "prefix", None),
-                charges=getattr(item, "charges", None),
-                max_charges=getattr(item, "max_charges", None),
-            )[:max_name]
+                prefix=item_prefix,
+                charges=item_charges,
+                max_charges=item_max_charges,
+            )
+
+            # For prefixed foods: right-align charges, truncate name if needed
+            charges_str = None
+            if has_charges:
+                charges_str = f"({item_charges}/{item_max_charges})"
+                name_part = full_name[:-(len(charges_str) + 1)]  # strip " (X/X)"
+                name_space = max_name - len(charges_str) - 1     # 1-char gap
+                if len(name_part) > name_space:
+                    name = name_part[:name_space - 2] + ".."
+                else:
+                    name = name_part
+            else:
+                name = full_name[:max_name]
 
             # Item color: strain color if item has a strain, else definition color
             item_color = C_ITEM
@@ -685,16 +707,38 @@ def render_inventory_panel(console, engine):
             if item_strain:
                 item_color = get_strain_color(item_strain)
 
-            # Combine-select coloring
+            # Determine display color and background based on menu state
+            C_SEL_BG = (60, 50, 80)
+            is_item_selected = (
+                engine.menu_state == MenuState.ITEM_MENU
+                and inv_idx == engine.selected_item_index
+            )
+            is_combine_cursor = (
+                engine.menu_state == MenuState.COMBINE_SELECT
+                and inv_idx == getattr(engine, "combine_target_cursor", None)
+            )
+            row_bg = C_SEL_BG if (is_item_selected or is_combine_cursor) else BG
+
             if combine_source is not None:
                 if inv_idx == engine.selected_item_index:
-                    console.print(px + 4, cur_row, name, fg=C_DIM, bg=BG)
+                    fg = C_DIM
                 elif _is_combine_target(combine_source, item):
-                    console.print(px + 4, cur_row, name, fg=item_color, bg=BG)
+                    fg = item_color
                 else:
-                    console.print(px + 4, cur_row, name, fg=C_DIM, bg=BG)
+                    fg = C_DIM
             else:
-                console.print(px + 4, cur_row, name, fg=item_color, bg=BG)
+                fg = item_color
+
+            row_highlighted = is_item_selected or is_combine_cursor
+            if row_highlighted:
+                # Fill entire row with selection background
+                console.print(px + 1, cur_row, " " * (pw - 2), fg=fg, bg=row_bg)
+                console.print(px + 1, cur_row, f"{label})", fg=(180, 180, 180), bg=row_bg)
+
+            console.print(px + 4, cur_row, name, fg=fg, bg=row_bg)
+            if charges_str:
+                charges_x = px + pw - 1 - len(charges_str)
+                console.print(charges_x, cur_row, charges_str, fg=fg, bg=row_bg)
 
             cur_row += 1
             key_idx += 1
@@ -1482,22 +1526,33 @@ def render_adjacent_tile_targeting_mode(console, engine):
 def render_abilities_menu(console, engine):
     """Render the abilities overlay panel (toggled with A key)."""
     BG      = (18, 18, 28)
+    BG_SEL  = (35, 35, 55)
     C_TITLE = (255, 255, 180)
     C_HEAD  = (180, 180, 255)
     C_LABEL = (180, 180, 180)
     C_KEY   = (220, 220, 80)
     C_CHAR  = (100, 140, 255)
     C_CANT  = (100, 100, 100)
-    C_DESC  = (120, 120, 160)
+    C_DESC  = (150, 150, 190)
     C_DIV   = (80, 80, 120)
     C_HINT  = (100, 100, 100)
     C_AVAIL = (100, 220, 100)
+    C_CURSOR = (255, 220, 80)
 
     abilities = engine.player_abilities
+
+    # Build usable list (same filter as engine)
+    usable_abilities = []
+    for inst in abilities:
+        defn = ABILITY_REGISTRY.get(inst.ability_id)
+        if defn is not None and inst.can_use():
+            usable_abilities.append((inst, defn))
+
     panel_w = 54
-    # border(2) + title(1) + divider(1) + header(1) + divider(1) + rows + hint(1)
-    n_rows  = max(1, len(abilities))
-    panel_h = 7 + n_rows
+    n_rows = max(1, len(usable_abilities))
+    # border(2) + title(1) + divider(1) + header(1) + divider(1) + rows + divider(1) + desc(2) + hint(1)
+    desc_lines = 2
+    panel_h = 7 + n_rows + 1 + desc_lines
     panel_x = (SCREEN_WIDTH - panel_w) // 2
     panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
 
@@ -1519,101 +1574,254 @@ def render_abilities_menu(console, engine):
     for px in range(1, panel_w - 1):
         console.print(panel_x + px, panel_y + 4, "─", fg=C_DIV, bg=BG)
 
-    if not abilities:
+    # Clamp cursor
+    cursor = getattr(engine, 'abilities_cursor', 0)
+    if len(usable_abilities) > 0:
+        cursor = max(0, min(cursor, len(usable_abilities) - 1))
+
+    if not usable_abilities:
         console.print(panel_x + 2, panel_y + 5,
                       "(no abilities — gain them from items or skills)",
                       fg=C_CANT, bg=BG)
     else:
-        display_idx = 0
-        for i, inst in enumerate(abilities):
-            defn = ABILITY_REGISTRY.get(inst.ability_id)
-            if defn is None:
-                continue
-            usable = inst.can_use()
-            # Skip abilities with no charges
-            if not usable:
-                continue
+        for display_idx, (inst, defn) in enumerate(usable_abilities):
             row = panel_y + 5 + display_idx
+            is_selected = (display_idx == cursor)
+            row_bg = BG_SEL if is_selected else BG
             cd = engine.ability_cooldowns.get(inst.ability_id, 0)
             on_cooldown = cd > 0
             name_color = C_CANT if on_cooldown else defn.color
 
+            # Highlight entire row background if selected
+            if is_selected:
+                for px in range(1, panel_w - 1):
+                    console.print(panel_x + px, row, " ", fg=C_LABEL, bg=row_bg)
+
+            # Cursor arrow
+            if is_selected:
+                console.print(panel_x + 1, row, ">", fg=C_CURSOR, bg=row_bg)
+
             # Key number (1-9)
             key_str = str(display_idx + 1) if display_idx < 9 else "-"
-            console.print(panel_x + 2, row, f"{key_str})", fg=C_KEY, bg=BG)
+            console.print(panel_x + 2, row, f"{key_str})", fg=C_KEY, bg=row_bg)
 
             # Ability char glyph
-            console.print(panel_x + 5, row, defn.char, fg=name_color, bg=BG)
+            console.print(panel_x + 5, row, defn.char, fg=name_color, bg=row_bg)
 
             # Name
-            console.print(panel_x + 7, row, defn.name[:12], fg=name_color, bg=BG)
+            console.print(panel_x + 7, row, defn.name[:12], fg=name_color, bg=row_bg)
 
             # Charges / cooldown
             if on_cooldown:
                 charge_str = f"CD:{cd}t"
-                console.print(panel_x + 20, row, charge_str[:11], fg=C_CANT, bg=BG)
+                console.print(panel_x + 20, row, charge_str[:11], fg=C_CANT, bg=row_bg)
             else:
                 charge_str = inst.charge_display(defn)
-                console.print(panel_x + 20, row, charge_str[:11], fg=C_AVAIL, bg=BG)
+                console.print(panel_x + 20, row, charge_str[:11], fg=C_AVAIL, bg=row_bg)
 
-            display_idx += 1
+    # Divider before description
+    desc_div_y = panel_y + 5 + n_rows
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, desc_div_y, "─", fg=C_DIV, bg=BG)
+
+    # Description of selected ability
+    if usable_abilities and 0 <= cursor < len(usable_abilities):
+        _, sel_defn = usable_abilities[cursor]
+        desc_text = sel_defn.description or ""
+        max_desc_w = panel_w - 4
+        # Word-wrap to fit panel width, up to desc_lines lines
+        words = desc_text.split()
+        lines = []
+        current_line = ""
+        for word in words:
+            test = f"{current_line} {word}".strip()
+            if len(test) <= max_desc_w:
+                current_line = test
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+        for li, line in enumerate(lines[:desc_lines]):
+            console.print(panel_x + 2, desc_div_y + 1 + li, line, fg=C_DESC, bg=BG)
 
     # Hint
-    hint = "[1-9] Use  [A/Esc] Close"
+    hint = "[1-9] Use  [Enter] Use  [A/Esc] Close"
     console.print(panel_x + (panel_w - len(hint)) // 2,
                   panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
 
 
-def render_perks_menu(console, engine):
-    """Render the perks overlay: all skills and their 10 perks, scrollable."""
-    BG       = (18, 18, 28)
-    C_TITLE  = (255, 255, 180)
-    C_DIV    = (80, 80, 120)
+def _build_perks_items(engine):
+    """Build the filtered list of display items for the perks menu.
+
+    Returns (all_items, selectable_indices) where:
+      all_items: list of dicts with kind, text, colour, perk
+      selectable_indices: list of indices into all_items that are perk rows
+    Only includes skills with level >= 1.  For each such skill shows earned
+    perks plus the next one (greyed), skipping placeholder perks that aren't
+    earned yet.
+    """
     C_SKILL  = (180, 180, 255)
     C_EARNED = (120, 200, 120)
-    C_FUTURE = (100, 100, 100)
-    C_HINT   = (100, 100, 130)
-    C_CHECK  = (100, 200, 100)
+    C_NEXT   = (90,  90,  90)
 
-    # Build flat list of content lines: (text, colour, indent)
-    lines: list[tuple[str, tuple, int]] = []
+    all_items = []
     for skill_name in _SKILL_NAMES:
         skill = engine.skills.get(skill_name)
-        lines.append((skill_name, C_SKILL, 0))
-        for lvl in range(1, 11):
+        if not skill or skill.level < 1:
+            continue
+        all_items.append({"kind": "header", "text": skill_name, "colour": C_SKILL, "perk": None})
+        next_level = skill.level + 1
+        for lvl in range(1, min(next_level + 1, 11)):
             perk = get_perk(skill_name, lvl)
-            perk_name = perk["name"] if perk else "???"
-            earned = skill.level >= lvl
+            if not perk:
+                continue
+            earned = (lvl <= skill.level)
+            # Skip placeholder future perks (nothing to preview)
+            if not earned and perk.get("perk_type") == "none":
+                continue
             marker = "[+]" if earned else "[ ]"
-            colour = C_EARNED if earned else C_FUTURE
-            lines.append((f"  {marker} Lv{lvl:2d}: {perk_name}", colour, 2))
+            colour = C_EARNED if earned else C_NEXT
+            all_items.append({
+                "kind":   "perk",
+                "text":   f"  {marker} Lv{lvl:2d}: {perk['name']}",
+                "colour": colour,
+                "perk":   perk,
+                "earned": earned,
+            })
 
-    panel_w = 50
-    # Visible rows = total lines but capped to avoid overflowing screen
-    max_rows = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - 6
-    visible = min(len(lines), max_rows)
-    panel_h = visible + 5  # border(2) + title(1) + div(1) + rows + hint(1)
-    panel_x = (SCREEN_WIDTH - panel_w) // 2
-    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+    selectable = [i for i, item in enumerate(all_items) if item["kind"] == "perk"]
+    return all_items, selectable
 
-    # Clamp scroll
-    max_scroll = max(0, len(lines) - visible)
-    engine.perks_scroll = min(engine.perks_scroll, max_scroll)
-    scroll = engine.perks_scroll
+
+def count_perks_menu_selectables(engine) -> int:
+    """Return the number of selectable perk rows (used by engine input handler)."""
+    _, selectable = _build_perks_items(engine)
+    return len(selectable)
+
+
+def _wrap_text(text: str, width: int) -> list[str]:
+    """Word-wrap text to fit within width, returning a list of lines."""
+    words = text.split()
+    lines = []
+    current = ""
+    for word in words:
+        if current:
+            candidate = current + " " + word
+        else:
+            candidate = word
+        if len(candidate) <= width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def render_perks_menu(console, engine):
+    """Render the perks overlay: filtered skills/perks with cursor and description box."""
+    BG       = (18, 18, 28)
+    C_TITLE  = (255, 255, 180)
+    C_DIV    = (80,  80, 120)
+    C_HINT   = (100, 100, 130)
+    C_CURSOR = (35,  55,  80)
+    C_DESC   = (200, 200, 160)
+    C_NODESC = (80,  80,  80)
+
+    panel_w  = 58
+    DESC_ROWS = 3  # lines of description text below the divider
+    # total fixed overhead: top_border(1)+title(1)+div(1)+desc_div(1)+desc(DESC_ROWS)+hint(1)+bot_border(1) = 7+DESC_ROWS
+    overhead  = 7 + DESC_ROWS
+    max_list  = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - overhead
+    max_list  = max(max_list, 4)
+
+    all_items, selectable = _build_perks_items(engine)
+    n_sel = len(selectable)
+
+    # Nothing to show
+    if not all_items:
+        panel_h = 5
+        panel_x = (SCREEN_WIDTH - panel_w) // 2
+        panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+        _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+        title = "PERKS"
+        console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+        msg = "No skills unlocked yet"
+        console.print(panel_x + (panel_w - len(msg)) // 2, panel_y + 2, msg, fg=C_NODESC, bg=BG)
+        return
+
+    # Clamp cursor
+    cursor = max(0, min(getattr(engine, "perk_cursor", 0), n_sel - 1)) if n_sel > 0 else 0
+    engine.perk_cursor = cursor
+
+    # Resolve which all_items index the cursor points to
+    cursor_item_idx = selectable[cursor] if selectable else 0
+
+    visible = min(len(all_items), max_list)
+
+    # Auto-scroll to keep cursor in view
+    scroll = getattr(engine, "perks_scroll", 0)
+    if cursor_item_idx < scroll:
+        scroll = cursor_item_idx
+    elif cursor_item_idx >= scroll + visible:
+        scroll = cursor_item_idx - visible + 1
+    scroll = max(0, min(scroll, max(0, len(all_items) - visible)))
+    engine.perks_scroll = scroll
+
+    panel_h  = overhead + visible
+    panel_x  = (SCREEN_WIDTH - panel_w) // 2
+    panel_y  = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
 
     _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
 
+    # Title
     title = "PERKS"
     console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
 
+    # Top divider
     for px in range(1, panel_w - 1):
         console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
 
-    for i, (text, colour, _indent) in enumerate(lines[scroll:scroll + visible]):
-        console.print(panel_x + 2, panel_y + 3 + i, text[:panel_w - 4], fg=colour, bg=BG)
+    # List rows
+    for i, item in enumerate(all_items[scroll: scroll + visible]):
+        row_y   = panel_y + 3 + i
+        abs_idx = scroll + i
+        is_sel  = (item["kind"] == "perk" and abs_idx == cursor_item_idx)
+        row_bg  = C_CURSOR if is_sel else BG
+        text    = item["text"][: panel_w - 4]
+        # Fill row bg first, then print text
+        console.print(panel_x + 1, row_y, " " * (panel_w - 2), fg=item["colour"], bg=row_bg)
+        console.print(panel_x + 2, row_y, text, fg=item["colour"], bg=row_bg)
+        # Cursor arrow on selected row
+        if is_sel:
+            console.print(panel_x + panel_w - 3, row_y, "◄", fg=C_TITLE, bg=row_bg)
 
-    scroll_info = f" {scroll + 1}-{min(scroll + visible, len(lines))}/{len(lines)} " if len(lines) > visible else ""
-    hint = f"[↑↓] Scroll{scroll_info} [Shift+P/Esc] Close"
+    # Description divider
+    desc_div_y = panel_y + 3 + visible
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, desc_div_y, "─", fg=C_DIV, bg=BG)
+
+    # Description text
+    if selectable:
+        perk = all_items[cursor_item_idx].get("perk") or {}
+        desc  = perk.get("desc", "")
+    else:
+        desc = ""
+
+    if desc:
+        wrapped = _wrap_text(desc, panel_w - 4)
+        for i, line in enumerate(wrapped[: DESC_ROWS]):
+            console.print(panel_x + 2, desc_div_y + 1 + i, line, fg=C_DESC, bg=BG)
+    else:
+        no_desc = "No description available."
+        console.print(panel_x + 2, desc_div_y + 1, no_desc, fg=C_NODESC, bg=BG)
+
+    # Hint
+    hint = "[↑↓] Select  [Shift+P / Esc] Close"
     console.print(panel_x + (panel_w - len(hint)) // 2,
                   panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
 

@@ -43,20 +43,26 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.KP_5:
             return {"type": "wait"}
 
-        # Skills menu
-        elif key_sym == tcod.event.KeySym.s:
+        # Skills menu (lowercase only)
+        elif key_sym == tcod.event.KeySym.s and not bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
             return {"type": "toggle_skills"}
 
         # Skills menu navigation (always emitted; engine ignores outside SKILLS state)
         elif key_sym == tcod.event.KeySym.BACKSPACE:
             return {"type": "skills_backspace"}
 
-        # Character sheet
-        elif key_sym == tcod.event.KeySym.c:
+        # Character sheet (lowercase only)
+        elif key_sym == tcod.event.KeySym.c and not bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
             return {"type": "open_char_sheet"}
 
-        # Equipment screen
-        elif key_sym == tcod.event.KeySym.e:
+        # Equipment screen (lowercase only)
+        elif key_sym == tcod.event.KeySym.e and not bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
             return {"type": "open_equipment"}
 
 
@@ -120,16 +126,22 @@ def handle_input(key):
         elif key_sym in (tcod.event.KeySym.RETURN, tcod.event.KeySym.KP_ENTER):
             return {"type": "confirm_target"}
 
-        # F — enter entity targeting mode
-        elif key_sym == tcod.event.KeySym.f:
+        # F — enter entity targeting mode (lowercase only)
+        elif key_sym == tcod.event.KeySym.f and not bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
             return {"type": "start_entity_targeting"}
 
-        # Q — quit game
-        elif key_sym == tcod.event.KeySym.q:
+        # Shift+Q — quit game
+        elif key_sym == tcod.event.KeySym.q and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
             return {"type": "quit"}
 
-        # A — toggle Abilities menu (checked before inventory letter keys)
-        elif key_sym == tcod.event.KeySym.a:
+        # A — toggle Abilities menu (lowercase only, checked before inventory letter keys)
+        elif key_sym == tcod.event.KeySym.a and not bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
             return {"type": "toggle_abilities"}
 
         # Shift+Letter keys — inventory item selection (uppercase slots in INVENTORY_KEYS)

@@ -3,8 +3,8 @@ Tests for Smoking skill perks.
 
 Perks:
   Level 1 - Phat Cloud : When you smoke, deal 10 + tolerance//2 dmg to nearest visible enemy.
-  Level 2 - Stat Up!   : +2 Tolerance, +2 Constitution (permanent stat perk).
-  Level 3 - Roach Fiend: 50% chance the joint is not consumed after smoking.
+  Level 2 - +2 TOL, +2 CON : +2 Tolerance, +2 Constitution (permanent stat perk).
+  Level 3 - +2 TOL         : +2 Tolerance. 50% chance the joint is not consumed after smoking.
 """
 
 import random
@@ -206,11 +206,11 @@ def test_phat_cloud_kills_enemy_and_emits_death_event():
 
 
 # ---------------------------------------------------------------------------
-# Stat Up! (Level 2)
+# +2 TOL, +2 CON (Level 2)
 # ---------------------------------------------------------------------------
 
 def test_stat_up_increases_tolerance_and_constitution():
-    """Stat Up! should add +2 tolerance and +2 constitution."""
+    """+2 TOL, +2 CON perk should add +2 tolerance and +2 constitution."""
     engine = make_engine()
     ps = engine.player_stats
 
@@ -228,22 +228,22 @@ def test_stat_up_increases_tolerance_and_constitution():
 
 
 def test_stat_up_updates_base_dict():
-    """Stat Up! should update _base so stats display correctly as permanent."""
+    """+2 TOL, +2 CON perk should update _base so stats display correctly as permanent."""
     engine = make_engine()
     ps = engine.player_stats
 
     engine._apply_perk("Smoking", 2)
 
     assert ps._base["tolerance"] == ps.tolerance, (
-        "_base['tolerance'] should match raw tolerance after Stat Up!"
+        "_base['tolerance'] should match raw tolerance after stat perk"
     )
     assert ps._base["constitution"] == ps.constitution, (
-        "_base['constitution'] should match raw constitution after Stat Up!"
+        "_base['constitution'] should match raw constitution after stat perk"
     )
 
 
 def test_stat_up_increases_max_hp_and_heals():
-    """Stat Up! +2 constitution should add 20 max HP and heal 20 HP."""
+    """+2 CON from stat perk should add 20 max HP and heal 20 HP."""
     engine = make_engine()
     # Damage the player first so there's room to heal
     engine.player.hp = max(1, engine.player.hp - 30)
@@ -261,7 +261,7 @@ def test_stat_up_increases_max_hp_and_heals():
 
 
 def test_stat_up_heal_does_not_exceed_new_max_hp():
-    """Stat Up! should not overheal beyond the new max HP."""
+    """Stat perk should not overheal beyond the new max HP."""
     engine = make_engine()
     # Player at full HP
     engine.player.hp = engine.player.max_hp
@@ -269,7 +269,7 @@ def test_stat_up_heal_does_not_exceed_new_max_hp():
     engine._apply_perk("Smoking", 2)
 
     assert engine.player.hp <= engine.player.max_hp, (
-        "HP should not exceed max_hp after Stat Up! heal"
+        "HP should not exceed max_hp after stat perk heal"
     )
 
 
@@ -288,7 +288,7 @@ def test_stat_up_no_double_apply_on_repeated_calls():
 
 
 # ---------------------------------------------------------------------------
-# Roach Fiend (Level 3)
+# +2 TOL / Roach Fiend mechanic (Level 3)
 # ---------------------------------------------------------------------------
 
 def test_roach_fiend_saves_joint_on_lucky_roll():
@@ -421,13 +421,13 @@ def run_tests():
         ("phat_cloud: not active at level 0",                           test_phat_cloud_not_active_below_level_1),
         ("phat_cloud: uses effective_tolerance with ring bonus",        test_phat_cloud_damage_uses_effective_tolerance_with_ring_bonus),
         ("phat_cloud: killing blow emits entity_died event",            test_phat_cloud_kills_enemy_and_emits_death_event),
-        # Stat Up!
+        # +2 TOL, +2 CON
         ("stat_up: increases tolerance and constitution by 2",          test_stat_up_increases_tolerance_and_constitution),
         ("stat_up: updates _base dict for both stats",                  test_stat_up_updates_base_dict),
         ("stat_up: adds 20 max HP and heals 20 HP",                     test_stat_up_increases_max_hp_and_heals),
         ("stat_up: heal does not exceed new max_hp",                    test_stat_up_heal_does_not_exceed_new_max_hp),
         ("stat_up: stacks on double apply (caller responsibility)",     test_stat_up_no_double_apply_on_repeated_calls),
-        # Roach Fiend
+        # +2 TOL (Roach Fiend mechanic)
         ("roach_fiend: saves joint on lucky roll (< 0.5)",              test_roach_fiend_saves_joint_on_lucky_roll),
         ("roach_fiend: consumes joint on unlucky roll (>= 0.5)",        test_roach_fiend_consumes_joint_on_unlucky_roll),
         ("roach_fiend: not active at level 1",                          test_roach_fiend_not_active_at_level_1),

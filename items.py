@@ -706,7 +706,7 @@ ITEM_DEFS = {
         "str_req": 1,
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above 1
-        "on_hit_skill_xp": {"skill": "Crack-Head", "amount": 1},
+        "on_hit_skill_xp": {"skill": "Meth-Head", "amount": 1},
         "weapon_type": "stabbing",
         "value": 45,
         "zones": ["crack_den"],

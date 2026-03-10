@@ -84,6 +84,7 @@ class AIType(Enum):
     HIT_AND_RUN       = "hit_and_run"        # Ambushes from a distance, attacks once, then flees
     FEMALE_ALARM      = "female_alarm"       # Wanders passively; chases everywhere when any female dies on the floor
     STATIONARY_GUARD  = "stationary_guard"   # Stands completely still until damaged, then chases permanently
+    JEROME_GUARD      = "jerome_guard"       # Jerome-specific: stationary until any damage, then chases; faster action rate
 
 
 class EffectKind(Enum):
@@ -213,7 +214,7 @@ class MonsterTemplate:
       street_smarts Drives crit chance: crit% = street_smarts × 3
       book_smarts   Stored as bonus_spell_damage (future use)
       tolerance     No combat derivation for monsters
-      swagger       Stored as bonus_ranged_damage (future use)
+      swagger       Grants +1 defence per 3 points (added to base defense)
 
     COMBAT — base values added to stat-derived amounts.
       base_hp       Fixed int: flat HP added before constitution scaling.
@@ -275,6 +276,8 @@ class MonsterTemplate:
     ai:            AIType            = AIType.MEANDER
     sight_radius:  int               = 6
     speed:         int               = 100
+    move_cost:     int               = 0     # energy cost override for movement (0 = use ENERGY_THRESHOLD)
+    attack_cost:   int               = 0     # energy cost override for attacks  (0 = use ENERGY_THRESHOLD)
 
     # ── Abilities ─────────────────────────────────────────────────────────
     special_attacks: list[SpecialAttack] = field(default_factory=list)
@@ -403,7 +406,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         speed         = 80,
         cash_drop     = (0, 3),
         death_drop_chance = 0.25,
-        death_drop_table  = ["joint", "kush"],
+        death_drop_table  = ["joint"],
     ),
 
     # ── CRACK ADDICT ─────────────────────────────────────────────────────
@@ -454,7 +457,9 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         ai            = AIType.ROOM_GUARD,
         sight_radius  = 6,
         speed         = 100,
-        cash_drop     = (5, 15),
+        cash_drop         = (5, 15),
+        death_drop_chance = 0.75,
+        death_drop_table  = ["kush"],
     ),
 
     # ── UGLY STRIPPER ────────────────────────────────────────────────────
@@ -642,16 +647,18 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         street_smarts = (3, 3),
         book_smarts   = (3, 5),
         tolerance     = (5, 7),
-        swagger       = (8, 10),
+        swagger       = (15, 15),
         base_hp       = 0,
         base_damage   = (0, 0),
         defense       = 2,
         male_chance   = 1.0,
         spawn_min     = 1,
         spawn_max     = 1,
-        ai            = AIType.STATIONARY_GUARD,
+        ai            = AIType.JEROME_GUARD,
         sight_radius  = 8,
-        speed         = 100,
+        speed         = 120,
+        move_cost     = 40,
+        attack_cost   = 100,
         special_attacks = [
             SpecialAttack(
                 name         = "Knockback Punch",
@@ -840,6 +847,7 @@ def create_enemy(enemy_type: str, x: int, y: int):
     crit_chance        = rolled_ss * 3
     bonus_spell_damage = rolled_bs
     bonus_ranged_damage = rolled_swg
+    swagger_defense    = int(rolled_swg / 3)
 
     gender = "male" if random.random() < tmpl.male_chance else "female"
     cash   = random.randint(*tmpl.cash_drop)
@@ -886,7 +894,7 @@ def create_enemy(enemy_type: str, x: int, y: int):
         blocks_movement=True,
         hp=hp,
         power=damage,
-        defense=tmpl.defense,
+        defense=tmpl.defense + swagger_defense,
         enemy_type=enemy_type,
         gender=gender,
         base_stats=base_stats,
@@ -901,6 +909,8 @@ def create_enemy(enemy_type: str, x: int, y: int):
         crit_chance=crit_chance,
         bonus_spell_damage=bonus_spell_damage,
         bonus_ranged_damage=bonus_ranged_damage,
+        move_cost=tmpl.move_cost,
+        attack_cost=tmpl.attack_cost,
         death_drop_chance=tmpl.death_drop_chance,
         death_drop_table=list(tmpl.death_drop_table),
     )

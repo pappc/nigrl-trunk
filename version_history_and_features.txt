@@ -65,7 +65,7 @@ version 0.5 opened 3/5/2026 8:00 pm closed 3/6/2026 2:45 pm
 -implemented dodge chance
 -bug fixes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-version 0.6 opened 3/6/2026 2:45 pm
+version 0.6 opened 3/6/2026 2:45 pm closed 3/9/2026 10:30 am
 -All 16(15) skills implemented
 	- first 3 perks available for each
 	- all have methods for gaining exp
@@ -88,7 +88,15 @@ spell targeting fixes
 -UI enhancements
 -tolerance implemented
 -death screen and reset
-
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+version 0.7 opened 3/9/2026 10:30 am
+tons of bug fixes(last patch added a fuck ton of shit with hardly fixing anything) i could list any interesting ones below if they were that atleast
+	- this patch attempts to remove all bugs currentl;y in the game, or at least the game breaking one
+-jerome room implemented
+-monster rebalance
+-monster floor placement enhanced
+-auto travel to next floor
+-swagger rework
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
 -unique room encounters
@@ -111,6 +119,5 @@ Future Features:
 -when ugly stripper is hit make her hostile
 
 
-tolerance
 
 fix hangover 9999999 duration

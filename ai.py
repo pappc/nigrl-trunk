@@ -257,44 +257,52 @@ def _step_random(monster, dungeon, creature_positions=None):
 
 def chase(monster, player, dungeon, engine, creature_positions=None,
           step_map=None):
-    """Step toward the player.  Attack when adjacent."""
+    """Step toward the player.  Attack when adjacent.
+    Returns "attack", "move", or "idle"."""
     dx, dy, _ = _step_toward(monster, player, dungeon,
                              creature_positions, step_map)
     dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
 
     if dx == 0 and dy == 0:
-        return
+        return "idle"
 
     nx, ny = monster.x + dx, monster.y + dy
 
     if nx == player.x and ny == player.y:
         engine.handle_monster_attack(monster)
+        return "attack"
     elif _tile_free(nx, ny, dungeon, creature_positions,
                     (monster.x, monster.y)):
         monster.move(dx, dy)
+        return "move"
+    return "idle"
 
 
 def wander(monster, player, dungeon, engine, creature_positions=None,
            step_map=None):
-    """Take one random unblocked step."""
+    """Take one random unblocked step.
+    Returns "move" or "idle"."""
     dx, dy = _step_random(monster, dungeon, creature_positions)
     dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
 
     if dx == 0 and dy == 0:
-        return
+        return "idle"
 
     nx, ny = monster.x + dx, monster.y + dy
 
     if _tile_free(nx, ny, dungeon, creature_positions,
                   (monster.x, monster.y)):
         monster.move(dx, dy)
+        return "move"
+    return "idle"
 
 
 def wander_in_room(monster, player, dungeon, engine, creature_positions=None,
                    step_map=None):
     """Take one random unblocked step, but only to tiles within the monster's
     spawn room.  Keeps room_guard monsters from drifting into corridors before
-    the player enters their room."""
+    the player enters their room.
+    Returns "move" or "idle"."""
     room_tiles = getattr(monster, "spawn_room_tiles", None)
     self_pos = (monster.x, monster.y)
     dirs = list(_DIRECTIONS)
@@ -309,15 +317,15 @@ def wander_in_room(monster, player, dungeon, engine, creature_positions=None,
         if _tile_free(nx, ny, dungeon, creature_positions, self_pos):
             dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
             monster.move(dx, dy)
-            return
+            return "move"
+    return "idle"
 
 
 def flee(monster, player, dungeon, engine, creature_positions=None,
          step_map=None):
-    """
-    Step away from the player. Used by cowardly enemies like the niglet
+    """Step away from the player. Used by cowardly enemies like the niglet
     after they've landed a hit.
-    """
+    Returns "move" or "idle"."""
     mx, my = monster.x, monster.y
     px, py = player.x, player.y
 
@@ -327,23 +335,25 @@ def flee(monster, player, dungeon, engine, creature_positions=None,
     dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
 
     if dx == 0 and dy == 0:
-        return
+        return "idle"
 
     nx, ny = monster.x + dx, monster.y + dy
 
     if _tile_free(nx, ny, dungeon, creature_positions, (monster.x, monster.y)):
         monster.move(dx, dy)
+        return "move"
+    return "idle"
 
 
 def follow_in_room(monster, player, dungeon, engine, creature_positions=None,
                    step_map=None):
     """Move toward the monster's leader while staying within the spawn room.
-    Used by escort tweakers following their drug dealer."""
+    Used by escort tweakers following their drug dealer.
+    Returns "move" or "idle"."""
     leader = getattr(monster, "leader", None)
     if leader is None or not leader.alive:
         # Fallback to wandering if leader is gone
-        wander_in_room(monster, player, dungeon, engine, creature_positions, step_map)
-        return
+        return wander_in_room(monster, player, dungeon, engine, creature_positions, step_map)
 
     room_tiles = getattr(monster, "spawn_room_tiles", None)
     self_pos = (monster.x, monster.y)
@@ -354,7 +364,7 @@ def follow_in_room(monster, player, dungeon, engine, creature_positions=None,
 
     # If we're already at the leader, stay put
     if (mx, my) == (lx, ly):
-        return
+        return "idle"
 
     # Simple greedy direction toward leader
     dx = 0 if lx == mx else (1 if lx > mx else -1)
@@ -369,18 +379,20 @@ def follow_in_room(monster, player, dungeon, engine, creature_positions=None,
         elif room_tiles and (mx, my + dy) in room_tiles:
             nx, ny = mx, my + dy
         else:
-            return
+            return "idle"
 
     if _tile_free(nx, ny, dungeon, creature_positions, self_pos):
         dx_final, dy_final = nx - mx, ny - my
         dx_final, dy_final = _apply_modify_movement(dx_final, dy_final, monster, player, dungeon)
         monster.move(dx_final, dy_final)
+        return "move"
+    return "idle"
 
 
 def idle(monster, player, dungeon, engine, creature_positions=None,
          step_map=None):
-    """Do nothing."""
-    pass
+    """Do nothing.  Returns "idle"."""
+    return "idle"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -579,8 +591,22 @@ BEHAVIORS = {
 
     # ── Stationary Guard ─────────────────────────────────────────────────
     # Stands motionless until struck by the player.  Once provoked, chases
-    # permanently (never reverts to idle).  Used by Jerome.
+    # permanently (never reverts to idle).
     "stationary_guard": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(was_provoked, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.WANDERING: idle,
+            AIState.CHASING:   chase,
+        },
+    },
+
+    # ── Jerome Guard ────────────────────────────────────────────────────
+    # Jerome-specific: stands motionless until ANY damage provokes him,
+    # then chases permanently.  Faster action rate than normal guards.
+    "jerome_guard": {
         "initial_state": AIState.WANDERING,
         "transitions": {
             AIState.WANDERING: [(was_provoked, AIState.CHASING)],
@@ -651,11 +677,12 @@ def _evaluate_transitions(behavior, monster, player, dungeon):
 
 def _evaluate_behavior(behavior, monster, player, dungeon, engine,
                        creature_positions, step_map):
-    """Run transitions, then execute the action for the resulting state."""
+    """Run transitions, then execute the action for the resulting state.
+    Returns "attack", "move", or "idle"."""
     _evaluate_transitions(behavior, monster, player, dungeon)
     action = behavior["actions"].get(monster.ai_state, idle)
-    action(monster, player, dungeon, engine,
-           creature_positions=creature_positions, step_map=step_map)
+    return action(monster, player, dungeon, engine,
+                  creature_positions=creature_positions, step_map=step_map) or "idle"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -684,7 +711,7 @@ def do_ai_turn(monster, player, dungeon, engine,
     # ── Status effects: before-turn hooks ────────────────────────────────
     # (ticking is done by engine.py's _end_of_turn after all monsters move)
     if _apply_before_turn(monster, player, dungeon):
-        return
+        return "idle"
 
     # ── Jerome's self-healing (boss mechanic) ────────────────────────────
     # When Jerome drops below 25 HP, he eats fried chicken to heal 10 HP
@@ -717,7 +744,7 @@ def do_ai_turn(monster, player, dungeon, engine,
     # ── Run state machine ────────────────────────────────────────────────
     old_pos = (monster.x, monster.y)
 
-    _evaluate_behavior(
+    action_type = _evaluate_behavior(
         behavior, monster, player, dungeon, engine,
         creature_positions, step_map,
     )
@@ -729,3 +756,5 @@ def do_ai_turn(monster, player, dungeon, engine,
         if new_pos != old_pos:
             creature_positions.discard(old_pos)
             creature_positions.add(new_pos)
+
+    return action_type

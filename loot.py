@@ -21,10 +21,9 @@ from items import ITEM_DEFS, get_random_chain
 
 ZONE_LOOT_CONFIG = {
     "crack_den": {
-        "consumable": {"per_floor": (4, 8)},    # target 20-30 over 4 floors
-        "material":   {"per_floor": (6, 12)},   # target 35-45
-        "tool":       {"per_floor": (0, 1)},    # target 2-3
-        "equipment":  {"per_floor": (1, 3)},    # target 6-10
+        "consumable": {"per_floor": (8, 12)},   # merged materials into consumables
+        "tool":       {"per_floor": (0, 1)},
+        "equipment":  {"per_floor": (1, 3)},
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab": {          # TODO: tune budgets for meth lab zone
@@ -63,8 +62,9 @@ ZONE_STRAIN_WEIGHTS = {
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab":         {},   # TODO: define strain weights for meth lab
-    "casino_botanical": {},   # TODO: define strain weights for casino + botanical
+    "casino": {},   # TODO: define strain weights for casino
     "the_underprison":  {},   # TODO: define strain weights for The Underprison
+    "Botanical Weed Garden":  {},   # TODO
 }
 
 
@@ -80,7 +80,10 @@ ZONE_CONSUMABLE_TABLES = {
     "crack_den": [
         ("joint", 1),
         ("alcohol_drink", 1.5),
-        ("food", 1),
+        ("food", 1.5),
+        ("rolling_paper", 1),
+        ("kush", 0.5),
+        ("weed_nug", 0.5),
     ],
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab":         [],   # TODO
@@ -100,7 +103,7 @@ ALCOHOL_DRINK_SUBTABLE = [
 
 ZONE_MATERIAL_TABLES = {
     "crack_den": [
-        ("rolling_paper", 6),   # 3× more likely than nugs
+        ("rolling_paper", 5),   # 3× more likely than nugs
         ("kush",          2),   # 2× more likely than nugs
         ("weed_nug",      1),
     ],
@@ -145,7 +148,7 @@ ZONE_FOOD_TABLES = {
 ZONE_EQUIPMENT_CONFIG = {
     "crack_den": {
         # ring is 2× as common as each other equipment type
-        "type_weights":      [("weapon", 1), ("ring", 2), ("neck", 1), ("feet", 1)],
+        "type_weights":      [("weapon", 3), ("ring", 4), ("neck", 3), ("feet", 2)],
         # minor ring 8× as likely as greater; divine/advanced excluded via zones tag
         "ring_tier_weights": [("minor", 8), ("greater", 1)],
     },

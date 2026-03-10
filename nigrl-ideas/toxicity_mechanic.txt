@@ -1,0 +1,783 @@
+================================================================================
+TOXICITY SYSTEM — ZONE 2 (METH LAB) DESIGN DOCUMENT
+================================================================================
+
+Document Status: Design Draft
+Zone Context:    Zone 2 — The Meth Lab
+Systems Touched: entity.py, engine.py, effects.py, stats.py, skills.py,
+                 items.py, foods.py, enemies.py, dungeon.py, loot.py
+
+
+--------------------------------------------------------------------------------
+1. CONCEPT SUMMARY
+--------------------------------------------------------------------------------
+
+Toxicity is a persistent integer stat on the player (entity.toxicity) representing
+cumulative chemical exposure from meth fumes, on-hit poison, contaminated
+consumables, and intentional self-dosing. It never resets between floors and
+carries across zones.
+
+The core tension: toxicity makes you take more damage AND deals more damage on
+crits. It is simultaneously a liability and a resource. Two new skill trees pull
+in opposite directions — Chemical Warfare leans hard into the number, burning
+thousands of toxicity points on devastating abilities; Detox (a.k.a. Clean) pours
+cold water on the whole thing, rewarding purity and offering targeted cleanses.
+
+Neither tree is objectively correct. The game is about choosing a lane and
+committing to it.
+
+
+--------------------------------------------------------------------------------
+2. CONFIRMED MECHANICAL FOUNDATION
+--------------------------------------------------------------------------------
+
+2.1 DAMAGE MULTIPLIER FORMULAS
+-------------------------------
+
+  Player incoming damage multiplier:
+    mult = 1.0 + (tox / 100) ^ 0.6
+
+  Monster incoming damage multiplier (2x more sensitive, balanced for challenge):
+    mult = 1.0 + (tox / 50) ^ 0.6
+
+  The ^0.6 exponent produces diminishing returns — the first 100 toxicity
+  points are cheap to accumulate and the multiplier rockets fast; beyond 500
+  each additional 100 points buys less and less extra damage, preventing the
+  curve from going infinite in any meaningful way at normal play.
+
+  REFERENCE TABLE — Player Damage Taken / Outgoing Crit Bonus:
+
+    Toxicity  | Player Mult | Monster Mult  | Approx Effect
+    ----------|-------------|---------------|----------------------------
+           0  |     1.00x   |     1.00x     | Baseline — no effect
+          50  |     1.40x   |     1.74x     | Cracks starting to show
+         100  |     1.74x   |     2.30x     | Risky but manageable
+         250  |     2.47x   |     3.52x     | High-risk territory
+         500  |     3.48x   |     5.27x     | Deep Chemical Warfare range
+        1000  |     4.93x   |     7.90x     | Endgame build commitment
+        5000  |    11.3x    |    19.0x      | Theoretical ceiling, one-shots
+       10000  |    16.6x    |    28.5x      | Theoretical endgame extremes
+
+  Implementation note: the multiplier applies AFTER armor/defense reduction.
+  Formula reads: final_damage = max(1, (raw_damage - defense) * tox_mult)
+  This means defense still matters at high toxicity — it reduces the base
+  before the multiplier scales it up.
+
+2.2 CRIT DAMAGE SCALING
+------------------------
+
+  Crit chance is unchanged (street_smarts * 3%). Toxicity affects only
+  crit DAMAGE multiplier.
+
+  Base crit multiplier: 2.0x (deal double damage on crit, no toxicity needed)
+  Toxicity bonus: +0.01x per 10 toxicity points (i.e., tox / 1000)
+
+  Formula:
+    crit_mult = 2.0 + (effective_toxicity / 1000)
+
+  REFERENCE TABLE — Crit Multiplier by Toxicity:
+
+    Toxicity  | Crit Multiplier | Notes
+    ----------|-----------------|----------------------------
+           0  |     2.00x       | Baseline crit
+         100  |     2.10x       | Marginal gain, early zone
+         500  |     2.50x       | Noticeable in combat
+        1000  |     3.00x       | Serious spike damage
+        2000  |     4.00x       | Chemical Warfare build online
+        5000  |     7.00x       | Endgame burst potential
+       10000  |    12.0x        | Theoretical maximum
+
+  Implementation note: toxicity crit bonus is purely multiplicative on damage
+  dealt to the enemy; it is NOT affected by the incoming damage multiplier.
+  Crit damage = base_hit_damage * crit_mult before enemy defense subtraction,
+  consistent with how crit should feel (a big raw swing, not a scaled one).
+
+2.3 ON-CRIT PROCS AT HIGH TOXICITY
+------------------------------------
+
+  Three proc effects trigger on crit when toxicity reaches certain thresholds.
+  These fire AFTER the crit damage is dealt. Only one proc fires per crit
+  (highest threshold met takes priority).
+
+  Threshold A — 250+ toxicity:
+    ACID SPLASH
+    On every crit, splatter acid in an AOE_CIRCLE of radius 1 around the
+    target. Each entity in the splash takes flat damage equal to tox // 100
+    (minimum 2). This hits enemies only, not the player.
+    Flavor: the target bursts like a zit full of battery acid.
+    Design note: radius 1 means up to 8 adjacent tiles. In dense encounters this
+    is a meaningful AoE bonus; in open rooms it does nothing extra.
+
+  Threshold B — 600+ toxicity:
+    TOXIC SHOCK
+    On crit, the target is inflicted with "poisoned" (a new DOT variant) for
+    4 turns dealing tox // 200 damage per turn (minimum 3). Does not stack —
+    reapplying refreshes duration and upgrades the damage to the new value if
+    higher.
+    Flavor: they absorb just enough of what you're carrying to regret it.
+
+  Threshold C — 1500+ toxicity (replaces A and B when active):
+    CHEMICAL CASCADE
+    On crit, the target gains the "dissolving" debuff for 3 turns: their
+    defense is reduced to 0 and they are unable to gain status effects that
+    would increase their defense or healing. Additionally deal bonus damage
+    equal to tox // 500 each turn of the debuff.
+    Flavor: at this concentration you're not hitting them, you're digesting them.
+
+  Implementation note: all three proc thresholds check entity.toxicity at
+  the time of the crit, not a stored value. Engine reads: after crit damage
+  resolves, check tox thresholds highest-first, fire first matching proc.
+
+
+--------------------------------------------------------------------------------
+3. TOXICITY SOURCES
+--------------------------------------------------------------------------------
+
+3.1 ENVIRONMENTAL — METH LAB ZONE
+-----------------------------------
+
+  FUME TILES
+    A new hazard tile type (alongside fire/crate): fume_vent.
+    ASCII char: '*' rendered in sickly green (R=100, G=220, B=80).
+    Spawned in 2-4 rooms per Meth Lab floor (replace fire hazard spawn logic
+    or add as a second hazard type alongside it).
+    Behavior: each energy tick, any entity standing on a fume tile gains
+    +tox_per_tick toxicity. tox_per_tick scales with floor:
+      Floor 1: +2/tick
+      Floor 2: +4/tick
+      Floor 3: +6/tick
+      Floor 4+: +8/tick
+    Fire still burns you. Fumes just cook your brain slowly.
+    Implementation: parallels fire hazard in dungeon.py spawn and
+    engine.py _run_energy_loop check. Toxicity gain handled via
+    engine._inhale_fumes(entity, amount).
+
+  AMBIENT PER-FLOOR GAIN
+    In the Meth Lab zone, the air itself is contaminated. The player gains
+    +1 toxicity per 10 player turns taken on each Meth Lab floor (not
+    per tick — per completed player action). This is unavoidable without
+    Detox tree investment.
+    Implementation: engine._player_turn_count incremented each player action;
+    if zone == "meth_lab" and turn_count % 10 == 0: player.toxicity += 1.
+    Flavor text on first floor entry: "The air tastes wrong in here."
+
+3.2 ENEMY ON-HIT TOXICITY
+---------------------------
+
+  Several Meth Lab enemies apply toxicity on hit (see Section 6 for full
+  enemy list). The mechanism uses the existing OnHitEffect system —
+  a new EffectKind.TOXICITY_DOSE is added that directly increments
+  entity.toxicity by the effect's amount rather than applying a status effect.
+
+  Example:
+    OnHitEffect(
+        name="Chemical Burn",
+        kind=EffectKind.TOXICITY_DOSE,
+        amount=15,
+        duration=1,   # consumed immediately; duration field still required
+        chance=0.40,
+    )
+
+  Implementation note: engine's on-hit resolution reads kind==TOXICITY_DOSE
+  and calls engine._apply_toxicity(target, amount) instead of the normal
+  apply_effect() path. Keep toxicity changes centralized in one function
+  for easy logging and future resistance calculation.
+
+3.3 CONSUMABLES — ZONE 2 SPECIFIC ITEMS
+-----------------------------------------
+
+  These items appear in Meth Lab loot tables only (zones: ["meth_lab"]).
+
+  CRYSTAL SHARD (item_id: "crystal_shard")
+    Category: consumable. Char: '!'. Color: (180, 230, 255) — pale blue.
+    Use verb: "Snort"
+    Effect: +60 toxicity, +30 energy/tick for 15 turns (wire effect, see L4/L5
+    doc), +4 STR temporary stat bonus for 8 turns.
+    Flavor: Tastes like copper. Then nothing tastes like anything.
+    Munching XP: 80. Tolerance interaction: low Tolerance magnifies the STR
+    bonus (see Section 4.2).
+
+  BATCH SAMPLE (item_id: "batch_sample")
+    Category: consumable. Char: '%'. Color: (200, 255, 120) — yellow-green.
+    Use verb: "Test"
+    Effect: +40 toxicity, +20% crit chance bonus for 10 turns (flat int bonus
+    to dodge_chance mechanism, applied via temporary stat — see implementation).
+    Flavor: Quality control. For science.
+    Munching XP: 60.
+
+  RAW PRECURSOR (item_id: "raw_precursor")
+    Category: material. Char: ';'. Color: (255, 180, 60) — amber.
+    Cannot be used directly. Used in crafting (see Section 5.2).
+    Flavor: Smells like cat pee and regret.
+
+  HAZMAT SHOT (item_id: "hazmat_shot")
+    Category: consumable. Char: '+'. Color: (80, 200, 255) — cyan.
+    Use verb: "Inject"
+    Effect: -50 toxicity (clamp to 0), restore 15 HP, brief nausea
+    (apply_effect "slowed" for 5 turns, -15 energy/tick).
+    Flavor: The antidote tastes worse than the poison.
+    This is a rare Zone 2 item — weight=3 in loot table (low).
+
+  FUME CANISTER (item_id: "fume_canister")
+    Category: consumable (throwable). Char: 'o'. Color: (100, 220, 80) — green.
+    Use verb: "Throw"
+    Target type: AOE_CIRCLE, radius 2.
+    Effect: All enemies in radius take +25 toxicity (using TOXICITY_DOSE logic
+    applied to monsters — their mult will hurt them). Applies "confused" debuff
+    (see L4/L5 doc: 40% chance to wander) for 6 turns to affected enemies.
+    Player is NOT affected (they're the one throwing it).
+    Flavor: Weaponized incompetence.
+    Loot weight: 5.
+
+3.4 CHEMICAL WARFARE GENERATOR ABILITY
+----------------------------------------
+
+  The Chemical Warfare tree's L1 perk (Synthesize, see Section 5) grants
+  a self-targeting ability (ability_id: "synthesize") that generates toxicity
+  outside the Meth Lab zone. Details in Section 5.1.
+
+3.5 TOLERANCE INTERACTION
+--------------------------
+
+  Tolerance stat modulates the RATE of toxicity accumulation from passive
+  and consumable sources. It does NOT reduce on-hit toxicity from enemy
+  attacks (that damage is intentional and from a direct source).
+
+  Formula for passive/consumable toxicity gain:
+    actual_gain = base_gain * tox_accumulation_rate(tolerance)
+
+  tox_accumulation_rate(tolerance):
+    = max(0.3, 1.5 - (tolerance * 0.1))
+
+  REFERENCE TABLE:
+
+    Tolerance | Rate  | Notes
+    ----------|-------|----------------------------
+         3    | 1.20x | Very low Tol — accumulates fast
+         5    | 1.00x | Baseline (start of stat range)
+         8    | 0.70x | Good Tol — noticeably slower
+        10    | 0.50x | High Tol — half rate
+        12    | 0.30x | Max Tol + bonuses: floor minimum
+        15+   | 0.30x | Floor — stacking Tol past here gives no extra benefit
+               (floor exists so high-Tol builds can't negate zone ambient)
+
+  Tolerance does NOT affect:
+    - On-hit toxicity from enemy attacks
+    - Chemical Warfare's own Synthesize ability (intentional self-dosing)
+    - Toxicity granted by scripts/scripted events
+
+  Design note: high-Tolerance builds significantly slow the ambient pressure but
+  can't eliminate it. This keeps Detox tree relevant even for Tol-heavy builds.
+  Meth-Head builds typically neglect Tol (see MEMORY.md: Meth-Head L2 is all
+  STR/CON, no Tol investment), so they feel the zone's pressure most acutely.
+
+
+--------------------------------------------------------------------------------
+4. TOXICITY REDUCTION SOURCES
+--------------------------------------------------------------------------------
+
+4.1 CONSUMABLES
+----------------
+
+  ACTIVATED CHARCOAL (item_id: "activated_charcoal")
+    Category: consumable. Char: '*'. Color: (60, 60, 60) — dark gray.
+    Use verb: "Chug"
+    Effect: -80 toxicity (clamp to 0). No other effects. 2-turn eat time
+    (multi-turn like foods). Applies brief "nauseous" visual effect —
+    no mechanical penalty, cosmetic/flavor only.
+    Flavor: Tastes like eating a parking lot. Works though.
+    Loot weight: 6. Zones: meth_lab, and smaller weight in future zones.
+
+  CLEAN WATER (item_id: "clean_water")
+    Category: consumable. Char: '~'. Color: (100, 180, 255) — light blue.
+    Use verb: "Drink"
+    Effect: -30 toxicity, +8 HP heal.
+    Simple and reliable. The scarcest resource in a meth lab.
+    Loot weight: 8. Zones: meth_lab (only zone it appears in meaningfully).
+
+  IPECAC SYRUP (item_id: "ipecac_syrup")
+    Category: consumable. Char: '!'. Color: (220, 200, 80) — yellow.
+    Use verb: "Drink"
+    Effect: -200 toxicity (clamp to 0), but the player is stunned for 4 turns
+    and loses 15 HP (non-lethal: cannot reduce below 1 HP).
+    A nuclear option — burns all your hard-earned tox, stuns you, and hurts.
+    Chemical Warfare builds should think twice.
+    Loot weight: 3.
+
+4.2 DETOX TREE PERKS
+---------------------
+
+  See Section 5.2 for full tree design.
+
+4.3 NATURAL DECAY
+------------------
+
+  Toxicity decays naturally at a slow rate while in non-Meth Lab zones.
+  In the Meth Lab zone: NO natural decay (the environment keeps pumping
+  more in).
+
+  Decay formula (applied once per 20 player turns when outside Meth Lab):
+    tox_lost = max(1, entity.toxicity // 50)
+  Translation: at tox=100 you lose 2/per 20 turns; at tox=500 you lose 10;
+  at tox=1000 you lose 20. The decay rate scales with how toxic you are,
+  preventing infinite accumulation over time if the player just does nothing
+  — but it is slow enough that Chemical Warfare builds can maintain high
+  stacks through normal play (enemies keep topping them up anyway).
+
+  In the Meth Lab zone, even natural decay is suppressed. The zone pushes
+  you higher and keeps you there.
+
+  Implementation: engine._natural_tox_decay() called once per 20 player
+  turns, gated on engine.current_zone != "meth_lab".
+
+
+--------------------------------------------------------------------------------
+5. NEW SKILL TREES
+--------------------------------------------------------------------------------
+
+5.1 CHEMICAL WARFARE
+---------------------
+
+  Concept: lean into the poison. Stack toxicity through the roof and spend it
+  in enormous bursts on abilities that scale with how contaminated you are.
+  The loop is: accumulate (via fumes, enemies, Synthesize), unleash (big
+  spends), accumulate again. The tree rewards risk tolerance and map awareness
+  — you need to know where the next fumes are before you blow your entire
+  tox reserve.
+
+  XP source: dealing damage while at toxicity >= 100. Higher toxicity when
+  landing hits = more XP. Encourages staying dirty. Formula:
+    xp_per_hit = base_hit_xp * (1 + entity.toxicity // 200)
+
+  SKILL TREE: Chemical Warfare
+
+  L1 — SYNTHESIZE (Activated)
+    ability_id: "synthesize"
+    Target: SELF
+    Charge type: INFINITE (cooldown: 12 turns)
+    Effect: +100 toxicity. No other benefit — purely a toxicity generator.
+    Available in all zones (this is the post-Meth-Lab injection point).
+    Flavor: You cook it right here. In your pocket. Don't ask.
+    Implementation: AbilityDef with ChargeType.INFINITE; internally tracks
+    a cooldown counter the same way Reap does in the L4/L5 doc.
+    Balance note: 100 tox per 12 turns is ~8.3/turn passive rate. Ambient
+    zone sources top this easily in the Meth Lab, but in later zones Synthesize
+    becomes the only reliable supply. Chemical Warfare builds must burn turns
+    building up before big spends.
+
+  L2 — CHEMICAL FURY (Passive)
+    Every time the player SPENDS toxicity via a Chemical Warfare ability,
+    gain a flat damage bonus equal to (tox_spent // 50) for 6 turns.
+    Stacks additively with existing flat damage bonuses (same mechanism as
+    temporary_stat_bonuses["strength"] but tracked separately as
+    temporary_chem_fury_bonus on engine for display purposes).
+    Flavor: the rush of spending it is better than the high from having it.
+    Balance: spending 500 tox = +10 flat damage for 6 turns. Big, but costs
+    the resource. Encourages large single spends over trickle spending.
+
+  L3 — ACID BATH (Activated)
+    ability_id: "acid_bath"
+    Target: SINGLE_ENEMY_LOS
+    Charge type: PER_FLOOR, max_charges=3
+    Toxicity cost: 150
+    Effect: Deal damage equal to (tox_before_spend // 10) to target. Tox is
+    spent first, then damage calculated — spending from 600 down to 450
+    still punches for 60, not 45. Apply "dissolving" debuff (3 turns, defense
+    0, see Threshold C on-crit effect) to target regardless of damage dealt.
+    Range: unlimited LOS.
+    Flavor: You spit something at them. It's not spit.
+    Balance note: at 600 tox this deals 60 damage ignoring defense — about
+    equal to Meth Lab enemy max HP. Dissolving strips defense for 3 turns,
+    enabling follow-up combos. The 150 tox cost is recoverable in ~2 turns
+    of standing on fumes.
+
+  NOTES ON L4 AND L5 (to be detailed in skill_perks_L4_L5.txt expansion):
+    L4 concept — PAYLOAD DETONATION: A once-per-floor ability that converts
+    ALL current toxicity into a massive AOE explosion. Damage = tox_spent / 5
+    to all enemies in radius 3. Reduces toxicity to 0. Flavor: you just become
+    the bomb for a moment.
+    L5 concept — ADAPTIVE MUTATION: Passive. Every 500 toxicity accumulated
+    (tracked lifetime, not current) permanently unlocks a small random stat
+    bonus (+1 to a random stat). Maximum 10 unlocks total. The zone changes you.
+
+5.2 DETOX (and alternative name brainstorm)
+--------------------------------------------
+
+  Name alternatives:
+    - CLEAN (simplest, most ironic given the context)
+    - FLUSH — slang for clearing your system, also what you do with evidence
+    - SOBER UP — more comedic, implies you know what you've been doing
+    - STRAIGHT EDGE — tongue-in-cheek given the setting
+  Recommended: CLEAN. Short, punchy, thematically on the nose.
+
+  Concept: resist the zone's pressure, keep toxicity low, and reap purity
+  bonuses. NOT a purely passive survival tree — includes offensive payoffs
+  for maintaining low toxicity, so a Clean build plays offensively through
+  consistent calculated hits rather than the Chemical Warfare approach of
+  building and detonating. A "controlled player" archetype.
+
+  XP source: taking hits and surviving. Being poisoned and clearing it.
+  Specifically: +XP whenever toxicity is reduced by any means (consumable,
+  perk, ability) proportional to amount reduced. Also: +XP per turn spent
+  below toxicity 50 (small ambient reward for keeping clean).
+
+  TOXICITY RESISTANCE STAT
+    The Clean tree introduces a new player value: tox_resistance (int, 0-100,
+    represents percentage reduction of toxicity GAIN from passive sources and
+    consumables — NOT enemy on-hit, NOT Synthesize).
+    Stored on engine or entity (recommend engine.player_tox_resistance: int = 0
+    since it's a derived value, not a base stat).
+    Applied in engine._apply_toxicity(entity, amount, source):
+      if source in ("passive", "consumable"):
+          amount = int(amount * (1 - tox_resistance / 100))
+    Grants from the Clean tree stack additively.
+
+  SKILL TREE: Clean (or Detox/Flush)
+
+  L1 — CONSTITUTION OF A COCKROACH (Passive)
+    Gain 25 tox_resistance. Ambient zone gain and consumable toxicity are
+    25% less effective on you.
+    Also: while toxicity < 50, gain +2 CON (temporary, not permanent —
+    treated as temporary_stat_bonus["constitution"] = 2, removed if tox >= 50).
+    Flavor: Your body just doesn't want to cooperate with the chemistry.
+
+  L2 — FLUSH (Activated)
+    ability_id: "flush"
+    Target: SELF
+    Charge type: PER_FLOOR, max_charges=2
+    Effect: Reduce toxicity by 120 (clamp to 0). Heal HP equal to toxicity
+    reduced (so flushing from 200 to 80 heals 120 HP, capped at max HP).
+    Toxicity reduction happens first, then HP calc.
+    Flavor: You need a moment. Lean over the sink. There isn't one.
+    Balance: At 120 tox shed, that is 120 HP heal — big. But it uses tox_resistance
+    only on GAIN, not on spending, so this is a hard cap tool, not passive
+    protection. 2 uses per floor means ~240 total tox removed per floor in the
+    best case.
+
+  L3 — PURITY OFFENSIVE (Passive)
+    While toxicity is below 100: all damage dealt is multiplied by 1.25x.
+    This is the low-toxicity offensive payoff. A Clean build stays under 100
+    tox (using Flush and consumables), and receives a consistent +25% damage
+    bonus for doing so.
+    Flavor: You're sharper clean. Faster. More dangerous.
+    Balance note: 1.25x at all times while under 100 tox is very good — but
+    Chemical Warfare's bonuses at 500+ tox far outscale it in raw numbers.
+    Purity Offensive rewards consistency over spikes. It is REMOVED (not
+    just suppressed) whenever tox crosses 100 — it goes away the moment
+    the zone does what it does to you.
+    Implementation: modify_outgoing_damage multiplier check in effects.py
+    or a passive flag checked in engine's combat resolution.
+
+  NOTES ON L4 AND L5 (to be detailed in skill_perks_L4_L5.txt expansion):
+    L4 concept — ADAPTIVE IMMUNE: Passive. Gain +5 tox_resistance.
+    Additionally, whenever toxicity is reduced by any source, also heal
+    HP equal to half the amount reduced.
+    L5 concept — CLEAN BREAK: Once per run. When player would be killed by
+    damage, if toxicity > 0, reset toxicity to 0 and survive at 1 HP instead.
+    The zone's poison is what was killing you; flush it all at once to live.
+    This is the "death cheat" for a pure Clean build who carries high tox
+    despite best efforts.
+
+
+--------------------------------------------------------------------------------
+6. METH LAB ENEMIES WITH TOXICITY INTERACTIONS
+--------------------------------------------------------------------------------
+
+These are design seeds for Zone 2 enemies that interact with the toxicity
+system. Full enemy designs belong in separate enemy-*.txt documents, but
+flagged here for cross-reference.
+
+  CHEMIST
+    char: 'c'. Color: (200, 255, 160) — pale green.
+    AI: WANDER_AMBUSH. Stays back, throws vials.
+    On-hit effect: TOXICITY_DOSE, amount=20, chance=0.60 (ranged attack,
+    always applies toxicity on landing).
+    Special attack: "Toss Batch" (chance=0.30) — ranged attack that also
+    creates a temporary fume tile at impact for 5 turns.
+    Flavor: the guy who runs the lab. He's not interested in conversation.
+
+  TWEAKER HANDLER
+    char: 'H'. Color: (180, 120, 80) — brownish orange.
+    AI: ROOM_GUARD with escort: tweaker (count: 2-3).
+    On-hit effect: TOXICITY_DOSE, amount=10, chance=0.50 (melee contamination).
+    Special attack: "Adrenaline Shot" (chance=0.15) — heals an adjacent
+    tweaker escort for 20 HP.
+    Flavor: manages the product and the help. Enthusiastically.
+
+  FUME WARDEN
+    char: 'F'. Color: (120, 220, 60) — bright green.
+    AI: STATIONARY_GUARD. Doesn't move until damaged.
+    Special attack: "Vent Burst" (chance=0.25) — creates fume tiles in all
+    adjacent tiles for 8 turns. Player caught adjacent to a Fume Warden
+    fight is immediately swimming in toxicity.
+    On-hit effect: TOXICITY_DOSE, amount=30, chance=1.0 (always on normal hit).
+    High defense (3), high HP. A tanky threat that turns the environment
+    against the player.
+
+  RAT (vermin enemy)
+    char: 'r'. Color: (140, 100, 60) — brownish.
+    AI: MEANDER. Packs of 3-5.
+    On-hit effect: TOXICITY_DOSE, amount=5, chance=0.30 — small dosing per
+    hit, adds up fast in a swarm.
+    Low HP, low damage individually, but numerous. A tox-drain threat.
+
+These enemies together create toxicity pressure from multiple vectors:
+- Ranged application (Chemist)
+- Escort/pack application (Rat, Handler)
+- Environmental amplification (Fume Warden)
+
+
+--------------------------------------------------------------------------------
+7. CROSS-SYSTEM SYNERGIES AND INTERACTIONS
+--------------------------------------------------------------------------------
+
+  METH-HEAD + CHEMICAL WARFARE (synergy)
+    Wire effect grants +30 energy/tick. Chemical Warfare's Purity Offensive
+    does not apply (Meth-Head builds will always be above 100 tox), but
+    Chemical Fury (L2) + Wire speed = hit fast, hit hard, spend tox quickly.
+    Acid Bath L3 becomes a reliable finisher in this combo. The Wire crash
+    also inflicts self-toxicity damage (Supernova in L4/L5 doc) — Chemical
+    Warfare actually wants to get hit, which feeds the crash. Unusual risk
+    acceptance loop.
+
+  SMOKING + TOXICITY
+    Smoking strains apply status effects. At high toxicity, these effects
+    land on an enemy whose defense may already be stripped by Dissolving.
+    Agent Orange's debuff + Dissolving = enemy completely shut down.
+    No mechanical interaction coded, but the timing window matters.
+
+  MUNCHING + CLEAN TREE
+    Munching's Better Later (L3) and Even Fatter (L2 CON bonus) pair with
+    Clean's Purity Offensive. More HP headroom means the player can absorb
+    a few tox-generating hits without panicking and blowing Flush charges.
+    Fatter/Even Fatter builds can tolerate brief excursions over 100 tox
+    because they have HP to spare while hunting for a cleanser.
+
+  NEGROMANCY + CHEMICAL WARFARE (subtle)
+    Negromancy's Soul Shards give +1 flat damage per shard. Chemical Fury
+    adds its own flat damage pool. These stack. A Negromancy/Chemical
+    Warfare hybrid is feasible but spreads XP investment thin.
+
+  STABBING + CHEMICAL WARFARE
+    Windfury (Stabbing L3) on-crits proc on-crit toxicity effects (Acid Splash,
+    Toxic Shock, Chemical Cascade). The extra hit from Windfury is a full damage
+    roll and can trigger crit independently. If both the primary and the Windfury
+    hit are crits, you can fire two Acid Splashes in one attack. With high Street
+    Smarts + high toxicity this becomes a serious AoE threat.
+
+  DETOX TREE + HIGH TOLERANCE
+    High Tolerance already slows ambient tox accumulation (0.30x rate at TOL
+    15+). Detox adds 25-30% tox_resistance on top. These stack multiplicatively
+    in practice (Tolerance gates rate first, then resistance reduces the result),
+    making the ambient zone pressure almost trivial for a CON/TOL/Clean build.
+    The counterweight: such builds deal less damage overall (no big tox
+    multiplier, no Chem Fury). They are durable but grind fights out.
+
+  ALCOHOLISM + CLEAN TREE
+    Alcoholism L2 grants +2 Tolerance. Throw Bottle (L3 ability) provides
+    distance management. A Alcoholism/Clean build can kite enemies to avoid
+    on-hit tox applications, use Tolerance to slow passive accumulation, and
+    Flush charges to keep under 100 for Purity Offensive. It's a very
+    deliberate, high-maintenance playstyle. Rewarding for patient players.
+
+  JAYWALKING + TOXICITY
+    If Jaywalking has movement-based bonuses (undecided placeholder), speed
+    also helps a Clean build dance around fume tiles without triggering ambient
+    tox. Conversely a Chemical Warfare player might use movement speed to zip
+    through fume tiles intentionally to top up before a big Acid Bath.
+
+
+--------------------------------------------------------------------------------
+8. IMPLEMENTATION NOTES
+--------------------------------------------------------------------------------
+
+  entity.py
+    - entity.toxicity: int = 0. Add to __init__ with default 0.
+    - No cap enforced in storage. The formula naturally limits effective impact.
+
+  engine.py
+    - engine._apply_toxicity(entity, amount, source="enemy_hit"):
+        Centralized toxicity modification function. Applies tox_resistance
+        if source in ("passive", "consumable"). Logs message if player.
+        Clamps to 0 on reduction (no negative toxicity).
+    - engine._natural_tox_decay(): called every 20 player turns, outside
+        Meth Lab zone only. Reduces tox by max(1, entity.toxicity // 50).
+    - engine.player_tox_resistance: int = 0. Updated when perks are applied.
+    - Toxicity crit multiplier: read entity.toxicity at crit resolution.
+    - On-crit proc: check thresholds after crit damage, call relevant proc
+        function. _proc_acid_splash(), _proc_toxic_shock(), _proc_chem_cascade().
+    - EffectKind.TOXICITY_DOSE handling in on-hit resolution: if kind ==
+        TOXICITY_DOSE, call _apply_toxicity(target, amount, "enemy_hit").
+
+  effects.py
+    New effects needed:
+      "poisoned"       — DOT variant, tox // 200 damage/turn, 4t, no stack
+                         (reapply refreshes + upgrades damage)
+      "dissolving"     — 3t debuff, sets defense = 0, blocks defense/heal
+                         status effects from applying (override on_reapply)
+      "nauseous"       — cosmetic/flavor debuff, 3t, no mechanical effect
+                         (shows on status bar with debuff color)
+
+  enemies.py
+    - Add EffectKind.TOXICITY_DOSE to EffectKind enum.
+    - OnHitEffect.__post_init__ already handles string-to-enum coercion —
+      just adding the enum value is sufficient.
+
+  stats.py
+    - Toxicity crit multiplier is not stored on PlayerStats — it is derived
+      at combat time from entity.toxicity. No stats.py change needed.
+    - tox_resistance is stored on engine (not PlayerStats) since it is a
+      gameplay modifier, not a base stat. This keeps as_list() clean.
+
+  items.py
+    - crystal_shard, batch_sample, raw_precursor, hazmat_shot, fume_canister:
+      add to ITEM_DEFS with use_effect dicts. Fume canister needs new
+      "throw_aoe" use_effect type or can leverage the existing AOE ability
+      system (grant a single-charge ability on use).
+
+  items.py / foods.py
+    - activated_charcoal, clean_water, ipecac_syrup: add to ITEM_DEFS
+      (not FOOD_DEFS — no multi-turn eat time, except activated_charcoal
+      which has 2-turn eat time and should live in FOOD_DEFS accordingly).
+
+  loot.py
+    - Add meth_lab zone loot config with toxicity-adjacent items weighted
+      into consumable and material category buckets. Hazmat Shot and
+      Ipecac Syrup get low weight (rare). Clean Water moderate. Crystal
+      Shard/Batch Sample moderate. Raw Precursor in material slot.
+
+  skills.py
+    - Chemical Warfare and Clean: add skill names to SKILL_NAMES list.
+      This brings total to 19 skill trees. Add placeholder perk lists;
+      fill L1-L3 per this document, leave L4-L5 as _PLACEHOLDER.
+
+  abilities.py
+    - synthesize: SELF, INFINITE with 12-turn cooldown mechanism.
+    - acid_bath: SINGLE_ENEMY_LOS, PER_FLOOR max_charges=3.
+    - flush: SELF, PER_FLOOR max_charges=2.
+
+
+--------------------------------------------------------------------------------
+9. BALANCE CONSIDERATIONS
+--------------------------------------------------------------------------------
+
+  TOXICITY GROWTH RATE IN ZONE 2
+    Ambient: +1 per 10 turns (baseline Tol, no resistance)
+    Fume tile: +2-8/tick depending on floor; sustained exposure is +~20-80/turn
+    Enemy on-hit: 5-30 per hit. A pack of Rats is 5*0.30*hits = meaningful.
+    Crystal Shard: +60 per use.
+    Expected toxicity at end of Meth Lab floor 1 without any management:
+      ~200-400 depending on fight density and fume avoidance.
+    Expected toxicity at end of Meth Lab floor 4 without management:
+      ~800-1500. At this point damage multiplier is ~4-5x incoming. Lethal
+      without the HP to absorb it or the investment to spend it.
+    Verdict: without a tree investment the zone is a slow death. This is
+    intentional — it is a zone 2 challenge and the trees exist to solve it.
+
+  CHEMICAL WARFARE DAMAGE CEILING
+    Acid Bath at tox=500 (costs 150): deals 50 damage, ignores defense.
+    Meth Lab enemy HP range: ~30-70 HP. Acid Bath is a consistent one-shot
+    on trash mobs at mid-range toxicity. This is fine — it costs 3 PER_FLOOR
+    charges and 150 tox per cast. It should be impactful.
+    Payload Detonation (L4 concept): at tox=1000, 200 damage to radius 3.
+    Late game is a different balance pass but the formula (tox/5) gives
+    200 at 1000, 400 at 2000. Rooms rarely pack more than 6-8 enemies, so
+    this is an encounter-ender not a floor-ender. Acceptable.
+
+  CLEAN TREE PURITY OFFENSIVE UPTIME
+    +25% damage while tox < 100. Flush removes 120 tox per use, 2 uses/floor.
+    Enemy on-hit can push tox up mid-fight. In practice, uptime is ~60-70%
+    in Zone 2 with full tree investment — you'll lose it in fights and
+    regain it between them. This feels like the right cadence: the bonus
+    is reliable enough to build around, unreliable enough to keep you
+    managing resources.
+
+  SYNTHESIZE IN LATER ZONES
+    +100 tox per 12 turns means ~8.3 tox/turn net gain. In a later zone with
+    no ambient toxicity, natural decay removes max(1, tox//50) per 20 turns.
+    At tox=100: decay = 2 per 20 turns = 0.1/turn. Net gain = +8.2/turn.
+    Synthesize will slowly ramp a player to high tox in later zones. This
+    is correct — Chemical Warfare builds maintain their resource in all zones,
+    just more deliberately. The 12-turn cooldown prevents infinite burst
+    pre-loading between rooms.
+
+  IPECAC SYRUP
+    Stuns for 4 turns + costs 15 HP to remove 200 tox. In exchange, it hard
+    resets tox to 0 (near-zero after clamp). This is devastating for a
+    Chemical Warfare build caught at 1500 tox; fine for a Clean build burning
+    a last-resort clears. The 4-turn stun is very dangerous in combat — this
+    item should only be used outside combat. Communicating this to the player
+    via the log message ("You vomit violently. You are helpless.") is
+    important for permadeath awareness.
+
+
+--------------------------------------------------------------------------------
+10. OPEN QUESTIONS
+--------------------------------------------------------------------------------
+
+  1. TOXICITY UI DISPLAY
+     Where does toxicity appear? Options:
+       a. In the bottom stat bar alongside HP and energy (most visible).
+       b. On the character sheet only (less intrusive but hard to track mid-fight).
+       c. A small color-coded indicator in the stats panel that changes hue
+          as toxicity climbs (green → yellow → orange → red).
+     Recommend (a) with a compact format: "TOX: 247" in the status bar.
+     At high values the bar could change color to signal danger.
+
+  2. TOXICITY DEATH MESSAGE
+     What message shows if toxicity indirectly kills the player (via the
+     damage multiplier amplifying a hit that would otherwise survive)?
+     The standard death message shows attacker. Consider adding a secondary
+     note: "(Toxicity: 847 — you were too far gone.)" in the death screen.
+
+  3. TOXICITY AND PERMADEATH
+     Should very high toxicity (say, 2000+) cause additional passive effects
+     beyond the damage multiplier? Options:
+       - Hallucination: random movement direction (1 in 10 chance per move)
+       - Blackout: occasionally skip a turn
+       - None — keep it clean (pun intended), the multiplier is punishment enough
+     Recommend: NONE for now. The multiplier is already lethal enough.
+     Adding CC on top makes the stat feel punishing rather than interesting.
+     The Chemical Warfare tree WANTS high tox, and any CC there would feel
+     unfair for that build.
+
+  4. TOXICITY AND ENEMIES
+     Currently monsters taking toxicity via the (tox/50)^0.6 formula need
+     entity.toxicity set on them at spawn. Options:
+       a. All Meth Lab enemies spawn with toxicity = 0 and accumulate from
+          fume tiles (same as player — fair, symmetric, interesting).
+       b. Enemies spawn with a fixed toxicity value per template
+          (Chemist spawns at tox=200, pre-poisoned, already multiplied).
+       c. Monster toxicity is irrelevant — only apply it to the player.
+     Recommend (a) for Meth Lab but keep it out of the engine for Zone 1
+     enemies (they should not have toxicity). Gate entity.toxicity = 0
+     initialization on zone == "meth_lab" or simply init it to 0 on all
+     entities and let it be irrelevant in other zones.
+
+  5. CRAFTING WITH RAW PRECURSOR
+     The raw_precursor material item is listed but its recipes are not specified
+     here. Suggested angle: combine raw_precursor + 2x alcohol = fume_canister,
+     or raw_precursor + activated_charcoal = hazmat_shot. These fit the
+     improvisational chemistry tone. Full crafting recipe design belongs in
+     a separate items document.
+
+  6. CHEMICAL WARFARE ABILITY COOLDOWN MECHANIC
+     Synthesize uses "INFINITE with cooldown" — currently INFINITE charges
+     have no cooldown system in ChargeType. Two implementation paths:
+       a. Add a new ChargeType.COOLDOWN with a turns_since_last_use counter
+          checked in the execute callable.
+       b. Use PER_FLOOR with max_charges=5 as an approximation (effectively
+          5 uses per floor, which at 12-turn cooldown means using it when
+          possible gives ~4-5 real uses anyway).
+     Recommend (a) for correctness; (b) as a short-term workaround.
+
+  7. CLEAN TREE NAME FINAL DECISION
+     "Clean" vs "Detox" vs "Flush" — the choice affects player perception:
+     "Detox" reads as clinical/serious, "Clean" is ironic and street-appropriate,
+     "Flush" is mechanical. Given NIGRL's tone, "Clean" fits best.
+     Final recommendation: CLEAN.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

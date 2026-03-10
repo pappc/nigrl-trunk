@@ -63,6 +63,11 @@ RING_FINGER_NAMES = [
     "Right Thumb",
 ]
 
+# Zone damage multipliers — scales ALL attack damage in the zone (default 1.0)
+ZONE_DAMAGE_MULT = {
+    "crack_den": 0.5,
+}
+
 # Jaywalking skill XP zone multipliers (zone_key -> float)
 ZONE_JAYWALK_MULT = {
     "crack_den": 1.0,
@@ -70,7 +75,7 @@ ZONE_JAYWALK_MULT = {
 
 # Blackkk Magic skill XP zone multipliers (zone_key -> float)
 ZONE_BLACKK_MAGIC_MULT = {
-    "crack_den": 1.0,
+    "crack_den": 2.0,
 }
 
 # Inventory key labels — letters available for item selection.

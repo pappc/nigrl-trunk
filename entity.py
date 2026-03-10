@@ -49,6 +49,8 @@ class Entity:
         reveals_on_sight=False, # If True, becomes always_visible the first time player sees it
         blocks_fov=False,       # If True, entity blocks line-of-sight in FOV computation
         hazard_type=None,       # "crate" | "fire" | "door" | None — used when entity_type == "hazard"
+        move_cost=0,            # Energy cost override for movement (0 = use ENERGY_THRESHOLD)
+        attack_cost=0,          # Energy cost override for attacks  (0 = use ENERGY_THRESHOLD)
         death_drop_chance=0.0,  # Probability (0.0–1.0) of dropping an item on death
         death_drop_table=None,  # List of item_ids to pick from on death drop
     ):
@@ -101,6 +103,8 @@ class Entity:
         self.bonus_spell_damage  = bonus_spell_damage
         self.bonus_ranged_damage = bonus_ranged_damage
         self.hazard_type    = hazard_type
+        self.move_cost         = move_cost
+        self.attack_cost       = attack_cost
         self.death_drop_chance = death_drop_chance
         self.death_drop_table  = death_drop_table or []
         self.toxicity: int  = 0  # meth lab zone: damage-taken multiplier via power scaling
@@ -127,6 +131,9 @@ class Entity:
             hp_damage = damage
 
         self.hp -= hp_damage
+        # Any damage provokes passive monsters (fire, DoT, etc.)
+        if hp_damage > 0 and hasattr(self, "provoked") and not self.provoked:
+            self.provoked = True
         if self.hp <= 0:
             self.alive = False
             return True
