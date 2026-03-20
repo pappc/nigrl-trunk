@@ -96,10 +96,18 @@ def wrap_text_for_width(text, max_width, indent_width=0):
 
 def render_header(console, engine):
     """Render the top header as the outer top border with embedded zone name."""
-    zone_name = "Crack Den"  # TODO: support multiple zones
-    floor_text = f"{zone_name} - Floor {engine.current_floor + 1}"
+    from config import get_zone_for_floor, get_zone_total_floors
+    zone_key, zone_floor, zone_display, zone_type = get_zone_for_floor(engine.current_floor)
+    if zone_type == "pseudozone":
+        floor_text = zone_display
+    else:
+        zone_total = get_zone_total_floors(zone_key)
+        floor_text = f"{zone_display} - Floor {zone_floor + 1}/{zone_total}"
 
-    HDR_BG = (45, 32, 12)
+    from config import get_zone_colors
+    zc = get_zone_colors(zone_key)
+    HDR_BG = zc["header_bg"]
+    HDR_FG = zc["header_fg"]
 
     # Fill header background
     for x in range(SCREEN_WIDTH):
@@ -114,13 +122,10 @@ def render_header(console, engine):
     console.print(LEFT_PANEL_WIDTH - 1, 0, "╤", fg=C_FRAME, bg=HDR_BG)
     console.print(MAP_OFFSET_X + MAP_WIDTH, 0, "╤", fg=C_FRAME, bg=HDR_BG)
 
-    # Center the zone text in the map section (between the two panel borders)
-    map_start = LEFT_PANEL_WIDTH
-    map_end = MAP_OFFSET_X + MAP_WIDTH
-    map_mid = map_start + (map_end - map_start) // 2
-    tx = map_mid - len(floor_text) // 2
+    # Center the zone text across the full screen width
+    tx = SCREEN_WIDTH // 2 - len(floor_text) // 2
     console.print(tx - 1, 0, "╡", fg=C_FRAME, bg=HDR_BG)
-    console.print(tx, 0, f" {floor_text} ", fg=(220, 190, 120), bg=HDR_BG)
+    console.print(tx, 0, f" {floor_text} ", fg=HDR_FG, bg=HDR_BG)
     console.print(tx + len(floor_text) + 1, 0, "╞", fg=C_FRAME, bg=HDR_BG)
 
     # Dev mode indicator (in the right panel section of the header)
@@ -175,6 +180,12 @@ def render_all(console, engine):
         render_dev_menu(console, engine)
     elif engine.menu_state == MenuState.DEV_ITEM_SELECT:
         render_dev_item_select(console, engine)
+    elif engine.menu_state == MenuState.DEV_FLOOR_SELECT:
+        render_dev_floor_select(console, engine)
+    elif engine.menu_state == MenuState.DEEP_FRYER:
+        render_deep_fryer_menu(console, engine)
+    elif engine.menu_state == MenuState.GUN_TARGETING:
+        render_gun_targeting_mode(console, engine)
 
 
 def _wall_noise(x, y):
@@ -188,6 +199,17 @@ def _wall_noise(x, y):
 
 def render_dungeon(console, dungeon):
     """Render the dungeon map, offset right by MAP_OFFSET_X to make room for the stats panel."""
+    from config import get_zone_colors
+    zone = getattr(dungeon, "zone", "crack_den")
+    zc = get_zone_colors(zone)
+    # Unpack color scheme once for the tight loop
+    wfb = zc["wall_fg_base"]
+    wbg = zc["wall_bg"]
+    fbg = zc["floor_bg"]
+    ewfb = zc["explored_wall_fg_base"]
+    ewbg = zc["explored_wall_bg"]
+    efbg = zc["explored_floor_bg"]
+
     for y in range(dungeon.height):
         for x in range(dungeon.width):
             cx = x + MAP_OFFSET_X
@@ -199,23 +221,21 @@ def render_dungeon(console, dungeon):
             if is_visible:
                 if tile == TILE_WALL:
                     n1, n2 = _wall_noise(x, y)
-                    # Cracked plaster / dirty concrete: warm ochre-gray, faint grime noise
-                    fg = (max(0, min(255, 128 + n1)),
-                          max(0, min(255, 108 + n2)),
-                          max(0, min(255, 80 + n2 // 2)))
-                    console.print(cx, cy, "#", fg=fg, bg=(22, 17, 12))
+                    fg = (max(0, min(255, wfb[0] + n1)),
+                          max(0, min(255, wfb[1] + n2)),
+                          max(0, min(255, wfb[2] + (n1 + n2) // 2)))
+                    console.print(cx, cy, "#", fg=fg, bg=wbg)
                 elif tile == TILE_FLOOR:
-                    # Stained concrete — warm dark brown
-                    console.print(cx, cy, " ", bg=(36, 28, 19))
+                    console.print(cx, cy, " ", bg=fbg)
             elif is_explored:
                 if tile == TILE_WALL:
                     n1, n2 = _wall_noise(x, y)
-                    fg = (max(0, min(255, 42 + n1 // 3)),
-                          max(0, min(255, 34 + n2 // 3)),
-                          max(0, min(255, 24 + n2 // 4)))
-                    console.print(cx, cy, "#", fg=fg, bg=(9, 7, 4))
+                    fg = (max(0, min(255, ewfb[0] + n1 // 3)),
+                          max(0, min(255, ewfb[1] + n2 // 3)),
+                          max(0, min(255, ewfb[2] + (n1 + n2) // 6)))
+                    console.print(cx, cy, "#", fg=fg, bg=ewbg)
                 elif tile == TILE_FLOOR:
-                    console.print(cx, cy, " ", bg=(14, 11, 7))
+                    console.print(cx, cy, " ", bg=efbg)
             else:
                 console.print(cx, cy, " ", bg=(0, 0, 0))
 
@@ -251,7 +271,7 @@ def render_entities(console, dungeon):
         elif e.entity_type == "monster":
             return 1
         elif e.entity_type == "hazard":
-            return -1 if e.hazard_type == "fire" else 0
+            return -1 if e.hazard_type in ("fire", "toxic_creep") else 0
         return 0  # item, cash
 
     for entity in sorted(dungeon.entities, key=_render_priority):
@@ -525,7 +545,25 @@ def render_stats_panel(console, engine):
     empty_armor   = bar_w - filled_armor
     console.print(lx, row, "█" * filled_armor, fg=C_ARMOR_BAR, bg=BG)
     console.print(lx + filled_armor, row, "░" * empty_armor, fg=C_ARMOR_EMPTY, bg=BG)
-    row += 2                      # 1 row gap before status section
+    row += 1
+
+    # ── Meth (only visible after entering the Meth Lab) ────────────
+    C_METH_BAR   = (0, 140, 255)
+    C_METH_EMPTY = (30, 30, 30)
+    if engine.entered_meth_lab:
+        meth_ratio = p.meth / max(1, p.max_meth) if p.max_meth > 0 else 0
+        meth_label = "Meth"
+        meth_value = f"{p.meth}/{p.max_meth}"
+        console.print(lx, row, f"{meth_label} {meth_value}", fg=C_LABEL, bg=BG)
+        console.print(lx + len(meth_label) + 1, row, meth_value, fg=(0, 180, 255), bg=BG)
+        row += 1
+        filled_meth = round(bar_w * meth_ratio)
+        empty_meth  = bar_w - filled_meth
+        console.print(lx, row, "█" * filled_meth, fg=C_METH_BAR, bg=BG)
+        console.print(lx + filled_meth, row, "░" * empty_meth, fg=C_METH_EMPTY, bg=BG)
+        row += 1
+
+    row += 1                      # 1 row gap before status section
 
     # ── Status effects ───────────────────────────────────────────────
     _draw_title_border(console, 1, pw - 2, row, "STATUS", BG,
@@ -583,6 +621,27 @@ def render_stats_panel(console, engine):
                 dur_line = f"\u25b8 {effect.display_duration}"
                 console.print(lx, row, dur_line[:max_w], fg=dim, bg=BG)
                 row += 1
+
+    # ── Pending hangover warning ─────────────────────────────────────
+    pending = getattr(engine, 'pending_hangover_stacks', 0)
+    if pending > 0 and row < cash_section_y - 1:
+        max_w = pw - lx - 1
+        hangover_line = f"Hangover: -{pending} all stats next floor"
+        console.print(lx, row, hangover_line[:max_w], fg=(120, 120, 120), bg=BG)
+        row += 1
+
+    # ── Gun ammo (shown only if a primary gun is equipped) ──────────
+    primary_gun = engine._get_primary_gun()
+    if primary_gun is not None:
+        gun_defn = get_item_def(primary_gun.item_id)
+        if gun_defn and gun_defn.get("subcategory") == "gun":
+            gun_row = cash_section_y - 2
+            if gun_row > row:
+                mode_tag = engine.gun_firing_mode.upper()
+                ammo_str = f"{primary_gun.current_ammo}/{primary_gun.mag_size}"
+                gun_line = f"Ammo: {ammo_str} [{mode_tag}]"
+                max_w = pw - lx - 1
+                console.print(lx, gun_row, gun_line[:max_w], fg=(200, 180, 100), bg=BG)
 
     # ── Cash ─────────────────────────────────────────────────────────
     _draw_title_border(console, 1, pw - 2, cash_section_y, "CASH", BG,
@@ -697,7 +756,10 @@ def render_inventory_panel(console, engine):
                 else:
                     name = name_part
             else:
-                name = full_name[:max_name]
+                if len(full_name) > max_name:
+                    name = full_name[:max_name - 2] + ".."
+                else:
+                    name = full_name
 
             # Item color: strain color if item has a strain, else definition color
             item_color = C_ITEM
@@ -853,10 +915,22 @@ def render_equipment_screen(console, engine):
     occupied = []
     if engine.equipment["weapon"] is not None:
         occupied.append(("Weapon", engine.equipment["weapon"]))
+    if engine.equipment.get("sidearm") is not None:
+        label = "Sidearm"
+        if engine.primary_gun == "sidearm":
+            label = "Sidearm *"
+        occupied.append((label, engine.equipment["sidearm"]))
+    # Mark weapon as primary gun if applicable
+    if engine.equipment["weapon"] is not None and engine.primary_gun == "weapon":
+        wdefn = get_item_def(engine.equipment["weapon"].item_id)
+        if wdefn and wdefn.get("subcategory") == "gun":
+            occupied[0] = ("Weapon *", engine.equipment["weapon"])
     if engine.neck is not None:
         occupied.append(("Neck", engine.neck))
     if engine.feet is not None:
         occupied.append(("Feet", engine.feet))
+    if engine.hat is not None:
+        occupied.append(("Hat", engine.hat))
     for i, r in enumerate(engine.rings):
         if r is not None:
             occupied.append((RING_FINGER_NAMES[i], r))
@@ -893,7 +967,9 @@ def render_equipment_screen(console, engine):
         console.print(panel_x + 4, row, f"{padded_label}:", fg=fg_label, bg=bg)
         defn = get_item_def(item.item_id)
         bonus_parts = []
-        if defn and defn.get("power_bonus"):
+        if defn and defn.get("subcategory") == "gun":
+            bonus_parts.append(f"{item.current_ammo}/{item.mag_size} ammo")
+        elif defn and defn.get("power_bonus"):
             bonus_parts.append(f"+{defn['power_bonus']}atk")
         if defn and defn.get("defense_bonus"):
             bonus_parts.append(f"+{defn['defense_bonus']}def")
@@ -931,8 +1007,19 @@ def render_char_sheet(console, engine):
     C_DIV     = (80, 80, 120)
     C_HINT    = (100, 100, 100)
 
+    ps = engine.player_stats
     panel_w = 50
-    panel_h = 22
+    # Dynamic height based on content
+    derived_count = 5  # base derived stats
+    if ps.total_briskness != 0:
+        derived_count += 1
+    if ps.total_spell_damage > 0:
+        derived_count += 1
+    if engine.entered_meth_lab:
+        derived_count += 5  # meth + toxicity + tox resist + radiation + rad resist
+    # title(2) + div(1) + headers(1) + div(1) + stats(6) + div(1) + header(1)
+    # + derived rows + div(1) + rep_header(1) + factions(2) + hint(2) + border(1)
+    panel_h = 20 + derived_count + 4
     panel_x = (SCREEN_WIDTH  - panel_w) // 2
     panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
 
@@ -953,9 +1040,6 @@ def render_char_sheet(console, engine):
 
     for px in range(1, panel_w - 1):
         console.print(panel_x + px, panel_y + 4, "─", fg=C_DIV, bg=BG)
-
-    # Stat rows — show current value (with modifiers) and base value in parens
-    ps = engine.player_stats
     effective_values = {
         "constitution": ps.effective_constitution,
         "strength": ps.effective_strength,
@@ -993,17 +1077,42 @@ def render_char_sheet(console, engine):
         ("Crit Chance",   f"{ps.crit_chance:.0%}",    f"SS*3% per point, crits deal x2 dmg"),
         ("Dodge Chance",  f"{ps.dodge_chance}%",      f"Chance to dodge melee attacks (0–90%)"),
     ]
+    if ps.total_briskness != 0:
+        sign = "+" if ps.total_briskness > 0 else ""
+        derived.append(("Briskness", f"{sign}{ps.total_briskness}%", "Bonus to skill points from potential XP"))
     if ps.total_spell_damage > 0:
         derived.append(("Spell Damage", f"+{ps.total_spell_damage}", "Flat bonus to all spell damage"))
     if engine.entered_meth_lab:
+        derived.append(("Meth", f"{engine.player.meth}/{engine.player.max_meth}", "Spent on strong abilities"))
         tox = engine.player.toxicity
         mult = 1.0 + (tox / 100) ** 0.6 if tox > 0 else 1.0
         derived.append(("Toxicity", f"{tox}  ({mult:.2f}x dmg)", "Meth Lab: damage taken multiplier"))
+        tox_res = engine.player_stats.total_tox_resistance
+        derived.append(("Tox Resist", f"{tox_res}%", "Reduces toxicity gained"))
+        rad = engine.player.radiation
+        rad_res = engine.player_stats.total_rad_resistance
+        derived.append(("Radiation", f"{rad}", "Radiation level"))
+        derived.append(("Rad Resist", f"{rad_res}%", "Reduces radiation gained"))
     for i, (label, val, note) in enumerate(derived):
         row = div_row + 2 + i
         console.print(panel_x + 2,  row, label, fg=C_LABEL,  bg=BG)
         console.print(panel_x + 18, row, val,   fg=C_DERIVED, bg=BG)
         console.print(panel_x + 28, row, note[:panel_w - 30], fg=C_DESC, bg=BG)
+
+    # Reputation section
+    rep_div_row = div_row + 2 + len(derived)
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, rep_div_row, "─", fg=C_DIV, bg=BG)
+    console.print(panel_x + 2, rep_div_row + 1, "Reputation", fg=C_HEAD, bg=BG)
+    for i, faction_key in enumerate(("aldor", "scryer")):
+        row = rep_div_row + 2 + i
+        display_name = ps.FACTION_DISPLAY_NAMES[faction_key]
+        title = ps.get_reputation_title(faction_key)
+        color = ps.get_reputation_color(faction_key)
+        rep_val = ps.reputation[faction_key]
+        console.print(panel_x + 2, row, f"{display_name}:", fg=C_LABEL, bg=BG)
+        console.print(panel_x + 12, row, title, fg=color, bg=BG)
+        console.print(panel_x + 30, row, f"({rep_val})", fg=C_DESC, bg=BG)
 
     # Hint
     hint = "[C/Esc] Close"
@@ -1395,6 +1504,187 @@ def render_targeting_mode(console, engine):
     popup_console.print(2, 1, line0, fg=C_INFO,      bg=BG)
     popup_console.print(2, 2, line1, fg=line1_color, bg=BG)
     popup_console.print(2, 3, line2, fg=C_HINT,      bg=BG)
+    popup_console.blit(console, popup_x, popup_y, fg_alpha=1.0, bg_alpha=0.72)
+
+
+def render_gun_targeting_mode(console, engine):
+    """Render gun targeting cursor overlay and info popup on the map."""
+    cx, cy = engine.gun_targeting_cursor
+    map_cx = cx + MAP_OFFSET_X
+    map_cy = cy + HEADER_HEIGHT
+
+    gun = engine._get_primary_gun()
+    if gun is None:
+        return
+    gun_defn = get_item_def(gun.item_id)
+    if gun_defn is None:
+        return
+    gun_range = gun_defn.get("gun_range", 4)
+    mode = engine.gun_firing_mode
+    modes = gun_defn.get("firing_modes", {})
+    mode_data = modes.get(mode, {"hit": 75, "energy": 50})
+
+    is_visible = engine.dungeon.visible[cy, cx]
+    dist = max(abs(cx - engine.player.x), abs(cy - engine.player.y))
+    in_range = dist <= gun_range and dist > 0
+
+    if not is_visible:
+        cursor_bg = (160, 30, 30)      # red: out of sight
+    elif not in_range:
+        cursor_bg = (200, 120, 30)     # orange: out of range or self
+    else:
+        cursor_bg = (30, 60, 180)      # blue: valid target
+
+    # AOE highlighting (cone, line, or gun ability override)
+    ga = engine.gun_ability_active  # gun ability spec, if any
+    if ga is not None:
+        aoe_type = ga.get("aoe_type", "line")
+        ability_range = ga.get("range", 4)
+        # Override range check for gun abilities
+        in_range = dist <= ability_range and dist > 0
+        if not is_visible:
+            cursor_bg = (160, 30, 30)
+        elif not in_range:
+            cursor_bg = (200, 120, 30)
+        else:
+            cursor_bg = (30, 60, 180)
+    else:
+        aoe_type = gun_defn.get("aoe_type", "target")
+
+    aoe_targets = 0
+    if is_visible and in_range:
+        if aoe_type == "cone" and ga is None:
+            aoe_tiles = engine._get_gun_cone_tiles(cx, cy)
+        elif aoe_type == "circle" and ga is None:
+            aoe_radius = gun_defn.get("aoe_radius", 2)
+            aoe_tiles = engine._get_gun_circle_tiles(cx, cy, aoe_radius)
+        elif aoe_type == "line":
+            ability_range_val = ga.get("range", 4) if ga else gun_range
+            aoe_tiles = engine._get_gun_line_tiles(cx, cy, ability_range_val)
+        else:
+            aoe_tiles = []
+
+        if aoe_tiles:
+            C_AOE_BG = (80, 50, 20)  # dim orange tint for AOE area
+            for (ctx, cty) in aoe_tiles:
+                scx = ctx + MAP_OFFSET_X
+                scy = cty + HEADER_HEIGHT
+                if 0 <= scx < SCREEN_WIDTH and 0 <= scy < SCREEN_HEIGHT:
+                    if engine.dungeon.visible[cty, ctx]:
+                        console.print(scx, scy, " ", bg=C_AOE_BG)
+                        for e in engine.dungeon.get_entities_at(ctx, cty):
+                            if e.entity_type == "monster" and e.alive:
+                                aoe_targets += 1
+                                console.print(scx, scy, e.char, fg=e.color, bg=C_AOE_BG)
+
+    # Draw cursor
+    console.print(map_cx, map_cy, "X", fg=(255, 255, 255), bg=cursor_bg)
+
+    # Find monster under cursor
+    target_monster = None
+    if is_visible:
+        for e in engine.dungeon.get_entities_at(cx, cy):
+            if e.entity_type == "monster" and e.alive:
+                target_monster = e
+                break
+
+    BG       = (20, 15, 30)
+    C_BORDER = (160, 160, 210)
+    C_INFO   = (220, 235, 255)
+    C_HINT   = (140, 140, 170)
+    C_ENEMY  = (255, 140, 140)
+    C_EMPTY  = (160, 160, 160)
+
+    # Build popup text — gun ability mode vs normal gun fire
+    if ga is not None:
+        ability_name = ga.get("name", "Gun Ability")
+        num_shots = ga.get("num_shots", 2)
+        ga_dmg = ga.get("damage", (1, 1))
+        ga_acc = ga.get("accuracy", 50)
+        ga_energy = ga.get("energy", 80)
+        line0 = f"{ability_name} ({gun.name})"
+        if not is_visible:
+            line1 = "Out of sight"
+            line1_color = (255, 100, 100)
+        elif not in_range:
+            line1 = "Out of range"
+            line1_color = (255, 160, 30)
+        else:
+            aoe_label = ga.get("aoe_type", "line").capitalize()
+            line1 = f"{aoe_label}: {aoe_targets} target{'s' if aoe_targets != 1 else ''} | {num_shots} rounds"
+            line1_color = C_ENEMY if aoe_targets > 0 else C_EMPTY
+        line2 = f"Dmg: {ga_dmg[0]}-{ga_dmg[1]}  Hit: {ga_acc}%  Energy: {ga_energy}  Ammo: {gun.current_ammo}/{gun.mag_size}"
+        line3 = "[Enter] Fire  [Esc] Cancel"
+    else:
+        line0 = f"Fire: {gun.name} ({mode.upper()})"
+        if aoe_type == "cone":
+            ammo_per_shot = gun_defn.get("ammo_per_shot", (1, 1))
+            if isinstance(ammo_per_shot, (list, tuple)):
+                ammo_str = f"{ammo_per_shot[0]}-{ammo_per_shot[1]}"
+            else:
+                ammo_str = str(ammo_per_shot)
+            if not is_visible:
+                line1 = "Out of sight"
+                line1_color = (255, 100, 100)
+            elif not in_range:
+                line1 = "Out of range"
+                line1_color = (255, 160, 30)
+            else:
+                line1 = f"Cone: {aoe_targets} target{'s' if aoe_targets != 1 else ''} | {ammo_str} rounds/burst"
+                line1_color = C_ENEMY if aoe_targets > 0 else C_EMPTY
+        elif aoe_type == "circle":
+            aoe_radius = gun_defn.get("aoe_radius", 2)
+            if not is_visible:
+                line1 = "Out of sight"
+                line1_color = (255, 100, 100)
+            elif not in_range:
+                line1 = "Out of range"
+                line1_color = (255, 160, 30)
+            else:
+                line1 = f"Blast r{aoe_radius}: {aoe_targets} target{'s' if aoe_targets != 1 else ''}"
+                line1_color = C_ENEMY if aoe_targets > 0 else C_EMPTY
+        elif not is_visible:
+            line1 = "Out of sight"
+            line1_color = (255, 100, 100)
+        elif not in_range:
+            line1 = "Out of range" if dist > gun_range else "No target here"
+            line1_color = (255, 160, 30)
+        elif target_monster:
+            line1 = f"Target: {target_monster.name} ({target_monster.hp}/{target_monster.max_hp} HP)"
+            line1_color = C_ENEMY
+        else:
+            line1 = "No enemy here"
+            line1_color = C_EMPTY
+        line2 = f"Hit: {mode_data['hit']}%  Energy: {mode_data['energy']}  Ammo: {gun.current_ammo}/{gun.mag_size}"
+        line3 = "[Enter] Fire  [TAB] Mode  [Esc] Cancel"
+
+    popup_w = max(len(line0), len(line1), len(line2), len(line3)) + 4
+    popup_h = 6  # border(2) + 4 content lines
+
+    map_h   = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT
+    popup_x = max(MAP_OFFSET_X, min(map_cx - 1, MAP_OFFSET_X + MAP_WIDTH - popup_w - 1))
+    popup_y = map_cy + 3
+    if popup_y + popup_h > HEADER_HEIGHT + map_h:
+        popup_y = map_cy - popup_h - 2
+
+    popup_console = tcod.console.Console(popup_w, popup_h)
+    for py_ in range(popup_h):
+        for px_ in range(popup_w):
+            popup_console.print(px_, py_, " ", bg=BG)
+    for px_ in range(popup_w):
+        popup_console.print(px_, 0,           "─", fg=C_BORDER, bg=BG)
+        popup_console.print(px_, popup_h - 1, "─", fg=C_BORDER, bg=BG)
+    for py_ in range(popup_h):
+        popup_console.print(0,           py_, "│", fg=C_BORDER, bg=BG)
+        popup_console.print(popup_w - 1, py_, "│", fg=C_BORDER, bg=BG)
+    popup_console.print(0,           0,           "┌", fg=C_BORDER, bg=BG)
+    popup_console.print(popup_w - 1, 0,           "┐", fg=C_BORDER, bg=BG)
+    popup_console.print(0,           popup_h - 1, "└", fg=C_BORDER, bg=BG)
+    popup_console.print(popup_w - 1, popup_h - 1, "┘", fg=C_BORDER, bg=BG)
+    popup_console.print(2, 1, line0, fg=C_INFO,      bg=BG)
+    popup_console.print(2, 2, line1, fg=line1_color,  bg=BG)
+    popup_console.print(2, 3, line2, fg=C_INFO,       bg=BG)
+    popup_console.print(2, 4, line3, fg=C_HINT,       bg=BG)
     popup_console.blit(console, popup_x, popup_y, fg_alpha=1.0, bg_alpha=0.72)
 
 
@@ -1851,6 +2141,7 @@ def render_dev_menu(console, engine):
         ("Add $1,000 Cash",                "add_cash"),
         ("Full Heal",                      "full_heal"),
         ("Teleport to Stairs",             "teleport_stairs"),
+        ("Teleport to Floor...",           "teleport_floor"),
         ("Add +5 to All Stats",            "add_stats"),
     ]
 
@@ -1945,6 +2236,111 @@ def render_dev_item_select(console, engine):
     scroll_info = f" {engine.dev_item_scroll + 1}-{min(engine.dev_item_scroll + rows, n)}/{n} "
     hint = f"[↑↓]{scroll_info}[Enter] Spawn  [Esc] Back"
     console.print(panel_x + (panel_w - len(hint)) // 2, panel_y + panel_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_dev_floor_select(console, engine):
+    """Render the dev floor teleport picker."""
+    if not DEV_MODE:
+        return
+
+    from config import ZONE_ORDER, get_zone_for_floor, get_total_floors
+
+    BG       = (10, 10, 30)
+    C_TITLE  = (255, 80, 80)
+    C_DIV    = (100, 40, 40)
+    C_FLOOR  = (220, 220, 220)
+    C_CURSOR = (40, 40, 80)
+    C_HINT   = (100, 100, 130)
+    C_ZONE   = (180, 140, 80)
+    C_CURRENT = (80, 255, 80)
+
+    total = get_total_floors()
+    # Build floor list: [(label, global_floor_index), ...]
+    floors = []
+    for gf in range(total):
+        zone_key, zone_floor, display_name, zone_type = get_zone_for_floor(gf)
+        zone_total = sum(z["floors"] for z in ZONE_ORDER if z["key"] == zone_key)
+        if zone_type == "pseudozone":
+            label = display_name
+        else:
+            label = f"{display_name} - Floor {zone_floor + 1}/{zone_total}"
+        floors.append((label, gf))
+
+    n = len(floors)
+    panel_w = 44
+    panel_h = n + 6
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+
+    title = "[ TELEPORT TO FLOOR ]"
+    console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+
+    for i, (label, gf) in enumerate(floors):
+        row_y = panel_y + 3 + i
+        row_bg = C_CURSOR if i == engine.dev_floor_cursor else BG
+        for px in range(1, panel_w - 1):
+            console.print(panel_x + px, row_y, " ", bg=row_bg)
+
+        # Highlight current floor
+        fg = C_CURRENT if gf == engine.current_floor else C_FLOOR
+        marker = " <" if gf == engine.current_floor else ""
+        console.print(panel_x + 2, row_y, label[:panel_w - 6] + marker, fg=fg, bg=row_bg)
+
+    hint = "[↑↓+Enter] Select  [Esc] Back"
+    console.print(panel_x + (panel_w - len(hint)) // 2, panel_y + panel_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_deep_fryer_menu(console, engine):
+    """Render the deep-fryer food selection popup."""
+    BG       = (22, 18, 28)
+    C_TITLE  = (200, 140, 60)
+    C_ITEM   = (220, 220, 220)
+    C_CURSOR = (40, 30, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+
+    items = getattr(engine, "deep_fryer_items", [])
+    cursor = getattr(engine, "deep_fryer_cursor", 0)
+    n = len(items)
+
+    popup_w = 36
+    popup_h = min(n, 10) + 6
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ DEEP FRYER ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    subtitle = "Select food to deep-fry:"
+    console.print(popup_x + 2, popup_y + 2, subtitle, fg=C_DIM, bg=BG)
+
+    visible = min(n, 10)
+    scroll = max(0, cursor - visible + 1)
+    for row in range(visible):
+        idx = scroll + row
+        if idx >= n:
+            break
+        _inv_idx, item = items[idx]
+        row_y = popup_y + 3 + row
+        row_bg = C_CURSOR if idx == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        name = item.name[:popup_w - 4]
+        console.print(popup_x + 2, row_y, name, fg=C_ITEM, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Fry  [Esc] Cancel"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
                   hint, fg=C_HINT, bg=BG)
 
 

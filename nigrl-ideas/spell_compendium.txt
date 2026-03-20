@@ -1,0 +1,1344 @@
+================================================================================
+NIGRL SPELL / ABILITY COMPENDIUM
+A design reference for future ability additions
+================================================================================
+
+This document catalogs 45 spell and ability ideas for NIGRL, organized by
+source (drinking, eating/munching, smoking, Blackkk Magic, and miscellaneous
+combat/utility trees). Each entry includes implementation notes tied to the
+existing AbilityDef / TargetType / ChargeType / effects.py architecture.
+
+Abilities already in the registry (as of compendium writing):
+  warp, dimension_door, chain_lightning, ray_of_frost, firebolt, arcane_missile,
+  breath_fire, zap, corn_dog, lesser_cloudkill, pry, throw_bottle, bash,
+  black_eye_slap, gouge, pickpocket, force_push, fry_shot, place_fire, dash,
+  ignite_spell, quick_eat, double_tap, spray, burst, spray_and_pray,
+  slow_metabolism, pandemic, radiation_nova
+
+These 45 ideas do NOT duplicate the above. Cross-synergies with them are noted.
+
+--------------------------------------------------------------------------------
+NOTATION
+--------------------------------------------------------------------------------
+  TARGET:  SELF | ADJACENT | ADJ_TILE | SINGLE_LOS | LINE | AOE_CIRCLE
+  CHARGE:  INF (infinite, cooldown-gated) | /FL (per floor) | TOTAL (permanent
+           uses) | ONCE | FL_ONLY (per floor, not saved on descent)
+  SOURCE:  which skill tree, perk level, or item grants this ability
+  STAT:    which player stat scales the damage/effect
+
+--------------------------------------------------------------------------------
+SECTION A — DRINKING MAGIC
+Skill trees: Drinking (L1-L10), Alcoholism (L1-L10)
+Thematic core: liquid transformation, reality blurring, bravado, poison
+XP source for Drinking tree: consuming drinks
+XP source for Alcoholism tree: taking hits while drunk, throwing bottles
+--------------------------------------------------------------------------------
+
+A-01  LIQUID COURAGE
+  Source:   Drinking L4 activated perk
+  Target:   SELF
+  Charge:   INF (25-turn cooldown)
+  Stat:     Tolerance + Swagger
+  Mechanic: Apply a buff (LiquidCourageEffect) for 20 turns. While active:
+            - All melee damage dealt +TOL/3 (rounds down)
+            - All incoming damage -SWG/4 (rounds down, minimum 0 reduction)
+            - Player cannot voluntarily retreat (cannot move away from the
+              nearest visible enemy — movement in that direction blocked)
+  Why:      The restriction is the cost. Double-edged: incredible for offense-
+            forward builds, dangerous for low-SWG fragile players who need to
+            kite. Makes every Drinking investment a meaningful tradeoff.
+  Flavor:   "You drink deep and feel yourself turn into a freight train. Can't
+             back down now even if you wanted to."
+  Notes:    LiquidCourageEffect overrides modify_movement to block retreat dirs.
+            Check: is movement vector moving away from nearest visible enemy?
+            If yes, block it. Pairs with Alcoholism perks that reward staying
+            adjacent.
+
+A-02  HAIR OF THE DOG
+  Source:   Alcoholism L4 activated perk
+  Target:   SELF
+  Charge:   /FL 1
+  Stat:     Tolerance
+  Mechanic: Consumes ALL currently active drink buffs on the player. For each
+            buff consumed, heal max(1, TOL/3) HP and apply +1 temporary
+            Tolerance for 5 turns per buff consumed (stacking). Net effect:
+            burning your buffs for a burst heal + brief tankiness surge.
+            Minimum 1 active drink buff required to use.
+  Why:      Forces a choice — save the buffs for their primary effects or cash
+            them in for emergency HP. Interacts directly with Slow Metabolism
+            (Drinking L3) which doubles buff durations; those doubled buffs
+            become doubled heal value here. Natural combo for high-Tolerance
+            drinker builds.
+  Flavor:   "Best hangover cure in the game. Drink through the pain."
+  Notes:    Iterates player.status_effects, collects all with id in the drink
+            buff set (_DRINK_BUFF_IDS in abilities.py). Extend that set as
+            new drink items are added.
+
+A-03  SPIKED PUNCH
+  Source:   Drinking L5 activated perk  OR  item "Spiked Drink" (future item)
+  Target:   SINGLE_LOS  (range 3)
+  Charge:   /FL 2
+  Stat:     Tolerance
+  Mechanic: Splash a drink at an enemy. Deals no direct damage. Applies a new
+            effect "Spiked" (duration: 8 turns): target has -30% accuracy on
+            all attacks (relevant when enemies with ranged AI are added) and
+            takes double damage from any Ignite stacks they currently have or
+            gain during the duration.
+  Why:      Pure debuff with zero damage makes it interesting — it converts your
+            other tools (fire, zap stacks, ignite_spell) into a combo finisher.
+            Great against high-defense targets where damage would be mitigated
+            anyway.
+  Flavor:   "You don't throw it at them to hurt them. You throw it at them so
+             the next thing you throw at them hurts them worse."
+  Notes:    SpikedEffect.modify_incoming_damage checks if entity also has
+            ignite effect; if yes, doubles the ignite's tick damage that turn.
+            Future synergy: Agent Orange strain reduces TOL-roll for enemies;
+            Spiked could extend this.
+
+A-04  CORKSCREW
+  Source:   Drinking L6 activated perk
+  Target:   LINE (8-tile ray in aimed direction)
+  Charge:   /FL 2
+  Stat:     Tolerance + Strength
+  Mechanic: Hurl a spinning bottle along a line. Hits every enemy in the path.
+            Damage = max(1, STR + TOL/2 - target.defense). The bottle then
+            BOUNCES off the last wall/enemy it hits and travels back 4 tiles.
+            Enemies hit on the return trip take half damage. Cannot hit the
+            same entity twice per cast.
+  Why:      Line abilities in roguelikes are interesting because positioning
+            matters — lining up multiple enemies in a corridor is rewarding but
+            requires planning. The bounce adds geometry decision-making: do I
+            fire at an angle so the bounce hits another cluster?
+  Flavor:   "You spin the bottle. Spin the bottle. Let fate decide who catches
+             it on the way back."
+  Notes:    Bounce logic: after the forward pass resolves, reflect the direction
+            vector (dx -> -dx or dy -> -dy depending on collision surface) and
+            run a 4-step return pass, skipping already-hit entities.
+
+A-05  BLACKOUT
+  Source:   Alcoholism L5 activated perk
+  Target:   SELF
+  Charge:   ONCE (single use, permanent)
+  Stat:     Tolerance + Constitution
+  Mechanic: The ultimate alcoholism finisher. Player drinks everything they
+            have at once in a dramatic moment. Effect:
+            - Applies 15-turn "Blackout" buff: player cannot be killed (HP
+              floors at 1 on any hit that would be lethal), cannot see more
+              than 3 tiles (sight_radius reduced), moves randomly 25% of turns
+            - On expiry: heals TOL * 3 HP. If the player survived the entire
+              duration, also permanently grants +2 Tolerance.
+            - On expiry if player did NOT survive (was below 20% HP when it
+              expired): no bonus, but player vomits (future vomit effect).
+  Why:      The ONCE restriction makes this a high-stakes finisher — you only
+            get one blackout per run. The random movement and vision penalty
+            mean you are genuinely out of control. The survival bonus is a
+            tempting risk for high-investment Alcoholism builds.
+  Flavor:   "You don't remember what happened next. But apparently you survived
+             it."
+  Notes:    BlackoutEffect.before_turn 25% chance returns True (skip turn, move
+            randomly instead). modify_incoming_damage floors incoming lethal
+            damage to leave target at 1 HP (track a "downed_this_blackout"
+            flag to prevent double-proc). On expire, check player.hp against
+            player.max_hp * 0.2 to determine bonus.
+
+A-06  LAST CALL
+  Source:   Alcoholism L5 (already in memory — variant design)
+            Alternative: grant from a unique "Closing Time" item (tavern tier)
+  Target:   SELF
+  Charge:   ONCE
+  Stat:     Tolerance
+  Mechanic: Activate with 0-3 HP. Forces a confrontation with consequences:
+            - Immediately heal to 50% max HP (the adrenaline)
+            - Apply Staggered debuff (from memory: -30 energy/tick, 15% skip
+              chance, 10 turns) to all enemies within 5 tiles
+            - After 10 turns: player takes TOL-scaled damage (less TOL = more
+              damage taken as the crash hits)
+  Why:      Designed specifically for desperation situations — a roguelike
+            staple (NetHack's prayer, DCSS's divine intervention equivalents).
+            Players who hit it too late lose the HP window; players who use it
+            prophylactically waste the burst. Tight timing window.
+  Notes:    This is a variant of the Last Call in memory's L5 Alcoholism design.
+            The version here is item-granted rather than perk-granted, making
+            it a one-run consumable ability.
+
+--------------------------------------------------------------------------------
+SECTION B — EATING MAGIC
+Skill trees: Munching (L1-L10), Deep-Frying (L1-L10)
+Thematic core: bodily transformation, power through consumption, gas attacks,
+               grease as a weapon, metabolic alchemy
+XP source for Munching: eating food
+XP source for Deep-Frying: using the deep fryer, eating fried foods
+--------------------------------------------------------------------------------
+
+B-01  GAS ATTACK
+  Source:   Munching L4 activated perk
+  Target:   AOE_CIRCLE (radius 2, centered on player)
+  Charge:   INF (12-turn cooldown)
+  Stat:     Constitution + Tolerance
+  Mechanic: Violent gastrointestinal event. All enemies within radius 2 take
+            damage = max(1, CON/2 - defense) and are "nauseated" for 5 turns
+            (NauseaEffect: reduces their energy gain by 40%, -1 to all attack
+            rolls). Player is briefly deafened but not harmed (flavor only).
+            Damage scales up by +3 for each active food buff the player has.
+  Why:      Short-range AOE pushes players into melee range, which is risky.
+            Food-buff scaling rewards the Munching fantasy of being permanently
+            buffed from multiple active food items. Works especially well after
+            eating Lightskin Beans (10-turn eat gives time to set up a surround).
+  Flavor:   "The lightskin beans were a mistake. Or maybe they weren't."
+  Notes:    NauseaEffect: category="debuff", modify_energy_gain multiplies by
+            0.6. Count active food buffs by scanning player.status_effects for
+            any with category="buff" and id in food-effect id set.
+
+B-02  DEEP-FRIED FIREBALL
+  Source:   Deep-Frying L4 activated perk
+  Target:   SINGLE_LOS (range 8)
+  Charge:   /FL 3
+  Stat:     Constitution + Book Smarts
+  Mechanic: Toss a ball of blazing hot grease in an arc to a target tile.
+            On impact: 3x3 AOE centered on target tile. All entities in the
+            area take max(1, CON + BKS/2 - defense) damage and receive 2
+            Ignite stacks. Leaves a fire hazard tile at the impact point that
+            persists for 5 turns (using existing fire hazard system).
+  Why:      This is the Deep-Frying tree's answer to the firebolt from item
+            drops — but with meaningful spread and environmental setup rather
+            than single-target damage. The grease fire tile created is a
+            persistent threat, synergizing with Pyromania's Wildfire passive
+            if both trees are active.
+  Flavor:   "The Fry Daddy doesn't judge. It just burns."
+  Notes:    Use get_affected_tiles lambda for the 3x3 preview. Spawn fire
+            hazard at target tile via create_fire(tx, ty). Needs a duration
+            on fire — add a turns_remaining field to fire hazard entity if
+            not already present, or simply not clean them up (permanent fires
+            are fine for balance since floors are temporary anyway).
+
+B-03  IRON GUT
+  Source:   Munching L5 activated perk
+  Target:   SELF
+  Charge:   /FL 1
+  Stat:     Constitution + Tolerance
+  Mechanic: For 15 turns, apply IronGutEffect:
+            - All incoming damage is reduced by CON/4 (minimum 0, does not
+              stack with other DR effects — takes the higher value)
+            - Player is immune to all food-related negative effects (tainted
+              food, hot cheetos expire damage, NauseaEffect from enemies)
+            - Any poison/toxicity applied to the player this turn is converted
+              to healing at 50% efficiency (1 tox dealt -> 0.5 HP restored)
+  Why:      High-end defensive cooldown that rewards stacking CON via Munching.
+            The tox-to-heal conversion is the centerpiece — makes the player
+            temporarily unkillable by chemical hazards, very useful in Meth Lab.
+  Flavor:   "Your stomach lining is basically asbestos at this point."
+  Notes:    The tox-to-heal hook needs a new lifecycle method or can be handled
+            by checking IronGutEffect in combat.py's add_toxicity path. Model
+            it like modify_incoming_damage but for toxicity sources.
+
+B-04  CORN DOG JUDGMENT
+  Source:   Deep-Frying L5 activated perk  OR  future food item
+  Target:   LINE (6-tile ray)
+  Charge:   TOTAL (stack from any food item proc, shared pool)
+  Stat:     Strength + Constitution
+  Mechanic: Hurl a deep-fried corn dog like a javelin. The corn dog flies in
+            a straight line and hits the first enemy in its path. Damage =
+            STR + CON (no defense reduction — grease penetrates everything).
+            The target is then covered in hot grease: applies 3 Greasy stacks
+            AND 2 Ignite stacks simultaneously. The corn dog itself drops at
+            the target's feet as a consumable entity (Corn Dog item, 1 charge).
+  Why:      Unusual because the projectile becomes loot — you might throw it
+            into a room to create a food item you can collect later (if the
+            enemy dies). The grease+ignite double-apply makes it a setup tool
+            for fire builds. The "penetrating defense" mechanic is significant
+            flavor: grease is greasy.
+  Flavor:   "It was a perfectly good corn dog. And then it became a weapon.
+             And then it became a perfectly good corn dog again."
+  Notes:    "Creates item at landing spot" — spawn a corn_dog Entity at the
+            first position AFTER where the enemy was hit (if enemy dies, drops
+            there; if alive, drops behind target). Use create_item_entity().
+
+B-05  CALORIC SURGE
+  Source:   Munching L6 activated perk
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Constitution
+  Mechanic: Convert excess calories into raw power. Effect lasts 12 turns:
+            - Player gains +CON/2 bonus power (melee damage bonus)
+            - Player moves at +20 energy per tick
+            - On expiry: player loses 1 temporary CON for 10 turns (the crash)
+            Stacking two uses back-to-back is allowed — the crash timers
+            compound and the bonuses overlap, which is risky.
+  Why:      Short-window melee damage spike with a real downside. The stacking
+            risk/crash mechanic invites players to gamble on double-stacking for
+            big fights. Similar to Meth-Head's Wire/Crash loop but for Munching.
+  Flavor:   "Everything they said about sugar highs was true. So are the lows."
+  Notes:    CalorieSurgeEffect.expire: apply a temporary CON-1 effect for 10
+            turns (use existing temporary_stat_bonuses system from stats.py).
+            On double-stack: both crash effects apply independently.
+
+B-06  ENZYME BOMB
+  Source:   Deep-Frying L6 activated perk
+  Target:   SINGLE_LOS (range 5)
+  Charge:   /FL 2
+  Stat:     Constitution + Book Smarts
+  Mechanic: Hurl a jar of hyper-concentrated frying oil that erupts on impact.
+            Primary target: CON + BKS/3 damage, 5 Greasy stacks, defense
+            permanently (for this floor) reduced by 2.
+            Splash: all monsters adjacent to target take CON/2 damage and
+            2 Greasy stacks.
+            The defense reduction is a big deal — it stacks with Pry (which
+            sets defense to 0). Use it on armored enemies before Pry.
+  Why:      Creates a distinct role for the Deep-Frying tree in group combat:
+            debuffing entire clusters for follow-up attacks. The permanent
+            defense reduction (for the floor) makes it worth saving for tanky
+            enemies.
+  Flavor:   "The enzyme is actually a cooking term. Here it means 'acid.'"
+  Notes:    "Permanent for this floor" defense reduction: add a floor_defense_
+            penalty field to Entity or track via a long-duration effect that
+            resets on floor change (use FLOOR_ONLY charge as a model).
+
+--------------------------------------------------------------------------------
+SECTION C — SMOKING MAGIC
+Skill trees: Smoking (L1-L10), Rolling (L1-L10), Pyromania (L4-L10)
+Thematic core: clouds and confusion, contact highs, fire and smoke screens,
+               time dilation, spiritual/altered perception
+XP source: smoking joints, rolling, setting things on fire
+--------------------------------------------------------------------------------
+
+C-01  PHAT CLOUD (ACTIVE VARIANT)
+  Source:   Smoking L3 (currently "Phat Cloud" is listed as passive/TBD)
+            Suggest: make L3 an activated ability instead of pure passive
+  Target:   SELF
+  Charge:   INF (8-turn cooldown)
+  Stat:     Tolerance + Constitution
+  Mechanic: Exhale a massive cloud of smoke centered on the player, filling
+            all tiles within radius 2. Any enemy entering or already in the
+            cloud has a 60% chance per turn to waste their action (wander
+            randomly instead of chasing). Cloud persists for 4 turns.
+            Damage: none. The cloud is a zone-of-control tool.
+            Higher Tolerance: cloud radius increases (+1 at TOL 12, +1 at TOL 16).
+  Why:      True crowd control through area denial is rare in NIGRL's current
+            ability set. The cloud doesn't deal damage, making it pure utility —
+            interesting because good players use it proactively (walk through
+            enemy approach corridor before being seen) rather than reactively.
+  Flavor:   "You blow it all out in one go. The hallway fills up. Good luck
+             thinking straight in that."
+  Notes:    Implement as a hazard entity or track cloud tiles in engine with a
+            timer. Simplest approach: place SmokecloudHazard at each tile in
+            radius at time of cast; on entity_tick, check if monster is on
+            smoke tile, roll 60% confusion chance. Clear after 4 turns.
+            Or: apply Confused debuff (existing or new) to each monster that
+            starts their turn inside the cloud radius.
+
+C-02  CONTACT HIGH
+  Source:   Smoking L5 activated perk (currently listed as passive/TBD)
+            Suggest: make this an activated ability rather than auto-passive
+  Target:   AOE_CIRCLE (radius 3, centered on player)
+  Charge:   /FL 2
+  Stat:     Tolerance + current active strain effect tier
+  Mechanic: Release a supercharged exhale. Every enemy within radius 3 gains
+            a copy of the CURRENT strain effect the player is experiencing
+            (the active strain buff from the last joint smoked), but at half
+            duration and inverted (buffs become debuffs, debuffs become buffs).
+            An OG Kush healing buff would become a heal-over-time that drains
+            enemy HP. A DOT from a bad strain roll would become an HP regen
+            on the enemy — so the inversion matters and sometimes timing is
+            everything.
+  Why:      Mechanically ties the Smoking tree's strain system into the combat
+            system in a direct and surprising way. Forces players to think about
+            what strain they last smoked before activating this. No strain
+            active = no effect (risk of wasting the charge).
+  Flavor:   "You breathe out. They breathe in. It hits different when you don't
+             see it coming."
+  Notes:    This requires reading engine's active_strain_effect (or tracking
+            last-smoked-strain on engine). The inversion logic is the tricky
+            part — a clean approach is to map effect_type -> inverted_effect_type
+            in a dict table. Consider: if the strain produced "none" effect, the
+            contact high also does nothing.
+
+C-03  SMOKE SCREEN
+  Source:   Rolling L4 activated perk  (complement to the L5 Rollin' Cloud)
+  Target:   ADJ_TILE
+  Charge:   /FL 3
+  Stat:     None (flat effect)
+  Mechanic: Light up a blunt and toss it. The tile becomes a smoke source for
+            8 turns. Any enemy with line-of-sight to the player THROUGH the
+            smoke tile has their LOS broken (they lose track of player and
+            return to IDLE/WANDERING state). Essentially creates a hard LOS
+            blocker that persists without a wall.
+  Why:      Tactical positioning tool. Roguelikes with LOS-dependent enemy AI
+            (like NIGRL) make LOS manipulation extremely powerful — you can
+            walk past enemies they were chasing you, reset their state, then
+            re-engage on your terms. The ADJ_TILE placement means you must
+            choose your position carefully.
+  Flavor:   "You toss the blunt in the doorway. They can't see through smoke.
+             You can. That's the difference."
+  Notes:    Simplest implementation: add SmokeScreenHazard entity type. In
+            ai.py's transition logic for CHASING -> WANDERING: check if
+            line-of-sight path passes through a smoke screen tile. If yes,
+            break chase even if player would normally be visible. The smoke
+            hazard entity just has a turns_remaining timer.
+
+C-04  SPIRITUAL TRANSCENDENCE
+  Source:   Smoking L8 or special item "Holy Backwood" (very rare)
+  Target:   SELF
+  Charge:   ONCE
+  Stat:     Tolerance + all stats combined
+  Mechanic: Take a cosmic hit. Duration: 20 turns. Effect:
+            - Player becomes "phased" — enemies cannot target player with melee
+              (they walk through your tile instead of blocking on it), but the
+              player also cannot deal melee damage
+            - Ranged attacks still work both ways
+            - Player regenerates TOL/2 HP per turn during transcendence
+            - On expiry: player returns to normal. Permanent +1 to a random
+              stat (the insight gained).
+  Why:      The ONCE restriction and the melee-immunity/melee-disabled tradeoff
+            create a very different style of play for 20 turns. Forces adaptation
+            to a pure ranged/ability playstyle. The random stat bonus is the
+            long-term benefit — replayability from not knowing which stat.
+  Flavor:   "You leave your body for a while. Your body continues to exist. This
+             is fine."
+  Notes:    PhasedEffect: blocks_movement is now false for player (add special
+            case in dungeon.is_blocked where player entity ignores monster
+            blocking). Monster pathfinding still pathing to player but can
+            "pass through" — implement by having monster step onto player tile
+            momentarily (they swap or the monster just occupies the same tile).
+            On_player_melee_hit hook: if player has phased, cancel damage.
+            Simplest route: just prevent player from using melee attack action.
+
+C-05  DUTCH COURAGE CLOUD
+  Source:   Rolling L5 activated perk
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Tolerance + Swagger
+  Mechanic: Roll and smoke a particularly fat one. Apply DutchCourageEffect:
+            for 10 turns, every time the player takes damage, they deal
+            retaliatory damage to ALL visible enemies equal to the damage taken
+            divided by number of visible enemies (minimum 1). This retaliation
+            bypasses defense. The cloud of smoke visual signals to the player
+            that they're "on one."
+  Why:      Pure reactive mechanic — transforms taking damage from bad into
+            slightly good. Very interesting in corridor fights where you're
+            surrounded. Synergizes with Blackout (A-05) where you're forced
+            to take hits anyway.
+  Flavor:   "The more they hit you, the more it spreads. That's the thing about
+             smoke."
+  Notes:    DutchCourageEffect.modify_incoming_damage: calculate and deal
+            retaliatory damage immediately in that hook. Retaliatory loop
+            collects visible monsters, distributes damage/(num_visible) each,
+            no defense. Use max(1, ...) per target.
+
+C-06  SLOW BURN
+  Source:   Smoking L6 activated perk
+  Target:   SINGLE_LOS (range 6)
+  Charge:   INF (20-turn cooldown)
+  Stat:     Tolerance
+  Mechanic: You breathe a long stream of slow-burning smoke at one enemy.
+            The target gains "Slow Burn" debuff for 15 turns: takes TOL/5
+            damage per turn (rounding up), and moves at -25 energy per tick.
+            Unlike Ignite (which burns hot and fast), Slow Burn cannot be
+            stacked but its damage grows each turn (+1 flat per turn until
+            expiry, then resets on reapply). Reapplying refreshes duration
+            but also resets the growing damage back to TOL/5.
+  Why:      Sustained DoT with a patience mechanic — if you let it run its
+            full 15 turns without re-applying, the final ticks deal TOL/5 + 14
+            damage (substantial). Re-applying prematurely resets the ramp.
+            Forces players to commit to the "let it burn" strategy vs. topping
+            up. The slowing component also enables melee follow-up.
+  Flavor:   "You don't rush a slow burn. You let it cook."
+  Notes:    SlowBurnEffect: store a turns_elapsed int. tick() increments it.
+            Actual tick damage = base_damage + turns_elapsed. on_reapply
+            refreshes duration but sets turns_elapsed = 0 (resets ramp).
+
+C-07  ROACH RESURRECTION
+  Source:   Rolling L6 activated perk
+  Target:   SELF
+  Charge:   /FL 1
+  Stat:     Tolerance
+  Mechanic: You dig through your pockets, find every roach (joint stub), and
+            smoke them all at once. Immediately re-trigger the effect of the
+            last joint the player smoked at the SAME roll value they got before.
+            If no joint has been smoked this floor, instead grants TOL/2 HP.
+            Cannot re-trigger joint rolls that resulted in "none" effects — it
+            tries the next-previous roll.
+  Why:      Memory and bookkeeping mechanic. Smart players remember which strain
+            gave them a great roll and save Roach Resurrection for after a high
+            roll. Rewards paying attention to the strain result display.
+  Flavor:   "Desperate times. But the roach never lies."
+  Notes:    Engine needs to track last_strain_roll_value and last_strain_name
+            on floor. Roach Resurrection replays the effect lookup with that
+            roll value. Simpler fallback: just re-apply the last strain's
+            effect at 50% duration.
+
+--------------------------------------------------------------------------------
+SECTION D — BLACKKK MAGIC
+Skill tree: Blackkk Magic (L1-L10)
+Thematic core: forbidden knowledge, mind manipulation, spiritual/cosmic power,
+               curses, reality bending, street voodoo
+XP source: casting any spell/ability tagged "spell" or "is_spell=True"
+--------------------------------------------------------------------------------
+
+D-01  MIND BULLETS (Telekinetic Burst)
+  Source:   Blackkk Magic L3 activated  (after L2 Force Be With You)
+  Target:   SINGLE_LOS (range 8)
+  Charge:   INF (cooldown 18 turns)
+  Stat:     Book Smarts
+  Mechanic: Direct telekinetic force projectile. Dmg: BKS + 4. No defense
+            reduction on half the damage (the "psychic half" bypasses armor).
+            Formula: (BKS + 4) where BKS/2 is armor-bypassing psychic dmg and
+            the remaining BKS/2 + 4 is subject to normal defense. Applies
+            "Psychic Daze" for 3 turns: enemy cannot dash/move diagonally
+            (reduced movement options).
+  Why:      The split psychic/physical damage is mechanically interesting
+            against high-defense enemies — BKS scaling means it stays useful
+            late, but defense still matters partially.
+  Flavor:   "You think real hard at them. It works."
+  Notes:    Psychic Daze effect: modify_movement hook limits to cardinal
+            directions only (dx and dy cannot both be nonzero simultaneously).
+
+D-02  CURSE OF BAD LUCK
+  Source:   Blackkk Magic L4 activated
+  Target:   SINGLE_LOS (range 10)
+  Charge:   /FL 3
+  Stat:     Book Smarts + Street Smarts
+  Mechanic: Hex an enemy. CurseEffect (duration 20 turns): target's every
+            attack has a 30% chance to miss entirely (they stumble, their
+            weapon jams, they swing at air). Additionally, if the cursed
+            target is killed by the player, they drop +50% extra loot (adds
+            an extra item roll on death). The loot bonus only triggers if
+            the kill happens while the curse is active.
+  Why:      Curse-for-loot is a classic roguelike pattern (NetHack's magic
+            marker, DCSS's various curse mechanics). Invites a "curse them all,
+            kill for loot" playstyle. The miss chance is defensive utility.
+  Flavor:   "You put a hex on that fool. Whatever they pick up falls. Whatever
+             they swing misses. Whatever they reach for ain't there."
+  Notes:    CurseEffect.before_turn: roll 30%, if hit return True (skip the
+            attack portion, still move). Need a "cursed" flag on entity for
+            the death handler in combat.py to check for the loot bonus.
+
+D-03  SPIRIT STEAL
+  Source:   Blackkk Magic L5 activated (capstone combo with Negromancy)
+  Target:   SINGLE_LOS (range 6)
+  Charge:   /FL 2
+  Stat:     Book Smarts
+  Mechanic: Drain the spiritual essence of a living enemy. Deals max(1,
+            BKS - target.defense) psychic damage. Then, for 10 turns, the
+            player gains HALF of every stat bonus the target has above their
+            baseline (rounded down). Example: if Jerome has +3 STR above the
+            minimum, Spirit Steal gives the player +1 temporary STR for 10
+            turns. Affects all six stats. Does NOT kill the target.
+  Why:      Unique mechanic that makes high-stat enemies worth targeting WITH
+            a non-kill spell first. Creates a sequence: Spirit Steal -> buff
+            window -> kill them with the buffed stats -> collect loot. High-BKS
+            builds do the most damage AND get the most stat use from their
+            attacks.
+  Flavor:   "You reach right into them and take what they have. They'll feel
+             that for the rest of their life. Which won't be long."
+  Notes:    Stat drain: compare enemy.base_stats to MINIMUM_MONSTER_STATS (or
+            just use enemy stats / 2 as a proxy). Apply temp stat bonuses via
+            player_stats.temporary_stat_bonuses dict. Clean them on expiry.
+
+D-04  VOODOO DOLL
+  Source:   Blackkk Magic L6 activated  OR  item "Voodoo Kit" (Zone 2)
+  Target:   SINGLE_LOS (range 8)
+  Charge:   TOTAL (2 uses from item, more from perk)
+  Stat:     Book Smarts
+  Mechanic: Lock a psychic tether to an enemy (the "doll"). While the tether
+            is active (max 15 turns or until doll target dies):
+            - Every time the player takes damage, the doll target takes the
+              same damage (unmodified by their defense)
+            - Every time the doll target takes damage from ANY source (including
+              the tether itself), the player heals 20% of that damage
+            This creates a damage-sharing loop. Attacking the doll is safe —
+            the reflected healing cancels much of the reflected damage cost.
+  Why:      Emergent chain: take a hit -> doll takes it -> you heal back from
+            the doll's pain. High-risk because you're intentionally eating hits,
+            but the doll becomes a health battery. Best on tanky CON/SWG builds
+            that can absorb the initial hits long enough for the tether to pay
+            off.
+  Flavor:   "What happens to them happens to them twice. What happens to you
+             makes them bleed."
+  Notes:    Tether tracking: engine.voodoo_doll_target = target entity. In
+            combat.py damage routing: if entity == player and doll active,
+            also apply damage to doll (ignoring defense). If doll takes damage,
+            trigger player.heal(doll_damage * 0.2). Clear tether on floor
+            change or doll death.
+
+D-05  FORGOTTEN NAME (Amnesia)
+  Source:   Blackkk Magic L7 activated
+  Target:   AOE_CIRCLE (radius 4, centered on player)
+  Charge:   /FL 1
+  Stat:     Book Smarts
+  Mechanic: Psychic amnesia blast. Every monster within radius 4 that was in
+            CHASING or ALERTING state immediately forgets the player's position
+            and reverts to IDLE. Their memory does NOT update for 5 turns
+            (they cannot re-enter CHASING for 5 turns even if player walks
+            past them). During those 5 turns, the player has a window to escape
+            or reposition.
+  Why:      Mass enemy state reset is a powerful utility that rewards spatial
+            awareness — you use it when surrounded and chased, buying escape
+            time. Pure utility spell with zero damage makes it a meaningful
+            slot to fill. DCSS's Invisibility achieves a similar effect;
+            Forgotten Name is point-in-time rather than persistent.
+  Flavor:   "You make them forget you exist. It's harder than it sounds. You
+             are very memorable."
+  Notes:    In ai.py: add a "forgot_player_turns" int counter on entity.
+            do_ai_turn: if forgot_player_turns > 0, cannot transition to
+            CHASING (decrement counter each turn instead). Forgotten Name sets
+            ai_state = AIState.IDLE on all affected monsters and sets counter
+            to 5. Range check: Chebyshev(4) from player.
+
+D-06  DEATH MARK
+  Source:   Blackkk Magic L8 activated
+  Target:   SINGLE_LOS (range 12)
+  Charge:   /FL 2
+  Stat:     Book Smarts + Street Smarts
+  Mechanic: Mark an enemy for death. DeathMarkEffect (duration: until target
+            dies or 30 turns): no immediate damage. While marked:
+            - Every attack from any source (player or other monsters) deals
+              +BKS/3 bonus damage to the marked target
+            - On death: explosion of dark energy, damaging all enemies within
+              2 tiles for BKS + STS damage
+  Why:      Death Mark inverts the problem of fragile vs. tanky enemies. You
+            WANT to use it on the tankiest most dangerous enemy, then focus
+            fire (or let other enemies damage them in group fights). The
+            explosion on death rewards the setup investment. Boss-killer spell.
+  Flavor:   "You write their name on the air. Then you erase it. Means the
+             same thing."
+  Notes:    DeathMarkEffect.expire: if target is no longer alive, trigger the
+            explosion. If the timer ran out while the target was still alive,
+            expire silently (the target survived the mark). Implement as DoT
+            with 0 damage + modified on-hit hook rather than overriding
+            combat directly.
+
+D-07  PSYCHIC SCREAM
+  Source:   Blackkk Magic L9 activated
+  Target:   SELF (affects all visible enemies)
+  Charge:   /FL 1
+  Stat:     Book Smarts + Tolerance
+  Mechanic: Release a psychic scream. All visible monsters make a fear save.
+            Enemies with HP > player.max_hp/2: automatically flee (FLEEING
+            AI state) for 8 turns.
+            Enemies with HP <= player.max_hp/2: take BKS/2 + TOL/4 psychic
+            damage (bypasses defense) and are Confused for 5 turns (40%
+            random-wander chance per turn).
+            The threshold distinguishes healthy enemies (flee) from wounded
+            ones (finish them).
+  Why:      Dual-outcome AOE that rewards reading the battlefield. Fleeing
+            a healthy pack of enemies creates a window to run, heal, or reset.
+            Finishing wounded enemies with psychic damage is a cleanup tool.
+            DCSS has similar mechanics in Mara's/Psyche spells.
+  Flavor:   "You open up your whole mind at once. Everyone nearby feels what
+             it's like in there. Most of them run."
+  Notes:    In ai.py: FLEEING state already exists. Trigger it with a timer.
+            ConfusedEffect already exists per memory notes. The split threshold
+            is the HP ratio check at cast time.
+
+--------------------------------------------------------------------------------
+SECTION E — COMBAT / PHYSICAL TREES
+Skill trees: Stabbing, Beating, Smacking, Jaywalking, Stealing, Negromancy
+Thematic core: street fighting, movement, theft-as-magic, death manipulation
+--------------------------------------------------------------------------------
+
+E-01  SWITCHBLADE TWIRL
+  Source:   Stabbing L4 (alternative to the stat-only perk currently there)
+            OR grant from a specific knife/switchblade item
+  Target:   ADJACENT (auto-selects all adjacent, not just one)
+  Charge:   INF (cooldown 10 turns)
+  Stat:     Street Smarts + Strength
+  Mechanic: Requires stabbing weapon. Spin attack hitting ALL adjacent enemies
+            simultaneously. Each enemy takes max(1, STS - target.defense) dmg.
+            Additionally, any enemy hit that is already Bleeding takes double
+            damage and gets their bleed stack extended by 3 turns. Natural
+            combo with Gouge (which currently stuns but doesn't bleed —
+            consider adding bleeding to Gouge as well).
+  Why:      Most NIGRL abilities are single-target. An AoE spin that rewards
+            being surrounded (which is normally bad) creates interesting
+            positioning decisions. The bleed synergy requires players to set up
+            with Gouge/bleed first.
+  Notes:    ADJACENT multi-target: iterate all adjacent (Chebyshev 1) tiles,
+            collect all living monsters, deal damage to each. This is different
+            from the current ADJACENT quick-select (which picks ONE enemy).
+            May need a new TargetType: ADJACENT_ALL or handle in execute_at
+            by iterating neighbors rather than requiring a target selection.
+
+E-02  CHEAP SHOT
+  Source:   Stealing L3 activated  (after Pickpocket)
+  Target:   ADJACENT
+  Charge:   INF (cooldown 8 turns)
+  Stat:     Street Smarts
+  Mechanic: Sucker punch. Deals no damage. Instead: the target is Stunned for
+            1 turn AND the player immediately gets a free standard attack against
+            them (same turn, before enemies can react). The free attack can crit,
+            can trigger Windfury (Stabbing L3), can trigger passive procs.
+            If the Cheap Shot target was not already in combat with the player
+            (IDLE or WANDERING AI state), the stun duration extends to 3 turns.
+  Why:      Classic roguelike "strike from hidden position" fantasy. The free
+            attack is not additional damage — it's a second turn of attacking
+            with all your normal bonuses. Very strong as an opener, mediocre
+            as a mid-combat tool. Rewards Stealing players who also invest in
+            Stabbing or Smacking for the free attack to use.
+  Flavor:   "You don't fight fair. That's not what stealing teaches you."
+  Notes:    "Free attack" implementation: after applying stun, call
+            engine._player_attack(target) directly (the same function that
+            handles a normal melee bump-attack). This naturally triggers all
+            passive procs.
+
+E-03  CHAIN SNATCH
+  Source:   Stealing L4 activated
+  Target:   SINGLE_LOS (range 3)
+  Charge:   /FL 3
+  Stat:     Street Smarts + Strength
+  Mechanic: Rip the equipped item off an enemy (their "weapon" — whatever
+            makes them dangerous). The enemy's attack power drops to their
+            base unarmed value for the rest of the floor. The player receives
+            a copy of the item as a usable entity (not necessarily equipable —
+            it may just be a "Stolen Chain" entity worth cash). Enemies with
+            no "weapon" concept (animals, vermin) cannot be snatched.
+  Why:      Debuff + reward hybrid. Against heavily armed enemies, removing
+            their weapon dramatically changes the fight. The "cash equivalent"
+            for the stolen item connects to NIGRL's cash economy. Very
+            satisfying against named enemies with signature weapons.
+  Flavor:   "You grab the chain right off their neck. Mid-conversation. They
+             don't even notice until they look down."
+  Notes:    enemy.weapon_id field (or equivalent) would need to be trackable.
+            Simpler implementation: set a "disarmed" flag on enemy entity,
+            halve their base attack power for the rest of the floor (tracked
+            as a long-duration effect). Grant player a cash item worth the
+            enemy's level * $10.
+
+E-04  GROUND POUND
+  Source:   Beating L4 activated
+  Target:   ADJACENT (auto if 1 enemy, pick if multiple)
+  Charge:   INF (cooldown 15 turns)
+  Stat:     Strength + Constitution
+  Mechanic: Requires beating weapon. Pick up an enemy and slam them into the
+            ground. Dmg: STR + CON (ignores defense). The target is Prone for
+            3 turns: cannot move (movement vector always (0,0)), takes +3
+            bonus damage from all subsequent attacks while prone, cannot attack
+            (before_turn returns True during Prone while they're still "getting
+            up"). Massive single-target CC that sacrifices mobility.
+  Why:      Ground Pound creates a window of zero-counterattack opportunity —
+            the player can freely attack a prone target 3 times before it
+            recovers. Very strong but the 15-turn cooldown and melee range
+            keep it from being dominant.
+  Flavor:   "You don't just hit them. You introduce them to the floor personally."
+  Notes:    ProneEffect: modify_energy_gain returns 0 (cannot move — energy
+            accumulates but all possible moves are blocked). before_turn: also
+            returns True for attacks only (they accumulate energy to eventually
+            stand up, but skip their action). After 3 turns they recover.
+
+E-05  ANKLE BREAKER
+  Source:   Jaywalking L4 activated
+  Target:   ADJACENT
+  Charge:   INF (cooldown 20 turns)
+  Stat:     Street Smarts + Strength
+  Mechanic: Trip an enemy's legs out from under them. The target is Crippled
+            for 8 turns: their move energy cost doubles (they move half as
+            fast), and every time they DO move, they take 1 point of damage
+            from the strain. Unlike Stun, they can still attack — they're just
+            slowed. The ability also instantly gives the player 1 free movement
+            tile in any direction (you slip away as they fall).
+  Why:      Slowing is underrepresented in NIGRL's effect vocabulary. Crippling
+            allows the player to create distance and kite even fast enemies.
+            The free movement tile is the "evasion" bonus that makes this a
+            true mobility ability rather than just a debuff.
+  Flavor:   "They go down. You go sideways. That's how it works."
+  Notes:    CrippledEffect: modify_energy_gain returns amount * 0.5 (half
+            accumulation speed = takes twice as long to act). On_entity_move:
+            deal 1 damage per move. The free player movement: trigger a
+            "free_step" flag in engine that allows one step without consuming
+            an action turn (similar to how some games handle step-attacks).
+
+E-06  BLITZ
+  Source:   Jaywalking L5 activated  (capstone mobility)
+  Target:   SELF (then charges at an enemy)
+  Charge:   /FL 2
+  Stat:     Street Smarts + Strength
+  Mechanic: Three-phase attack:
+            1. Player dashes up to 4 tiles toward a chosen direction
+            2. First enemy in that path takes STR * 2 damage on impact
+            3. Player bounces off and ends up 1 tile to the side of the target
+            The player passes THROUGH walls (the blitz momentum overruns
+            everything except solid walls — only breaks on walls, not enemies).
+            If no enemy in path: just a 4-tile dash (still useful).
+  Why:      High-damage gap closer that can escape after the strike by ending
+            beside the target rather than in front of it. The "pass through
+            empty space to reach the enemy" movement encourages diagonal
+            approaches. Huge mobility ceiling for Jaywalking specialists.
+  Flavor:   "You don't walk through a crowd. You sprint through it. They make
+             room. They don't have a choice."
+  Notes:    Blitz movement: move player tile-by-tile along the chosen direction
+            for up to 4 steps, stopping when hitting a wall. If a living enemy
+            is encountered mid-path: deal damage, apply the 1-tile lateral
+            displacement (perpendicular to movement direction), stop. If no
+            enemy: player arrives at the end tile.
+
+E-07  EXHUME
+  Source:   Negromancy L2 activated  (fills in the gap before Reap at L3)
+  Target:   ADJ_TILE (target an adjacent floor tile)
+  Charge:   /FL 3
+  Stat:     Book Smarts
+  Mechanic: Drag the remains of the LAST enemy that died on this floor up
+            through the ground at the targeted tile. The corpse entity reappears
+            as a half-risen "Shambling" entity with 5 HP, moves toward the
+            nearest visible enemy (or wanders), and explodes on death for
+            BKS/2 damage in a 2-tile radius. Does not require fresh_corpse
+            flag — this summons the most recently dead regardless.
+            Can only be used once per killed enemy (tracking needed).
+  Why:      Fills the early Negromancy slot with a cheap summoning option that
+            is weaker than Raise Dead (from memory) but more spammable. The
+            suicide-bomber payoff on a 5 HP shambling corpse is distinct from
+            the Thrall mechanic (Negromancy L5 which has hp=1, MEANDER AI).
+  Flavor:   "You reach down and grab them by the collar. One more round."
+  Notes:    Uses or extends the fresh_corpse system from memory. Shambling
+            entity: new ai_type "shambling" — MEANDER toward nearest enemy,
+            explode on death (AOE in 2 tiles). BKS damage, no defense bypass.
+
+E-08  REAP (Scythe Swing)
+  Source:   Negromancy L3 activated (from memory design — including here for
+            completeness with the mechanic note)
+  Target:   SINGLE_LOS (range varies with soul_shards)
+  Charge:   INFINITE (cooldown 15 turns, costs 2 soul_shards)
+  Stat:     Book Smarts (+ soul_shards scaling)
+  Mechanic: Per memory: costs 2 soul shards. Deal BKS * shard_count damage
+            to one target in LOS. If target dies, immediately grant 1 shard
+            back. This is already in the memory design but documented here
+            for completeness and to note: the shard-back-on-kill mechanic
+            creates a self-sustaining loop on weak enemies.
+  Flavor:   "Take what you're owed."
+  Notes:    See agent memory zone2-meth-lab.md for full Negromancy soul shard
+            details. This entry is a cross-reference.
+
+--------------------------------------------------------------------------------
+SECTION F — ZONE 2 / METH LAB EXCLUSIVE ABILITIES
+These abilities are designed for Meth Lab zone content.
+Thematic core: chemical warfare, industrial hazards, mutant biology,
+               radiation weaponization, faction power dynamics
+--------------------------------------------------------------------------------
+
+F-01  HAZMAT PROTOCOL
+  Source:   Chemical Warfare L1 activated
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Tolerance + Constitution
+  Mechanic: Emergency decontamination. Instantly reduce player toxicity by
+            TOL * 3 (minimum 10). For the next 8 turns, apply "Decon Shell"
+            buff: incoming toxicity is reduced by 50% and no tox damage
+            multiplier applies. After the 8 turns expire, the shell fractures:
+            receive 20 flat tox as it disperses.
+  Why:      Active tox management (rather than just passive resistance) is more
+            interesting tactically. The fracture penalty discourages using it
+            too early in a fight — save it for when you're deep in tox trouble.
+  Flavor:   "The suit comes with a self-decontamination protocol. You read the
+             manual once. This seems like what it described."
+  Notes:    Needs add_toxicity (combat.py) to check for "decon_shell" effect
+            and multiply incoming tox by 0.5. The fracture: on expire, call
+            add_toxicity(engine, player, 20, ignore_resistance=True).
+
+F-02  MELTDOWN
+  Source:   Nuclear Research L4 activated  OR  mutations.py mutation bonus
+  Target:   SELF
+  Charge:   ONCE
+  Stat:     Constitution + current Radiation level
+  Mechanic: Deliberately overload your own radiation. Convert ALL current
+            radiation into an AOE blast:
+            - Damage to all enemies on the entire floor = RAD / 3 (no defense)
+            - Player's radiation drops to 0 after the blast
+            - Player takes CON/2 of the blast back as friendly fire (you're
+              at ground zero)
+            - Chance of triggering a random mutation (same as normal rad
+              threshold check, but at 3x probability)
+  Why:      The ONCE use and self-damage create a desperation tool for players
+            who have accumulated massive radiation and are about to mutate badly
+            anyway — might as well weaponize it. The whole-floor-no-defense
+            property makes it a true panic button.
+  Flavor:   "You stop managing it. You let it happen."
+  Notes:    Call mutations.py check after the blast with 3x probability weight.
+            Global floor damage (no LOS, no range limit): iterate all dungeon
+            entities with entity_type="monster", apply rad/3 damage directly.
+
+F-03  CHEMICAL COCKTAIL
+  Source:   Chemical Warfare L3 activated
+  Target:   SINGLE_LOS (range 5)
+  Charge:   /FL 3
+  Stat:     Book Smarts + Tolerance
+  Mechanic: Throw a cocktail of lab chemicals. The target receives:
+            - 40 flat toxicity (bypasses resistance)
+            - Corrosion debuff (5 turns): all armor/defense reduced to 0
+            - A random secondary effect based on current BKS (roll 1d6 + BKS/5):
+              1-2: Blinded (sight_radius halved for enemy — flavor, they wander)
+              3-4: Burning (2 Ignite stacks)
+              5-6: Slowed (-30 energy/tick for 6 turns)
+              7+:  All three secondary effects simultaneously
+  Why:      Randomized secondary effects make the ability interesting across
+            uses. High BKS builds reliably hit the "7+" threshold and get all
+            three effects, rewarding stat investment. The guaranteed tox-bypass
+            is the reliable part; everything else is variance.
+  Flavor:   "It's not a bomb. It's chemistry. There's a difference. There isn't
+             actually a difference."
+  Notes:    BKS check: roll random.randint(1, 6) + BKS // 5. Apply the result.
+            Blinded on monster: set a temporary sight_radius override of
+            sight_radius // 2 via a BlindedEffect. Slowed: existing framework
+            from Crippled or similar speed effects.
+
+F-04  PURITY SHIELD
+  Source:   Purity L2 activated  (Purity tree: the anti-tox, anti-mutation tree)
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Tolerance + Constitution
+  Mechanic: Activate a purification field. For 12 turns: zero toxicity gain
+            (all tox sources return 0 to the player), mutation cannot trigger
+            (skip all mutation checks), player heals TOL/8 HP per turn.
+            After 12 turns: a backlash — player takes a BURST of 30 tox at once
+            as everything that was held back releases at once.
+  Why:      Temporal immunity mechanic with a delayed payment. Forces players
+            to plan around the backlash: pop the shield before a tox-heavy
+            corridor, clear out, and then manage the 30-tox penalty in a safer
+            spot. Pairs with Iron Gut (B-03) which can convert tox to healing.
+  Flavor:   "You can hold it back. For a while. But the body keeps score."
+  Notes:    PurityShieldEffect: modify_tox_gain returns 0 (new lifecycle hook
+            from memory). Suppress mutation check while active (engine.mutations
+            check queries this effect flag). On expire: add_toxicity(player,
+            engine, 30, bypass_resistance=True).
+
+F-05  STATIC DISCHARGE
+  Source:   Meth-Head L6 activated  (extends the Wire/Crash loop theme)
+  Target:   AOE_CIRCLE (radius 3, centered on player)
+  Charge:   INF (cooldown 20 turns, can only be used while Wire effect is active)
+  Stat:     Strength + Tolerance
+  Mechanic: While riding the Wire speed buff: release the electrical energy
+            built up. All enemies within radius 3 take STR + TOL/2 lightning
+            damage. Each enemy hit also receives the Shocked debuff (3 turns,
+            existing effect — or a new minor one: -20 energy per tick).
+            Using Static Discharge consumes 5 turns of Wire duration.
+  Why:      Creates an active burn mechanic for the Wire resource — you can
+            keep Wire running for passive speed, OR you can spend it for burst
+            AOE. Interesting resource decision. Synergizes with the existing
+            Supernova (L5) which triggers when Wire expires from damage.
+  Flavor:   "All that speed has to go somewhere. Might as well go through them."
+  Notes:    Validate: check if player has active WireEffect. If not, message
+            "Static Discharge: you're not wired up." Consume 5 turns of Wire
+            duration (decrement eff.duration by 5). This may trigger Wire ->
+            Crash if duration drops to 0 via this usage — consider whether
+            that should trigger Crash. Probably yes (spending Wire to zero
+            via ability should still cause Crash, consistent with design).
+
+--------------------------------------------------------------------------------
+SECTION G — UTILITY / ENVIRONMENTAL / WEIRD ONES
+These span multiple trees or are item-granted oddities.
+--------------------------------------------------------------------------------
+
+G-01  DUMPSTER DIVE
+  Source:   Item "Dumpster" (environmental interact, once per floor per dumpster)
+            OR Abandoning L4 activated perk
+  Target:   ADJ_TILE (must face a wall tile, representing a dumpster)
+  Charge:   /FL 1 (via perk), or once per dumpster entity (if dumpsters are placed)
+  Mechanic: Dig through garbage. Roll a random outcome table:
+            - 35%: Find 1 random consumable item from the current floor's
+                   loot table
+            - 25%: Find $10-$30 in loose cash
+            - 20%: Find nothing but get the "Filthy" debuff (takes 1 damage
+                   per turn for 3 turns from infection)
+            - 15%: Find a food item (random from current zone's food table)
+            - 5%:  Find a rare item (current floor's rare loot table)
+  Why:      Creates exploration incentive (look for dumpster tiles). Random
+            reward tables are a roguelike staple — the 20% Filthy outcome is
+            the cost that makes the 5% rare feel meaningful. Abandoning tree
+            synergy is thematic: you abandon fear of getting dirty.
+  Flavor:   "One man's trash. Literally, one man's trash."
+  Notes:    If dumpsters are environmental entities: create_dumpster() similar
+            to create_crate(). If perk-granted: use ADJ_TILE target, validate
+            that the targeted tile is a wall (representing a dumpster next to
+            a building). Use loot.py's existing generation functions for drops.
+
+G-02  JURY RIG
+  Source:   Dismantling L4 activated
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Book Smarts + Constitution
+  Mechanic: Combine two random items from the player's inventory into a crude
+            improvised weapon or tool. The two items are DESTROYED. The result
+            is one of several possible outputs depending on item categories:
+            - Consumable + Consumable = Molotov Cocktail (throwable, 3-tile
+              fire AOE, 1 use)
+            - Equipment + Consumable = Spiked Armor (+2 defense, +1 power,
+              breaks after 10 hits)
+            - Material + Material = improvised weapon (random stats, 1 item)
+            - Any + Food = Toxic Meal (heals but applies random debuff, 1 use)
+            If inventory has fewer than 2 items: nothing happens.
+  Why:      Invention mechanic rewards item hoarding with a chance to get
+            more than the sum of parts. Roguelikes with crafting (ADOM, ToME)
+            always make junk items feel valuable because of combination
+            potential. The random destruction of two items is the cost.
+  Flavor:   "You look at the two things. You look at each other. One of you
+             nods. They become one thing now."
+  Notes:    Pick 2 random items from player inventory (prefer non-equipped).
+            Determine category of each. Use category pair to select output.
+            Create output item via create_item_entity. Remove originals.
+            Add Molotov to ITEM_DEFS as a throwable (new use_effect type).
+
+G-03  CALL OUT (Taunt)
+  Source:   Swagger stat passive ability (unlocked at Swagger 12)
+            OR item "Megaphone" (one-time use)
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Swagger
+  Mechanic: Shout at all enemies on the floor. ALL enemies in IDLE or
+            WANDERING state immediately switch to CHASING. Sounds like a
+            disadvantage — it is, intentionally. But:
+            - While any enemy is CHASING you due to Call Out (tracked by flag),
+              player gains +SWG/3 defense (temporary armor from adrenaline)
+            - Enemies called out deal -25% damage for 5 turns (they're reckless,
+              rushing in without thought)
+            Lasts until all called-out enemies are either dead or calmed.
+  Why:      Controlled aggression mechanic. Pulling ALL enemies lets the player
+            choose WHERE the fight happens rather than having enemies trickle in
+            unpredictably. The defense bonus rewards high-Swagger builds for
+            doing what Swagger represents: looking scary while being fine.
+  Flavor:   "You yell. They all look. You wanted them to."
+  Notes:    Iterate all dungeon entities with entity_type="monster", alive=True,
+            ai_state in [IDLE, WANDERING]. Set to CHASING. Mark with a
+            "called_out" flag. Track count of called_out alive enemies; when
+            it hits 0, remove the defense bonus. Engine._compute_player_defense
+            adds SWG/3 while called_out_active flag is set.
+
+G-04  DEAD SPRINT (Chase Escape)
+  Source:   Jaywalking L3 passive upgrade  OR  Jaywalking L7 activated
+  Target:   SELF
+  Charge:   /FL 3 (if activated) or passive trigger
+  Stat:     Street Smarts
+  Mechanic: Activated: When 3+ enemies are in CHASING state targeting the
+            player, this ability activates automatically (no action cost) for
+            free if passive version, or manually. Effect: +40 energy per tick
+            for 5 turns, +STS/4 dodge chance temporarily. Dodge chance stacks
+            with base dodge.
+  Why:      Emergency mobility when outnumbered. The condition (3+ enemies
+            chasing) creates a natural danger threshold. Passive version is
+            simpler but removes player agency; activated version rewards
+            situational awareness.
+  Flavor:   "When there's three of them and one of you, something in your legs
+             makes a decision before your brain does."
+  Notes:    Passive version: check at start of player turn, count entities in
+            CHASING state, trigger effect automatically. Activated version:
+            validate that 3+ are chasing before allowing use (otherwise
+            message "No need to sprint yet").
+
+G-05  BARTER (Tribute)
+  Source:   Stealing L5 activated
+  Target:   SINGLE_LOS (range 2)
+  Charge:   INF (cooldown: none, but costs cash)
+  Stat:     Street Smarts + Swagger
+  Mechanic: Offer money to an enemy as tribute. Costs $25 * enemy_floor_level
+            cash. Effect based on enemy type:
+            - Faction enemy (Aldor/Scryer): switches to PASSIVE_UNTIL_HIT for
+              8 turns (they won't attack you unless you attack them)
+            - Named enemy (Jerome, Baby Momma, etc.): switches to FLEEING for
+              3 turns (you bought yourself 3 turns of escape)
+            - Generic enemy: 40% chance IDLE for 5 turns, 60% they're insulted
+              and deal +50% damage for 3 turns
+            Cannot be used in combat (target must be in non-hostile state).
+  Why:      Social/economic solution to combat is very roguelike (NetHack's
+            shopkeepers, DCSS's bribery). Using cash as a resource adds a
+            tension between spending on items vs. spending on peace. High SWG
+            builds are naturally charismatic — this gives Swagger a non-combat
+            use.
+  Flavor:   "You hold up the money where they can see it. Sometimes that's all
+             it takes."
+  Notes:    Cash cost = $25 * target enemy level (use enemy's experience_value
+            as a proxy for floor_level if no explicit level field). Faction
+            check: look for entity.faction field. Can_use validate: check
+            target's ai_state != CHASING (must be non-hostile to bribe).
+
+G-06  IMPROVISED EXPLOSIVE
+  Source:   Deep-Frying L7 activated  OR  Dismantling L5 activated
+  Target:   SINGLE_LOS (range 5)
+  Charge:   TOTAL (1-3 charges from specific item finds)
+  Stat:     Strength + Constitution
+  Mechanic: Hurl an improvised pipe bomb (or pressurized grease canister).
+            On target tile: 2-tile radius explosion. All entities in radius
+            take STR + CON damage, ignoring defense. The explosion also
+            destroys crate hazards in the blast radius (same as player bumping
+            them, but remote). Any fire hazard in radius becomes a 3x3 fire
+            for 3 turns (spread mechanic). Blast leaves scorched tiles that
+            slow movement (half energy) for 2 turns.
+  Why:      Multi-purpose ability: damage, environmental control, hazard
+            interaction. The fire-spread interaction with existing fire hazards
+            creates emergent chained explosions in Pyromania builds. Scorched
+            tiles are a new mechanic (persistent terrain modification).
+  Flavor:   "It's not complicated. It's pressure and heat and timing."
+  Notes:    Scorched tiles: add to dungeon.hazard_tiles dict (similar to fire
+            tracking). Entities on scorched tiles during their movement spend
+            +50% energy. Clear after 2 global turns. The fire-spread from
+            existing fires: check all fire hazard entities within blast radius
+            and expand their coverage area by 1 tile in all directions.
+
+G-07  CLOCK OUT (Turn Skip Gambit)
+  Source:   Jaywalking L8 activated
+  Target:   SELF
+  Charge:   /FL 1
+  Mechanic: The player deliberately "clocks out" — skips their next 3 turns
+            entirely. During those 3 skipped turns:
+            - All enemies are stunned for 1 turn each (they flinch — the
+              unexpected passivity confuses them)
+            - Player gains +8 armor for the 3-turn period
+            - After the 3 turns, the player's next action is FREE (costs 0
+              energy — representing the burst of movement after resting)
+  Why:      Counterintuitive "skip turns to gain advantage" mechanic. In a
+            roguelike where every turn costs resources and enemies are threats,
+            willingly losing turns feels bad until you understand the payoff.
+            The free action at the end is powerful. Very NetHack "prayer" in
+            feel — strange but rewarding if understood.
+  Flavor:   "You stop. They don't know what to do with that. Neither do you,
+             but you had a plan."
+  Notes:    ClockOutEffect.before_turn returns True for 3 turns (skips player
+            action). On first turn of each enemy with this active: apply stun
+            for 1 turn. Track turns remaining on the effect. On expire: grant
+            player a "free_action_pending" flag that makes the next action cost
+            0 energy.
+
+G-08  NOISE COMPLAINT
+  Source:   Item "Air Horn" or Stealing L6 activated
+  Target:   SELF (radius 6 area-of-effect on enemies)
+  Charge:   TOTAL (1-2 uses from item)
+  Mechanic: An earsplitting noise in a 6-tile radius. All enemies:
+            - Currently IDLE: immediately flee (FLEEING) for 3 turns before
+              investigating again
+            - Currently CHASING: stunned for 2 turns, then resume
+            - Currently ALERTING: interrupt their alert, reset to IDLE
+            The player is also affected: slight energy loss next turn (-30
+            energy from the disorientation).
+  Why:      Situational panic button. Best for resetting an alerted crowd
+            before they call for backup. Particularly useful against the
+            "alarm_chaser" AI type and "female_alarm" type enemies that spread
+            alerts. The player self-disorientation keeps it balanced.
+  Flavor:   "Everything stops. For two seconds. That's enough."
+  Notes:    ALERTING state reset: set ai_state back to IDLE, clear any alarm
+            propagation queued. female_alarm AI calls for help mid-tick; if
+            Noise Complaint interrupts her turn, the alarm should not go out.
+            Requires checking if alarm has already been sent this turn.
+
+G-09  MONEY SHOT
+  Source:   Stealing L7 activated  (capstone)
+  Target:   SINGLE_LOS (range 8)
+  Charge:   /FL 1
+  Stat:     Street Smarts + Swagger
+  Mechanic: Throw a fistful of cash at an enemy. Costs $50 cash. Damage =
+            $50 flat (not affected by defense — cash is dense and heavy).
+            Additionally: EVERY enemy in a 3-tile radius of the target becomes
+            IDLE for 3 turns as they scramble for the bills on the ground.
+            The scattered cash remains as a pickup item on the floor (totaling
+            $25 — you "lose" $25 permanently as the cost of the scatter).
+  Why:      Economic spell. You spend $50 to neutralize a room and deal 50
+            unavoidable damage. The $25 cash recovery on the floor means you
+            can sometimes pick it up and recoup the loss — but that requires
+            approaching the tile, which is risky. High-Swagger builds that
+            accumulate cash more easily find this less costly.
+  Flavor:   "You throw the money. Time stops. They all look. You walk away."
+  Notes:    Spawn a cash pile entity at the target tile with value=25 after
+            the ability fires. Enemies that become IDLE mid-chase: set
+            ai_state = IDLE, clear their chasing target. Reactivates after 3
+            turns via normal LOS checks.
+
+G-10  LAST MAN STANDING
+  Source:   Passive (no activation) — unlocked at CON 14 via Constitution tree
+            OR granted by a specific item
+  Target:   SELF (passive)
+  Charge:   ONCE per run (triggers automatically)
+  Mechanic: When the player's HP would drop below 5 for the first time:
+            - Damage is blocked (HP stays at 5)
+            - All enemies within 4 tiles are pushed away 2 tiles (knockback)
+              and stunned for 1 turn (the "get off me" moment)
+            - Player heals 15 HP immediately
+            - Effect triggers ONLY ONCE PER RUN (not per floor)
+            After triggering: a "Battered" debuff applies for 20 turns (-2 to
+            all stats, representing the close call).
+  Why:      Classic "cheat death" mechanic (DCSS has multiple versions of this,
+            ADOM has similar divine favor). The ONCE PER RUN restriction makes
+            it precious. Players who know they have it play slightly more
+            aggressively. The Battered debuff after ensures the save isn't a
+            free escape — you're in worse shape after.
+  Flavor:   "That should have been it. It wasn't."
+  Notes:    Engine: track a "last_man_used" flag in engine state. On damage
+            resolution: if player.hp - damage < 5 and not last_man_used:
+            block damage (set hp to 5), trigger knockback + stun on nearby
+            enemies, heal 15, set last_man_used = True. Apply Battered debuff.
+            Knockback: same logic as force_push but centered on player.
+
+--------------------------------------------------------------------------------
+SECTION H — EXPERIMENTAL / HIGH-CONCEPT
+These are weirder ideas that push NIGRL's systems in unusual directions.
+Some may be too complex for early implementation but are worth capturing.
+--------------------------------------------------------------------------------
+
+H-01  RECURSIVE BLUNT (Item ability)
+  Source:   Rolling L9 activated (near-max skill)
+  Target:   SELF
+  Charge:   TOTAL (2 uses total, gained from Rolling perk unlock)
+  Mechanic: You roll a blunt inside a blunt. When smoked, it counts as TWO
+            simultaneous joint smokes: rolls TWICE on the effect table for the
+            current strain, takes the BETTER of the two effects (not both),
+            AND also triggers the second Tolerance roll independently. The
+            Tolerance system (calc_tolerance_rolls) applies to both rolls.
+  Why:      Deep interaction with the strain/tolerance system. Max Rolling
+            investment reward: making your rolls dramatically more consistent
+            by selecting the better of two outcomes. The "takes the better"
+            rule prevents degenerate combos while still being powerful.
+  Flavor:   "It's a joint inside a joint. It's philosophical."
+  Notes:    Execute: call the normal joint-smoking logic twice (same strain).
+            Compare effect results, apply the more favorable one. "More
+            favorable" needs a comparison heuristic (e.g., higher heal%
+            wins over lower heal%; player_effect "none" loses to any
+            actual effect).
+
+H-02  IDENTITY THEFT
+  Source:   Stealing L9 activated
+  Target:   SINGLE_LOS (range 5)
+  Charge:   ONCE
+  Mechanic: Copy one enemy's entire ability kit for 20 turns. During those
+            20 turns: player gains the target's special_attacks as usable
+            abilities (added to ability list), the target's ai_type becomes
+            "passive_until_hit" (they don't know who to be anymore), and the
+            player gains the target's base stat modifications (their bonus
+            stats above the floor minimum).
+  Why:      Transformative one-time ability — you become the enemy for a fight.
+            The permadeath stakes make ONCE abilities that dramatically change
+            the character feel meaningful. Extraordinary risk/reward.
+  Flavor:   "You look them in the eye. They look back. You take everything."
+  Notes:    This requires iterating the enemy's special_attacks list and
+            converting them to AbilityDef entries temporarily. Complex to
+            implement cleanly but architecturally consistent with data-driven
+            enemy definitions in enemies.py. The ability_id could be a dynamic
+            "stolen_{enemy_type}_{attack_name}" key.
+
+H-03  MARKET CRASH
+  Source:   Abandoning L5 activated  (letting go of material things)
+  Target:   SELF
+  Charge:   ONCE
+  Mechanic: Sacrifice ALL your cash permanently ($0 remaining). For every $10
+            sacrificed: permanently gain +0.5% critical hit chance (rounded to
+            nearest 0.5%). Additionally: for the rest of the run, all items
+            on every floor have a 15% chance to be "discarded" (free —
+            the merchants and looters gave up too).
+  Why:      Economy-to-power conversion at maximum commitment. Players who
+            hoarded cash the whole run sacrifice it for permanent power.
+            Very risky because cash is also defense (buying items). The 15%
+            free item rate is the secondary benefit that compounds over time.
+            Thematic: Abandoning means letting go of everything.
+  Flavor:   "It was never real. None of it. You knew that."
+  Notes:    Permanent crit change: modify player_stats.crit_modifier (add
+            a permanent_crit_bonus float field). The "15% items free" would
+            need a flag checked in loot presentation. Significant UI work
+            but the flag is simple.
+
+H-04  CHAIN REACTION
+  Source:   Chemical Warfare L7 activated
+  Target:   SINGLE_LOS (range 6) — initial target
+  Charge:   /FL 1
+  Stat:     Book Smarts + Tolerance
+  Mechanic: Inject a catalytic compound into one enemy. That enemy becomes
+            "volatile" for 5 turns. If the volatile enemy takes ANY damage
+            during those 5 turns:
+            - They immediately explode: 3-tile radius blast, BKS + TOL damage,
+              applies 50 toxicity to all enemies in range
+            - The explosion can trigger ANOTHER enemy's volatility if multiple
+              were set simultaneously (chain reaction — 1 follow-on explosion)
+            If the volatile enemy dies without taking damage (somehow), no
+            explosion — they just die normally.
+  Why:      Delayed trigger mechanic requires patience. Do you wait for enemies
+            to cluster? Do you kite the volatile enemy into a group? The
+            chain-reaction property rewards multi-target setup. Risk: you might
+            accidentally trigger it yourself with an AoE ability.
+  Flavor:   "You don't make the explosion. You create the conditions for the
+             explosion. There's a difference in liability."
+  Notes:    VolatileEffect: on any damage event (modify_incoming_damage hook —
+            but this one needs to RESPOND to damage, not modify it), trigger
+            the explosion. Track via engine.volatile_entities set. On damage
+            to entity in volatile_entities: run the explosion function. The
+            chain: check if any OTHER entity in blast radius is also volatile;
+            if yes, trigger that explosion after a 1-turn delay (or immediately
+            — simpler).
+
+--------------------------------------------------------------------------------
+IMPLEMENTATION PRIORITY GUIDE
+--------------------------------------------------------------------------------
+
+TIER 1 — Fills immediate design gaps, low implementation complexity:
+  A-01 Liquid Courage  (Drinking L4 — tree currently has no L4)
+  A-02 Hair of the Dog  (Alcoholism L4 — tree currently stops at L3)
+  B-01 Gas Attack  (Munching L4 — tree stops at L3)
+  C-01 Phat Cloud Active Variant  (fills the TBD passive slot)
+  C-03 Smoke Screen  (Rolling L4 — fills the TBD L4 slot)
+  D-01 Mind Bullets  (Blackkk Magic L3 — tree only has L2 ability)
+  E-01 Switchblade Twirl  (Stabbing L4 alternative)
+  E-02 Cheap Shot  (Stealing L3 — after Pickpocket)
+
+TIER 2 — More interesting mechanically, moderate implementation:
+  A-04 Corkscrew  (bouncing projectile — new movement pattern)
+  B-02 Deep-Fried Fireball  (Deep-Frying L4 with fire hazard placement)
+  C-06 Slow Burn  (scaling DoT — new effect pattern)
+  D-02 Curse of Bad Luck  (miss chance + loot bonus)
+  D-05 Forgotten Name  (AI state mass reset)
+  E-03 Chain Snatch  (disarm mechanic)
+  E-05 Ankle Breaker  (new slow debuff + free step)
+  G-01 Dumpster Dive  (environmental interaction)
+  G-03 Call Out Taunt  (controlled aggro)
+  G-09 Money Shot  (economic AOE)
+
+TIER 3 — Complex, high design value, later implementation:
+  A-05 Blackout  (ONCE death-prevention)
+  B-03 Iron Gut  (tox-to-heal conversion hook)
+  C-04 Spiritual Transcendence  (phasing mechanic)
+  D-04 Voodoo Doll  (tether mechanic)
+  D-07 Psychic Scream  (mass fear AOE)
+  F-02 Meltdown  (rad-to-damage conversion, zone 2)
+  G-10 Last Man Standing  (cheat death passive)
+  H-04 Chain Reaction  (volatile trigger chaining)
+
+TIER 4 — High-concept, low priority, worth preserving as seeds:
+  C-02 Contact High Active  (strain inversion system)
+  D-07 Identity Theft  (enemy kit copy)
+  H-01 Recursive Blunt  (double-roll strain)
+  H-03 Market Crash  (cash sacrifice for permanent buffs)
+
+--------------------------------------------------------------------------------
+NEW EFFECT IDS INTRODUCED IN THIS DOCUMENT
+--------------------------------------------------------------------------------
+(All would be added as Effect subclasses in effects.py)
+
+  liquid_courage       — melee boost + defense + retreat block
+  decon_shell          — tox resistance + multiplier immunity, fractures on expire
+  iron_gut             — CON DR + tox immunity + tox-to-heal conversion
+  calorie_surge        — speed + damage, followed by CON crash
+  dutch_courage        — damage reflection cloud
+  slow_burn            — scaling DoT, ramp resets on reapply
+  phat_cloud_zone      — smoke zone causing confusion per-turn
+  phased               — melee bypass (immunity to and immunity from)
+  cursed               — 30% miss chance + loot flag on death
+  psychic_daze         — restricts diagonal movement
+  death_mark           — bonus damage to marked target + death explosion
+  prone                — cannot move or attack for duration
+  crippled             — half movement speed + damage per step
+  nausea               — -40% energy gain, minor attack penalty
+  voodoo_tether        — links two entities for damage sharing
+  volatile             — explodes on taking any damage
+  battered             — -2 all stats post-Last Man Standing
+  blinded_enemy        — halves enemy sight_radius
+
+--------------------------------------------------------------------------------
+NEW LIFECYLE HOOKS NEEDED IN effects.py Base Class
+(beyond the currently existing ones)
+--------------------------------------------------------------------------------
+  modify_tox_gain(entity, engine, amount, source) -> int
+    (already noted in memory for zone 2 design, needed here too)
+
+  on_enemy_killed_by_player(entity, engine, killed_entity) -> None
+    (for Curse of Bad Luck's loot bonus on kill, Death Mark explosion)
+
+  modify_player_cash_gain(entity, engine, amount) -> int
+    (future use for economy-affecting effects)
+
+  on_player_takes_damage(entity, engine, attacker, damage) -> None
+    (for Dutch Courage retaliation, Voodoo Doll tether response)
+
+================================================================================
+END OF COMPENDIUM — 45 abilities across 8 sections
+Generated for NIGRL design reference. All abilities designed to be implementable
+within the existing AbilityDef / ChargeType / TargetType / effects.py framework.
+================================================================================

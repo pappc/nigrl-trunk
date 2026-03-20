@@ -1,0 +1,1410 @@
+================================================================================
+NIGRL SPELL / ABILITY COMPENDIUM — SUPPLEMENT I
+Classic D&D & Roguelike Spells Re-Skinned for the Urban Setting
+================================================================================
+
+This supplement adds 35 spell and ability designs derived from the absolute
+classics of Dungeons & Dragons and traditional roguelikes (NetHack, Dungeon
+Crawl Stone Soup, Brogue, ADOM, ToME, Angband). Each entry is re-skinned
+through NIGRL's urban/street lens with an appropriate NIGRL name, followed by
+the classic inspiration in parentheses.
+
+None of these duplicate abilities already in the registry or in Sections A-H:
+  Registry: warp, dimension_door, chain_lightning, ray_of_frost, firebolt,
+  arcane_missile, breath_fire, zap, corn_dog, lesser_cloudkill, pry,
+  throw_bottle, bash, black_eye_slap, gouge, pickpocket, force_push,
+  fry_shot, place_fire, dash, ignite_spell, quick_eat, double_tap, spray,
+  burst, spray_and_pray, slow_metabolism, pandemic, radiation_nova
+
+  Sections A-H ideas also avoided: liquid_courage, hair_of_dog, spiked_punch,
+  corkscrew, blackout, last_call, gas_attack, deep_fried_fireball, iron_gut,
+  corn_dog_judgment, caloric_surge, enzyme_bomb, phat_cloud_active,
+  contact_high, smoke_screen, spiritual_transcendence, dutch_courage_cloud,
+  slow_burn, roach_resurrection, mind_bullets, curse_of_bad_luck,
+  spirit_steal, voodoo_doll, forgotten_name, death_mark, psychic_scream,
+  switchblade_twirl, cheap_shot, chain_snatch, ground_pound, ankle_breaker,
+  blitz, exhume, reap, hazmat_protocol, meltdown, chemical_cocktail,
+  purity_shield, static_discharge, dumpster_dive, jury_rig, call_out,
+  dead_sprint, barter, improvised_explosive, clock_out, noise_complaint,
+  money_shot, last_man_standing, recursive_blunt, identity_theft,
+  market_crash, chain_reaction
+
+--------------------------------------------------------------------------------
+NOTATION
+--------------------------------------------------------------------------------
+  TARGET:  SELF | ADJACENT | ADJ_TILE | SINGLE_LOS | LINE | AOE_CIRCLE
+  CHARGE:  INF (infinite, cooldown-gated) | /FL (per floor) | TOTAL (permanent
+           uses) | ONCE | FL_ONLY (per floor, not saved on descent)
+  CLASSIC: the D&D spell or roguelike ability this is based on
+  SOURCE:  which skill tree, perk level, or item grants this ability
+  STAT:    which player stat scales the damage/effect
+
+--------------------------------------------------------------------------------
+SECTION I — CLASSIC D&D & ROGUELIKE SPELLS
+Sub-categories: I-A Movement & Escape, I-B Battlefield Control,
+  I-C Direct Damage, I-D Summoning & Allies, I-E Detection & Knowledge,
+  I-F Buffs & Self-Enhancement, I-G Debuffs & Monster Control,
+  I-H Terrain & Environmental Manipulation
+--------------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+I-A  MOVEMENT & ESCAPE
+Classic originals: Blink, Misty Step, Phase Door, Dimension Door (short),
+  Etherealness, Teleport Other, Word of Recall
+------------------------------------------------------------------------
+
+I-A-01  DIP OUT
+  Classic:  Blink / Misty Step (D&D 5e) / Phase Door (NetHack/ADOM)
+  NIGRL Name: "Dip Out" — you step sideways out of reality for one moment
+  Source:   Blackkk Magic L2 activated  OR  item "Burner Phone" (one-time use)
+            (replaces or precedes dimension_door as a shorter-range version)
+  Target:   SELF
+  Charge:   INF (cooldown 6 turns)
+  Stat:     Street Smarts
+  Mechanic: Instantly teleport to a random open tile within Chebyshev(4) of
+            the player. Unlike Warp (full-map random), Dip Out is SHORT range:
+            roll all open non-monster tiles within 4, pick one randomly. If
+            no valid tile exists within 4, extend to 6. If still nothing:
+            ability fails silently (refund the charge).
+            The short range is the key distinction from Warp — it's an
+            escape tool for "I need to not be HERE" rather than "I need to
+            be somewhere entirely different." Very useful in corridors.
+  Why:      Phase Door / Blink is a classic roguelike escape valve. The
+            short range means enemies may stay in LOS; you haven't fully
+            escaped, just repositioned. Rewards spatial awareness: do you
+            know what's within 4 tiles that's safe to land on?
+  Flavor:   "You blink. You're not there. You're over there now. That's the
+             difference between you and most people."
+  Notes:    Distinct from warp: warp is "escape anywhere on floor," Dip Out
+            is "panic reposition." Candidates list: all open tiles (not wall,
+            not blocked by living monster) with max(|dx|,|dy|) <= 4.
+            Pick random. If player lands on item, pick it up (same as warp).
+            ability_id: "dip_out"
+
+I-A-02  SMOKE AND MIRRORS (Teleport Other)
+  Classic:  Teleport Other (NetHack, DCSS Blink Other)
+  NIGRL Name: "Smoke and Mirrors"
+  Source:   Blackkk Magic L6 activated  OR  Stealing L7 activated
+  Target:   SINGLE_LOS (range 8)
+  Charge:   /FL 2
+  Stat:     Book Smarts + Street Smarts
+  Mechanic: Force an enemy to teleport to a random location on the current
+            floor. The destination is selected the same way as Warp (any open
+            non-monster tile). The target keeps their current AI state —
+            if they were CHASING, they resume CHASING from the new position
+            and may not be visible from it. This is a pure positional tool:
+            send a dangerous enemy to the other side of the floor.
+            Cannot target enemies that are ADJACENT (range minimum 2).
+  Why:      Teleport Other is a beloved classic (NetHack's wand of
+            teleportation, DCSS's Dispersal) because removing a specific
+            threat from the immediate area feels powerful. The AI-state
+            preservation means you've delayed the enemy, not eliminated them.
+            They will return. High-intelligence play: teleport a heavy hitter
+            before they reach melee range.
+  Flavor:   "You reach out, grab them by the concept of their location, and
+             move it somewhere else. They'll figure out where they are
+             eventually."
+  Notes:    Use same candidate-selection logic as _execute_warp but applied to
+            the target entity (dungeon.move_entity(target, tx, ty)).
+            Update target's position; AI pathfinding will recalculate next turn.
+            Minimum range 2 (validate: Chebyshev(target) >= 2).
+            ability_id: "smoke_and_mirrors"
+
+I-A-03  BOUNCE (Word of Recall / Recall)
+  Classic:  Word of Recall (ADOM) / Recall Town Portal (ToME)
+  NIGRL Name: "Bounce" — street slang for leaving fast
+  Source:   Item "Bus Pass" (single-use consumable, rare) OR Abandoning L8
+  Target:   SELF
+  Charge:   ONCE (per item) or /FL 1 (via Abandoning perk)
+  Stat:     None (flat utility)
+  Mechanic: Instantly transport the player to the ENTRANCE STAIRS of the
+            current floor (the tile the player arrived from). Does not change
+            the floor — this is NOT stair descent. It's a "get back to the
+            start of this floor" tool.
+            Use cases: you've gone too deep into a dangerous room and need out
+            fast; you want to lure enemies to the entrance from a known safe
+            position; you dropped something at the start.
+            In NIGRL context: this is crossing back to the crack in the
+            doorframe you came in from.
+  Why:      Word of Recall is a staple utility (ADOM especially) — the ability
+            to bail to the entrance of the current area when things go wrong
+            is powerful risk management without being overpowered (you're still
+            on the same floor with the same enemies, just repositioned).
+  Flavor:   "Back to the door. Fast. You can figure out the rest from there."
+  Notes:    Engine needs to track entrance_pos (the stair entity the player
+            descended from). Teleport player to that tile. FOV recompute.
+            If entrance tile is blocked by a monster: find nearest open tile
+            within 2 of entrance. ability_id: "bounce"
+
+I-A-04  GHOST WALK (Etherealness / Gaseous Form short)
+  Classic:  Gaseous Form (D&D) / Etherealness (D&D) / Passwall short (NetHack)
+  NIGRL Name: "Ghost Walk"
+  Source:   Smoking L7 activated  OR  item "Wet Backwood" (unusual food/smoke hybrid)
+  Target:   SELF
+  Charge:   /FL 1
+  Stat:     Tolerance
+  Mechanic: For TOL/3 turns (minimum 3, maximum 10): player becomes intangible.
+            While intangible:
+            - Player can move through wall tiles (as if they were floor)
+            - Enemies cannot melee-target the player (they swing at air)
+            - Player cannot attack or use targeted abilities (SELF abilities only)
+            - Player is invisible to enemies beyond 1 tile (they lose chase)
+            On expiry: player materializes. If they are inside a wall tile when
+            Ghost Walk expires: they take CON damage equal to tiles-they're-
+            embedded-in * 5 and are pushed to the nearest open tile.
+            The wall-damage-on-expiry is the risk management challenge.
+  Why:      Passwall / Etherealness is a beloved utility in almost every classic
+            roguelike. The NIGRL version trades full safety for TOL-limited
+            duration and the wall-expiry risk. Smart players use it to cross
+            a wall, not stay IN a wall. Tolerance-scaling means tanky builds
+            get longer windows.
+  Flavor:   "You stop being where you are. You move through the wall.
+             You have limited time to be somewhere else before you're solid again."
+  Notes:    IntangibleEffect: override dungeon.is_terrain_blocked check for player
+            (or add an engine flag engine.player_intangible). In do_ai_turn:
+            enemies beyond 1 tile set to WANDERING (lose chase). On expire:
+            check player tile; if is_wall: find nearest open tile via BFS (1-step
+            flood), move player there, apply (wall_depth * 5) damage.
+            ability_id: "ghost_walk"
+
+------------------------------------------------------------------------
+I-B  BATTLEFIELD CONTROL
+Classic originals: Web, Grease, Thunderwave, Shatter, Silence, Darkness,
+  Entangle, Wall of Force, Forcecage, Reverse Gravity
+------------------------------------------------------------------------
+
+I-B-01  THROW THE NETS (Web)
+  Classic:  Web (D&D 5e) / Entangle / Spider Webs (NetHack)
+  NIGRL Name: "Throw the Nets" — casting fishing nets, chicken wire, whatever
+             you can get your hands on
+  Source:   Beating L5 activated  OR  item "Chicken Wire Roll" (2 uses)
+  Target:   AOE_CIRCLE (radius 2, centered on target tile, range 6)
+  Charge:   /FL 2
+  Stat:     Strength
+  Mechanic: Hurl a tangle of wire/net/rope at a target area. All enemies within
+            radius 2 of the impact point gain "Netted" debuff for STR/3 turns
+            (minimum 3 turns):
+            - Movement cost doubled (they struggle through the net)
+            - 30% chance each turn their action is wasted as they try to free
+              themselves (before_turn returns True on 30% roll)
+            - On taking melee damage while netted: net is destroyed (debuff
+              expires instantly — cut free by the impact)
+            The net does not affect the player if they enter the area.
+  Why:      Web is a D&D classic and an excellent control spell because it
+            creates a persistent zone AND hits multiple targets. The "cut free
+            on melee" tradeoff gives players a choice: kite the netted enemies
+            from range (keep them tangled) or press in melee (cut them free but
+            deal damage). Classic emergent decision.
+  Flavor:   "You don't have a spell. You have thirty feet of chicken wire and
+             a strong arm. Works out about the same."
+  Notes:    NettedEffect: modify_energy_gain * 0.5 (halved speed). before_turn:
+            30% return True. modify_incoming_damage override: check if source is
+            melee (player melee), then expire self immediately. Radius preview
+            via get_affected_tiles. ability_id: "throw_the_nets"
+
+I-B-02  WAKE UP CALL (Thunderwave)
+  Classic:  Thunderwave (D&D 5e) / Force Pulse (various)
+  NIGRL Name: "Wake Up Call" — a concussive blast that sends people flying
+  Source:   Blackkk Magic L4 activated  OR  Beating L3 activated
+  Target:   SELF (affects all adjacent — Chebyshev 1)
+  Charge:   INF (cooldown 12 turns)
+  Stat:     Strength + Book Smarts
+  Mechanic: An explosion of force/sound/psychic energy bursts outward from the
+            player. ALL entities adjacent (Chebyshev 1, all 8 directions) are
+            hit simultaneously:
+            - Damage: max(1, STR + BKS/3 - defense)
+            - Knockback: each target is pushed 2 tiles directly away from the
+              player (cardinal/diagonal based on relative position). If they
+              hit a wall during knockback, they take 1 bonus damage and stop.
+            - The player takes no damage but uses their turn.
+            Unlike force_push (single target), Wake Up Call affects ALL adjacent
+            simultaneously. Very strong for escaping being surrounded.
+  Why:      Thunderwave is a quintessential D&D spell for escape from melee.
+            In NIGRL's tight corridors this would be extremely powerful —
+            balanced by the cooldown. Distinct from force_push (which is single-
+            target ranged); this is melee-range panic AOE.
+  Flavor:   "You don't push one person. You push the whole crowd. Same energy,
+             eight directions."
+  Notes:    Execute iterates all 8 adjacent tiles, collects monsters, applies
+            damage + knockback simultaneously. Knockback logic: same as force_push
+            direction calculation but applied to each target's relative direction
+            from player. Wall-stop: dungeon.is_terrain_blocked check per step.
+            ability_id: "wake_up_call"
+
+I-B-03  LIGHTS OUT (Darkness / Silence)
+  Classic:  Darkness (D&D 5e) / Silence (D&D 5e) / Dark (NetHach Blindness scroll)
+  NIGRL Name: "Lights Out" — kill the lights in a whole area
+  Source:   Stealing L5 activated  OR  item "Busted Fuse Box" (interact)
+  Target:   AOE_CIRCLE (radius 4, centered on target tile, range 6)
+  Charge:   /FL 2
+  Stat:     Street Smarts
+  Mechanic: Plunge an area into darkness. For 8 turns, any enemy whose tile is
+            inside the radius 4 zone treats their sight_radius as 1 (they can
+            only "see" 1 tile regardless of their actual sight_radius).
+            The player is NOT affected by Lights Out — they navigate in darkness
+            by touch, street instinct, or phone flashlight. The player's FOV
+            remains normal.
+            Enemies already chasing the player WITHIN the zone immediately lose
+            chase (sight lost). Enemies outside the zone are unaffected.
+  Why:      Darkness is a classic ambush/control spell. In a LOS-based AI game
+            like NIGRL, reducing enemy sight to 1 is extremely powerful because
+            they can functionally only react to the player if adjacent. Perfect
+            setup for Stealing or ambush-style play. The asymmetric effect
+            (player immune) makes it feel powerful without being unfair to the
+            player.
+  Flavor:   "You kill the lights. They're not built for the dark the way you
+             are. They panic. You don't."
+  Notes:    DarknessEffect on enemy: override sight_radius check in ai.py —
+            if entity has darknessed flag, cap effective sight_radius at 1.
+            Apply to all monsters currently inside the radius at cast time AND
+            to enemies who enter the zone later (check each turn).
+            Simplest: apply "blinded" or a new DarknessEffect to each entity
+            in range on cast, duration 8. Recalculate for entities entering
+            mid-effect by checking per-tick in ai prepare step.
+            ability_id: "lights_out"
+
+I-B-04  SPEED BUMP (Grease / Slow Zone)
+  Classic:  Grease (D&D 5e) / Entangle terrain / Slow terrain (various)
+  NIGRL Name: "Speed Bump" — spill something slippery across the floor
+  Source:   Deep-Frying L3 activated  (early tree access to grease mechanic)
+            OR item "Bucket of Fryer Oil"
+  Target:   AOE_CIRCLE (radius 2, centered on target tile, range 5)
+  Charge:   /FL 3
+  Stat:     None (flat utility; Constitution increases duration by 1 turn per
+            4 CON above 8)
+  Mechanic: Spill a massive quantity of oil/grease/slick substance on a tile
+            cluster. For 10 turns, all tiles within radius 2 of the target
+            are "slicked." Any enemy entering or standing on a slicked tile:
+            - Movement energy cost increases by 50% (slower to walk through)
+            - 25% chance to "slip" and waste their turn (stumble, fall, recover)
+            The player can walk through slicked tiles without penalty (you
+            know where you put it). Enemies that FALL (25% slip) take 1 point
+            of damage from the fall.
+  Why:      Grease is one of D&D's most beloved low-level utility spells because
+            it's cheap, flexible, and creates emergent zone-control situations.
+            In NIGRL's corridor-heavy dungeon: place it in a doorway, stand on
+            the far side, and watch enemies struggle through it. Pairs with
+            ranged abilities to create a kill zone.
+  Flavor:   "You dump the fryer grease in the hallway. They come in fast.
+             They don't go anywhere fast."
+  Notes:    SlickedEffect on tile: use dungeon hazard tile tracking (like
+            scorched tiles from G-06 in main compendium). Enemy step onto
+            slicked: apply SlippedEffect (1% turn waste check) OR handle
+            inline in ai.py move step. Player immune flag: engine._player_
+            immune_to_slick while ability is active (or just exclude player
+            entity from the check). ability_id: "speed_bump"
+
+I-B-05  HOLD IT RIGHT THERE (Hold Person/Monster)
+  Classic:  Hold Person (D&D) / Hold Monster (D&D) / Paralyze (ADOM/NetHach)
+  NIGRL Name: "Hold It Right There" — freeze an enemy on the spot
+  Source:   Blackkk Magic L3 activated (alternative slot, or additional ability)
+            OR item "Taser" (single-use, non-magic flavor)
+  Target:   SINGLE_LOS (range 6)
+  Charge:   /FL 3
+  Stat:     Book Smarts
+  Mechanic: Lock one enemy in place. The target is Paralyzed for BKS/4 turns
+            (minimum 2, maximum 6): they cannot move OR attack. They stand
+            completely still. The paralysis breaks immediately on taking damage
+            (first hit frees them). Every turn they're paralyzed, they lose
+            1 HP from strain (very low — this is not a damage spell).
+            Large/boss enemies (those with base_hp > 40) get half duration.
+  Why:      Hold Person is one of D&D's most strategically powerful spells
+            because paralysis completely negates a target. The "breaks on
+            damage" rule prevents cheesy kill-while-held exploitation while
+            still allowing exactly ONE hit before they wake up. Classic
+            roguelike design tension: you can paralyze, but you must choose
+            whether to attack and lose the hold OR keep them frozen while you
+            handle other threats.
+  Flavor:   "They stop. You didn't use words. You used something older than words.
+             They'll move again when you let them."
+  Notes:    ParalyzeEffect: before_turn returns True (skip action). Blocks
+            movement (modify_energy_gain returns 0 — can't even move into action).
+            modify_incoming_damage: if damage > 0, expire self immediately (first
+            hit breaks hold). The 1 HP/turn drain: simple tick damage.
+            Boss check: entity.base_hp > 40 (tunable).
+            ability_id: "hold_it"
+
+I-B-06  SHUT UP (Silence)
+  Classic:  Silence (D&D 5e) / Deafen / Bell of Oloiëa (ToME)
+  NIGRL Name: "Shut Up" — suppress all alarm calls in an area
+  Source:   Stealing L4 activated  (thief silence is thematically classic)
+  Target:   AOE_CIRCLE (radius 3, centered on player)
+  Charge:   /FL 2
+  Stat:     Street Smarts
+  Mechanic: Apply a zone of enforced silence around the player for 6 turns.
+            While Silenced Zone is active:
+            - No enemy within radius 3 can "call for help" — the alarm_chaser
+              AI type cannot ALERT, female_alarm AI cannot broadcast, and
+              enemies cannot chain-alert to off-screen allies.
+            - ALERTING enemies within the radius have their alert cancelled.
+            The player can still make noise (run, fight). This specifically
+            suppresses the communication/alarm AI behaviors, not the enemies
+            themselves. They can still attack normally.
+  Why:      Silence is a beloved utility in games with group enemies and alarm
+            mechanics. In NIGRL with alarm_chaser and female_alarm AI types,
+            preventing alert-cascades is enormously valuable for managing large
+            encounters. Thematically perfect for a Stealing tree — the ultimate
+            pickpocket creates absolute quiet.
+  Flavor:   "You shut them all up. Whatever they were about to say, it doesn't
+             happen. The room stays quiet. You prefer it that way."
+  Notes:    SilenceZoneEffect on player: check during ai.py alert/alarm transitions
+            — if player has silence_zone effect active AND enemy is within radius 3
+            of player, block the alert action. Simple flag check in prepare_ai_tick.
+            ability_id: "shut_up"
+
+------------------------------------------------------------------------
+I-C  DIRECT DAMAGE
+Classic originals: Magic Missile, Shatter, Sacred Flame, Toll the Dead,
+  Inflict Wounds, Disintegrate, Dissonant Whispers, Spiritual Weapon,
+  Chromatic Orb, Ice Storm, Cone of Cold, Burning Hands, Shocking Grasp
+------------------------------------------------------------------------
+
+I-C-01  POP POP POP (Magic Missile)
+  Classic:  Magic Missile (D&D) — the iconic never-misses force bolt
+  NIGRL Name: "Pop Pop Pop" — three quick shots of raw street magic
+  Source:   Blackkk Magic L1 activated  (entry-level spell, basic damage)
+            OR item "Wizard Weed" use effect variant
+  Target:   SINGLE_LOS (range 10)
+  Charge:   INF (cooldown 5 turns)
+  Stat:     Book Smarts
+  Mechanic: Fire 3 bolts of arcane energy at one target. Each bolt deals
+            BKS/4 damage (rounded up, minimum 1 per bolt), IGNORING defense.
+            Total guaranteed damage: 3 * ceil(BKS/4). No targeting variance,
+            no defense, no miss — always hits.
+            At BKS 8 (moderate): 3 * 2 = 6 damage, bypassing defense.
+            At BKS 12 (high): 3 * 3 = 9 damage.
+            The spell's value is reliability against high-defense enemies.
+  Why:      Magic Missile's "always hits, ignores armor" is its identity.
+            In NIGRL, where defense can negate a lot of low-power attacks,
+            having guaranteed minimum damage is valuable. Low scaling keeps
+            it competitive at all levels but never dominant. Classic entry-
+            level spell that stays useful across the whole run.
+  Flavor:   "Three. Fast. You don't aim. You send. There's a difference."
+  Notes:    Execute: deal ceil(BKS/4) damage three times to target, no defense
+            check each time (unlike normal max(1, power-defense) formula, this
+            calls damage directly without subtraction). Mark is_spell=True.
+            ability_id: "pop_pop_pop"
+
+I-C-02  WHAT YOU SAID (Dissonant Whispers / Word of Pain)
+  Classic:  Dissonant Whispers (D&D 5e) / Word of Pain
+  NIGRL Name: "What You Said" — psychic shock from confronting someone with
+             the worst thing they've ever heard
+  Source:   Blackkk Magic L5 activated
+  Target:   SINGLE_LOS (range 8)
+  Charge:   /FL 3
+  Stat:     Book Smarts + Street Smarts
+  Mechanic: A targeted psychic assault that replays the target's own darkest
+            memories at them. Three effects simultaneously:
+            - Deals BKS + STS/2 psychic damage (ignores defense)
+            - Forces the target into FLEEING AI state for 4 turns
+              (they must move away from the player each turn)
+            - While fleeing from this ability: target provokes an opportunity
+              attack from the player (the player immediately gets one free melee
+              attack against the retreating enemy right now, before they move)
+            The opportunity attack uses normal melee damage formula.
+  Why:      Dissonant Whispers' D&D mechanic (run away + opportunity attack)
+            is brilliant because the opportunity attack turns the enemy's retreat
+            into extra damage. In NIGRL's turn structure this is implemented as
+            an immediate free attack before the flee begins. Strong against
+            single powerful enemies.
+  Flavor:   "You say the one thing. They react the way people react to that one
+             thing. You take advantage."
+  Notes:    Execute: apply FLEEING to target, then immediately execute one
+            player melee attack against them via engine._player_attack(target).
+            The free attack fires in the same turn as the spell, before the
+            enemy acts. If the attack kills them: they die, no fleeing needed.
+            ability_id: "what_you_said"
+
+I-C-03  TOLL THE BLOCK (Toll the Dead)
+  Classic:  Toll the Dead (D&D 5e) — scales based on target's wounds
+  NIGRL Name: "Toll the Block" — ring the bell on whoever's already hurt
+  Source:   Negromancy L4 activated  (thematically about death closing in)
+  Target:   SINGLE_LOS (range 8)
+  Charge:   INF (cooldown 8 turns)
+  Stat:     Book Smarts
+  Mechanic: Wound-scaling damage spell. Damage depends on target's HP percentage:
+            - Target at 100% HP: deals BKS/3 damage (weak — they're fine)
+            - Target at 50-99% HP: deals BKS/2 damage (moderate)
+            - Target below 50% HP: deals BKS damage (full — they're close)
+            - Target below 25% HP: deals BKS * 1.5 damage (brutal — the bell
+              tolls loud when the end is near)
+            All damage bypasses defense (necrotic in nature, seeping in).
+            No soul shard interaction (purely damage, not shard-gated).
+  Why:      Toll the Dead's wound-scaling mechanic is elegant because it
+            transforms the decision of when to cast into a tension: do you open
+            with it (weak) or save it for the kill (stronger)? In NIGRL's
+            Negromancy tree this occupies a different niche from Reap (which
+            costs soul shards) — Toll is the reliable damage-at-range option.
+  Flavor:   "You hear it before they do. The bell. It gets louder the closer
+             they get to the edge. Right now it's almost deafening."
+  Notes:    Execute: calculate target.hp / target.max_hp ratio. Apply the
+            appropriate multiplier. Bypass defense (apply to HP directly,
+            or use a defense=0 override in the damage call). Mark is_spell=True.
+            ability_id: "toll_the_block"
+
+I-C-04  IN YOUR WALLS (Inflict Wounds / Close-Range Necrotic)
+  Classic:  Inflict Wounds (D&D 5e) — massive close-range necrotic damage
+  NIGRL Name: "In Your Walls" — reach inside them and hurt them from within
+  Source:   Negromancy L3 activated (adjacent-range alternative to Reap)
+            (Reap is ranged and shard-gated; this is adjacent but shard-free)
+  Target:   ADJACENT
+  Charge:   INF (cooldown 10 turns)
+  Stat:     Book Smarts + Constitution
+  Mechanic: A brutal close-range necrotic touch attack. Reach out and touch
+            an adjacent enemy. Deals BKS + CON damage, IGNORING defense
+            completely. This is the highest single-hit raw damage available to
+            early Negromancy builds, but requires being adjacent (melee range).
+            Additionally: gain 1 soul shard on hit (regardless of whether it
+            kills — the necrotic contact harvests energy). Does NOT require
+            existing soul shards to use.
+  Why:      Inflict Wounds in D&D is the high-risk high-reward close-range
+            alternative to safer ranged spells. In NIGRL's Negromancy tree,
+            In Your Walls fills the "close damage without shard cost" role
+            while feeding the shard economy. Creates a pull toward melee for
+            caster builds that's uncomfortable but rewarding.
+  Flavor:   "You put your hand on them. Just your hand. What happens next
+             isn't something they can explain later."
+  Notes:    Execute ADJACENT: after target selection, deal BKS + CON damage
+            (no defense reduction — call engine._deal_damage_direct or similar
+            with defense=0 override). Then engine.soul_shards += 1.
+            Mark is_spell=True. ability_id: "in_your_walls"
+
+I-C-05  STRUCTURAL DAMAGE (Shatter)
+  Classic:  Shatter (D&D 5e) — AOE sonic/thunder, destroys brittle objects
+  NIGRL Name: "Structural Damage" — a wave that breaks everything fragile
+  Source:   Blackkk Magic L6 activated  OR  Beating L6 activated
+  Target:   AOE_CIRCLE (radius 2, centered on target tile, range 6)
+  Charge:   /FL 2
+  Stat:     Strength + Book Smarts
+  Mechanic: A concussive shockwave at a target point. All enemies in radius 2:
+            - Take max(1, STR + BKS/4 - defense) damage
+            - Are Stunned for 1 turn (the blast is disorienting)
+            Additional environmental effect: ALL crate hazard entities within
+            the blast radius are immediately destroyed (same as player bumping
+            them), dropping their loot. Fire hazard entities in radius expand
+            by 1 tile in all directions for 2 turns (heat disrupted).
+            The environmental destruction is the distinguishing feature —
+            this is also a loot-access and hazard-manipulation tool.
+  Why:      Shatter's ability to destroy objects is what makes it interesting
+            in D&D. In NIGRL, destroying crates remotely at range is a
+            meaningful utility — you can clear loot from across a room without
+            approaching. AOE stun keeps enemies off you while you loot.
+  Flavor:   "You collapse the whole thing at once. Whatever was in those crates
+             is on the floor now. It can wait."
+  Notes:    Execute: AOE circle damage + stun loop. Then iterate all entities in
+            radius: if entity.hazard_type == "crate": engine._smash_crate(entity).
+            If entity.hazard_type == "fire": expand fire zone by 1 radius for 2
+            turns (add extension to fire entity's effective_radius field or just
+            place additional fire entities). ability_id: "structural_damage"
+
+I-C-06  SPIRIT SHOT (Spiritual Weapon)
+  Classic:  Spiritual Weapon (D&D 5e) — summoned weapon that attacks each turn
+  NIGRL Name: "Spirit Shot" — a ghost gun that shoots on its own for several turns
+  Source:   Negromancy L5 activated (alternative to Raise Dead capstone)
+  Target:   SINGLE_LOS (initial target, range 8)
+  Charge:   /FL 1
+  Stat:     Book Smarts + Street Smarts
+  Mechanic: Summon a spectral firearm that floats beside the player. It lasts
+            8 turns. Each turn at the END of the player's turn (after the player
+            acts): the spirit shot automatically fires at the nearest visible
+            enemy for BKS/2 damage (ignores defense). The player does not
+            spend their action for this — it's a free extra attack per turn.
+            The spirit shot disappears if the player descends a floor.
+            If no enemies are visible: spirit shot idles (no wasted charge).
+  Why:      Spiritual Weapon's persistent bonus-attack mechanic is one of D&D's
+            most beloved support spells because it acts on its own without costing
+            spell slots each turn. In NIGRL it adds consistent pressure while
+            allowing the player to focus on other actions. Distinct from
+            soul shards (passive resource) — this is an active summon.
+  Flavor:   "It's not a real gun. It looks like one though. It sounds like one.
+             As far as your enemies are concerned, it IS one."
+  Notes:    Engine tracks spirit_shot_turns: int. Each player turn-end, if > 0:
+            find nearest visible alive monster, deal BKS//2 defense-bypassing
+            damage, decrement counter. Display spirit_shot in status effects UI
+            as a buff with remaining turns. Mark ability's execute as setting
+            engine.spirit_shot_turns = 8. ability_id: "spirit_shot"
+
+------------------------------------------------------------------------
+I-D  SUMMONING & ALLIES
+Classic originals: Summon Monster, Conjure Animals, Find Familiar,
+  Create Undead, Animate Dead (mass), Conjure Elemental
+------------------------------------------------------------------------
+
+I-D-01  CALL THE SQUAD (Summon Monster / Conjure Allies)
+  Classic:  Summon Monster (D&D/NetHach/ADOM) / Conjure Animals (D&D 5e)
+  NIGRL Name: "Call the Squad" — whistle for backup
+  Source:   Stealing L8 activated  OR  Swagger stat passive (Swagger 14+)
+  Target:   ADJ_TILE (tile where the ally spawns)
+  Charge:   /FL 1
+  Stat:     Swagger + Street Smarts
+  Mechanic: Call a street contact to your position. Spawns an allied NPC
+            entity at the chosen adjacent tile. The allied NPC uses a
+            simplified version of the "passive_until_hit" AI type but
+            attacks enemies (not the player). Ally stats scale with SWG:
+            - SWG < 10: spawns a "Homie" (10 HP, attacks for 3-5 dmg)
+            - SWG 10-13: spawns a "Day-One" (20 HP, attacks for 5-8 dmg)
+            - SWG 14+: spawns a "Soldier" (30 HP, attacks for 7-12 dmg)
+            Ally persists until killed or until the player descends a floor.
+            Only 1 squad member can be active at a time (second call fails
+            with "Your boy is still here" message).
+  Why:      Summoning is a staple mechanic that creates emergent situations.
+            In NIGRL's AI system, an allied entity pathfinding toward enemies
+            creates interesting group-combat dynamics: draw enemies toward the
+            player while the ally flanks. The SWG scaling connects Swagger
+            (social stat) to your social network — your reputation determines
+            who shows up.
+  Flavor:   "One text. They come through. That's what the reputation is for."
+  Notes:    Create an Entity with entity_type="monster", friendly=True flag,
+            ai_type="ally_meander" (needs new AI mode: like meander but targets
+            enemies instead of player). Engine._player_attack must not trigger on
+            friendly=True entities. Ally death: no loot. Floor clear: remove ally.
+            ability_id: "call_the_squad"
+
+I-D-02  TURN (Turn Undead / Repel Undead)
+  Classic:  Turn Undead (D&D) / Repel Undead (NetHach)
+  NIGRL Name: "Turn" — as in "turn them around" / "make them turn tail"
+  Source:   Negromancy L4 activated (alternative) or Blackkk Magic L3 activated
+  Target:   SELF (affects all visible enemies)
+  Charge:   /FL 2
+  Stat:     Book Smarts + Swagger
+  Mechanic: Emanate an aura of existential dread. Every enemy currently visible
+            must make a "resolve check" (represented as a check against their
+            max HP threshold):
+            - Enemies with base_hp <= 20 (weak): immediately FLEE for 6 turns
+            - Enemies with base_hp 21-40 (medium): FLEE for 3 turns, then resume
+            - Enemies with base_hp > 40 (strong): stunned for 1 turn only
+            Future Negromancy-tree enemies (undead types, if added) should be
+            affected more severely (double duration on all tiers).
+  Why:      Turn Undead is a classic that creates a "breathing room" window.
+            The HP-based tiering means it reliably clears chaff enemies while
+            only briefly affecting big threats. Simple to implement (AI state
+            changes) with readable, predictable outcomes. The Negromancy flavor
+            fit: the player radiates death-energy that lesser beings flee.
+  Flavor:   "You look at them all at once. Something in the way you do it
+             says: this is not worth it. Most of them agree."
+  Notes:    Execute: iterate visible living monsters. Check base_hp (or current
+            hp if base_hp isn't directly accessible — use hp as proxy for now).
+            Apply FLEEING with appropriate duration. StunEffect for strong enemies.
+            ability_id: "turn"
+
+------------------------------------------------------------------------
+I-E  DETECTION & KNOWLEDGE
+Classic originals: Detect Monsters, See Invisible, Magic Mapping,
+  Identify, Clairvoyance, Detect Magic, Locate Object, Divination
+------------------------------------------------------------------------
+
+I-E-01  STREET SENSE (Detect Monsters / Detect Enemies)
+  Classic:  Detect Monsters (NetHach) / Detect Creatures (ADOM)
+            / Sense Surroundings (Brogue)
+  NIGRL Name: "Street Sense" — read the vibe of a whole area
+  Source:   Street Smarts passive unlock (STS 12+)  OR  item "Police Scanner"
+  Target:   SELF
+  Charge:   /FL 3  (or permanent once-per-floor for item variant)
+  Stat:     Street Smarts
+  Mechanic: For 3 turns, reveal the position of ALL living enemies on the
+            current floor, even through walls and in unexplored areas. Enemies
+            appear as their character symbol ('j', 'T', etc.) on the map even
+            outside FOV. After 3 turns, only enemies in FOV are visible again.
+            Enemies in unexplored areas that are revealed do NOT update their
+            explored status — you see them but not the terrain around them.
+            Effectively: a 3-turn "radar."
+  Why:      Detect Monsters is a beloved classic in every roguelike because it
+            directly addresses the game's fundamental uncertainty (you don't know
+            what's around the corner). In NIGRL's multi-room floors, knowing
+            where threats are before entering a room enables tactical decisions
+            about whether to fight or avoid. Replaces dangerous scouting.
+  Flavor:   "You feel them before you see them. That's the street sense.
+             That's what fifteen years in this neighborhood gives you."
+  Notes:    StreetSenseEffect: active for 3 turns. In render.py, after FOV
+            check: if player has street_sense effect, also render all alive
+            monsters' positions (regardless of explored or visible flags) using
+            their normal char but a dim color. Clear on expiry.
+            ability_id: "street_sense"
+
+I-E-02  KNOW THE BUILDING (Magic Mapping)
+  Classic:  Scroll of Magic Mapping (NetHach/ADOM) / Cartography (Brogue)
+            / Magic Map (Angband)
+  NIGRL Name: "Know the Building" — you've been in this building before.
+             Or you know someone who has.
+  Source:   Book Smarts passive unlock (BKS 10+) OR item "Building Blueprints"
+            (single use per floor)
+  Target:   SELF
+  Charge:   ONCE (per item) or /FL 1 (via BKS passive)
+  Stat:     Book Smarts
+  Mechanic: Instantly reveal the layout of the entire current floor: all room
+            boundaries, corridors, door positions, and stair locations are added
+            to dungeon.explored. Items and enemies are NOT revealed (use Street
+            Sense for that). The player sees the floor plan but not the occupants.
+            No movement required — like having a blueprint of the building.
+  Why:      Magic Mapping is a staple roguelike utility that converts exploration
+            uncertainty into navigation certainty. In NIGRL's procedural floors,
+            knowing where the stairs are before walking the whole floor is very
+            useful. Distinct from Street Sense (enemies) — these two pair
+            naturally. The BKS tie is thematic: smart people have done research.
+  Flavor:   "You've been here before. Or read about it. Or both. The layout
+             makes sense now. You know which door leads where."
+  Notes:    Execute: iterate all dungeon tiles, set dungeon.explored[y][x] = True
+            for all non-wall (walkable) tiles. For walls adjacent to walkable tiles,
+            also mark explored. Triggers a full-map render of explored state.
+            Does NOT set visible (FOV is separate). ability_id: "know_the_building"
+
+I-E-03  WHAT IS IT (Identify)
+  Classic:  Identify (NetHach) / Scroll of Identify (Angband/ADOM)
+            / Appraise (various)
+  NIGRL Name: "What Is It" — studying an item until you understand it
+  Source:   Book Smarts L4 activated  OR  item "Loupe" (used on an item in inventory)
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Book Smarts
+  Mechanic: This ability is a precursor for a future mechanic: item ID system.
+            In NIGRL's current state, items show their full information. This
+            ability is designed for a future state where some items have unknown
+            or randomized effects (e.g., "Mystery Pill" could be anything).
+            For NOW in the current system: using What Is It reveals all items on
+            the current floor (all floor-entity items have their full stats shown
+            in a temporary overlay for 3 turns). Also reveals any "locked" item
+            descriptions (items whose flavor text is normally hidden until used).
+            Future value: when unknown-item system is implemented, this becomes
+            the identification spell.
+  Why:      Identify is a cornerstone of classic roguelikes. Including it now
+            as an early design document means the hook is there when the item
+            ID system arrives. In current NIGRL it provides minor utility (reveal
+            floor items) but is primarily a forward-looking slot.
+  Flavor:   "You look at it long enough, it tells you what it is. Everything does,
+             eventually."
+  Notes:    Current execute: collect all item entities on floor (entity_type="item"),
+            display them in a temporary overlay or add them all to "spotted" set
+            shown in right panel. Future execute: clear "unknown" flag from all
+            held items. ability_id: "what_is_it"
+
+------------------------------------------------------------------------
+I-F  BUFFS & SELF-ENHANCEMENT
+Classic originals: Haste, Blur/Mirror Image, Shield, Mage Armor, Stoneskin,
+  Bless, Barkskin, Expeditious Retreat, Sanctuary, Regeneration, Death Ward
+------------------------------------------------------------------------
+
+I-F-01  RUNNING LATE (Haste)
+  Classic:  Haste (D&D 5e) / Speed (NetHach/ADOM) / Haste Self (Brogue/DCSS)
+  NIGRL Name: "Running Late" — you realize you're late and move accordingly
+  Source:   Jaywalking L6 activated  OR  item "Energy Drink" use effect
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Street Smarts + Constitution
+  Mechanic: Apply a powerful speed buff for STS/3 + 4 turns (minimum 5 turns):
+            - +50 energy per tick (stacks with Speed Boost — combined max +80)
+            - Extra attack each turn: after the player takes a move/attack action,
+              they automatically get one additional FREE attack against the
+              nearest adjacent enemy (free, costs no turn, no energy)
+            - Player dodge chance +15% for duration
+            After Running Late expires: apply Hastedrop debuff for STS/3 turns
+            (-30 energy/tick) — the classic Haste/Slow followup crash.
+  Why:      Haste is the most iconic D&D buff because it does so much: speed,
+            extra attack, defense. In NIGRL it's deliberately strong for its
+            limited duration. The Hastedrop crash echoes the Meth-Head Wire/
+            Crash design pattern from the existing skill tree designs and makes
+            the spell feel appropriately dangerous. Short duration + crash means
+            it's powerful but not game-breaking.
+  Flavor:   "You realize you're late. Everything accelerates. You'll pay for
+             this later. Later is not right now."
+  Notes:    RunningLateEffect: modify_energy_gain += 50. Extra attack: in
+            engine turn logic, after player action completes, if
+            player.has_effect("running_late") and adjacent enemies exist:
+            auto-attack nearest. Hastedrop: apply SpeedDropEffect on expire
+            (-30 energy/tick for duration). ability_id: "running_late"
+
+I-F-02  DON'T SEE ME (Blur / Mirror Image / Displacement)
+  Classic:  Blur (D&D 5e) / Mirror Image (D&D) / Displacement
+  NIGRL Name: "Don't See Me" — bend light, confuse sight, be harder to pin down
+  Source:   Blackkk Magic L5 activated (alternative to Spirit Steal) OR
+            Rolling L7 activated (smoke-blur)
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Street Smarts + Book Smarts
+  Mechanic: Apply a blur/displacement aura for 10 turns. While active:
+            - Player has +30% dodge chance (all incoming attacks miss 30% more)
+            - Does NOT make the player invisible — enemies still chase and can
+              still attack, they just frequently miss
+            This is distinct from invisibility: enemies know you're there,
+            can still pathfind to you, can be adjacent, but their attacks
+            phase through your blurred position.
+            No secondary effect on expiry (clean, reliable buff).
+  Why:      Blur/Mirror Image is one of the most reliable defensive buffs in D&D
+            because it doesn't require enemies to fail a check — it simply adds
+            consistent dodge. In NIGRL's combat system where dodge chance is
+            tracked in player_stats, a flat +30% dodge boost for 10 turns is
+            meaningful without being opaque. Straightforward but very effective.
+  Flavor:   "They aim at where you were. You're somewhere slightly different.
+             It's not magic. It's just that you never stop moving."
+  Notes:    DontSeeMeEffect: apply_effect adds 30 to player_stats.dodge_chance
+            for duration. On expire: remove the 30. Clean add/remove pattern.
+            Ensure dodge_chance cap is handled (if max is 60%, don't exceed).
+            ability_id: "dont_see_me"
+
+I-F-03  HUSTLE SHIELD (Shield / Mage Armor)
+  Classic:  Shield (D&D 5e reaction) / Mage Armor (D&D 5e) / Armor of Earth (ADOM)
+  NIGRL Name: "Hustle Shield" — the armor of not getting hit because you're
+             always two steps ahead
+  Source:   Blackkk Magic L2 activated (early defensive option for spell builds)
+            OR item "Bullet-Proof Vest" (armor item equivalent, not ability)
+  Target:   SELF
+  Charge:   INF (cooldown 15 turns)
+  Stat:     Book Smarts
+  Mechanic: Apply HustleShieldEffect for BKS/3 + 3 turns:
+            - +5 flat armor (stacks with other armor sources)
+            - +2 flat defense (stacks with swagger defense)
+            This is a pure defensive buff with no offensive or situational
+            component. The value is that it has a moderate cooldown (15 turns)
+            making it usable every major fight. Low complexity, high reliability.
+            Designed to make BKS builds viable in physical combat without
+            requiring high SWG.
+  Why:      Shield/Mage Armor represents "the caster who is harder to kill than
+            you expect." In NIGRL, Book Smarts builds invest in abilities over
+            stats, making them physically fragile. A reliable, spammable (15-turn
+            CD) defensive cooldown gives BKS-focused players a way to survive
+            the close range that most abilities require.
+  Flavor:   "You see it coming. That's what the book smarts is for. You see it,
+             and you're already sideways."
+  Notes:    HustleShieldEffect: adds {armor_bonus: 5, defense_bonus: 2} to
+            temporary stat layer. On expire: removes them. Same pattern as
+            NiggaArmorEffect (already in effects.py). ability_id: "hustle_shield"
+
+I-F-04  SECOND WIND (Regeneration / Vampiric Touch passive)
+  Classic:  Regeneration (NetHach/ADOM) / Second Wind (D&D Fighter)
+            / Regenerate (DCSS)
+  NIGRL Name: "Second Wind"
+  Source:   Constitution tree passive at CON 10 (auto-unlock, no ability slot)
+            OR item "Adrenaline Shot" (consumable)
+  Target:   SELF
+  Charge:   /FL 1  (if consumable) or passive (if CON-tree)
+  Stat:     Constitution
+  Mechanic: Passive regeneration: player heals CON/10 HP per turn (rounded
+            down, minimum 1 HP every 5 turns for CON < 5). At CON 10: 1 HP/turn.
+            At CON 15: 1.5 HP/turn (1 HP most turns, 2 every other). This is
+            very slow healing meant to fill the "natural recovery" niche —
+            you will heal out of combat but not quickly enough to fully recover
+            between encounters on busy floors.
+            If this is the item version (Adrenaline Shot): instead of passive
+            regen, heal CON * 2 HP immediately + apply 5-turn active regen
+            of 3 HP/turn.
+  Why:      Regeneration is a classic roguelike power that makes healing
+            between fights manageable without food/item expenditure, but too
+            slow to be a combat crutch. NetHach's Regeneration ring provides
+            exactly this: background healing that conserves consumable resources
+            for emergencies. In NIGRL it's gated behind CON 10 investment.
+  Flavor:   "You don't feel great. But you feel less terrible than you did
+             a minute ago. That's something."
+  Notes:    Passive version: in engine.py turn processing, after player acts,
+            check player.stats.effective_constitution >= 10. If yes, and if
+            turn_count % regen_rate == 0: player.hp += 1 (cap at max_hp).
+            Regen_rate = max(1, 10 - (CON - 10)) — faster with higher CON.
+            Item version: create AdrenalineShotEffect with HoT for 5 turns.
+            ability_id: "second_wind" (item version only; passive has no ID)
+
+I-F-05  THE LOOK (Sanctuary / Ward)
+  Classic:  Sanctuary (D&D 5e) / Pacifism field / Warding (various)
+  NIGRL Name: "The Look" — you look at them a certain way and they hesitate
+  Source:   Swagger stat passive unlock (Swagger 16+) or item "Sunglasses of Respect"
+  Target:   SELF
+  Charge:   /FL 1
+  Stat:     Swagger
+  Mechanic: Apply The Look for SWG/4 turns (minimum 3):
+            - Enemies that have not yet attacked the player this floor cannot
+              attack the player (they pass their turn if adjacent). Effectively:
+              enemies that haven't "broken" yet won't start.
+            - Enemies currently in CHASING (already hostile) are NOT affected
+              — they've already committed.
+            - The effect ends immediately if the PLAYER attacks anyone (you broke
+              the peace). The Look only works if you don't start it.
+            Flavor note: this is the "badass aura" — you look so dangerous
+            that anyone who hasn't fought you yet decides today is not the day.
+  Why:      Sanctuary's D&D mechanic (enemies can't attack unless you attack
+            first) is a fascinating utility because it requires the player to
+            forgo offensive actions. In NIGRL's permadeath context this is an
+            escape tool for non-hostile enemies: walk through a room of idle
+            enemies without triggering anyone who hasn't started yet. Swagger
+            build's unique pacifism option.
+  Flavor:   "You walk through the room. They look at you. You look back.
+             Nobody moves. You keep walking."
+  Notes:    TheLookEffect: in do_ai_turn, if enemy ai_state != CHASING and
+            player has the_look effect: enemy's attack action blocked (skip
+            attack, can still move toward player). On player attacking: expire
+            the_look immediately (engine hook needed: on_player_attack, expire
+            the_look). ability_id: "the_look"
+
+------------------------------------------------------------------------
+I-G  DEBUFFS & MONSTER CONTROL
+Classic originals: Sleep, Command, Confusion, Slow, Fear, Hex/Hunter's Mark,
+  Bane, Bestow Curse, Contagion, Feeblemind, Otto's Irresistible Dance
+------------------------------------------------------------------------
+
+I-G-01  PUT EM TO SLEEP (Sleep)
+  Classic:  Sleep (D&D 5e) / Sleep spell (ADOM/NetHach) / Hibernation (DCSS)
+  NIGRL Name: "Put Em to Sleep" — KO an enemy immediately
+  Source:   Blackkk Magic L1 activated (early, crowd control spell)
+            OR item "Mickey" (the spiked drink — zone 1 consumable)
+  Target:   AOE_CIRCLE (radius 2, centered on target tile, range 6)
+  Charge:   /FL 2
+  Stat:     Book Smarts
+  Mechanic: Attempt to put enemies in an area to sleep. All enemies in radius 2
+            with CURRENT HP below a threshold are instantly asleep:
+            - HP <= 15: guaranteed sleep (weaklings go out easy)
+            - HP 16-30: sleep if BKS roll (BKS * 5% chance — max 60% at BKS 12)
+            - HP > 30: immune (the big ones don't go down to this)
+            Sleeping enemies: completely still, cannot attack, cannot move,
+            for 4 turns. Attacking a sleeping enemy ALWAYS CRITS and wakes them.
+            Multiple enemies can be hit. Heavier targets immune.
+  Why:      Sleep is one of D&D's most iconic level 1 spells because it's
+            efficiently powerful against weak enemies and useless against
+            strong ones. The HP threshold creates a natural enemy-type split:
+            crowd control the chaff while focusing on the heavy. The guaranteed
+            crit-on-sleeping makes it a setup spell, not a direct kill.
+  Flavor:   "You encourage them to rest. They don't get a say. The small ones
+             go first. The big ones never do."
+  Notes:    SleepEffect: before_turn always returns True (full skip). Sets
+            modify_energy_gain to 0 (can't wake up early). First damage received:
+            expire immediately. Crit-on-sleeping: in combat.py, check if target
+            has "sleep" effect; if yes, is_critical = True. BKS roll for medium
+            HP: random.random() < (BKS * 0.05). ability_id: "put_em_to_sleep"
+
+I-G-02  SIT DOWN (Command)
+  Classic:  Command (D&D 5e) / Command Undead / One-Word Command (ADOM)
+  NIGRL Name: "Sit Down" — one word, total authority
+  Source:   Swagger stat passive unlock (Swagger 14+)
+            OR Stealing L6 activated
+  Target:   SINGLE_LOS (range 6)
+  Charge:   INF (cooldown 10 turns)
+  Stat:     Swagger + Street Smarts
+  Mechanic: Issue a one-word command to one enemy. The command is randomly
+            selected from a list each cast (or player can choose via a submenu):
+            - "STOP": target is stunned for 2 turns
+            - "RUN": target immediately FLEES for 6 turns
+            - "DROP": target drops any item-drop they would give on death right
+                      now (they "drop" their loot early, still alive) — unique!
+            - "COME": target immediately pathfinds toward the player aggressively
+                      (CHASING from anywhere, even off-screen — useful to pull an
+                      enemy away from a group for a 1v1)
+            Submenu approach (preferred): one-turn pause to pick the command.
+  Why:      Command's single-word mechanic is a classic D&D option. The four
+            command variants give it tactical depth: STOP is safe CC, RUN is
+            escape, DROP is loot manipulation (unique!), COME is 1v1 isolation.
+            The loot-drop command is the most interesting: enemies that drop
+            loot early while still alive creates strange situational advantages.
+  Flavor:   "One word. They do it. That's what Swagger is. It's the voice
+             that people can't argue with."
+  Notes:    "DROP" implementation: check entity for loot drops (same function
+            death would call), execute loot spawn at entity's current position,
+            but entity remains alive. DROP can only be used once per enemy
+            (they have nothing left to drop after). Track via entity flag.
+            COME: set ai_state = CHASING; set the entity's "target" to player
+            position. Subcommand submenu: new temporary MenuState.
+            ability_id: "sit_down"
+
+I-G-03  GET CONFUSED (Confusion)
+  Classic:  Confusion (D&D 5e) / Confuse Monster (NetHach) / Confusion (ADOM)
+  NIGRL Name: "Get Confused" — not a question. An instruction.
+  Source:   Blackkk Magic L2 activated  OR  item "Experimental Strain" (smoke)
+  Target:   AOE_CIRCLE (radius 2, centered on target tile, range 6)
+  Charge:   /FL 2
+  Stat:     Book Smarts
+  Mechanic: Psychic reality-disruption in an area. All enemies in radius 2
+            gain ConfuseEffect for BKS/3 + 3 turns:
+            - 50% each turn: wander randomly (move in random direction)
+            - 25% each turn: waste action entirely (before_turn True)
+            - 25% each turn: act normally (they fight through it)
+            Note: ConfuseEffect already exists in effects.py (id="confuse").
+            This ability is the ranged AoE delivery method for that existing
+            effect — it targets a tile rather than requiring adjacent contact.
+            The existing "confuse" status only needs the ability to deliver it.
+  Why:      Confusion is a staple mass-control spell in every roguelike. In
+            NIGRL the confuse effect already exists but may not have a wide
+            delivery mechanism. This ability creates the AOE version that hits
+            whole groups. The 25% "fight through" prevents confusion from being
+            a reliable complete lockdown.
+  Flavor:   "You reach into their heads and scramble the signal. They know
+             what they were doing. They just can't remember how to do it."
+  Notes:    Execute: AOE_CIRCLE hit loop. For each enemy in range: apply_effect
+            (entity, "confuse", duration=BKS//3 + 3). Uses existing ConfuseEffect
+            from effects.py directly — no new effect needed. Check that
+            ConfuseEffect.before_turn implements the 50/25/25 distribution.
+            ability_id: "get_confused"
+
+I-G-04  HIT LIST (Hex / Hunter's Mark)
+  Classic:  Hex (D&D 5e Warlock) / Hunter's Mark (D&D 5e Ranger)
+            / Slaying (DCSS)
+  NIGRL Name: "Hit List" — you put someone on the list. Now they're on the list.
+  Source:   Stealing L3 activated  OR  Negromancy L2 activated
+  Target:   SINGLE_LOS (range 12, no range limit is intentional)
+  Charge:   INF (cooldown 5 turns — can keep reapplying)
+  Stat:     Street Smarts (Stealing) or Book Smarts (Negromancy) — whichever tree
+  Mechanic: Mark one enemy as the current "target." While marked:
+            - Player deals +STS/3 bonus damage on every attack against them
+            - When the marked target is killed: immediately gain STS/3 HP heal
+              and regain 15 energy (bonus from the satisfaction)
+            - The mark moves to the NEAREST alive enemy automatically when the
+              marked target dies (the hit list updates itself)
+            Only one target can be marked at a time. Reapply to change target.
+            This is a persistent combat buff that rewards focusing one enemy.
+  Why:      Hex/Hunter's Mark is one of the most mechanically satisfying "focus
+            fire" mechanics in TTRPGs because it trains a player to commit to a
+            target. The auto-transfer on death creates a "kill streak" feel —
+            once you're on a roll, the bonus keeps flowing. Low cooldown means
+            it's a rotation piece, not a save-for-big-fights spell.
+  Flavor:   "They're on the list now. You don't get off the list."
+  Notes:    Engine tracks hit_list_target (entity reference). In combat.py damage
+            apply: if target == engine.hit_list_target, add STS//3 bonus. On
+            target death: heal player, grant 15 energy (engine._grant_energy(15)),
+            auto-find nearest alive enemy, set as new hit_list_target.
+            ability_id: "hit_list"
+
+I-G-05  GET SLOW (Slow)
+  Classic:  Slow (D&D 5e) / Slow Monster (NetHach) / Slow (ADOM)
+  NIGRL Name: "Get Slow" — don't run your mouth, don't run your feet
+  Source:   Blackkk Magic L4 activated (mid-tier control option)
+            OR item "Roofie" (consumable, single use, must be ingested by enemy
+            — only works on enemies that eat, future content)
+  Target:   AOE_CIRCLE (radius 2, centered on target tile, range 6)
+  Charge:   /FL 2
+  Stat:     Book Smarts + Tolerance
+  Mechanic: Apply a potent slow field. All enemies in radius 2 gain SlowEffect
+            for BKS/3 + 5 turns:
+            - Energy gain halved (move at half speed)
+            - On ANY attack action: they have a 30% chance to fail (attack
+              doesn't fire — they start to swing and can't complete it)
+            Note: SlowEffect already exists in effects.py (id="slow").
+            This ability provides a ranged AOE application of the existing
+            effect, same as Get Confused for ConfuseEffect.
+            Unlike CrippledEffect (lower, movement-only), Slow also impacts
+            attacks, making it a more complete debuff.
+  Why:      Slow is a classic AOE debuff that makes all subsequent combat
+            easier by letting the player take more turns per enemy turn. The
+            attack-failure component makes it distinct from pure movement slow
+            (crippled). Very satisfying to open a fight with.
+  Flavor:   "You reach in and turn the dial down. Everything they do takes
+             twice as long. You don't."
+  Notes:    Use existing SlowEffect. Check its current implementation: if it
+            only affects movement (energy gain), add the attack-failure check
+            as a SlowEffect.before_turn hook that has a 30% return-True chance
+            specifically when the entity was about to attack (check AI state).
+            ability_id: "get_slow"
+
+I-G-06  DANCE FOOL (Otto's Irresistible Dance / Forced Movement)
+  Classic:  Otto's Irresistible Dance (D&D) / Dancing (NetHach Ring of Conflict)
+  NIGRL Name: "Dance Fool"
+  Source:   Blackkk Magic L7 activated (high-level powerful control)
+  Target:   SINGLE_LOS (range 8)
+  Charge:   /FL 1
+  Stat:     Book Smarts
+  Mechanic: Force one enemy to perform involuntary, uncontrolled movement for
+            5 turns. Each turn, the target moves to a RANDOM adjacent open tile
+            (not controlled, just random). They cannot attack during this time.
+            If they move adjacent to another enemy (monster-monster adjacency):
+            the other monster takes 1 point of damage from being barged into
+            (minor, but can trigger passive-until-hit AI on friendly entities).
+            After 5 turns: the target is Stunned for 1 additional turn from
+            the exertion.
+  Why:      Otto's Irresistible Dance is beloved because it's ridiculous and
+            powerful — a completely out-of-control enemy is hilarious AND
+            useful. The random movement means you can use it to scatter an
+            enemy away from you without a direct flee (which has fixed path)
+            — they might wander INTO a fire tile, INTO a crate, or into other
+            enemies. Emergent chaos.
+  Flavor:   "You make them move in ways they don't understand. Their body
+             disagrees with their brain. Their brain is losing."
+  Notes:    DanceFoolEffect: modify_energy_gain returns 0 for normal AI (prevent
+            real AI from running). before_turn: instead of AI action, pick a
+            random adjacent open tile and move entity there. If entity ends up
+            adjacent to another entity: deal 1 damage to that entity. On expire:
+            apply stun 1 turn. ability_id: "dance_fool"
+
+------------------------------------------------------------------------
+I-H  TERRAIN & ENVIRONMENTAL MANIPULATION
+Classic originals: Dig, Stone to Mud, Passwall, Create Pit, Spike Growth,
+  Transmute Rock, Earthquake, Leomund's Tiny Hut, Fabricate, Move Earth
+------------------------------------------------------------------------
+
+I-H-01  DIG (Dig / Tunneling / Passwall)
+  Classic:  Dig (NetHach/ADOM) / Passwall (D&D) / Tunneling (Brogue)
+  NIGRL Name: "Dig" — a drill, a pickaxe, concentrated will, who cares
+  Source:   Dismantling L3 activated  OR  item "Power Drill" (use effect)
+  Target:   LINE (10-tile ray in aimed direction — digs through wall tiles)
+  Charge:   /FL 2
+  Stat:     Strength
+  Mechanic: Dig a tunnel in a straight line from the player. For up to 10 tiles
+            in the aimed direction: every WALL tile in the path becomes a FLOOR
+            tile permanently (for this floor). Floor tiles in the path are passed
+            through. Hitting a double-wall (2 adjacent wall tiles) requires STR
+            >= 10 to continue through (roll STR check: if below, tunnel stops).
+            The new floor tiles are permanent for the rest of the floor — this
+            creates shortcuts, escape routes, and access to rooms with no doors.
+  Why:      Dig is arguably the most strategically transformative utility in
+            classic roguelikes (NetHach's wand of digging, Brogue's tunneling)
+            because it changes the map itself. In NIGRL with procedurally
+            generated rooms and corridors, being able to create new passageways
+            is enormously powerful. Also creates access to "sealed room" loot
+            scenarios if they're added.
+  Flavor:   "You make a hole. Through the wall. It's a permanent hole.
+             That's your exit now."
+  Notes:    Execute: shoot a ray from player position in aimed direction. For
+            each tile along the ray: if dungeon.tiles[y][x] is WALL, set to
+            FLOOR (update dungeon's tile grid). Dungeon.explored update for
+            newly revealed floor. Double-wall check: if two consecutive WALL
+            tiles, roll random.random() < STR / 20 — if fail, stop. FOV recompute
+            after. ability_id: "dig"
+
+I-H-02  BEAR TRAP (Spike Growth / Caltrops)
+  Classic:  Spike Growth (D&D 5e) / Caltrops (NetHach) / Poisoned Needle Trap
+  NIGRL Name: "Bear Trap" — place a trap that goes off when stepped on
+  Source:   Stealing L4 activated  OR  item "Bear Trap Kit" (uses from item)
+  Target:   ADJ_TILE
+  Charge:   /FL 3
+  Stat:     Street Smarts
+  Mechanic: Place a hidden trap on an adjacent tile. The trap is invisible to
+            enemies (they don't path around it). When any enemy steps on it:
+            - The trap deals STS damage (ignoring defense — mechanical trap)
+            - The stepping entity is Stunned for 2 turns
+            - The trap is consumed (one trap = one trigger)
+            Up to 3 traps can be active simultaneously. Placing a 4th destroys
+            the oldest. The player can see all their own traps highlighted.
+            The trap tile is treated as a normal floor tile for pathfinding.
+  Why:      Trap-laying is a beloved roguelike archetype (NetHach, ADOM). In
+            NIGRL's narrow corridors, a well-placed bear trap in a doorway is
+            extremely powerful because enemies AI-path through doorways. Creating
+            choke points with traps rewards spatial thinking about enemy approach
+            routes. The 3-trap limit prevents trivial room coverage.
+  Flavor:   "You put it down where you know they're going to step.
+             You know where they're going to step."
+  Notes:    TrapEntity: entity_type="hazard", hazard_type="bear_trap". Invisible
+            to enemies (dungeon.entities but not in enemy's awareness check).
+            In ai.py movement step: if monster moves onto a trap entity's tile,
+            trigger trap (deal damage, apply stun, remove trap entity).
+            Player tracks their own traps visually in FOV. ability_id: "bear_trap"
+
+I-H-03  LEAVE A MARK (Explosive Rune / Glyph of Warding)
+  Classic:  Explosive Runes (D&D) / Glyph of Warding (D&D 5e)
+            / Engrave (NetHach)
+  NIGRL Name: "Leave a Mark" — carve something in the floor that goes off later
+  Source:   Blackkk Magic L4 activated
+  Target:   ADJ_TILE (the tile you're standing on, or one adjacent)
+  Charge:   /FL 2
+  Stat:     Book Smarts
+  Mechanic: Inscribe a rune on a floor tile. The rune is invisible and persists
+            indefinitely. When any enemy steps on the rune tile:
+            - Blast: BKS damage in 2-tile radius, ignores defense (arcane)
+            - All enemies in radius are Stunned for 1 turn
+            - The rune is consumed
+            The player can have up to 2 runes active simultaneously. The player
+            can see their own runes (highlighted in FOV). Runes disappear on
+            floor descent.
+  Why:      Glyph of Warding / Explosive Runes is a classic preparation spell —
+            it rewards planning ahead by setting up your battlefield before
+            enemies arrive. In NIGRL's procedural floors, placing a rune in the
+            only entrance to a room rewards exploration and trap-setting.
+            Pairs with Smoke Screen (C-03) and Lights Out (I-B-03) for a full
+            ambush setup toolkit.
+  Flavor:   "You write something on the floor. You step back. You wait for
+             someone to read it."
+  Notes:    RuneEntity: entity_type="hazard", hazard_type="rune". Triggered in
+            ai.py movement: monster steps onto rune tile -> AOE blast (iterate
+            Chebyshev 2 radius), stun, remove rune entity. Player sees runes in
+            FOV via a highlight (distinctive char, e.g., '*' in purple).
+            Two-rune cap: if third is placed, message "You can only maintain two
+            marks at once." ability_id: "leave_a_mark"
+
+I-H-04  EARTHQUAKE (Earthquake / Tremor / Stone Shake)
+  Classic:  Earthquake (D&D 5e) / Earthquake scroll (Brogue)
+            / Tremor (ToME)
+  NIGRL Name: "Earthquake" — sometimes the name is the name
+  Source:   Blackkk Magic L8 activated  OR  Beating L8 activated
+  Target:   SELF (affects entire floor)
+  Charge:   ONCE
+  Stat:     Strength + Book Smarts
+  Mechanic: Collapse the structural integrity of the entire floor. ALL entities
+            (enemies and player) take STR + BKS/2 damage (ignores defense —
+            falling debris hits everyone). Additionally:
+            - All enemies are Stunned for 1 turn from the collapse
+            - 20% of floor tiles randomly become "cracked" (impassable for 5
+              turns, then restore) — this redraws terrain temporarily, cutting
+              off some corridors and trapping some enemies
+            - Player takes the same damage as enemies (no immunity)
+            - All crates are smashed (drop their loot everywhere)
+            The cracked tiles: randomly select 20% of floor tiles, set them
+            as impassable. After 5 turns, restore them. This creates chaotic
+            temporary maze effects.
+  Why:      Earthquake in Brogue is devastating and terrifying because it hits
+            you too. The ONCE limitation makes it a true panic button or
+            spectacular opening move. The self-damage and ONCE restriction
+            balance an extremely powerful effect. Very satisfying to use in a
+            crowded floor and see everything collapse at once.
+  Flavor:   "You bring the building down on everyone. Including yourself.
+             You've thought this through. Somewhat."
+  Notes:    Execute: deal STR + BKS//2 damage to all floor entities (player
+            included — no exemption). Apply stun to all monsters. Select 20%
+            of walkable tiles randomly, mark as "cracked" in dungeon state
+            (temporarily blocks movement like wall). Restore after 5 turns
+            (engine.cracked_tiles = set; count down each turn).
+            Smash all crate hazards. FOV recompute. ability_id: "earthquake"
+
+I-H-05  MAKE IT RAIN (Sleet Storm / Obscuring Mist / Weather Control)
+  Classic:  Sleet Storm (D&D 5e) / Obscuring Mist / Call Lightning
+            / Weather (NetHach wand)
+  NIGRL Name: "Make It Rain" — double meaning intentional
+  Source:   Blackkk Magic L7 activated (environmental chaos spell)
+  Target:   AOE_CIRCLE (radius 4, centered on target tile, range 8)
+  Charge:   /FL 1
+  Stat:     Book Smarts + Tolerance
+  Mechanic: Conjure a torrential indoor rainstorm (burst pipe, fire suppression
+            system, open roof — flavor varies). For 8 turns in radius 4:
+            - All fire hazard entities in the area are extinguished (removed)
+            - All enemies in the area have their sight_radius halved (rain/mist)
+            - Ground in area is "slick" (same as Speed Bump mechanic — 25%
+              trip chance, 50% movement cost)
+            - Wet status applied to all entities in area each turn (existing
+              WetEffect — makes ShockedEffect and lightning spells deal extra)
+            The water does not deal damage directly. It's a full area-control
+            zone that sets up combos (lightning + wet = bonus damage).
+  Why:      Sleet Storm in D&D is valued precisely for its AREA DENIAL rather
+            than damage. In NIGRL, the combo setup with WetEffect and chain
+            lightning/zap creates a powerful two-spell combination that rewards
+            spell planning. Fire suppression is also a defensive utility for
+            floors heavy on fire hazards.
+  Flavor:   "Something bursts. Water everywhere. Nobody's moving fast in there.
+             You planned for this."
+  Notes:    Make It Rain creates a zone entity (or tracks radius + timer in engine).
+            Each turn: apply WetEffect to entities in zone, check for fire hazards
+            in zone (remove them), apply slick movement cost. ShockedEffect/chain
+            lightning bonus from WetEffect already coded (check WetEffect's
+            modify_incoming_damage for lightning sources). ability_id: "make_it_rain"
+
+------------------------------------------------------------------------
+ADDITIONAL STANDALONE CLASSICS
+(Spells that don't fit cleanly into sub-categories but are too iconic to skip)
+------------------------------------------------------------------------
+
+I-Z-01  POLYMORPH (Polymorph / Baluchiterium)
+  Classic:  Polymorph (D&D) / Polymorph (NetHach) / Shapeshifting (ADOM)
+  NIGRL Name: "Polymorph" — you change them into something else
+  Source:   Blackkk Magic L9 activated (near-capstone, very powerful)
+            OR item "Weird Mushroom" (consumable — random result on self)
+  Target:   SINGLE_LOS (range 6) or SELF (for mushroom version)
+  Charge:   ONCE
+  Stat:     Book Smarts
+  Mechanic: Transform one enemy into a random WEAKER enemy type (random pick
+            from the current floor's spawn table, selected to have lower base_hp
+            than the target). The transformed enemy retains its AI state (was
+            CHASING, stays CHASING) but now has all stats of the new enemy type.
+            The transformation lasts until death — there's no timer. If applied
+            to the player (mushroom): randomly transforms the player's stats to
+            a different random stat distribution for 20 turns (keep total the
+            same, re-roll each stat within [5,12] bounds). Player version is
+            random and could be better OR worse.
+  Why:      Polymorph is one of the most legendary single spells in NetHach
+            because it can turn a deadly monster into something harmless. The
+            ONCE restriction in NIGRL makes it a precious "oh no, not that
+            monster" panic button. The player version (mushroom) is a gamble,
+            perfectly roguelike.
+  Flavor:   "You look at them. They look back. They don't look the same anymore."
+  Notes:    Enemy polymorph: select a random enemy from ZONE_SPAWN_TABLES for
+            current zone where MonsterTemplate.base_hp < target.max_hp.
+            Replace target's stats (hp, max_hp, power, defense, ai_type) with
+            the new template. Keep position, ai_state. ONCE ability.
+            Player mushroom: re-roll stats (keeping sum roughly equal).
+            ability_id: "polymorph"
+
+I-Z-02  INVISIBILITY
+  Classic:  Invisibility (D&D/NetHach/ADOM/virtually every roguelike)
+  NIGRL Name: "Invisibility" — sometimes a classic name says it best
+  Source:   Blackkk Magic L5 activated (alternative slot) OR Stealing L6
+            OR item "Cloaking Device" (extremely rare)
+  Target:   SELF
+  Charge:   /FL 1
+  Stat:     Street Smarts
+  Mechanic: Player becomes invisible for STS + 5 turns (at STS 8: 13 turns).
+            While invisible:
+            - ALL enemies lose the player's position. Those in CHASING revert
+              to WANDERING (last-known-position search behavior ideally, or just
+              WANDERING if that's simpler)
+            - Enemies in IDLE and WANDERING will NOT aggro the player even if
+              the player walks adjacent (they cannot see the player)
+            - The player's first attack FROM invisibility is an automatic
+              critical hit (breaks invisibility immediately after that attack)
+            - Any attack, item use, or ability use BREAKS invisibility
+            Invisibility does NOT make the player inaudible — future noise
+            mechanics could break it, but currently: visual only.
+  Why:      Invisibility is a staple of every roguelike tradition. In NIGRL's
+            LOS AI system, going invisible is extremely powerful because it
+            directly exploits the sight-based chase system. The crit-on-
+            first-strike makes invisibility an offensive tool, not just
+            defensive (classic rogue backstab mechanic). The fact that any
+            action breaks it ensures the choice of WHEN to attack matters.
+  Flavor:   "They don't see you. That's not nothing. That's everything."
+  Notes:    InvisibleEffect: on each enemy AI turn, if player has invisible effect:
+            enemies in CHASING revert to WANDERING (lose player coords). IDLE/
+            WANDERING enemies: in sight-radius check, if player invisible, skip
+            (never aggro). On player attack: expire invisible, set attack as
+            critical. On ANY player action (items, abilities): expire invisible.
+            ability_id: "invisibility"
+
+I-Z-03  LEVITATE (Levitate / Flight / Fly)
+  Classic:  Levitate (D&D/NetHach) / Flight (ADOM) / Flying (various)
+  NIGRL Name: "Levitate" — street levitation, questionable physics, real results
+  Source:   Blackkk Magic L6 activated  OR  Rolling L8 activated (peak high)
+  Target:   SELF
+  Charge:   /FL 1
+  Stat:     Tolerance + Book Smarts
+  Mechanic: The player hovers off the ground for TOL/3 + 5 turns. While levitating:
+            - Player is immune to all floor-level effects: ignite (fire tiles
+              don't apply), slick ground (Speed Bump doesn't affect them), and
+              toxicity from tox floor tiles (Meth Lab zone)
+            - Player can move over entities without triggering melee (they hover
+              above — enemies must act first to grab the player)
+            - Enemies gain no adjacency bonus or flanking if such mechanics exist
+            The player still attacks normally, still takes projectile/ranged damage.
+            This is primarily a utility spell against floor hazards.
+  Why:      Levitate/Flight in NetHach provides immunity to floor traps and
+            terrain effects. In NIGRL's Meth Lab zone, floor tox tiles make
+            Levitate a key utility. In Zone 1 with fire hazards, hovering over
+            fire is enormously useful. The "move over entities" component creates
+            interesting positioning opportunities.
+  Flavor:   "You rise up. Slightly. A few inches. It's enough. The floor has
+             no opinions about you anymore."
+  Notes:    LevitateEffect: add flag engine.player_levitating. Check in:
+            - fire hazard tick: skip if player_levitating
+            - tox floor tick: skip if player_levitating
+            - slick ground check: skip if player_levitating
+            - movement over entity: if player_levitating, allow movement through
+              entity tiles without triggering combat (just float past).
+            ability_id: "levitate"
+
+I-Z-04  MIRROR IMAGE
+  Classic:  Mirror Image (D&D) / Clones / Images (various)
+  NIGRL Name: "Mirror Image" — project decoys of yourself in all directions
+  Source:   Blackkk Magic L4 activated  OR  Rolling L6 activated (hazy doubles)
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Street Smarts + Book Smarts
+  Mechanic: Project 3 illusory decoys around the player. Each decoy is a visible
+            entity at a random adjacent tile. Decoys have 1 HP each and exist
+            for 8 turns. When an enemy ATTACKS (targets with melee or ranged),
+            they must roll: if adjacent decoy exists, 50% chance they hit a decoy
+            instead of the player. Hitting a decoy destroys it (1 HP means any hit
+            kills it). With 3 decoys active: very high chance of misdirection.
+            After all 3 decoys are destroyed, normal targeting resumes.
+            The player can freely move through decoy tiles.
+  Why:      Mirror Image is beloved because it creates "ablative shields" as
+            entities in the world. The decoys can absorb multiple hits before
+            running out. In NIGRL's ASCII display, a small 'd' (decoy) entity
+            around the player '@' is a clear visual that works perfectly for
+            the format. The 50% chance per decoy creates transparent probability.
+  Flavor:   "They see three of you. Two of them are wrong. One of them is very,
+             very right. They don't know which."
+  Notes:    DecoyEntity: entity_type="decoy", char='d', color=player_color_dim.
+            blocks_movement=False (player walks through). In do_ai_turn melee
+            decision: check if decoy adjacent — 50% swap target to decoy. Decoy
+            hp=1 so any attack destroys it. Decoys do NOT react to being hit
+            (no retaliation). Engine spawns 3 at random adjacent open tiles.
+            ability_id: "mirror_image"
+
+I-Z-05  BANISHMENT (Banishment / Dismissal / Banish)
+  Classic:  Banishment (D&D 5e) / Dismissal (NetHach) / Exile (various)
+  NIGRL Name: "Banishment" — you disappear them. Done.
+  Source:   Blackkk Magic L8 activated (second high-level slot)
+  Target:   SINGLE_LOS (range 6)
+  Charge:   /FL 1
+  Stat:     Book Smarts
+  Mechanic: Remove one enemy from the floor temporarily. The target disappears
+            completely for 15 turns (they are banished from this realm). After
+            15 turns, they return at the STAIRS tile (the floor's stair entity
+            position). If the banished entity has more than 30 base_hp (large/
+            powerful enemies): the banishment only lasts 8 turns and they return
+            with 50% HP restored (the realm they were sent to healed them).
+            Banished enemies that would die during banishment (if tracked HP):
+            simply do not return.
+  Why:      Banishment in D&D is "remove from fight temporarily" — a powerful
+            solution to one overwhelming threat. The "returns after 15 turns"
+            creates a countdown tension: you have a window. Use it. The "strong
+            enemies return healed" tradeoff makes it imperfect against big
+            threats. Classic roguelike: powerful but not a permanent solution.
+  Flavor:   "They're not here anymore. For now. You should use the time well.
+             They'll be back."
+  Notes:    BanishedEntity tracking: engine.banished_entities list of (entity,
+            return_turn) tuples. Entity is removed from dungeon.entities. Each
+            turn, check if return_turn <= current_turn. If yes: place entity at
+            stair tile (find stair entity, use its position), add back to entities.
+            Large check: entity.base_hp > 30 -> 8 turns, HP restore 50%.
+            ability_id: "banishment"
+
+================================================================================
+IMPLEMENTATION PRIORITY — SUPPLEMENT I
+================================================================================
+
+TIER 1 — Fills immediate gaps, low complexity, high fun/turn ratio:
+  I-A-01 Dip Out          (short-range blink, distinct from Warp)
+  I-C-01 Pop Pop Pop      (entry-level reliable damage, Blackkk Magic L1)
+  I-E-01 Street Sense     (detect monsters — classic roguelike utility)
+  I-E-02 Know the Building (magic mapping — classic roguelike utility)
+  I-F-02 Don't See Me     (blur/dodge — simple +30% dodge buff)
+  I-F-03 Hustle Shield    (mage armor — spammable armor buff for BKS builds)
+  I-G-01 Put Em to Sleep  (sleep — HP-thresholded crowd control)
+  I-G-03 Get Confused     (AOE confusion delivery for existing effect)
+  I-G-05 Get Slow         (AOE slow delivery for existing effect)
+  I-G-04 Hit List         (hex/mark — rotation piece, consistent bonus damage)
+  I-Z-02 Invisibility     (the classic — highly requested, LOS-system friendly)
+
+TIER 2 — More mechanically interesting, moderate implementation:
+  I-A-02 Smoke and Mirrors (teleport other — requires move_entity on enemies)
+  I-B-01 Throw the Nets   (web — needs NettedEffect + AOE)
+  I-B-02 Wake Up Call     (thunderwave — multi-direction knockback)
+  I-B-03 Lights Out       (darkness — enemy sight_radius override)
+  I-B-05 Hold It Right There (paralyze — breaks on hit, needs care)
+  I-C-02 What You Said    (dissonant whispers — flee + free attack combo)
+  I-C-03 Toll the Block   (toll the dead — wound-scaling damage)
+  I-C-05 Structural Damage (shatter — AOE stun + environmental crate-smash)
+  I-F-01 Running Late     (haste — most complex buff, extra attack each turn)
+  I-G-02 Sit Down         (command — submenu for command selection)
+  I-H-01 Dig              (tunneling — map modification)
+  I-H-02 Bear Trap        (trap-laying — needs TrapEntity)
+  I-Z-03 Levitate         (floor hazard immunity — needs zone integration)
+  I-Z-04 Mirror Image     (decoy entities — needs DecoyEntity + ai targeting mod)
+
+TIER 3 — High design value, complex or requires new systems:
+  I-A-03 Bounce           (recall to entrance — needs entrance_pos tracking)
+  I-A-04 Ghost Walk       (wall walking — needs intangible state + expiry risk)
+  I-B-04 Speed Bump       (grease/terrain — persistent terrain system)
+  I-B-06 Shut Up          (silence — needs alarm system hook)
+  I-C-04 In Your Walls    (inflict wounds — adjacent necrotic, shard gain)
+  I-C-06 Spirit Shot      (spiritual weapon — persistent summon, engine tracking)
+  I-D-01 Call the Squad   (summon monster — ally AI mode needed)
+  I-D-02 Turn             (turn undead — simple AI state, low complexity actually)
+  I-F-04 Second Wind      (passive regen — CON tree unlock, no ability slot)
+  I-F-05 The Look         (sanctuary — needs on_player_attack hook)
+  I-G-06 Dance Fool       (irresistible dance — random movement override)
+  I-H-03 Leave a Mark     (glyph of warding — RuneEntity + trigger system)
+  I-H-04 Earthquake       (map-wide damage — cracked tiles system needed)
+  I-H-05 Make It Rain     (sleet storm — zone entity + multi-effect per turn)
+  I-Z-01 Polymorph        (enemy transformation — complex but iconic)
+  I-Z-05 Banishment       (temporary removal — banished list + return system)
+
+================================================================================
+CROSS-REFERENCES WITH EXISTING COMPENDIUM SECTIONS A-H
+================================================================================
+
+  Dip Out (I-A-01)   + Warp (registry):         Dip Out = short, Warp = far
+  Wake Up Call (I-B-02) + force_push (registry): WUC = all adjacent, FP = single
+  Lights Out (I-B-03) + Forgotten Name (D-05):   LO = sight block, FN = AI wipe
+  Throw the Nets (I-B-01) + Ankle Breaker (E-05): Nets = AOE slow+stun, AB = 1 target
+  Pop Pop Pop (I-C-01) + arcane_missile (registry): PPP = no-defense, AM = ? (check)
+  Get Confused (I-G-03) + ConfuseEffect (effects.py): ability delivers existing effect
+  Get Slow (I-G-05) + SlowEffect (effects.py):    ability delivers existing effect
+  Hit List (I-G-04) + Death Mark (D-06):           HL = persistent bonus, DM = deathburst
+  Put Em to Sleep (I-G-01) + Stun (effects.py):   Sleep = HP-gated, deeper stun
+  Invisibility (I-Z-02) + Ghost Walk (I-A-04):    Invis = AI blind, GW = pass-walls
+  Mirror Image (I-Z-04) + Don't See Me (I-F-02):  MI = ablative decoys, DSM = dodge %
+  Spirit Shot (I-C-06) + Spiritual Transcendence (C-04): both ongoing summon concepts
+  Make It Rain (I-H-05) + WetEffect (effects.py): ability applies existing effect
+  Banishment (I-Z-05) + Smoke and Mirrors (I-A-02): both remove/reposition enemies
+  Turn (I-D-02) + Psychic Scream (D-07):           Turn = flee by HP tier, PS = flee
+                                                     by HP% threshold (different axis)
+
+================================================================================
+END OF SUPPLEMENT I
+================================================================================

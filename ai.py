@@ -395,6 +395,215 @@ def idle(monster, player, dungeon, engine, creature_positions=None,
     return "idle"
 
 
+def cartel_idle(monster, player, dungeon, engine, creature_positions=None,
+                step_map=None):
+    """Cartel unit idle — stand still, do nothing.  Returns "idle"."""
+    return "idle"
+
+
+def suicide_chase(monster, player, dungeon, engine, creature_positions=None,
+                  step_map=None):
+    """Chase the player. When adjacent, explode instead of normal attack.
+    Returns "attack", "move", or "idle"."""
+    dx, dy, _ = _step_toward(monster, player, dungeon,
+                             creature_positions, step_map)
+    dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
+
+    if dx == 0 and dy == 0:
+        return "idle"
+
+    nx, ny = monster.x + dx, monster.y + dy
+
+    if nx == player.x and ny == player.y:
+        engine.handle_suicide_explosion(monster)
+        return "attack"
+    elif _tile_free(nx, ny, dungeon, creature_positions,
+                    (monster.x, monster.y)):
+        monster.move(dx, dy)
+        return "move"
+    return "idle"
+
+
+def throw_vial(monster, player, dungeon, engine, creature_positions=None,
+               step_map=None):
+    """Stationary ranged attack: throw a toxic vial at the player if in range + LOS.
+    Never moves when attacking. Returns "attack" or "idle"."""
+    mx, my = monster.x, monster.y
+    px, py = player.x, player.y
+    dist = max(abs(mx - px), abs(my - py))
+
+    if dist <= 5 and _has_los(dungeon, mx, my, px, py):
+        engine.handle_chemist_vial(monster)
+        return "attack"
+
+    # Out of range or no LOS — wander
+    return wander(monster, player, dungeon, engine, creature_positions, step_map)
+
+
+def spawner_idle(monster, player, dungeon, engine, creature_positions=None,
+                 step_map=None):
+    """Stationary spawner — never moves, spawns children if under cap.  Returns "idle"."""
+    if not hasattr(monster, "spawned_children"):
+        return "idle"
+    # Prune dead children
+    monster.spawned_children = [c for c in monster.spawned_children if getattr(c, "alive", False)]
+    if len(monster.spawned_children) < monster.max_spawned:
+        engine.spawn_child(monster, creature_positions)
+    return "idle"
+
+
+def falcon_run_to_ally(monster, player, dungeon, engine, creature_positions=None,
+                       step_map=None):
+    """Falcon moves toward nearest same-faction ally.  When adjacent, alerts the area."""
+    faction = getattr(monster, "faction", None)
+    best_ally = None
+    best_dist = float("inf")
+    for entity in dungeon.entities:
+        if entity is monster or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "faction", None) != faction:
+            continue
+        d = max(abs(monster.x - entity.x), abs(monster.y - entity.y))
+        if d < best_dist:
+            best_dist = d
+            best_ally = entity
+
+    if best_ally is None:
+        # No allies — just chase
+        return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+    # If adjacent to ally, alert and transition to chase
+    if best_dist <= 1:
+        _falcon_alert_area(monster, dungeon, engine)
+        monster.ai_state = AIState.CHASING
+        return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+    # Greedy step toward ally
+    mx, my = monster.x, monster.y
+    ax, ay = best_ally.x, best_ally.y
+    dx = 0 if ax == mx else (1 if ax > mx else -1)
+    dy = 0 if ay == my else (1 if ay > my else -1)
+
+    for adx, ady in [(dx, dy), (dx, 0), (0, dy)]:
+        if adx == 0 and ady == 0:
+            continue
+        nx, ny = mx + adx, my + ady
+        if _tile_free(nx, ny, dungeon, creature_positions, (mx, my)):
+            monster.move(adx, ady)
+            return "move"
+    return "idle"
+
+
+def _falcon_alert_area(falcon, dungeon, engine):
+    """Alert all same-faction enemies within 4 tiles of the falcon."""
+    faction = getattr(falcon, "faction", None)
+    alerted = 0
+    for entity in dungeon.entities:
+        if entity is falcon or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "faction", None) != faction:
+            continue
+        if max(abs(falcon.x - entity.x), abs(falcon.y - entity.y)) <= 4:
+            entity.ai_state = AIState.CHASING
+            entity.provoked = True
+            alerted += 1
+    if alerted > 0:
+        engine.messages.append(
+            f"{falcon.name} lets out a piercing whistle! {alerted} allies alerted!"
+        )
+
+
+def maintain_distance(monster, player, dungeon, engine, creature_positions=None,
+                      step_map=None):
+    """Ranged AI: maintain distance from player, shoot when in range + LOS.
+    If player too close and blink available, teleport away."""
+    mx, my = monster.x, monster.y
+    px, py = player.x, player.y
+    ra = monster.ranged_attack
+    if ra is None:
+        return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+    dist = max(abs(mx - px), abs(my - py))
+
+    # If player within 2 tiles and blink available, teleport away
+    if dist <= 2 and monster.blink_charges > 0:
+        _blink_away(monster, player, dungeon, engine, creature_positions)
+        return "move"
+
+    atk_range = ra["range"]
+
+    # In range + LOS: shoot
+    if dist <= atk_range and _has_los(dungeon, mx, my, px, py):
+        engine.handle_monster_ranged_attack(monster)
+        return "attack"
+
+    # Too close (but no blink): flee
+    if dist <= 2:
+        return flee(monster, player, dungeon, engine, creature_positions, step_map)
+
+    # Too far: step toward but stop at range
+    if dist > atk_range:
+        return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+    # At edge of range but no LOS: step toward
+    return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+
+def kite_at_range(monster, player, dungeon, engine, creature_positions=None,
+                  step_map=None):
+    """Ranged AI that only fires at exactly the weapon's range.
+    Moves closer if too far, backs away if too close, shoots at exact range."""
+    mx, my = monster.x, monster.y
+    px, py = player.x, player.y
+    ra = monster.ranged_attack
+    if ra is None:
+        return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+    dist = max(abs(mx - px), abs(my - py))
+    atk_range = ra["range"]
+
+    # At exact range with LOS: shoot
+    if dist == atk_range and _has_los(dungeon, mx, my, px, py):
+        engine.handle_monster_ranged_attack(monster)
+        return "attack"
+
+    # Too close: step away
+    if dist < atk_range:
+        return flee(monster, player, dungeon, engine, creature_positions, step_map)
+
+    # Too far or no LOS: step toward
+    return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+
+def _blink_away(monster, player, dungeon, engine, creature_positions):
+    """Teleport ~3 tiles away from the player along the flee vector."""
+    mx, my = monster.x, monster.y
+    px, py = player.x, player.y
+
+    # Flee direction
+    fdx = 0 if px == mx else (-1 if px > mx else 1)
+    fdy = 0 if py == my else (-1 if py > my else 1)
+
+    # Try 3 tiles, then 2, then 1 along flee vector
+    for dist in (3, 2, 1):
+        nx, ny = mx + fdx * dist, my + fdy * dist
+        if _tile_free(nx, ny, dungeon, creature_positions, (mx, my)):
+            if creature_positions is not None:
+                creature_positions.discard((mx, my))
+                creature_positions.add((nx, ny))
+            monster.x, monster.y = nx, ny
+            monster.blink_charges -= 1
+            engine.messages.append(f"{monster.name} blinks away!")
+            return
+    # Fallback: couldn't blink
+    monster.blink_charges -= 1
+    engine.messages.append(f"{monster.name} tries to blink but has no room!")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # CONDITIONS — predicates that drive state transitions
 # ──────────────────────────────────────────────────────────────────────────────
@@ -475,6 +684,96 @@ def has_scored_hit(monster, player, dungeon):
 def is_far_away(monster, player, dungeon):
     """True when the player is far beyond the monster's sight radius (safe to reset)."""
     return _dist(monster.x, monster.y, player.x, player.y) > monster.sight_radius * 3
+
+
+def faction_is_hostile(monster, player, dungeon):
+    """True if the player's reputation with this monster's faction is below Neutral (< 2000)."""
+    faction = getattr(monster, "faction", None)
+    if not faction:
+        return True
+    stats = getattr(player, "stats", None)
+    if stats is None:
+        return True
+    return stats.reputation.get(faction, -2000) < 2000
+
+
+def room_ally_attacked(monster, player, dungeon):
+    """True if ANY enemy in this monster's spawn room has been provoked."""
+    room_tiles = getattr(monster, "spawn_room_tiles", None)
+    if room_tiles is None:
+        return False
+    for entity in dungeon.entities:
+        if entity is monster or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "provoked", False) and (entity.x, entity.y) in room_tiles:
+            return True
+    return False
+
+
+def faction_room_ally_attacked(monster, player, dungeon):
+    """True if any SAME-FACTION enemy in this monster's spawn room has been provoked."""
+    faction = getattr(monster, "faction", None)
+    room_tiles = getattr(monster, "spawn_room_tiles", None)
+    if room_tiles is None or faction is None:
+        return False
+    for entity in dungeon.entities:
+        if entity is monster or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "faction", None) != faction:
+            continue
+        if getattr(entity, "provoked", False) and (entity.x, entity.y) in room_tiles:
+            return True
+    return False
+
+
+def cartel_should_aggro(monster, player, dungeon):
+    """Unified aggro check for cartel_unit and cartel_ranged AI.
+
+    Hostile (rep < 2000): aggro if player in sight OR any room ally attacked.
+    Neutral+ (rep >= 2000): aggro only if same-faction room ally attacked.
+    """
+    if faction_is_hostile(monster, player, dungeon):
+        return player_in_sight(monster, player, dungeon) or room_ally_attacked(monster, player, dungeon)
+    else:
+        return faction_room_ally_attacked(monster, player, dungeon)
+
+
+def falcon_adjacent_to_ally(monster, player, dungeon):
+    """True when the falcon is within Chebyshev distance 1 of a same-faction ally."""
+    faction = getattr(monster, "faction", None)
+    for entity in dungeon.entities:
+        if entity is monster or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "faction", None) != faction:
+            continue
+        if max(abs(monster.x - entity.x), abs(monster.y - entity.y)) <= 1:
+            return True
+    return False
+
+
+def player_within_2(monster, player, dungeon):
+    """True when the player is within 2 tiles (Chebyshev)."""
+    return max(abs(monster.x - player.x), abs(monster.y - player.y)) <= 2
+
+
+def nearby_ally_attacked(monster, player, dungeon):
+    """True when any monster within 10 tiles has been provoked (attacked by player).
+    Used by proximity_alarm AI — strippers who react when nearby allies are hit."""
+    for entity in dungeon.entities:
+        if entity is monster or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "provoked", False):
+            if _dist(monster.x, monster.y, entity.x, entity.y) <= 10:
+                return True
+    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -617,6 +916,112 @@ BEHAVIORS = {
         },
     },
 
+    # ── Proximity Alarm ─────────────────────────────────────────────────
+    # Meanders until any monster within 10 tiles is attacked by the player,
+    # then permanently chases.  Used by strippers in special rooms.
+    "proximity_alarm": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(nearby_ally_attacked, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander,
+            AIState.CHASING:   chase,
+        },
+    },
+
+    # ── Ranged Room Guard (DEA Agent) ───────────────────────────────────────
+    # Wanders in spawn room until player enters, then kites at exact weapon range.
+    "ranged_room_guard": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(player_in_monster_room, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander_in_room,
+            AIState.CHASING:   kite_at_range,
+        },
+    },
+
+    # ── Cartel Unit (Grunt / Hitman) ────────────────────────────────────────
+    # Stationary until aggro'd via faction reputation rules, then chases permanently.
+    "cartel_unit": {
+        "initial_state": AIState.IDLE,
+        "transitions": {
+            AIState.IDLE: [(cartel_should_aggro, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.IDLE:    cartel_idle,
+            AIState.CHASING: chase,
+        },
+    },
+
+    # ── Falcon Alert (Falcon) ─────────────────────────────────────────────
+    # Runs to nearest same-faction ally, alerts 9x9, then chases.
+    "falcon_alert": {
+        "initial_state": AIState.IDLE,
+        "transitions": {
+            AIState.IDLE:     [(cartel_should_aggro, AIState.ALERTING)],
+            AIState.ALERTING: [(falcon_adjacent_to_ally, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.IDLE:     cartel_idle,
+            AIState.ALERTING: falcon_run_to_ally,
+            AIState.CHASING:  chase,
+        },
+    },
+
+    # ── Cartel Ranged (Specialist) ────────────────────────────────────────
+    # Maintains distance, shoots, blinks away if cornered.
+    "cartel_ranged": {
+        "initial_state": AIState.IDLE,
+        "transitions": {
+            AIState.IDLE: [(cartel_should_aggro, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.IDLE:    cartel_idle,
+            AIState.CHASING: maintain_distance,
+        },
+    },
+
+    # ── Suicide Bomber (Covid-26) ─────────────────────────────────────────
+    # Wanders until player spotted, then chases. Explodes on adjacency.
+    "suicide_bomber": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(player_in_sight, AIState.CHASING)],
+            AIState.CHASING:   [(player_lost,     AIState.WANDERING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander,
+            AIState.CHASING:   suicide_chase,
+        },
+    },
+
+    # ── Chemist Ranged (Chemist) ──────────────────────────────────────────
+    # Wanders until player spotted, then throws vials at range. Stationary when attacking.
+    "chemist_ranged": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(player_in_sight, AIState.CHASING)],
+            AIState.CHASING:   [(player_lost,     AIState.WANDERING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander,
+            AIState.CHASING:   throw_vial,
+        },
+    },
+
+    # ── Stationary Spawner (Rad Rats Nest) ────────────────────────────────
+    # Never moves.  Spawns children up to max_spawned each turn.
+    "stationary_spawner": {
+        "initial_state": AIState.IDLE,
+        "transitions":   {},
+        "actions": {
+            AIState.IDLE: spawner_idle,
+        },
+    },
+
     # ── Hit and Run (Niglet) ──────────────────────────────────────────────
     # Cowardly enemy that ambushes from a distance. Wanders until player is
     # spotted, then chases briefly. After one successful attack, immediately
@@ -637,6 +1042,15 @@ BEHAVIORS = {
             AIState.WANDERING: wander,
             AIState.CHASING:   chase,
             AIState.FLEEING:   flee,
+        },
+    },
+    # ── Meatball (summoned projectile) ────────────────────────────────────
+    # Chases nearest enemy; explosion logic handled in do_ai_turn.
+    "meatball": {
+        "initial_state": AIState.CHASING,
+        "transitions":   {},
+        "actions": {
+            AIState.CHASING: chase,
         },
     },
 }
@@ -686,6 +1100,97 @@ def _evaluate_behavior(behavior, monster, player, dungeon, engine,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SUMMON AI — custom turn logic for player-summoned entities
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _do_meatball_turn(meatball, player, dungeon, engine, creature_positions):
+    """Meatball summon: chase nearest enemy, explode when adjacent.
+
+    Explosion: 3x3 area centered on meatball. Damages all entities in range
+    (including player). Damage = 10 + effective_book_smarts / 2.
+    Despawns after exploding or when summon_lifetime reaches 0.
+    """
+    from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+
+    mx, my = meatball.x, meatball.y
+
+    # Decrement lifetime
+    meatball.summon_lifetime -= 1
+    if meatball.summon_lifetime <= 0:
+        engine.messages.append(f"The {meatball.name} fizzles out.")
+        meatball.alive = False
+        dungeon.remove_entity(meatball)
+        return "idle"
+
+    # Find nearest non-summon enemy
+    nearest = None
+    best_dist = 999
+    for m in dungeon.get_monsters():
+        if not m.alive or m is meatball or getattr(m, "is_summon", False):
+            continue
+        dist = max(abs(m.x - mx), abs(m.y - my))  # Chebyshev
+        if dist < best_dist:
+            best_dist = dist
+            nearest = m
+
+    if nearest is None:
+        return "idle"  # no enemies — just wait
+
+    # Check if adjacent to any non-summon enemy (Chebyshev distance 1)
+    adjacent_enemy = False
+    for m in dungeon.get_monsters():
+        if not m.alive or m is meatball or getattr(m, "is_summon", False):
+            continue
+        if max(abs(m.x - mx), abs(m.y - my)) <= 1:
+            adjacent_enemy = True
+            break
+
+    if adjacent_enemy:
+        # EXPLODE — deal damage in 3x3 area
+        bks = engine.player_stats.effective_book_smarts
+        damage = 10 + bks // 2
+        hit_names = []
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                tx, ty = mx + dx, my + dy
+                if not (0 <= tx < DUNGEON_WIDTH and 0 <= ty < DUNGEON_HEIGHT):
+                    continue
+                # Damage player if in range
+                if player.x == tx and player.y == ty:
+                    player.take_damage(damage)
+                    hit_names.append("you")
+                    if not player.alive:
+                        engine.messages.append(f"You were killed by a {meatball.name} explosion!")
+                # Damage monsters in range
+                for ent in dungeon.get_entities_at(tx, ty):
+                    if ent.entity_type == "monster" and ent.alive and not getattr(ent, "is_summon", False):
+                        ent.take_damage(damage)
+                        hit_names.append(ent.name)
+                        if not ent.alive:
+                            engine.event_bus.emit("entity_died", entity=ent, killer=player)
+        engine.messages.append([
+            ("MEATBALL EXPLOSION! ", (255, 140, 40)),
+            (f"{damage} dmg to: {', '.join(hit_names)}", (255, 200, 150)),
+        ])
+        meatball.alive = False
+        dungeon.remove_entity(meatball)
+        return "attack"
+
+    # Chase nearest enemy — simple step toward
+    dx = 0 if nearest.x == mx else (1 if nearest.x > mx else -1)
+    dy = 0 if nearest.y == my else (1 if nearest.y > my else -1)
+    # Try full diagonal, then cardinal fallbacks
+    for try_dx, try_dy in [(dx, dy), (dx, 0), (0, dy)]:
+        if try_dx == 0 and try_dy == 0:
+            continue
+        nx, ny = mx + try_dx, my + try_dy
+        if not dungeon.is_blocked(nx, ny):
+            meatball.move(try_dx, try_dy)
+            return "move"
+    return "idle"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -713,21 +1218,29 @@ def do_ai_turn(monster, player, dungeon, engine,
     if _apply_before_turn(monster, player, dungeon):
         return "idle"
 
+    # ── Meatball summon AI ───────────────────────────────────────────────
+    # Chases nearest enemy, explodes on adjacency. Fully custom — bypasses
+    # the behavior state machine.
+    if getattr(monster, "is_summon", False) and monster.ai_type == "meatball":
+        return _do_meatball_turn(monster, player, dungeon, engine, creature_positions)
+
     # ── Jerome's self-healing (boss mechanic) ────────────────────────────
-    # When Jerome drops below 25 HP, he eats fried chicken to heal 10 HP
-    # and gain a Well Fed buff (+2 power per stack). Limited to 2 meals.
+    # When Jerome drops to 40 HP or below, he eats fried chicken to heal
+    # 20 HP + HoT (2 HP/turn for 5 turns, doesn't stack). 3 uses. Costs
+    # 0 energy so he can still act the same turn.
     if monster.enemy_type == "big_nigga_jerome":
-        if monster.hp < 25 and monster.hp > 0:
+        if monster.hp <= 40 and monster.hp > 0:
             eaten_count = getattr(monster, "eaten_count", 0)
-            if eaten_count < 2:
-                monster.hp = min(monster.hp + 10, 50)
+            if eaten_count < 3:
+                monster.hp = min(monster.hp + 20, monster.max_hp)
                 monster.eaten_count = eaten_count + 1
                 engine.messages.append(
                     f"{monster.name} eats fried chicken and feels revitalized! "
-                    f"({monster.eaten_count}/2)"
+                    f"({monster.eaten_count}/3)"
                 )
-                effects.apply_effect(monster, engine, "well_fed",
-                                     duration=10, power_bonus=2)
+                # HoT: 2 HP/turn for 5 turns — refreshes, doesn't stack
+                effects.apply_effect(monster, engine, "hot",
+                                     duration=5, amount=2)
 
     # ── Look up behavior ─────────────────────────────────────────────────
     behavior = BEHAVIORS.get(monster.ai_type)
@@ -756,5 +1269,10 @@ def do_ai_turn(monster, player, dungeon, engine,
         if new_pos != old_pos:
             creature_positions.discard(old_pos)
             creature_positions.add(new_pos)
+
+            # Trail-leaving enemies spawn toxic creep on their old tile
+            trail = getattr(monster, "leaves_trail", None)
+            if trail:
+                engine.spawn_trail_creep(old_pos[0], old_pos[1], trail)
 
     return action_type

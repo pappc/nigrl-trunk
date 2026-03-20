@@ -28,6 +28,8 @@ class Entity:
         prefix=None,            # Active food prefix ("greasy", etc.); None = no prefix
         charges=None,           # Remaining uses for prefixed food; None = no charge system
         max_charges=None,       # Max uses at prefix-apply time
+        current_ammo=0,         # Rounds currently loaded in this gun (0 for non-guns)
+        mag_size=0,             # Magazine capacity (0 for non-guns)
         # --- Enemy fields (None/default for non-monsters) ---
         enemy_type=None,        # Registry key e.g. "tweaker", "crack_addict"
         gender=None,            # "male" | "female"
@@ -53,6 +55,24 @@ class Entity:
         attack_cost=0,          # Energy cost override for attacks  (0 = use ENERGY_THRESHOLD)
         death_drop_chance=0.0,  # Probability (0.0–1.0) of dropping an item on death
         death_drop_table=None,  # List of item_ids to pick from on death drop
+        death_drop_quantity=None,  # (min, max) stack size for dropped item
+        faction=None,           # Faction key ("scryer" | "aldor" | None) for cartel enemies
+        blink_charges=0,        # Emergency teleport charges (specialist enemies)
+        ranged_attack=None,     # Ranged attack dict: {"range": int, "damage": (min, max), "miss_chance": float, "knockback": int}
+        spawner_type=None,      # enemy_type key to spawn mid-combat (e.g. "rad_rat")
+        max_spawned=0,          # max alive children at once
+        # --- Timed hazard fields ---
+        hazard_duration=0,      # turns remaining for timed hazards (0 = permanent)
+        hazard_tox_per_turn=0,  # tox applied per tick to entities on this tile
+        # --- Death behavior fields ---
+        death_split_type=None,  # enemy_type key to spawn on death (e.g. "mini_sludge")
+        death_split_count=0,    # number of children to spawn on death
+        death_creep_radius=0,   # radius of toxic creep spawned on death
+        death_creep_duration=0, # duration of death-spawned toxic creep
+        death_creep_tox=0,      # tox per turn of death-spawned toxic creep
+        leaves_trail=None,      # dict {"duration": int, "tox": int} for trail-leaving enemies
+        is_summon=False,        # True for player-summoned allies (meatballs, etc.) — not auto-attacked by player
+        summon_lifetime=0,      # Turns remaining before summon despawns (0 = no limit)
     ):
         self.x = x
         self.y = y
@@ -60,8 +80,11 @@ class Entity:
         self.color = color
         self.name = name
         self.entity_type = entity_type  # "player", "monster", "item"
-        # Monsters always block movement; explicitly enforce this
-        self.blocks_movement = blocks_movement if entity_type != "monster" else True
+        # Monsters always block movement (except summons); explicitly enforce this
+        if entity_type == "monster" and not is_summon:
+            self.blocks_movement = True
+        else:
+            self.blocks_movement = blocks_movement
         self.hp = hp
         self.max_hp = hp
         self.armor = 0                  # current armor
@@ -77,6 +100,8 @@ class Entity:
         self.prefix = prefix            # active food prefix ("greasy", etc.); None = no prefix
         self.charges = charges          # remaining uses for prefixed food; None = no charge system
         self.max_charges = max_charges  # max uses at prefix-apply time
+        self.current_ammo = current_ammo  # rounds loaded in this gun (0 for non-guns)
+        self.mag_size = mag_size          # magazine capacity (0 for non-guns)
         self.status_effects = []        # list of active status effect dicts
         self.instance_id = str(uuid.uuid4())  # unique ID for tracking loot instances
         self.dev_invincible = False     # DEV TOOL: if True, take_damage always no-ops
@@ -107,7 +132,29 @@ class Entity:
         self.attack_cost       = attack_cost
         self.death_drop_chance = death_drop_chance
         self.death_drop_table  = death_drop_table or []
+        self.death_drop_quantity = death_drop_quantity
+        self.faction           = faction
+        self.blink_charges     = blink_charges
+        self.ranged_attack     = ranged_attack
+        self.spawner_type      = spawner_type
+        self.max_spawned       = max_spawned
+        self.spawned_children  = []   # list of entity references this spawner has created
+        self.hazard_duration   = hazard_duration
+        self.hazard_tox_per_turn = hazard_tox_per_turn
+        self.death_split_type  = death_split_type
+        self.death_split_count = death_split_count
+        self.death_creep_radius  = death_creep_radius
+        self.death_creep_duration = death_creep_duration
+        self.death_creep_tox     = death_creep_tox
+        self.leaves_trail        = leaves_trail
+        self.is_summon           = is_summon
+        self.summon_lifetime     = summon_lifetime
         self.toxicity: int  = 0  # meth lab zone: damage-taken multiplier via power scaling
+        self.meth: int = 0         # current meth resource (spent on strong abilities)
+        self.max_meth: int = 250   # max meth capacity
+        self.tox_resistance: int = 0  # % reduction to toxicity gain; 100 = immune, negative = extra gain
+        self.radiation: int = 0  # radiation level; effects TBD by zone mechanics
+        self.rad_resistance: int = 0  # % reduction to radiation gain; 100 = immune, negative = extra gain
 
     def move(self, dx, dy):
         """Move entity by delta x, y."""

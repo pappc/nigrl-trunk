@@ -1,0 +1,2078 @@
+================================================================================
+NIGRL SPELL / ABILITY COMPENDIUM — SUPPLEMENT III
+ELEMENTAL & ARCANE SPELLS
+================================================================================
+
+This supplement designs 48 spells organized by element/school. These are the
+flashy damage spells — fireballs, lightning, ice storms, arcane force — that
+make dedicated caster builds feel powerful and distinct from physical builds.
+
+The core design innovation of this supplement is the ELEMENT COMBO SYSTEM: spells
+leave elemental conditions on targets (Wet, Burning/ignite, Chill, Shocked,
+Brittle, Arcane Mark, Earthbound, Shadowed, Luminous, Poisoned, Windswept) that
+interact with subsequent spells for amplified effects. The full chart is at the
+bottom of this document.
+
+EXISTING effects leveraged here:
+  ignite   — Burning, 1 dmg/stack/turn, stacks. Strips Chill. Wet extinguishes.
+  chill    — Slows energy gain by 10 per stack. Strips on Ignite apply.
+  shocked  — +15% incoming melee damage per stack (max 5). Stacks on reapply.
+  wet      — Extinguishes Ignite on apply. Tags enemy as soaked.
+  slow     — Reduces energy ratio. duration and ratio params.
+  stun     — Skip AI turn, zero energy gain.
+  confuse  — Randomized movement.
+  dot      — Generic damage over time.
+  fear     — Flee from source. 50% break on damage.
+
+NEW effects introduced (see Implementation Notes per entry):
+  brittle  — Physical hits deal +50% damage. 1 charge: consumed by any phys hit.
+  frozen   — Full stun + brittle flag. Duration 3-5t. Removed by fire/heat.
+  arcane_mark — Next spell targeting this entity deals +BKS flat bonus damage.
+  earthbound  — -50% movement energy (ratio 0.5), -2 defense.
+  shadowed    — Cannot be targeted by SINGLE_LOS abilities (they mis-aim).
+             Cleared by any light/holy effect. (NPC-targetable version of invis.)
+  luminous    — +25% incoming damage from all sources. Cleared by Shadowed.
+  poisoned    — 2 dmg/turn, defense reduced by 1 per 5 turns (max -3 reduction).
+  windswept   — Pushed 1 tile away from caster per turn, auto if open tile.
+             Cannot stack; refreshes duration.
+
+PRIMARY STAT SCALING for this school: Book-Smarts (BKS).
+  - Base spell damage = stated formula + floor(BKS / 4) flat bonus
+  - All spells with "BKS scaling" mean: add floor(BKS/4) to the damage roll
+  - At BKS 8 (minimum): +2 bonus. At BKS 12: +3. At BKS 20 (skilled): +5.
+  - This is intentionally modest — caster builds want BKS for SP generation
+    AND spell damage, making every BKS point doubly valuable.
+
+Prior abilities NOT duplicated (registry + all three prior compendium docs):
+  Registry: warp, dimension_door, chain_lightning, ray_of_frost, firebolt,
+    arcane_missile, breath_fire, zap, corn_dog, lesser_cloudkill, pry,
+    throw_bottle, bash, black_eye_slap, gouge, pickpocket, force_push,
+    fry_shot, place_fire, dash, ignite_spell, quick_eat, double_tap, spray,
+    burst, spray_and_pray, slow_metabolism, pandemic, radiation_nova
+
+  Compendium I: liquid_courage, hair_of_dog, spiked_punch, corkscrew,
+    blackout, last_call, gas_attack, deep_fried_fireball, iron_gut,
+    corn_dog_judgment, caloric_surge, enzyme_bomb, phat_cloud_active,
+    contact_high, smoke_screen, spiritual_transcendence, dutch_courage_cloud,
+    slow_burn, roach_resurrection, mind_bullets, curse_of_bad_luck,
+    spirit_steal, voodoo_doll, forgotten_name, death_mark, psychic_scream,
+    switchblade_twirl, cheap_shot, chain_snatch, ground_pound, ankle_breaker,
+    blitz, exhume, reap, hazmat_protocol, meltdown, chemical_cocktail,
+    purity_shield, static_discharge, dumpster_dive, jury_rig, call_out,
+    dead_sprint, barter, improvised_explosive, clock_out, noise_complaint,
+    money_shot, last_man_standing, recursive_blunt, identity_theft,
+    market_crash, chain_reaction
+
+  Supplement I (classics): dip_out, smoke_and_mirrors, bounce, ghost_walk,
+    throw_the_nets, wake_up_call, lights_out, speed_bump, hold_it_right_there,
+    shut_up, pop_pop_pop, what_you_said, toll_the_block, in_your_walls,
+    structural_damage, spirit_shot, call_the_squad, turn, street_sense,
+    know_the_building, what_is_it, running_late, dont_see_me, hustle_shield,
+    second_wind, the_look, put_em_to_sleep, sit_down, get_confused, hit_list,
+    get_slow, dance_fool, dig, bear_trap, leave_a_mark, earthquake,
+    make_it_rain, polymorph, invisibility, levitate, mirror_image, banishment
+
+  Supplement II (weird): stop_time, entropy_bomb, borrowed_time, lag_spike,
+    skip, mirror_phase, siphon_speed, detonation_pact, rage_quit, hp_bank,
+    scalpel, corpse_grenade, kill_switch, arson, last_resort, starvation_mode,
+    borrowed_luck, chain_misery, echo_chamber, nuke_it, ego_death,
+    viral_load, paper_skin, guilt_trip, double_or_nothing, pay_it_forward,
+    self_surgery, mirror_match, overcharge, shunt, splatter, void_swap,
+    curse_of_plenty, fracture
+
+--------------------------------------------------------------------------------
+NOTATION
+--------------------------------------------------------------------------------
+  TARGET:  SELF | ADJACENT | ADJ_TILE | SINGLE_LOS | LINE | AOE_CIRCLE
+  CHARGE:  INF (infinite, cooldown-gated) | /FL (per floor) | TOTAL (permanent
+           uses) | ONCE | FL_ONLY (per floor, not saved on descent)
+  SOURCE:  which skill tree, perk level, or item grants this ability
+  STAT:    which player stat scales the damage/effect
+  COMBO:   element condition applied OR element conditions that trigger a bonus
+
+  Tier labels: LOW (floor 1-2 accessible), MID (floor 3-4), HIGH (floor 5+)
+
+================================================================================
+SECTION E-F — FIRE
+Thematic core: ignite stacks, burning terrain, explosive burst, DOT pressure
+================================================================================
+
+------------------------------------------------------------------------
+E-F-01  LIGHTER FLUID  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Lighter Fluid" — you pull a little aerosol can and hiss fire
+  Source:   Blackkk Magic L1 activated perk  OR  item "BIC Lighter" (single use)
+  Target:   SINGLE_LOS  (range 5)
+  Charge:   INF (cooldown 6 turns)
+  Stat:     Book-Smarts
+  Combo:    APPLIES: ignite (3 stacks, 5t)
+            REACTS: if target already has ignite, adds 2 stacks instead of 3
+                    (refueling the fire accelerates the burn)
+
+  Mechanic:
+    Fire a ranged ignite bolt. Deals 3 + floor(BKS/4) immediate fire damage,
+    then applies ignite (3 stacks, 5 turns) to the target.
+    If the target already has the ignite effect active, instead add 2 stacks to
+    the existing effect and refresh the duration to max(current, 5). Message:
+    "Lighter Fluid feeds the flames! (+2 stacks)"
+    If target has Wet: wet is stripped, ignite fails to apply. Message:
+    "The water douses your lighter fluid!"
+    If target has Chill/frozen: chill is stripped, ignite applies normally.
+
+  Why:      The lowest rung of fire offense. Good enough on its own; rewarding
+            when you stack with a second fire source (existing firebolt, ignite_spell,
+            Jungle Boyz strain). Creates the foundation of ignite-stacking builds.
+  Flavor:   "Aerosol + flame = simple math. You didn't need chemistry class
+             for this one."
+  Notes:    execute(engine, tx, ty): resolve to monster at (tx,ty); apply
+            immediate damage via entity.take_damage(dmg); then apply_effect(
+            entity, engine, "ignite", duration=5, stacks=3) which triggers the
+            existing IgniteEffect.on_reapply path if already present.
+            ABILITY_REGISTRY entry: TargetType.SINGLE_ENEMY_LOS, ChargeType.INFINITE,
+            max_charges=None, cooldown=6.
+
+------------------------------------------------------------------------
+E-F-02  BACKDRAFT  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Backdraft" — a sudden pressure blast of superheated air
+  Source:   Blackkk Magic L3 activated perk  OR  item "Fire Extinguisher" (ironic
+            — turns out those things can explode if you heat the canister first)
+  Target:   AOE_CIRCLE  (radius 3, centered on target tile)
+  Charge:   /FL 2
+  Stat:     Book-Smarts
+  
+  Combo:    APPLIES: ignite (2 stacks, 5t) to all entities in radius
+            REACTS: if any entity in radius already has 3+ ignite stacks,
+                    trigger FLASHOVER (see below)
+
+  Mechanic:
+    All living entities in AOE radius (including player if present) take
+    4 + floor(BKS/4) fire damage and receive ignite (2 stacks, 5t).
+    Ignite interactions: Wet entities have wet stripped; ignite fails on them.
+    Chill/frozen entities: chill stripped, ignite applies.
+
+    FLASHOVER: If any entity in the radius enters the tick with 3 or more ignite
+    stacks, those entities instead take an additional 6 flat fire damage from
+    the pressure wave igniting the concentrated heat. Message: "Flashover! The
+    accumulated heat explodes!"
+    Player is NOT immune to Flashover — catching yourself in a flaming room is
+    your problem.
+
+  Why:      The AOE fire tool. Forces ignite-stack building as a prelude: light
+            a target or two with Lighter Fluid or firebolt, then Backdraft the
+            room for a Flashover spike. High floor count (2/floor) means
+            selective use — you can't spam it.
+  Flavor:   "You crack the seal on something pressurized and hot. The room
+             decides it's not a room anymore; it's an oven."
+  Notes:    execute(engine, tx, ty): collect all entities in Chebyshev radius 3
+            of (tx,ty). Deal damage + apply ignite. Post-damage, check each
+            entity's ignite stacks and add bonus damage if >=3. Message logged
+            per Flashover entity.
+            AOE_CIRCLE radius=3 in AbilityDef.
+
+------------------------------------------------------------------------
+E-F-03  NAPALM STRIKE  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Napalm Strike" — classic. You call it in. It arrives.
+  Source:   Blackkk Magic L5 activated perk  OR  Pyromania L4 activated perk
+  Target:   AOE_CIRCLE  (radius 2, but leaves PERSISTENT fire terrain)
+  Charge:   /FL 1
+  Stat:     Book-Smarts + Strength (STR adds ignite stacks)
+  Combo:    APPLIES: ignite (3 + floor(STR/3) stacks, 6t)
+            PLACES: fire hazard entities on all tiles in radius
+            REACTS: if target tile has existing fire entities, stack ignite +2
+
+  Mechanic:
+    Immediately deal 6 + floor(BKS/4) fire damage to all entities in radius 2
+    and apply ignite (3 + floor(STR/3) stacks, 6 turns). Then call
+    create_fire(x, y) for every open floor tile in the radius, creating fire
+    hazard entities that persist until the floor resets. Entities that step
+    on these tiles receive IgniteEffect per the existing fire hazard system.
+
+    The persistent fire terrain is the unique feature. This changes the map —
+    you can use it defensively (make a room impassable) or offensively (herd
+    enemies into it). Enemies with meander AI will blindly walk through fire.
+
+    At STR 8: +2 stacks. At STR 12: +4 stacks. Maximum 9 initial stacks via this
+    formula (STR 18, hypothetical), but standard cap of 9999 applies overall.
+
+  Why:      A capstone-tier ability that permanently alters the floor. The fire
+            terrain created by create_fire() uses the EXACT same hazard system
+            already implemented. This costs 1/floor, so placement matters.
+  Flavor:   "You didn't invent fire. But you did just add a lot more of it."
+  Notes:    Requires hazards.create_fire(x,y) imported in abilities.py (or
+            executed via engine reference). After damage+ignite, iterate over
+            radius tiles, skip walls and entity-blocked tiles, call create_fire.
+            Cross-reference: existing place_fire ability places ONE fire tile;
+            napalm_strike places ALL tiles in radius.
+
+------------------------------------------------------------------------
+E-F-04  PHOENIX COAT  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Phoenix Coat" — this hoodie is literally on fire. You planned
+               this.
+  Source:   Pyromania L3 activated perk
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Tolerance (TOL — enduring fire)
+  Combo:    APPLIES: ignite (2 stacks) to YOURSELF  + PhoenixCoatEffect buff
+
+  Mechanic:
+    Apply PhoenixCoatEffect to the player (10 turns). While active:
+    - Any entity that deals melee damage to you receives ignite (2 stacks, 4t).
+    - You gain immunity to your OWN ignite damage (the ignite is on you but does
+      not tick against you for the duration — only ticks against others via
+      their damage reflection).
+    - You take +50% damage from Wet effects (water damages a burning coat badly).
+
+    When PhoenixCoatEffect expires: strip any ignite stacks off the player.
+    Message on apply: "Your coat ignites. Anyone who touches you will know."
+
+    The "you are on fire" aspect is cosmetic — it's the melee reflect that
+    matters. High-TOL builds can afford the +50% wet damage. Enemies with ranged
+    AI are unaffected (they don't melee). Best against meander/passive_until_hit
+    AI types who will whale on you.
+
+  Why:      Completely inverts the defensive paradigm. You WANT to be hit. It
+            punishes face-tanking enemies while still requiring you to manage
+            the wet vulnerability. Synergizes with Liquid Courage (A-01 from
+            Compendium I) which already wants you to stand in melee.
+  Flavor:   "You could dodge. Or you could just let them figure out what happens
+             when they punch someone who's on fire."
+  Notes:    PhoenixCoatEffect: new buff subclass. apply() → apply_effect self
+            ignite. on_player_melee_hit() hook applied in REVERSE: engine needs
+            to call a defender hook when player is hit by monster. Check if
+            engine.player has phoenix_coat; if yes, apply_effect(attacker,
+            engine, "ignite", stacks=2, duration=4).
+            New hook needed: modify_incoming_damage could serve double-duty if
+            attacker reference is passed; alternatively add a new
+            on_player_takes_melee_damage hook to Effect base class.
+
+================================================================================
+SECTION E-I — ICE / FROST
+Thematic core: slow accumulation, freeze/shatter combo, brittle setup
+================================================================================
+
+------------------------------------------------------------------------
+E-I-01  COLD SHOULDER  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Cold Shoulder" — attitude so icy it physically manifests
+  Source:   Blackkk Magic L1 alt  OR  item "Bag of Ice" (consumable, /FL 2)
+  Target:   SINGLE_LOS  (range 6)
+  Charge:   INF (cooldown 5 turns)
+  Stat:     Book-Smarts
+  Combo:    APPLIES: chill (1 stack, 6t)
+            REACTS: if target already has chill, apply +1 additional stack
+                    instead (Chill.on_reapply handles this already — just fire
+                    apply_effect twice conceptually, or pass stacks=existing+1)
+
+  Mechanic:
+    Fire a slow projectile at one target. Deals 2 + floor(BKS/4) cold damage
+    immediately. Applies chill (1 stack, 6 turns) — each stack reduces the
+    target's energy gain by 10/turn. At 3 stacks, a base-speed enemy (100
+    energy/turn) gains only 70 energy/turn — effectively 30% slower.
+
+    If target has ignite active: ignite is stripped (existing chill/ignite
+    interaction), deal +3 bonus cold damage as the "steam explosion" from
+    rapid temperature change. Message: "The sudden cold flash-quenches the fire!
+    (+3 damage)"
+
+  Why:      Entry-level frost spell that enables the chill-stack gameplan.
+            Simple, safe, and honest. The ignite-strip bonus is a consolation
+            prize for bad sequencing or a tool against Wet enemies where you
+            can't start with fire.
+  Flavor:   "Literally. A cold shoulder. You just pointed a cold shoulder at
+             someone and it worked."
+  Notes:    Uses existing ChillEffect, which already has on_reapply stacking.
+            Immediate damage is direct — entity.take_damage(dmg). Then
+            apply_effect(entity, engine, "chill", duration=6, stacks=1).
+            If entity had ignite: bonus_dmg=3, entity.take_damage(bonus_dmg),
+            message logged.
+
+------------------------------------------------------------------------
+E-I-02  PERMAFROST  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Permafrost" — ground freezes under their feet
+  Source:   Blackkk Magic L3 alt  OR  item "Dry Ice Bomb" (crafted consumable)
+  Target:   ADJACENT_TILE  (fires in a direction; freezes a tile)
+  Charge:   /FL 3
+  Stat:     Book-Smarts
+  Combo:    APPLIES: chill (2 stacks, 8t) + earthbound (6t) to entity on tile
+            PLACES: frost terrain flag on tile (flavor, no mechanical effect)
+
+  Mechanic:
+    Target an adjacent tile (any non-wall). Any living entity on that tile
+    takes 3 + floor(BKS/4) cold damage and receives:
+      - chill (2 stacks, 8 turns)
+      - earthbound (6 turns): -50% movement energy, -2 defense
+
+    EarthboundEffect: new subclass. modify_energy_gain: return amount * 0.5 if
+    used for movement actions (movement costs energy in some implementations;
+    if not, just apply slow ratio=0.5 which already exists). Defense: apply()
+    saves entity.defense, reduces by 2; expire() restores. on_reapply: refresh
+    duration only.
+
+    If no entity is on the tile: spell still fires but has no effect on entities
+    (terrain flag set cosmetically). Silent success.
+
+    PERMAFROST TERRAIN: set a dungeon tile property frozen=True on that tile.
+    Any entity that enters the tile mid-floor movement gets 1 stack of chill
+    for free. Tile thaws after 20 turns or if a fire AOE hits it. This terrain
+    interaction is the "medium complexity" feature — cosmetically tracked via
+    dungeon.frozen_tiles: set of (x,y) tuples.
+
+  Why:      Battlefield control. ADJACENT_TILE means you're placing it right
+            next to you — useful for blocking a corridor approach, slowing an
+            enemy that's about to be in range. The earthbound debuff pairs with
+            subsequent lightning (shocked) or fire (ignite) for tri-element
+            combos.
+  Flavor:   "You reach down and tell the floor it's winter now."
+  Notes:    ADJACENT_TILE targeting already exists in the system. execute
+            resolves entity at (tx,ty) if any, applies effects. Permafrost
+            terrain: dungeon.frozen_tiles attribute (new); engine._run_energy_loop
+            or movement handler checks if entity tile is in frozen_tiles set,
+            applies free chill stack.
+
+------------------------------------------------------------------------
+E-I-03  ABSOLUTE ZERO  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Absolute Zero" — temperature limit approaching
+  Source:   Blackkk Magic L5 alt  OR  Item "Liquid Nitrogen Canister" (TOTAL 3)
+  Target:   SINGLE_LOS  (range 8)
+  Charge:   /FL 1
+  Stat:     Book-Smarts
+  Combo:    APPLIES: frozen (full freeze — new effect, see below)
+            REACTS: if target has 3+ chill stacks before cast, freeze duration
+                    doubled (6t instead of 3t) — reward for chill pre-stacking
+
+  Mechanic:
+    A piercing beam of absolute cold. Deals 8 + floor(BKS/4) cold damage.
+    Then strips ALL chill stacks and applies frozen (3 turns, or 6 turns if
+    target had 3+ chill stacks when hit).
+
+    FrozenEffect (new):
+      - Combines full stun (zero energy, skip AI turn — same as StunEffect)
+      - Sets a flag entity.brittle = True: the NEXT physical hit against this
+        entity while frozen deals +50% bonus damage (the shatter mechanic)
+      - If ignite is applied to a frozen entity: frozen is instantly removed
+        (heat thaws ice), ignite applies at +3 stacks bonus (the rapid phase
+        change creates explosive steam), message: "SHATTERED BY FIRE!"
+      - When frozen expires normally: remove brittle flag, message "thaws"
+
+    The freeze is limited to 3 turns (6 with pre-stack) because the shatter
+    timing matters — you need a melee ally, a physical ability, or a damage
+    source ready. Solo caster: use Absolute Zero, then immediately melee the
+    frozen target for the shatter bonus.
+
+  Why:      The payoff for the entire chill-stacking gameplan. Pre-stack cold,
+            freeze for massive shatter, or chain into fire for a steam burst.
+            The 6-turn extended freeze is genuinely powerful — nearly 3 enemy
+            turns completely locked — and requires investment (you spent
+            2 prior chill turns).
+  Flavor:   "Water vapor in the air turns to snow. The target turns to ice.
+             You figure out the next step."
+  Notes:    FrozenEffect: new subclass. before_turn returns True (skip AI).
+            modify_energy_gain returns 0. on apply: set entity.brittle = True.
+            on expire: entity.brittle = False. Need brittle field on Entity
+            (default False). In combat.py damage resolution: if entity.brittle,
+            deal * 1.5 additional damage and set entity.brittle = False with
+            message "SHATTER!"
+
+------------------------------------------------------------------------
+E-I-04  SLEET STORM  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Sleet Storm" — you make it miserable outside for everyone
+               inside
+  Source:   item "Big Gulp (Slushee)" — consuming grants Sleet Storm /FL 1
+  Target:   AOE_CIRCLE  (radius 4 centered on player)
+  Charge:   /FL 1 (granted by item — consumed on use)
+  Stat:     Tolerance (how long you've been drinking frozen drinks)
+  Combo:    APPLIES: chill (1 stack, 5t) to all entities in radius
+            REACTS: if target already has Wet, deal +4 cold damage and apply
+                    +1 additional chill stack (wet surfaces freeze faster)
+
+  Mechanic:
+    Radial ice storm centered on the player. Hits ALL entities in radius 4
+    (including the player — you are in the storm too). Each entity takes
+    1 + floor(TOL/6) cold damage and receives chill (1 stack, 5 turns).
+    Player also takes the chill — this is a calculated risk.
+
+    The Sleet Storm does not discriminate: you, your enemies, everyone in the
+    room slows down. On a floor full of faster-than-you enemies, this is often
+    a net positive (you lose 10 energy/tick; a meander enemy that was already
+    gaining 100 now gains 90, still faster, but relatively your mobility gap
+    shrinks). Against a room full of the same-speed enemies, it's a wash on
+    speed and just deals light AOE damage.
+
+    If any entity in radius has Wet: +4 cold damage, +1 extra chill stack for
+    that entity specifically. Perfect setup: use a water ability first, then
+    Sleet Storm.
+
+  Why:      The chaos pick. Self-included AOE is the cost. Forces risk/reward
+            calculation every time — are you in a position where universal slow
+            helps you more than it hurts? Pairs with mobility effects that let
+            you act while enemies crawl. Item source (Big Gulp) makes it a
+            one-time consumable reward rather than a permanent skill investment.
+  Flavor:   "You didn't mean to hit yourself with the sleet storm. You just
+             didn't care enough to step out of it first."
+  Notes:    execute(engine): collect all entities in radius 4 of player,
+            including engine.player. Apply damage and chill to each.
+            Big Gulp item: FOOD_DEFS entry, multi-turn eat (2 turns), on
+            completion grants ability "sleet_storm" as a /FL 1 instance.
+            Or: use_effect {"ability": "sleet_storm"} on item in ITEM_DEFS.
+
+================================================================================
+SECTION E-L — LIGHTNING
+Thematic core: chain damage, energy/speed manipulation, wet amplification
+================================================================================
+
+------------------------------------------------------------------------
+E-L-01  STATIC SLAP  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Static Slap" — you shuffle your feet on the carpet and
+               point at somebody
+  Source:   Blackkk Magic L1 perk (alternate starting option to Lighter Fluid)
+            OR item "Rubber Duck" (single use, joke item)
+  Target:   SINGLE_LOS  (range 4)
+  Charge:   INF (cooldown 4 turns)
+  Stat:     Book-Smarts
+  Combo:    APPLIES: shocked (1 stack, 5t) — +15% melee damage taken per stack
+            REACTS: if target has Wet, deal double damage and apply +2 shocked
+                    instead of +1 (water amplifies electricity)
+
+  Mechanic:
+    Fast, cheap lightning bolt. Deals 3 + floor(BKS/4) lightning damage and
+    applies shocked (1 stack, 5 turns). Short range (4 tiles) means you need
+    to be relatively close.
+
+    WET COMBO: If target has the Wet effect at time of cast:
+      - Deal double damage (6 + floor(BKS/4)*2 — the BKS bonus also doubles)
+      - Apply shocked 3 stacks instead of 1 (the water conducts)
+      - Strip the Wet effect (it's been "conducted out")
+      - Message: "Water conducts! Static Slap critically amplified!"
+
+    The fastest cooldown in the lightning school (4 turns) — this is your
+    filler spell between bigger casts.
+
+  Why:      Teaches the Wet combo from the first moment it's available.
+            Shocked stacks make enemies take MORE melee damage — this rewards
+            a hybrid playstyle where you alternate casting and punching.
+            Short range means you're committing to mid-distance.
+  Flavor:   "Same principle as a doorknob on a dry winter day, applied to
+             someone's face."
+  Notes:    Wet+shock combo: check for Wet before applying damage. If Wet
+            present: dmg *= 2, stacks = 3, strip Wet. Then apply shocked.
+            Existing ShockedEffect.on_reapply already handles multi-stack.
+
+------------------------------------------------------------------------
+E-L-02  BALL LIGHTNING  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Ball Lightning" — you conjure a floating orb of electric death
+               and let it drift
+  Source:   Blackkk Magic L3  OR  item "Plasma Ball" (novelty store, TOTAL 5)
+  Target:   LINE_FROM_PLAYER  (fires in aimed direction, pierces all enemies)
+  Charge:   /FL 3
+  Stat:     Book-Smarts
+  Combo:    APPLIES: shocked (2 stacks, 5t) to each entity hit
+            REACTS: each Wet entity hit triggers the wet combo (double dmg,
+                    +1 extra shock stack, strip Wet) independently
+
+  Mechanic:
+    Fire a piercing lightning orb in a direction. The orb travels up to 10
+    tiles, hitting EVERY entity along the ray (player included if they're
+    somehow in the path, which they never should be).
+    Each entity hit takes 5 + floor(BKS/4) lightning damage and receives
+    shocked (2 stacks, 5 turns). Wet combo triggers per entity independently.
+
+    The pierce is the key feature: corridor fights become electric corridors.
+    Hit 3 enemies in a hallway, each gets 2 shocked stacks. On the next melee
+    swing any of them make they deal more damage to you — BUT they take +30%
+    more melee damage if YOU attack them.
+
+    Friendly fire: if an allied entity (Thrall, if using Negromancy from
+    skill_perks_L4_L5) is in the line, they also take damage and shocked
+    stacks. There is no immunity.
+
+  Why:      Corridor dominator. Sets up shocked stacks on clustered enemies,
+            then melee cleanup takes amplified damage. Directly synergizes with
+            shocked → melee combo and the Wet interaction. The pierce reward
+            feels great when it chains through a crowd.
+  Flavor:   "Ball lightning is real. You didn't expect it to be, but here
+             you are, throwing it."
+  Notes:    LINE_FROM_PLAYER targeting already exists. execute(engine, tx, ty):
+            trace ray from player toward (tx,ty), collect all entities on the
+            line, apply damage and shocked per entity. Check Wet per entity.
+
+------------------------------------------------------------------------
+E-L-03  OVERLOAD  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Overload" — everyone in the grid gets the surge
+  Source:   Blackkk Magic L5  OR  Pyromania L5 cross-unlock (thematic — the
+            two flavors of AOE destruction cross-pollinate)
+  Target:   AOE_CIRCLE  (radius 3)
+  Charge:   /FL 1
+  Stat:     Book-Smarts
+  Combo:    APPLIES: shocked (3 stacks, 6t) to all targets
+            REACTS: each shocked entity already in radius takes +4 bonus dmg
+                    per existing shocked stack (overloading a live circuit)
+            BONUS:  if any entity in radius has Wet AND shocked, trigger
+                    SURGE (see below)
+
+  Mechanic:
+    Massive electrical discharge centered on the target tile. All entities
+    (including player) in radius take 7 + floor(BKS/4) lightning damage and
+    receive shocked (3 stacks, 6 turns).
+
+    PRE-SHOCKED BONUS: If a target already has shocked stacks when Overload
+    hits, deal +4 bonus damage per existing stack. At 3 prior stacks that's
+    +12 bonus. At 5 stacks (max ShockedEffect) that's +20 bonus. This rewards
+    pre-stacking with Static Slap and Ball Lightning.
+
+    SURGE: If any entity in radius has BOTH Wet and shocked at time of cast,
+    Overload's electricity chains from that entity to every other entity in
+    radius dealing an additional 4 lightning damage — representing the wet
+    surface conducting the surge between targets. Message: "ELECTRICAL SURGE!
+    Wet conductors amplify the chain!"
+
+  Why:      The high-tier payoff for the shocked-stacking gameplan. Pre-stack
+            shocked with low-tier spells, drop Overload for massive amplified
+            burst. The Wet+shocked Surge adds a third layer: water spell →
+            shock build → Overload for maximum burst.
+  Flavor:   "You unleash every volt you've been holding in. The lights flicker.
+             They don't come back on."
+  Notes:    execute(engine, tx, ty): collect entities in radius 3. Compute base
+            damage. For each entity with shocked: add 4 * stacks bonus. Check
+            any entity has both Wet and shocked → if yes, deal 4 extra to ALL
+            entities in radius as chain damage. Apply shocked (3 stacks, 6t).
+
+------------------------------------------------------------------------
+E-L-04  FARADAY CAGE  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Faraday Cage" — electromagnetic shielding for the body
+  Source:   Blackkk Magic L4  OR  item "Chain-Link Jacket" (passive while
+            worn, not an ability — but a future item design)
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Swagger (SWG — you have to look confident for it to work)
+  Combo:    APPLIES: FaradayCageEffect (buff, 10t)
+
+  Mechanic:
+    Apply FaradayCageEffect for 10 turns. While active:
+    - Immune to shocked stacks (they cannot be applied — any apply_effect call
+      for "shocked" targeting the player is blocked while this buff is up)
+    - Any entity that deals melee damage to the player has a 40% chance to
+      receive shocked (2 stacks, 4t) as the cage discharges into them
+    - Buff is stripped instantly if the player is hit by a Wet-type effect
+      (water defeats the cage). Message: "The water shorts your Faraday Cage!"
+
+    The SWG scaling: effect duration = 10 + floor(SWG/4) turns. At SWG 8: 12
+    turns. At SWG 12: 13 turns. Minor scaling — mostly flat.
+
+  Why:      Defensive electric option that inverts the shocked vulnerability.
+            Against a room of enemies who've stacked shocked on you, pop this:
+            you're now immune and they discharge on contact. Works as a combo
+            enabler — you set up shocked on enemies via Static Slap, then pop
+            Faraday Cage so you can wade in for shredded-defense melee.
+  Flavor:   "Basic Faraday principle. You are now a walking electromagnetic
+             null zone. Try not to short it out."
+  Notes:    FaradayCageEffect.apply(): set engine._player_faraday = True.
+            modify_incoming_damage: if damage dealt by melee, 40% chance apply
+            shocked to attacker (need attacker reference in hook — or use
+            on_player_takes_melee_damage if added).
+            expire(): engine._player_faraday = False.
+            apply_effect for "shocked" on player: check engine._player_faraday
+            flag, skip if True.
+
+================================================================================
+SECTION E-A — ARCANE / FORCE
+Thematic core: raw magic damage, defense bypass, kinetic force, amplification
+================================================================================
+
+------------------------------------------------------------------------
+E-A-01  ARCANE BOLT  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Arcane Bolt" — pure magical force, no element nonsense
+  Source:   Blackkk Magic L2 activated perk  (a step up from arcane_missile)
+  Target:   SINGLE_LOS  (range 7)
+  Charge:   INF (cooldown 7 turns)
+  Stat:     Book-Smarts
+  Combo:    APPLIES: arcane_mark (5t)
+            REACTS: if target has arcane_mark already, consume it for +BKS
+                    flat bonus damage (the mark amplifies the next hit)
+
+  Mechanic:
+    A direct arcane bolt that BYPASSES defense entirely — damage is not
+    reduced by the target's defense stat. Deals 6 + floor(BKS/3) arcane damage
+    (slightly higher BKS ratio than other schools to compensate for no
+    element gimmick).
+    Then applies arcane_mark (5 turns).
+
+    ArcaneMarkEffect (new, debuff):
+    - When any spell ability (not melee) deals damage to this entity while
+      arcane_mark is active, add +BKS flat damage to that hit, then consume
+      the mark. It is a one-time amplification that makes the NEXT spell hit
+      harder. Duration: 5 turns (it fades if not consumed).
+
+    SELF-COMBO: You can cast Arcane Bolt on a target, it applies the mark,
+    then on your next cooldown-ready turn fire again — the second bolt
+    consumes the mark for +BKS bonus. On the second hit you also re-apply
+    the mark for a third hit bonus. This is the arcane rhythm: mark, hit,
+    mark, hit.
+
+    Defense bypass is the defining feature: unlike every physical attack,
+    Arcane Bolt hits defense-0 monsters equally to defense-5 monsters. Great
+    against heavily armored enemies.
+
+  Why:      The "pure damage" caster option. No elements to set up, no combos
+            required — just high damage that ignores armor. The mark system
+            creates an internal rhythm even in a pure arcane build. Low-floor
+            access via L2 perk makes it available early for caster runs.
+  Flavor:   "You didn't go to school to point fireballs at people. You went
+             to school to point raw metaphysical force at people."
+  Notes:    execute(engine, tx, ty): find entity at (tx,ty). Compute dmg =
+            6 + BKS//3. Call entity.take_damage(dmg) WITHOUT subtracting
+            defense (direct take_damage bypasses the combat formula — already
+            how ability damage works vs melee in combat.py). Apply arcane_mark.
+            ArcaneMarkEffect: new debuff subclass. One-shot: tracks consumed
+            flag. On any spell dealing damage to this entity, add BKS to
+            damage and set consumed=True. How to hook: engine spell execution
+            would need to check for arcane_mark on target after resolving
+            damage, or ArcaneMarkEffect could have a new hook
+            on_spell_hit(engine, spell_id, damage) called from ability execute
+            functions.
+
+------------------------------------------------------------------------
+E-A-02  FORCE WALL  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Force Wall" — you put up a wall. It's made of force.
+  Source:   Blackkk Magic L4 activated perk
+  Target:   ADJACENT_TILE  (places wall-force on adjacent tile)
+  Charge:   /FL 2
+  Stat:     Book-Smarts
+  Combo:    REACTS: any entity pushed INTO a Force Wall tile takes
+                    3 + floor(BKS/4) arcane damage and gets stunned 2t
+
+  Mechanic:
+    Place an invisible force barrier on an adjacent non-wall tile for 8 turns.
+    Track active force walls as engine.force_walls: dict[(x,y), int] where
+    the value is turns remaining.
+    Each turn: decrement turns remaining, remove expired walls.
+
+    Any entity (player or monster) that attempts to ENTER a force wall tile
+    is blocked (cannot move to that tile) and takes 2 arcane damage from
+    the rejection. Message: "The force wall blocks movement! (2 damage)"
+
+    PUSH COMBO: If an entity is forcibly pushed into a Force Wall tile (by
+    wind spells, knockback, etc.) they cannot resist the push and take the
+    full collision damage (3 + floor(BKS/4)) and are stunned for 2 turns.
+    The "pushed" case is a tag: engine._last_movement_was_forced = True.
+
+    Multiple walls can exist simultaneously (you placed up to 4 on this floor).
+    You can wall off corridors, create bottlenecks, trap enemies in a burning
+    room (place walls on the exits after Backdraft).
+
+  Why:      Battlefield architect spell. No direct damage — pure control. Forces
+            enemies to path around walls or bounce off them for chip damage.
+            Combo with wind/knockback abilities for the push-into-wall burst.
+            Also defensive: wall off the corridor behind you so enemies must
+            break through.
+  Flavor:   "It's not a real wall. You just made it so nothing can go through
+             that space. Functionally identical to a wall. You're welcome."
+  Notes:    engine.force_walls dict (new). Movement in engine.handle_move:
+            if destination (nx,ny) in engine.force_walls and not
+            engine._last_movement_was_forced: block movement, deal 2 dmg.
+            If _last_movement_was_forced: apply stun + collision damage.
+            Render: optional — highlight force wall tiles with a distinct
+            character (maybe '+' tinted blue in render.py).
+
+------------------------------------------------------------------------
+E-A-03  ARCANE SURGE  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Arcane Surge" — you release everything at once
+  Source:   Blackkk Magic L5  (capstone damage ability)
+  Target:   AOE_CIRCLE  (radius 2, centered on self)
+  Charge:   ONCE (once per run — TOTAL 1)
+  Stat:     Book-Smarts
+  Combo:    REACTS: consumes ALL active arcane_marks in AOE for +BKS bonus
+                    damage per mark consumed against each marked entity
+
+  Mechanic:
+    Release all accumulated arcane energy in a burst centered on yourself.
+    All entities in radius 2 take 12 + floor(BKS/3) * 2 arcane damage.
+    This ignores defense completely.
+
+    If any entity in radius has arcane_mark: consume it and add +BKS additional
+    damage specifically to that entity. At BKS 12: +12 bonus per marked target.
+    Multiple marks on the same target (if some future ability allows stacking)
+    each add +BKS.
+
+    DESPERATION SCALING: Add (player_missing_hp / 10) flat bonus damage to
+    every entity hit. A player at 30/130 HP (100 missing) deals +10 bonus to
+    everything. A player at 10/130 HP (120 missing) deals +12. This makes it
+    most powerful precisely when you need it most. Message: "ARCANE SURGE!
+    [+X from desperation]"
+
+    Player takes 5 self-damage from the surge (the power tears through you
+    too). Not reduced by defense or effects.
+
+  Why:      Classic ONCE-per-run power button. The desperation scaling means
+            it's never wasted even without setup — you're more likely to use
+            it when low — but the arcane_mark synergy rewards pre-setup for
+            massive damage. The self-damage cost keeps it from being a no-risk
+            win button.
+  Flavor:   "You've been holding it together this whole time. You decide to
+             stop holding it together. Just for a second."
+  Notes:    TOTAL 1 — ChargeType.TOTAL with max_charges=1. Desperation scaling:
+            compute missing_hp = player.max_hp - player.hp. Bonus = missing_hp
+            // 10. Self-damage: engine.player.take_damage(5), bypass effects.
+            Mark consumption: iterate entities in radius, check arcane_mark,
+            add BKS per mark, strip marks.
+
+------------------------------------------------------------------------
+E-A-04  KINETIC SHIELD  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Kinetic Shield" — it hurts you less the more times you get
+               hit while it's up, up to a point
+  Source:   Blackkk Magic L3 activated perk  OR  item "Riot Gear Padding"
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Book-Smarts + Constitution (CON)
+  Combo:    (none — pure buff)
+
+  Mechanic:
+    Apply KineticShieldEffect (buff, 12 turns + CON/2 turns, round down).
+    While active:
+    - The first hit absorbed by the shield: -4 damage reduction.
+    - The second hit: -3 reduction.
+    - The third hit: -2 reduction.
+    - After 3 hits: shield depletes, effect removed immediately.
+    - Each absorbed hit logs: "Kinetic Shield absorbs X damage (N charges
+      remaining)."
+
+    The reduction is applied in modify_incoming_damage: check how many hits
+    have been absorbed, return damage minus the appropriate reduction.
+    Reduction cannot go below 1 (still takes at least 1 damage per hit).
+
+    BKS scaling: each reduction tier is increased by floor(BKS/6).
+    At BKS 12: +2 per tier. Tier reductions become 6, 5, 4.
+
+  Why:      Interesting shield because it degrades non-linearly — strongest
+            first hit, weakest third. Forces tactical decisions: do you pop it
+            before a fight (use all three charges efficiently) or mid-fight
+            when you're already hurt? Also punishes burst vs. DoT differently
+            (three separate big hits are absorbed; DoT ticks through freely).
+  Flavor:   "Think of it as a bubble wrap suit. First three hits, it crinkles.
+             After that you're just getting hit normally."
+  Notes:    KineticShieldEffect: new buff. Tracks self.charges = 3,
+            self.reductions = [4+bonus, 3+bonus, 2+bonus]. modify_incoming_damage:
+            if charges > 0, reduction = reductions[3 - charges], decrement
+            charges, return max(1, damage - reduction). If charges == 0: remove
+            effect (set duration=0).
+
+================================================================================
+SECTION E-E — EARTH / STONE
+Thematic core: terrain control, knockback, armor, tremors, earthbound
+================================================================================
+
+------------------------------------------------------------------------
+E-E-01  GRAVEL BLAST  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Gravel Blast" — you grab a handful of concrete chips from
+               the alley and weaponize them
+  Source:   item "Handful of Gravel" (zone 1 consumable, cheap drop) OR
+            Blackkk Magic L2 alt
+  Target:   LINE_FROM_PLAYER  (short ray, 5 tiles)
+  Charge:   /FL 2  (if ability) or TOTAL 3 (if item)
+  Stat:     Strength (STR — physical throw force)
+  Combo:    APPLIES: earthbound (4t) if it hits
+            REACTS: if target has earthbound already, stun them for 1t
+                    (they're stuck, you smash through)
+
+  Mechanic:
+    Fires a short shotgun-style gravel spray in a line. Hits the FIRST entity
+    in the ray for 3 + floor(STR/4) physical damage and applies earthbound
+    (4 turns: -50% movement energy, -2 defense).
+
+    If the first entity already has earthbound: that entity is stunned for 1
+    turn (gravel to the face of someone who can't dodge) and earthbound
+    duration is refreshed.
+
+    The physical damage TYPE matters for brittle (frozen targets): a Gravel
+    Blast hitting a brittle target deals the shatter bonus (+50%).
+
+    Short range (5 tiles) means earth spells require you to be committed to
+    mid-range. You're not a long-range bombard wizard; you're a brawler who
+    happens to know stone magic.
+
+  Why:      Introduces earthbound as a condition early. Earthbound pairs with
+            everything: chill-stacked enemies move slower, earthbound makes
+            them slower still; shocked-stacked enemies take more melee, you
+            close the distance since they can't escape. Low-tier entry.
+  Flavor:   "You found this concrete on the ground. There's a lot of it. Most
+             of it can be weaponized."
+  Notes:    LINE targeting: engine resolves first entity on ray. apply_effect
+            "earthbound" (new) or equivalent stat_mod effect. If earthbound
+            already present: apply stun 1t. Physical damage = goes through
+            combat formula? Or direct? Recommend direct bypass since abilities
+            in NIGRL bypass defense.
+
+------------------------------------------------------------------------
+E-E-02  SEISMIC STOMP  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Seismic Stomp" — you stomp so hard it matters at range
+  Source:   Blackkk Magic L3  OR  item "Steel-Toed Boots" passive (on melee
+            hit, 20% chance to trigger a free Seismic Stomp)
+  Target:   AOE_CIRCLE  (radius 2, centered on player)
+  Charge:   INF (cooldown 10 turns)
+  Stat:     Strength + Constitution
+  Combo:    APPLIES: earthbound (5t) to all targets in radius
+            REACTS: if any target in radius already has earthbound, knock them
+                    BACK 1 tile away from player (if tile is open)
+
+  Mechanic:
+    Slam the ground, creating a shockwave. All living entities in radius 2
+    (not player) take 5 + floor(STR/3) + floor(CON/4) physical damage and
+    receive earthbound (5 turns).
+
+    KNOCKBACK for pre-earthbound targets: If a target already had earthbound
+    when the stomp hits, the earth spike erupts under them and launches them
+    1 tile directly away from the player (Chebyshev direction away). If the
+    destination is wall-blocked or occupied, they bounce and take +2 damage
+    instead. If the push succeeds, check if destination tile is a Force Wall
+    (from E-A-02): if yes, apply Force Wall collision (stun + arcane damage).
+
+    The knockback mechanic: resolve the direction vector from player to target,
+    normalize to 8-directional, move target 1 tile in that direction.
+
+  Why:      Classic stomp ability but with the earthbound pre-condition for
+            knockback. Sets up positioning control: drop earthbound on enemies
+            first turn, stomp second turn to scatter them. Good against grouped
+            melee AI types. The CON scaling rewards tanky builds that invest
+            in survival.
+  Flavor:   "The floor is not your enemy. You're using it as a weapon against
+             your enemies. It accepted the terms."
+  Notes:    execute(engine): collect entities radius 2. Apply dmg, earthbound.
+            For each entity with prior earthbound: compute push direction,
+            resolve collision. engine.dungeon.is_blocked() for wall check,
+            get_blocking_entity_at for entity check. If push succeeds:
+            entity.x += dx, entity.y += dy. If blocked: bonus 2 damage.
+
+------------------------------------------------------------------------
+E-E-03  STONE SKIN  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Stone Skin" — you calcify. Not ideal for mobility. Ideal for
+               not dying.
+  Source:   Blackkk Magic L3 alt  OR  item "Calcium Deposits" (bizarre
+            Meth Lab loot — side effect of mineral exposure)
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Constitution
+  Combo:    APPLIES: StoneSkinEffect (buff, 8t)
+            REACTS: if player has earthbound when cast, double armor bonus
+                    (you're already rooted; might as well be armored too)
+
+  Mechanic:
+    Apply StoneSkinEffect (buff). While active:
+    - +floor(CON/3) defense (added directly to entity.defense temporarily)
+    - -2 movement energy penalty (you're heavier — this is earthbound-lite,
+      not the full debuff, just a speed cost)
+    - Incoming fire damage reduced by 30% (stone is not flammable)
+    - Incoming ice damage reduced by 0% (freeze works on stone)
+    - On expire: defense reverts, speed penalty removed.
+
+    EARTHBOUND COMBO: If the player has the earthbound debuff when Stone Skin
+    is cast, double the defense bonus (floor(CON/3) * 2). You're already
+    rooted in place; might as well be a wall. Message: "The stone bonds with
+    the earth beneath you! Double armor!"
+
+    At CON 8: +2 defense normal, +4 with earthbound combo.
+    At CON 12: +4 defense normal, +8 with earthbound combo.
+
+  Why:      Tank self-buff that punishes movement (another calcify trope). The
+            earthbound synergy is thematically satisfying — if something slowed
+            you down, you lean into it for maximum defense. Pairs with the
+            Seismic Stomp (you earthbound yourself implicitly when stomping in
+            place, then Stone Skin for double armor).
+  Flavor:   "Your skin turns to concrete. You feel slow. You feel stable.
+             You feel extremely difficult to damage."
+  Notes:    StoneSkinEffect: new buff. apply() saves entity.defense, adds bonus.
+            Sets engine._stone_skin_active = True for fire reduction check.
+            modify_energy_gain: return amount - 2 (minimum 10).
+            expire(): revert defense. Fire damage reduction needs check in
+            combat.py or damage resolution path.
+
+------------------------------------------------------------------------
+E-E-04  ROCKSLIDE  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Rockslide" — debris from the ceiling
+  Source:   Blackkk Magic L5 alt
+  Target:   AOE_CIRCLE  (radius 3, anywhere in FOV)
+  Charge:   /FL 1
+  Stat:     Book-Smarts + Strength
+  Combo:    APPLIES: earthbound (6t) to all survivors
+            REACTS: targets with brittle (frozen shatter setup) take +100%
+                    bonus damage (rocks shatter frozen targets catastrophically)
+
+  Mechanic:
+    Call down a cascade of rubble from the ceiling/environment. 2-turn wind-up
+    (the rubble falls NEXT turn, not immediately — targeting happens now,
+    damage happens 1 player action later). This telegraphs the attack and
+    gives player a chance to step out of their own AOE.
+
+    After 1 turn delay: deal 10 + floor(BKS/4) + floor(STR/4) physical damage
+    to all entities in the radius. Apply earthbound (6 turns).
+
+    BRITTLE COMBO: Any entity in the radius with brittle flag (from frozen)
+    takes double total damage and the brittle is consumed (shattered by rocks).
+    Message: "The rocks SHATTER the frozen target!"
+
+    Player is in danger if they stand in the radius during the delay turn.
+    The 2-turn wind-up is also an antisynergy with fast enemies — a hasted
+    enemy can step out of the radius in 1 turn.
+
+    Visual: on cast, mark AOE radius tiles with '*' symbol for 1 turn (pending
+    rockslide area). This requires render state tracking.
+
+  Why:      High damage, wide AOE, powerful brittle combo — costs a full
+            turn of setup. The delay creates genuine tactical tension and
+            punishes careless placement. Very strong against frozen+brittle
+            enemies (double the already-doubled shatter bonus — 3x effective
+            damage total).
+  Flavor:   "The ceiling was going to fall eventually. You just helped it
+             decide when."
+  Notes:    engine.pending_rockslide: dict[(x,y,radius), turns_remaining].
+            On player turn: decrement, if 0 → resolve damage. AOE damage
+            resolution then applies same as normal AOE. Brittle check:
+            entity.brittle flag, if True: multiply total damage * 2 before
+            applying, set entity.brittle = False.
+
+================================================================================
+SECTION E-S — SHADOW / DARK
+Thematic core: fear, drain, debuffs, lifesteal, concealment
+================================================================================
+
+------------------------------------------------------------------------
+E-S-01  NIGHTMARE FUMES  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Nightmare Fumes" — you exhale something bad
+  Source:   Blackkk Magic L2  OR  item "Bad Dream Spray" (aerosol, zone 1)
+  Target:   SINGLE_LOS  (range 5)
+  Charge:   INF (cooldown 8 turns)
+  Stat:     Book-Smarts
+  Combo:    APPLIES: shadowed (6t) to target — (debuff: loses SINGLE_LOS
+                    targetability for the duration)
+            APPLIES: fear (4t, source = player position)
+
+  Mechanic:
+    Spray a cone of shadow-infused smoke at one target. Deals 2 + floor(BKS/4)
+    shadow damage (direct, bypasses defense). Applies:
+    - fear (4 turns): target flees from player position. 50% break on damage
+      (already implemented in FearEffect). The fear source position is fixed at
+      cast position, so moving changes your relative threat axis.
+    - shadowed (6 turns): target cannot be selected by SINGLE_LOS abilities
+      (if you or another enemy tries to target them with a ranged attack,
+      the targeting code skips them as if invisible to ranged selection).
+      This makes them melee-only targetable.
+
+    The combination is interesting: you fear one enemy so they flee, then
+    shadowed means your ranged spells can't finish them off — you have to
+    chase them down in melee, or let them flee and come back later.
+
+  Why:      Teaches the shadowed mechanic and creates an unusual chase dynamic.
+            Most spells make enemies easier to hit; this one runs the enemy
+            away AND makes ranged impossible. Forces a style switch.
+  Flavor:   "You breathe out something that isn't smoke. They breathe it in.
+             They decide they'd rather be somewhere else."
+  Notes:    ShadowedEffect: new debuff. apply() sets entity.shadowed = True.
+            expire() sets entity.shadowed = False. In SINGLE_LOS targeting
+            resolution (_build_entity_target_list or _get_cursor_target):
+            skip entities with shadowed == True.
+            FearEffect: already implemented. Source coords = player.x, player.y.
+
+------------------------------------------------------------------------
+E-S-02  SOUL DRAIN  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Soul Drain" — you take something that was theirs
+  Source:   Blackkk Magic L3  OR  Negromancy L3 (thematic cross-unlock)
+  Target:   SINGLE_LOS  (range 5)
+  Charge:   /FL 3
+  Stat:     Book-Smarts
+  Combo:    APPLIES: SoulDrainEffect (debuff on target, 8t)
+            REACTS: if target has shadowed, drain bypasses resistance — gain
+                    1.5x the HP stolen (the shadow state makes them vulnerable)
+
+  Mechanic:
+    Drain life force from the target. Over 8 turns: deal 2 shadow damage per
+    turn to the target (DotEffect-style, but tagged as shadow) and heal the
+    player for 1 HP per turn (half the damage drained). The heal applies
+    regardless of current HP cap (can heal to full).
+
+    TOTAL DRAIN: 16 shadow damage dealt to target, 8 HP healed to player over
+    8 turns. Not impressive burst — this is sustained attrition.
+
+    SHADOWED COMBO: If target has shadowed when Soul Drain is applied:
+    drain deals 3 damage/turn, heal 1.5 (round to 2) HP/turn. Total: 24 dmg,
+    16 HP healed. Significantly better — the shadowed state represents a
+    weakened spiritual defense.
+
+    Stack behavior: Soul Drain on a target that already has Soul Drain refreshes
+    duration without re-adding stacks (can't double drain the same target).
+
+  Why:      Sustain tool for caster builds that don't want to waste a healing
+            item. Pairs with other shadow tools: Nightmare Fumes shadows the
+            target, Soul Drain while shadowed for boosted drain. Slow but
+            reliable HP recovery.
+  Flavor:   "You reach in and pull. It's impolite. It works."
+  Notes:    SoulDrainEffect: new debuff with tick() dealing damage to entity
+            and healing engine.player. Alternatively: a combined effect
+            subclass that does both. Track soul_drain_heal_rate = 1 (or 2 if
+            shadowed). Check entity has shadowed on apply() to set rate.
+
+------------------------------------------------------------------------
+E-S-03  UMBRAL TIDE  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Umbral Tide" — shadow floods the room
+  Source:   Blackkk Magic L5  OR  Negromancy L5 cross-unlock
+  Target:   AOE_CIRCLE  (radius 4, centered on player)
+  Charge:   /FL 1
+  Stat:     Book-Smarts
+  Combo:    APPLIES: shadowed (8t) AND fear (5t, source=player) to all
+                    entities in radius
+            REACTS: entities with 50% or less HP in the radius also receive
+                    Soul Drain automatically (the shadows devour the weakened)
+
+  Mechanic:
+    Shadow energy erupts from the player in all directions. All living entities
+    in radius 4 take 5 + floor(BKS/4) shadow damage and receive:
+    - shadowed (8 turns)
+    - fear (5 turns, flee from player position)
+    Entities at or below 50% HP when Umbral Tide hits also receive a free
+    Soul Drain (8t, standard rate — not the shadowed-boosted rate, to avoid
+    triple stacking). Message: "The shadows feast on the weakened!"
+
+    The net effect: an entire room suddenly flees from you in terror, is
+    stripped of ranged-targetability, and the wounded ones are draining.
+    You become the apex predator of the room for 5 turns while they flee.
+
+    Player must reposition to chase down fleeing enemies (they can't be hit
+    with SINGLE_LOS anymore, only AOE or melee). This creates a brief window
+    of total board control followed by a hunt phase.
+
+  Why:      The shadow payoff. Doesn't kill anyone immediately — delays and
+            dismantles. Pairs devastatingly with Soul Drain pre-applied and
+            with fire/lightning AOE on fleeing clustered enemies.
+  Flavor:   "They were afraid of the dark. They were right to be."
+  Notes:    execute(engine): collect all entities radius 4. Apply shadow dmg,
+            shadowed effect, fear effect. Check HP <= max_hp/2: apply
+            soul_drain. Fear source = (player.x, player.y).
+
+------------------------------------------------------------------------
+E-S-04  LIFE TAP  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Life Tap" — pay HP to conjure magic. Classic warlock logic.
+  Source:   Blackkk Magic L2 alt  OR  item "Blood Sigil" (one-use crafted)
+  Target:   SELF
+  Charge:   INF (cooldown 0 — but has HP cost, no CD needed)
+  Stat:     Constitution
+  Combo:    (none — resource conversion utility)
+
+  Mechanic:
+    Convert HP to a burst of magical energy. The player takes 8 - floor(CON/4)
+    self-damage (minimum 2 even at high CON). This damage cannot be reduced by
+    defense or other effects — it's your own blood.
+    In exchange: the cooldown on a random ability in the player's ability list
+    that is currently on cooldown is reset to 0. If no abilities are on
+    cooldown, Life Tap fails (but still deals the HP damage — you bled for
+    nothing, which is very NIGRL). Message on fail: "Life Tap — but nothing
+    needed refreshing. You just hurt yourself."
+
+    At CON 8: 6 self-damage. At CON 12: 5 self-damage. At CON 16: 4 self.
+    Minimum 2. The HP cost is real — this is not free cooldown reset.
+
+    Can target the same ability multiple times by chaining Life Taps (but
+    you're burning HP fast). Used in desperate moments to fire an extra /FL
+    ability on the same floor or reset a key cooldown.
+
+  Why:      Classic warlock mechanic. Respects the permadeath stakes by making
+            it genuinely costly. The fail case (you bleed for nothing) is
+            classically cruel and fits the NIGRL tone. High CON builds can
+            use it more aggressively; low CON is risky.
+  Flavor:   "Blood magic. Old tradition. You're doing a very street version
+             of it, but the principle is the same."
+  Notes:    execute(engine): player.take_damage(8 - BKS//4, min 2). Collect
+            abilities on cooldown (current_cooldown > 0). If empty: log fail
+            message, done. If non-empty: pick random one, reset current_cooldown
+            = 0. AbilityInstance tracks current_cooldown already.
+
+================================================================================
+SECTION E-H — HOLY / LIGHT
+Thematic core: heals, purge debuffs, smite undead/dark, barriers, luminous
+================================================================================
+
+------------------------------------------------------------------------
+E-H-01  SPOTLIGHT  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Spotlight" — you illuminate the target. Everyone can see them.
+               Nowhere to hide.
+  Source:   Blackkk Magic L2  OR  item "Flashlight" (already likely in game
+            as tool — if so, its active use triggers Spotlight)
+  Target:   SINGLE_LOS  (range 8)
+  Charge:   INF (cooldown 5 turns)
+  Stat:     Swagger (SWG — confidence making enemies feel exposed)
+  Combo:    APPLIES: luminous (6t) — +25% incoming damage from all sources
+            REACTS: strips shadowed if present; luminous and shadowed are
+                    mutually exclusive (light cancels shadow)
+            REACTS: if target also has fear, Spotlight breaks the fear
+                    (you can't hide in fear when you're lit up — the
+                    courage of visibility)
+
+  Mechanic:
+    Fire a beam of concentrated light at one target. Deals 2 + floor(SWG/4)
+    light damage (minimal). Applies luminous (6 turns): +25% incoming damage
+    from all sources, rounded up. Strips shadowed immediately on apply.
+
+    LuminousEffect (new debuff):
+    - modify_incoming_damage: return ceil(damage * 1.25).
+    - Stripped by any shadow effect (shadowed, Nightmare Fumes, Umbral Tide).
+    - Does NOT stack — reapply refreshes duration only.
+
+    The low direct damage is intentional — Spotlight is a setup spell.
+    You luminous a target, then every subsequent hit (melee, abilities,
+    other elements) is amplified. Against armor-heavy enemies where your
+    damage is reduced, the +25% multiplier on the actual damage dealt (after
+    reductions) is more reliable than a flat bonus.
+
+  Why:      Universal damage amplifier for any build. Pairs with every other
+            element. The SWG scaling is unusual (most magic scales BKS) and
+            makes Swagger builds viable — high-charisma street magic where you
+            expose enemies through sheer force of confidence.
+  Flavor:   "You light them up. They can't duck it, can't hide it, can't play
+             it cool. Everything coming at them now hits harder."
+  Notes:    LuminousEffect: new debuff. modify_incoming_damage: ceil(dmg*1.25).
+            on_reapply: refresh duration. apply(): check entity has shadowed →
+            strip it, message. ShadowedEffect.apply should also check entity
+            has luminous → strip it, message.
+
+------------------------------------------------------------------------
+E-H-02  MEND  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Mend" — put yourself back together
+  Source:   Blackkk Magic L3  OR  item "First Aid Kit" (multi-use, TOTAL 5)
+  Target:   SELF
+  Charge:   /FL 3
+  Stat:     Constitution
+  Combo:    REACTS: strips up to 2 active debuffs (by oldest first) on use
+
+  Mechanic:
+    The only direct healing ability in the caster toolkit. Heal the player for
+    6 + floor(CON/3) HP immediately. Then strip the 2 OLDEST debuffs currently
+    on the player (by order of application, oldest first).
+
+    The debuff purge is the key feature. 2 oldest means the long-running debuffs
+    — slow stacks, mogged, earthbound, fear — are removed first. Recent debuffs
+    from the current fight stay.
+
+    If the player has fewer than 2 debuffs, remove all of them.
+    If 0 debuffs: just heal, no strip. Message: "Mend heals X HP."
+    Message with strip: "Mend heals X HP and clears [effect1] and [effect2]!"
+
+    CON scaling: At CON 8: 8 HP healed. At CON 12: 10 HP. At CON 16: 11 HP.
+    Not a massive heal — prevents death, doesn't undo bad decision-making.
+
+  Why:      Every caster build needs a safety valve. Restricting to 3/floor
+            forces strategic use — you can't spam-heal. The debuff purge makes
+            it more valuable than a straight HP potion of equivalent size,
+            especially mid-fight when effects are stacking.
+  Flavor:   "You put yourself back together. Not fully. But enough."
+  Notes:    execute(engine): heal player CON/3 + 6. Collect active debuffs on
+            player (status_effects where effect.category == "debuff"). Sort by
+            oldest (effects list is append-ordered). Remove first 2, call
+            expire() on each. Log messages.
+
+------------------------------------------------------------------------
+E-H-03  SACRED GROUND  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Sacred Ground" — this spot is yours now. Nobody moves
+               you from it.
+  Source:   Blackkk Magic L4  OR  item "Prayer Candle" (consumable, zone 1)
+  Target:   SELF  (affects the tile the player stands on)
+  Charge:   /FL 2
+  Stat:     Constitution + Swagger
+  Combo:    APPLIES: SacredGroundEffect (buff, 8t)
+
+  Mechanic:
+    Consecrate the player's current tile for 8 turns. While standing on this
+    tile, the player benefits from SacredGroundEffect:
+    - +floor((CON + SWG) / 6) defense (dual-stat scaling, ~1-3 at normal ranges)
+    - Any heal the player receives is +2 more effective (potions, Mend, HoT)
+    - If the player LEAVES the tile, the effect immediately expires.
+    - Enemy entities cannot enter the sacred tile (they are blocked as if by a
+      wall) for the duration — they must path around.
+
+    The enemy blocking is the huge feature: you create an inviolable position.
+    Your back is protected (place in a corner), or you block a corridor.
+    Enemies path-find around you, which may take them into traps, fire terrain,
+    or other hazards.
+
+    Anti-synergy: highly mobile play styles are penalized — leaving the tile
+    removes the buff. Stone Skin (E-E-03) synergy: stand your ground with
+    +defense from both effects.
+
+  Why:      The "stand and deliver" spell. Rewards positional play and planned
+            combat entry. Pairs with ranged options (you're safe on your
+            sacred tile, you blast enemies who can't reach you). Enemies
+            pathfinding around you is genuinely interesting emergent behavior.
+  Flavor:   "This spot is yours. You made it yours. They can't come in."
+  Notes:    SacredGroundEffect.apply(): store engine._sacred_tile = (player.x,
+            player.y). Set sacred_tile_blocked in dungeon logic.
+            engine.handle_move: if player moves off sacred tile → expire effect.
+            enemy_can_enter(x,y): check engine._sacred_tile == (x,y), block.
+            heal_player bonus: check _sacred_tile active before applying heal.
+
+------------------------------------------------------------------------
+E-H-04  SMITE  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Smite" — divine judgment, street-administered
+  Source:   Blackkk Magic L5  OR  item "Bible" (carried item that has run-long
+            passive +1 SWG and grants Smite as an activated ability TOTAL 3)
+  Target:   SINGLE_LOS  (range 7)
+  Charge:   /FL 1
+  Stat:     Swagger + Book-Smarts
+  Combo:    REACTS: if target has luminous, double total damage (the light
+                    magnifies the smite strike)
+            REACTS: if target has shadowed, the smite STRIPS the shadow and
+                    deals +8 flat bonus "purging" damage
+            REACTS: if target is below 25% HP, deal +50% damage (righteous
+                    finishing blow mechanic)
+
+  Mechanic:
+    A beam of divine (or self-righteously perceived divine) force. Deals
+    8 + floor(SWG/3) + floor(BKS/4) holy damage, bypassing defense.
+
+    LUMINOUS COMBO: If target has luminous: double the total post-calculation
+    damage. At 12 + BKS/4 base: at BKS 12 that's (8+3+3) = 14 base, doubled
+    to 28. Very high for a per-floor ability.
+
+    SHADOW PURGE: If target has shadowed: strip shadowed, add 8 flat damage.
+
+    LOW HP EXECUTE: If target is at 25% or below max HP when Smite lands:
+    multiply total damage by 1.5 before applying. This interacts with Luminous
+    multiplicatively: Luminous *2 then Low HP *1.5 = *3 total.
+
+    At minimum (no combos): 8+ damage, defense bypass. At maximum setup
+    (luminous + below 25% HP): potential for 30+ damage on a single cast.
+    This is the premier execution ability.
+
+  Why:      The holy school's payoff ability. Luminous + Smite is the two-hit
+            combo that defines light build identity: Spotlight → Smite. The
+            low HP execute means you Spotlight a wounded target and then Smite
+            them dead. Dual stat scaling (SWG+BKS) is accessible to high-Swagger
+            social builds that wouldn't normally invest in magic.
+  Flavor:   "You decide, on behalf of whatever higher authority you're invoking
+             right now, that this person has had enough."
+  Notes:    execute(engine, tx, ty): compute base = 8 + SWG//3 + BKS//4.
+            Check luminous → double. Check shadowed → strip + add 8.
+            Check HP <= max_hp//4 → multiply by 1.5. Apply damage.
+            Order of operations: base → shadow_purge_bonus → luminous_double
+            → low_hp_multiply. Or: base → low_hp → luminous → purge (no
+            double application). Choose consistent ordering and document.
+
+================================================================================
+SECTION E-P — POISON / ACID
+Thematic core: armor shred, stacking DOT, area denial, debilitation
+================================================================================
+
+------------------------------------------------------------------------
+E-P-01  ACID SPIT  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Acid Spit" — exactly what it sounds like
+  Source:   Blackkk Magic L1 alt  OR  item "Battery Acid" (zone 2, consumable)
+  Target:   ADJACENT  (quick-select, must be next to target)
+  Charge:   INF (cooldown 3 turns)
+  Stat:     Book-Smarts
+  Combo:    APPLIES: poisoned (1 stack, 6t) — 2 dmg/turn, -1 def per 5t
+            APPLIES: AcidCorrodedEffect (3t, local defense penalty)
+
+  Mechanic:
+    Spit acid on an adjacent enemy. Deals 1 + floor(BKS/4) immediate acid
+    damage. Applies:
+    - poisoned (6 turns): 2 damage/turn. Every 5 turns of active poisoned,
+      reduce entity.defense by 1 (max -3 reduction from poison). On expire:
+      restore the defense.
+    - AcidCorrodedEffect (3 turns): additional -1 defense immediately (separate
+      from the slow poison defense drain). This is the early defense shred.
+
+    Total immediate defense reduction: -1 from acid corrode. At 5 turns of
+    poison (if they survive): -1 more. At 10 turns: -1 more. The poison
+    doubles as a sustained defense grinder.
+
+    Short range (ADJACENT) is the cost — you have to be in their face.
+    With a 3-turn cooldown, you can re-apply every 3 turns on the same target
+    for stacking (new application refreshes duration, doesn't re-stack poison;
+    but the acid corrode stacks as separate instances: multiple corrode
+    applications at once reduce defense more).
+
+  Why:      Entry-level poison/acid that rewards commitment to the debuff
+            gameplan. Defense shred over time makes subsequent hits more
+            valuable — the melee player who uses Acid Spit gets their own
+            attacks amplified. Short range creates risk.
+  Flavor:   "You've been eating trash. Your spit is probably acidic anyway.
+             Might as well confirm it."
+  Notes:    PoisonedEffect: new debuff. tick() deals 2 damage, decrements
+            duration. every 5 turns while active (track self.turns_elapsed),
+            reduce entity.defense by 1 up to max 3 reduction. expire() restores.
+            AcidCorrodedEffect: simpler debuff, just stat_mod defense -1 for
+            3 turns. on_reapply: separate instances stack (new instance applied
+            on top, both run concurrently) or refresh based on design preference.
+            ADJACENT targeting: already in system.
+
+------------------------------------------------------------------------
+E-P-02  TOXIC CLOUD  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Toxic Cloud" — you generate the cloud. It hangs around.
+  Source:   Blackkk Magic L3  OR  item "Chemical Drum" (zone 2 hazard-item,
+            TOTAL 2 use on contact)
+  Target:   ADJ_TILE  (place cloud on adjacent tile)
+  Charge:   /FL 3
+  Stat:     Book-Smarts
+  Combo:    APPLIES: cloud terrain (10t) that applies poisoned (3t) per turn
+                    to any entity entering or standing in it
+            REACTS: if placed on a tile with fire, create a POISON FIRE cloud
+                    (applies both ignite AND poisoned simultaneously — toxic
+                    burning death zone)
+
+  Mechanic:
+    Place a persistent toxic cloud on an adjacent tile. Track as engine.toxic_clouds:
+    dict[(x,y), int] turns_remaining. Each turn:
+    - Any entity on a cloud tile receives poisoned (3 turns, 2 dmg/turn) if
+      they don't already have poisoned (avoids constant refresh spam).
+    - If they already have poisoned: extend duration by 1 (capped at 10).
+    - Cloud lasts 10 turns, then dissipates.
+
+    FIRE COMBO: If the target tile already has a fire hazard entity:
+    The fire and poison react — place a POISON FIRE cloud which applies BOTH
+    ignite (2 stacks, 4t) AND poisoned (4t) per turn to any entity in it.
+    Message: "The acid reacts with the fire! Toxic inferno!"
+
+    Multiple clouds can coexist but don't stack — entering a tile with 2 cloud
+    sources still applies one instance of poisoned. However, if fire+cloud
+    overlap exists, both the regular ignite from fire AND the poisoned from
+    cloud apply separately.
+
+  Why:      Area denial that persists. Zone off a corridor, force enemies to
+            path around it (and into other traps), or cluster enemies and
+            drop a cloud for sustained damage. Fire combo is a power-user
+            trick that requires prior fire placement (napalm_strike/place_fire).
+  Flavor:   "Whatever you exhaled, it stayed where you put it. The room has
+             decided to become a health hazard."
+  Notes:    engine.toxic_clouds dict (new). Movement handler: if entity enters
+            cloud tile, apply_effect poisoned. Render: highlight cloud tiles
+            with character '~' or '%' in green/yellow. Fire combo: check
+            dungeon entities for fire hazard at target tile.
+
+------------------------------------------------------------------------
+E-P-03  VENOM STRIKE  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Venom Strike" — melee-range but magic-typed
+  Source:   Blackkk Magic L4  OR  item "Venomous Ring" (passive on melee hit:
+            20% chance to apply poisoned 4t per hit — different from the
+            activated ability version)
+  Target:   ADJACENT  (quick-select)
+  Charge:   INF (cooldown 6 turns)
+  Stat:     Strength + Book-Smarts
+  Combo:    APPLIES: poisoned (8t) + shocked (1 stack, 4t)
+            REACTS: if target has poisoned already, consume it for a BURST
+                    — deal all remaining DOT damage instantly (max 16 dmg)
+                    then reapply fresh poisoned (8t)
+
+  Mechanic:
+    Drive a venom-charged melee strike (or conjure one — thematic flexibility).
+    Deals 4 + floor(STR/4) + floor(BKS/4) poison damage. Applies poisoned
+    (8 turns, 2 dmg/turn = 16 total DoT) and shocked (1 stack, 4 turns).
+
+    BURST COMBO: If the target already has the poisoned effect when Venom Strike
+    lands, the strike EXPLODES the existing poison — deal all remaining DoT
+    damage instantly (turns * 2 per remaining turn, max 16 if 8 turns left)
+    and THEN apply fresh poisoned (8 turns). Message: "Venom Strike detonates
+    the poison! [X] instant damage!"
+
+    The shocked application is the unusual cross-element tag: after the burst
+    finishes, a shocked stack makes the poisoned target take more melee damage.
+    Chain: Acid Spit (poison + acid corrode) → wait → Venom Strike (burst +
+    reapply + shock) → melee cleanup with shocked amplification.
+
+  Why:      Introduces the "detonate the DoT" mechanic. Patient play is
+            rewarded: apply poison early, wait for stacks, burst for big damage.
+            The cross-element (shock) tag creates unusual combo chains.
+  Flavor:   "Sting first. Then sting again while the first sting is still
+             doing its job."
+  Notes:    POISON BURST: check entity has poisoned effect. If yes: remaining
+            damage = poisoned.duration * 2 (2 dmg/turn). entity.take_damage(
+            remaining). Then remove poisoned, apply fresh poisoned (8t).
+            Shocked applies normally after burst. STR+BKS scaling: floor(STR/4)
+            + floor(BKS/4), each around 2-3 at normal ranges.
+
+------------------------------------------------------------------------
+E-P-04  PLAGUE BOLT  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Plague Bolt" — it spreads
+  Source:   Blackkk Magic L5  OR  item "Petri Dish" (absurd Meth Lab item,
+            TOTAL 2)
+  Target:   SINGLE_LOS  (range 7)
+  Charge:   /FL 1
+  Stat:     Book-Smarts
+  Combo:    APPLIES: poisoned (10t, 3 dmg/turn instead of 2) — enhanced version
+            REACTS: if the initial target dies while poisoned, spread plague
+                    to all entities within Chebyshev 3 of the death tile
+                    (secondary targets get standard poisoned 6t, 2 dmg/turn)
+
+  Mechanic:
+    Fire a devastating plague bolt. Primary target takes 6 + floor(BKS/4)
+    immediate poison damage and receives a SUPER POISON (10 turns, 3 dmg/turn
+    = 30 total DOT). The super poison is visually distinct: "Plagued" instead
+    of "Poisoned" in the status display.
+
+    PLAGUE SPREAD: When a Plagued entity dies (from any source — melee, fire,
+    or the plague itself), the disease spreads. All living entities within
+    Chebyshev 3 of the death location receive standard poisoned (6 turns,
+    2 dmg/turn). The spread is instant and does not require line of sight —
+    airborne pathogens don't need LOS.
+
+    Synergy with pandemic (already in registry): if pandemic is active when
+    plague_bolt fires, the plague spread radius extends to 5 instead of 3.
+    This is an intentional cross-reference to the existing ability.
+
+    Player can be caught in the plague spread if they're within 3 tiles of
+    a death. This is a meaningful risk in tight corridors.
+
+  Why:      The high-tier poison escalation tool. Doesn't kill immediately but
+            creates a cascading infection scenario: kill one enemy with plague,
+            infect the room. Best on a monster that will definitely die quickly
+            (apply plague, do other damage to trigger death, spread activates).
+  Flavor:   "You sneeze into your hand and then point your hand at someone.
+             This is fine. This is all fine."
+  Notes:    PlagueEffect (enhanced PoisonedEffect subclass): id="plagued",
+            display_name="Plagued", 3 dmg/turn. expire/death hook: when entity
+            with plagued dies → iterate entities in Chebyshev 3, apply
+            poisoned (standard 6t). Death detection: in engine.event_bus handler
+            for "entity_died" — check if entity has plagued, trigger spread.
+            Pandemic synergy: check ability "pandemic" active/exists.
+
+================================================================================
+SECTION E-W — WIND / AIR
+Thematic core: knockback, projectile deflect, speed buffs, vacuum pulls
+================================================================================
+
+------------------------------------------------------------------------
+E-W-01  GUST  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Gust" — push
+  Source:   Blackkk Magic L1 alt  OR  item "Box Fan" (zone 1 consumable, 3
+            use item — each use fires one Gust)
+  Target:   SINGLE_LOS  (range 6)
+  Charge:   INF (cooldown 4 turns)
+  Stat:     Strength (STR — throwing force)
+  Combo:    APPLIES: windswept (3t) — pushed 1 tile/turn away from caster
+            REACTS: if target pushed into wall, deal collision damage
+            REACTS: if target pushed into Force Wall tile (E-A-02), trigger
+                    Force Wall collision (stun + arcane damage)
+
+  Mechanic:
+    Fire a directional burst of air at one target. Deals 2 + floor(STR/4)
+    physical (wind) damage and PUSHES the target 2 tiles in the direction
+    away from the player. Each tile of push resolves sequentially:
+    - Tile 1: if open, entity moves. If blocked by wall: stop, take collision
+      damage (4 + floor(STR/4) bonus).
+    - Tile 2 (only if tile 1 succeeded): same check.
+
+    Then applies windswept (3 turns): each AI turn the entity is compelled to
+    move 1 tile in the direction away from where the player was when Gust
+    fired (fixed direction at time of cast). WindsweptEffect.modify_movement:
+    override movement toward fixed directional vector, if that tile is open.
+    If blocked, the windswept movement is frustrated (they stay put that turn).
+
+    Total potential displacement: 2 tiles immediate + up to 3 more tiles over
+    3 windswept turns = 5 tiles of total drift.
+
+  Why:      Classic knockback with a lingering push effect. Used to separate
+            grouped enemies, push enemies into fire terrain, or buy distance
+            when being rushed. The windswept follow-through means even a
+            partial knockback has consequences.
+  Flavor:   "You push the air. The air pushes them. Physics is your spell."
+  Notes:    Immediate push: engine resolves 2-tile push path, checking
+            dungeon.is_blocked() each step. Collision detection: Force Wall
+            check via engine.force_walls dict.
+            WindsweptEffect: new debuff. Stores push_dx, push_dy (direction).
+            modify_movement: return (push_dx, push_dy) if that direction is
+            open, else (0, 0) for that turn.
+
+------------------------------------------------------------------------
+E-W-02  VACUUM BURST  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Vacuum Burst" — you pull everything toward you at once
+  Source:   Blackkk Magic L3  OR  item "Shop Vac" (zone 1 item, TOTAL 2)
+  Target:   SELF  (centered on player, pulls inward)
+  Charge:   /FL 2
+  Stat:     Book-Smarts
+  Combo:    REACTS: entities pulled into Chebyshev 1 (adjacent) get
+                    immediately struck by free melee attack (you punch them
+                    as they arrive)
+
+  Mechanic:
+    Create a vacuum implosion. ALL living entities in Chebyshev radius 4 of
+    the player are pulled 2 tiles toward the player. Resolution per entity:
+    - Compute direction from entity toward player (normalize to 8-directional).
+    - Move entity 1 tile in that direction if open.
+    - If tile was open, move again (second tile of pull) if still valid.
+    - If entity lands in Chebyshev 1 (adjacent to player): trigger a free
+      melee attack against that entity (player.power damage, no energy cost).
+      Message: "[enemy] is pulled into range! You strike!"
+
+    No direct damage from the vacuum itself — purely repositioning. But the
+    free melee attacks on arrival are significant.
+
+    If multiple enemies are pulled adjacent simultaneously, the player gets a
+    free swing at each one. This can be an enormous damage event: pull 4
+    enemies adjacent, 4 free attacks.
+
+    Anti-synergy: this pulls enemies to you when you might prefer distance.
+    Used when you want to cluster enemies for AOE follow-ups (pull them all
+    in, then Overload/Backdraft the cluster).
+
+  Why:      Aggressive repositioner that inverts the typical knockback dynamic.
+            Instead of pushing enemies away, you bring them to you. Pairs
+            with any AOE that benefits from clustered enemies, and rewards
+            high-power melee builds that want enemies in their face.
+  Flavor:   "You suck. Literally. Everything toward you. Including the part
+             where you then hit them."
+  Notes:    execute(engine): collect entities radius 4. Per entity: compute
+            direction vector toward player, resolve 2-tile pull. Check
+            Chebyshev 1 adjacency after pull: if yes, engine._do_melee_attack(
+            player, entity) equivalent (or trigger_melee_result() from
+            combat.py). Free attack = no energy consumed.
+
+------------------------------------------------------------------------
+E-W-03  TAILWIND  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Tailwind" — the wind carries you
+  Source:   Blackkk Magic L3 alt  OR  item "Red Bull" (energy drink,
+            consumable, fitting name) — consuming grants Tailwind 1/FL
+  Target:   SELF
+  Charge:   /FL 2
+  Stat:     Street Smarts (STS — quick footwork)
+  Combo:    APPLIES: TailwindEffect (buff, 8t)
+            REACTS: if player has earthbound when Tailwind fires, Tailwind
+                    strips earthbound and grants +4 bonus turns duration
+                    (wind scours away the heaviness)
+
+  Mechanic:
+    Apply TailwindEffect (buff, 8 + floor(STS/4) turns). While active:
+    - +30 energy gain per tick (same magnitude as Wire effect from Meth-Head
+      tree — strong speed boost)
+    - Movement costs 0 additional energy (pure speed, no penalty)
+    - 10% chance each turn to dodge ANY incoming attack (wind deflects
+      projectiles and melee glances)
+
+    EARTHBOUND CANCEL: If player has earthbound when Tailwind is cast:
+    earthbound is stripped immediately (wind scours away stone drag), and
+    Tailwind gains +4 turns duration. Message: "Tailwind breaks your earthbound!
+    (Extended to [X] turns)"
+
+    STS scaling: at STS 8: 10 turns. At STS 12: 11 turns. At STS 20: 13 turns.
+    The +30 energy is flat — significant enough to noticeably accelerate the
+    player but not game-breakingly fast (roughly 30% more actions vs baseline).
+
+  Why:      The caster speed buff. Lets caster builds act faster and dodge
+            occasionally — addresses the classic "slow wizard" problem.
+            The earthbound cancel synergy with earth spells is elegant: you
+            can Stone Skin, get heavier, then Tailwind to cancel the penalty
+            and get speed back.
+  Flavor:   "The wind stops blowing against you. Or maybe you ARE the wind
+             now. You're not sure. You're moving faster."
+  Notes:    TailwindEffect: new buff. modify_energy_gain: return amount + 30.
+            10% dodge: needs dodge_check per incoming attack. If dodge flag set
+            in engine for player, check in combat.py before applying damage.
+            Earthbound cancel: check player has "earthbound" effect in
+            status_effects; if yes, strip it, add 4 to duration.
+
+------------------------------------------------------------------------
+E-W-04  HURRICANE ROUND  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Hurricane Round" — you create a full cyclone and ride it
+  Source:   Blackkk Magic L5 alt
+  Target:   AOE_CIRCLE  (radius 3, centered on player — MOVES with player
+                         for the duration)
+  Charge:   /FL 1
+  Stat:     Book-Smarts + Street Smarts
+  Combo:    APPLIES: windswept (5t) to all entities in initial radius
+            REACTS: entities already windswept take double damage from the
+                    hurricane contact
+            REACTS: ignited entities in the radius have fire AMPLIFIED
+                    (+3 ignite stacks) — the hurricane fans the flames
+
+  Mechanic:
+    Summon a personal hurricane that lasts 6 turns and moves with the player.
+    Each turn of the hurricane:
+    - All entities within Chebyshev 3 of the player take 4 + floor(BKS/4) +
+      floor(STS/4) wind damage and are pushed 1 tile outward (away from player).
+    - Apply windswept (1 stack, 5t) to each entity in range.
+    - If entity already has windswept: deal double damage (hurricane shreds
+      targets that can't find stable footing).
+    - If entity has ignite: add 3 stacks to their ignite (wind fans fire).
+
+    Duration: 6 turns. Tracked as engine._hurricane_active = True, turns
+    remaining. Each player turn, the effect pulses from the current player
+    position.
+
+    Player is immune to their own hurricane (you are the eye of the storm).
+    Other entities (Thralls if present) take the damage.
+
+    With 6 turns and a 3-radius, this is a sustained AOE that clears rooms.
+    Player movement while hurricane is active means every step brings the storm
+    to new areas.
+
+  Why:      The wind school's sustained AOE capstone. Unlike one-shot explosions,
+            the hurricane persists and moves. Requires strategic movement to
+            maximize exposure — chase enemies, corner them, or hold a doorway
+            to damage everything trying to enter. Fire amplification makes it a
+            natural Pyromania combo finisher.
+  Flavor:   "You become the storm. You have been the storm for 6 turns. You
+             stop being the storm. The floor is a mess."
+  Notes:    engine._hurricane_active, engine._hurricane_turns_remaining (new).
+            Each player turn (or energy loop): if active, pulse AOE. Entities
+            in radius: damage + windswept + push. Push resolution same as Gust.
+            Fire amplification: if entity has ignite → ignite.stacks += 3.
+            Render: highlight all tiles in Chebyshev 3 of player with subtle
+            marker while hurricane is active (optional cosmetic).
+
+================================================================================
+SECTION E-X — CROSS-ELEMENT AMPLIFIERS
+Spells that don't fit one element but create multi-element combos
+================================================================================
+
+------------------------------------------------------------------------
+E-X-01  ELEMENTAL CATALYST  [MID TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Elemental Catalyst" — the next element hits harder
+  Source:   Blackkk Magic L3 cross-school perk (unlocked when player has
+            abilities from 2+ different element schools)
+  Target:   SELF
+  Charge:   INF (cooldown 12 turns)
+  Stat:     Book-Smarts
+  Combo:    APPLIES: CatalystBuff (3t): next spell that deals element damage
+                    gets +floor(BKS/2) flat bonus damage and applies its
+                    element condition (ignite/chill/shocked/etc.) at double
+                    duration
+
+  Mechanic:
+    Apply CatalystBuff. While active (up to 3 turns): the NEXT ability you
+    use that deals elemental damage is amplified:
+    - +floor(BKS/2) flat bonus damage (at BKS 12: +6, at BKS 20: +10)
+    - The element condition applied (ignite, chill, shocked, poisoned, etc.)
+      has double duration.
+    Once consumed, CatalystBuff expires.
+
+    If 3 turns pass without using a damage ability: Catalyst expires unused.
+    No effect granted for SELF abilities (Tailwind, Stone Skin, etc.) — must
+    be a damaging ability.
+
+    The unlock condition (2+ element schools) creates a natural reward for
+    diversification: building Blackkk Magic with multiple element unlocks
+    grants access to this meta-spell that enhances all of them.
+
+  Why:      Meta-spell that rewards multi-element play. Plan your rotation:
+            Catalyst → high-tier damage ability for amplified burst. The 3-turn
+            window creates urgency — you don't want to waste it. At high BKS
+            the flat bonus is significant.
+  Flavor:   "You prime the pump. The next thing you throw is more of a throw."
+  Notes:    CatalystBuff: new buff. Tracks consumed=False. When any ability
+            execute function deals elemental damage: check engine.player has
+            CatalystBuff → if yes, add BKS//2 to damage, double the duration
+            of any element effect applied, set consumed=True, remove buff.
+            "Elemental" damage types: fire, ice, lightning, arcane, earth,
+            shadow, holy, poison, wind — excludes physical (melee) damage.
+
+------------------------------------------------------------------------
+E-X-02  WEATHER REPORT  [LOW TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Weather Report" — you check the elemental conditions
+  Source:   Blackkk Magic L2 alt  OR  starting knowledge for science builds
+  Target:   SELF  (no targeting)
+  Charge:   INF (cooldown 0 — free action, doesn't consume a turn)
+  Stat:     Book-Smarts
+  Combo:    (utility — displays all elemental conditions on visible entities)
+
+  Mechanic:
+    A FREE ACTION that displays a one-turn overlay:
+    For every visible living entity on screen, show their current elemental
+    condition(s) as a small icon or text tag:
+    - 'B' = Burning (ignite)
+    - 'C' = Chill stacks (Cx1, Cx2, etc.)
+    - 'S' = Shocked stacks
+    - 'W' = Wet
+    - '!' = Frozen
+    - 'P' = Poisoned/Plagued
+    - 'D' = Shadowed (shown as a dim tag)
+    - 'L' = Luminous
+    etc.
+
+    This overlay persists for 1 turn (the current render frame only), then
+    auto-clears. Player uses it to quickly assess combo opportunities without
+    scrolling through log messages.
+
+    Being a free action (no energy consumed) means you can use it any time
+    without losing your turn. This is purely an information ability — it deals
+    no damage, applies no effects, but is genuinely useful in chaotic multi-
+    enemy fights.
+
+  Why:      Information management in roguelikes is a legitimate gameplay skill.
+            Giving players a clean "state check" on elemental conditions rewards
+            building combo setups. Makes the entire element combo system more
+            accessible without simplifying the mechanics.
+  Flavor:   "You look at the room. You know what's happening to everyone in it.
+             This is called preparedness."
+  Notes:    execute(engine): set engine._weather_report_active = True for
+            render_all. In render_map, if _weather_report_active: for each
+            visible entity with status_effects, render a small indicator near
+            their tile. Reset flag after one render frame. "Free action":
+            ChargeType.INFINITE, cooldown=0, execution does not advance the
+            turn counter. In abilities.py, add a flag is_free_action=True to
+            AbilityDef and check it in process_action to not consume a turn.
+
+------------------------------------------------------------------------
+E-X-03  PRISM STRIKE  [HIGH TIER]
+------------------------------------------------------------------------
+  NIGRL Name:  "Prism Strike" — hits with all elements at once
+  Source:   Blackkk Magic capstone cross-school unlock (requires having used
+            4+ different element spells at least once this run — tracked via
+            engine.elements_used: set of str)
+  Target:   SINGLE_LOS  (range 6)
+  Charge:   /FL 1
+  Stat:     Book-Smarts
+  Combo:    APPLIES: all element conditions simultaneously to target
+            REACTS: for each element condition already on target, add
+                    +floor(BKS/6) bonus damage per existing condition
+
+  Mechanic:
+    A convergence of every element. Deals 5 + floor(BKS/4) BASE damage, then
+    applies ALL of the following simultaneously:
+    - ignite (2 stacks, 4t)
+    - chill (1 stack, 4t) — triggers the fire+ice interaction: chill is
+      immediately stripped by ignite application. Net: just ignite survives.
+      Unless the chill was pre-existing before ignite (then both applied then
+      ignite strips chill — same result, no exception needed).
+    - shocked (1 stack, 4t)
+    - earthbound (3t)
+    - poisoned (3t)
+    - luminous (3t)
+    - arcane_mark (3t)
+
+    PRE-EXISTING BONUS: For each element condition the target already had BEFORE
+    Prism Strike hit (counted before applying the new conditions): add
+    +floor(BKS/6) bonus damage per condition. At BKS 12: +2 per pre-existing.
+    If target had ignite+shocked+poisoned before Prism Strike: +6 bonus damage.
+
+    The ignite+chill interaction resolves after both are applied: chill is
+    stripped by ignite, so net result is the target has ignite but not chill.
+    Shocked, earthbound, poisoned, luminous, arcane_mark all persist.
+
+    Chill note: if target had pre-existing chill, they're now getting ignite
+    which strips it. But for the PRE-EXISTING BONUS count, chill was present
+    BEFORE the strike, so it counted toward the bonus even though ignite removed
+    it. Snapshot the pre-existing conditions before applying anything.
+
+  Why:      The reward for a fully diversified elemental build. You've invested
+            in fire, ice, lightning, earth, poison, shadow, light — now Prism
+            Strike pays dividends based on all the conditions you pre-applied.
+            The capstone unlock (4+ element spells used this run) means it's
+            only available to committed multi-element players.
+  Flavor:   "All of it. At once. You figured out how to do that."
+  Notes:    engine.elements_used: set tracking which element types have been
+            used (add to execute functions per element). Unlock check in
+            _can_use_ability or as prerequisite in AbilityDef. Snapshot pre-
+            existing conditions before applying: count = sum(1 for eff in
+            entity.status_effects if eff.id in ELEMENT_CONDITION_IDS). Apply
+            all conditions. Bonus = count * (BKS // 6). Final damage =
+            base + bonus.
+
+================================================================================
+IMPLEMENTATION NOTES — NEW EFFECT CLASSES REQUIRED
+================================================================================
+
+Summary of new Effect subclasses this supplement needs:
+
+  FrozenEffect        — full stun + entity.brittle flag. Strips on ignite
+                        apply. Duration 3-6t. Priority 100. id="frozen".
+  ArcaneMarkEffect    — one-shot debuff: next spell hit on this entity adds
+                        +BKS flat damage. Duration 5t. id="arcane_mark".
+  EarthboundEffect    — stat_mod combo: defense -2 + speed ratio 0.5 for
+                        duration. id="earthbound".
+  ShadowedEffect      — sets entity.shadowed=True, blocks SINGLE_LOS targeting.
+                        id="shadowed".
+  LuminousEffect      — modify_incoming_damage: ceil(dmg * 1.25). Stripped by
+                        shadow effects. id="luminous".
+  PoisonedEffect      — 2 dmg/turn, defense shred -1 per 5 elapsed turns (max
+                        -3). id="poisoned".
+  PlagueEffect        — enhanced PoisonedEffect: 3 dmg/turn + spread on entity
+                        death. id="plagued".
+  WindsweptEffect     — forced directional movement (fixed vector on apply).
+                        id="windswept".
+  PhoenixCoatEffect   — buff: melee-reflected ignite on attackers, ignite
+                        immunity while active, +50% wet damage taken.
+                        id="phoenix_coat".
+  FaradayCageEffect   — buff: shocked immunity + 40% reflect shocked to
+                        attacker. Stripped by Wet. id="faraday_cage".
+  StoneSkinEffect     — buff: +defense, -2 move energy, 30% fire reduce.
+                        id="stone_skin".
+  SacredGroundEffect  — buff: +defense, +heal bonus, blocks enemy entry on
+                        sacred tile, expire on player movement. id="sacred_ground".
+  KineticShieldEffect — buff: 3-hit absorb, degrading reduction per hit.
+                        id="kinetic_shield".
+  TailwindEffect      — buff: +30 energy/tick, 10% dodge. Strips earthbound
+                        on apply. id="tailwind".
+  CatalystBuff        — buff: amplifies next elemental ability (+BKS/2 dmg,
+                        double effect duration). id="catalyst".
+  AcidCorrodedEffect  — simple stat_mod defense -1, 3t. id="acid_corroded".
+
+New entity fields needed:
+  entity.brittle: bool = False     — set by frozen, consumed by physical hit
+  entity.shadowed: bool = False    — set by ShadowedEffect, cleared by light
+
+New engine state fields needed:
+  engine.force_walls: dict[(x,y), int]         — Force Wall tracking
+  engine.toxic_clouds: dict[(x,y), int]         — Toxic Cloud tracking
+  engine._hurricane_active: bool               — Hurricane state
+  engine._hurricane_turns_remaining: int
+  engine._sacred_tile: tuple[int,int] | None   — Sacred Ground tile
+  engine._player_faraday: bool                 — Faraday Cage immunity flag
+  engine._stone_skin_active: bool              — Stone Skin fire reduction flag
+  engine._time_stopped: bool                   — already exists (Supplement II)
+  engine.elements_used: set[str]               — Prism Strike unlock tracking
+  engine.pending_rockslide: dict               — Rockslide delay tracking
+  engine._weather_report_active: bool          — Weather Report overlay
+
+================================================================================
+ELEMENT COMBO CHART
+================================================================================
+
+This chart shows the INTERACTION when Element A is applied to a target that
+already has Element B's condition. Format: A hits B-target → outcome.
+
+  Read as: "If target has [ROW CONDITION], and you apply [COLUMN ELEMENT]..."
+
+                  FIRE      ICE       LIGHTNING  ARCANE    EARTH
+  Wet             STEAM*    FREEZE**  SURGE***   None      Mud†
+  Burning/ignite  Stack+2   QUENCH‡   None       MARK      Scorch‡‡
+  Chill           Strip     Stack     None       None      Permafrost§
+  Shocked         None      None      Stack      MARK      None
+  Frozen          SHATTER   N/A       CRACK      MARK      RUBBLE
+  Poisoned        BOIL††    None      CONDUIT    MARK      None
+  Earthbound      None      Permafrost§ None     None      SLAM
+  Arcane Mark     Consume+  Consume+  Consume+   Consume+  Consume+
+  Luminous        More dmg  More dmg  More dmg   More dmg  More dmg
+  Shadowed        PURGE     None      None       REVEAL    None
+  Windswept       INFERNO   None      None       None      Wall-slam
+
+                  SHADOW    HOLY      POISON    WIND
+  Wet             Drown     Cleanse   TOXIN     GALE
+  Burning/ignite  Snuff     HOLY FIRE Corrode   INFERNO
+  Chill           Freeze    THAW      None      DRIFT
+  Shocked         None      Conduct   None      Arc
+  Frozen          SHATTER   BLAZE     None      SCATTER
+  Poisoned        DRAIN     CURE      Stack     Spore
+  Earthbound      Anchor    LIFT      CORRODE   SHRUG
+  Arcane Mark     Consume+  Consume+  Consume+  Consume+
+  Luminous        ECLIPSE   Stack     None      None
+  Shadowed        Stack     PURGE     Venom     None
+  Windswept       None      GALE      Spore     Stack
+
+INTERACTION KEY:
+
+STEAM*      Wet + Fire: Wet is stripped, ignite applies. +3 bonus cold damage
+            if applied in reverse (see Cold Shoulder). If simultaneous on
+            same target: create a steam cloud (2-tile radius, Wet applied to
+            all entities in radius — water vapor).
+
+FREEZE**    Wet + Ice: Wet is stripped. Apply frozen effect (see Absolute Zero
+            rules) at half duration (1.5t rounds to 2t). Quick freeze.
+
+SURGE***    Wet + Lightning: Wet stripped, deal DOUBLE lightning damage, apply
+            shocked at +2 stacks. The definitive Wet combo (already in
+            Static Slap mechanics; generalized here).
+
+Mud†        Wet + Earth: Wet stripped. Target receives Earthbound for double
+            duration. "Mudslide" — they're stuck in the muck.
+
+QUENCH‡     Burning + Ice: Burning stripped, no ignite re-applies. +3 bonus cold
+            damage (rapid thermal change). See Cold Shoulder.
+
+MARK        Any + Arcane: Arcane Mark is consumed, adding +BKS flat damage to
+            this hit. Works for fire, ice, lightning, earth, shadow, holy,
+            poison, wind — any element.
+
+Scorch‡‡   Burning + Fire: additional ignite stacks (2+) added. Existing
+            IgniteEffect.on_reapply already handles this.
+
+Permafrost§ Chill + Earth: if Permafrost (E-I-02) is placed on a chilled target's
+            tile, the Chill duration is extended by 4 turns and they become
+            Earthbound immediately (no separate cast needed).
+
+SHATTER     Frozen + Physical hit: entity.brittle consumed, +50% physical
+            damage. Frozen also stripped. Works for Gravel Blast, Rockslide,
+            Seismic Stomp, melee, guns.
+
+CRACK       Frozen + Lightning: lightning damage applies, frozen strips.
+            Target receives +1 shocked stack from the electrical current
+            through the ice.
+
+RUBBLE      Frozen + Earth: Rockslide hitting a frozen target consumes brittle
+            for double damage AND scatters rubble to adjacent tiles (apply 1
+            chill stack to entities on adjacent tiles from the cold flying debris).
+
+BOIL††     Poisoned + Fire: fire ignite stacks cause the poison to boil,
+            dealing the poison DOT at 2x rate for 3 turns, then expire.
+
+CONDUIT     Poisoned + Lightning: poison is conductive; shocked application
+            gets +1 extra stack if target has poisoned.
+
+SLAM        Earthbound + Earth: second earth hit on earthbound target gets
+            the knockback (Seismic Stomp's mechanic generalized). Any earth
+            ability hitting an earthbound target triggers pushback.
+
+Consume+    Arcane Mark + any element: mark is consumed for +BKS bonus damage
+            on that hit, then re-applied (Arcane Bolt rhythmic cycle).
+
+ECLIPSE     Luminous + Shadow: both strip each other on contact. If target
+            has luminous and you apply a shadow effect, luminous is removed
+            (no stacking). Vice versa. Whichever was applied last wins.
+
+PURGE       Shadowed + Holy: holy magic strips shadowed. Smite vs. a shadowed
+            target strips shadow AND deals +8 purge damage (already in Smite
+            mechanic).
+
+INFERNO     Windswept + Fire (Hurricane Round): hurricane fans ignite stacks
+            +3. Flying burning targets become miniature fire tornadoes.
+
+LIFT        Earthbound + Holy: sacred ground or Mend applied to an earthbound
+            entity strips the earthbound (holiness lifts the stone drag).
+
+DRAIN       Poisoned + Shadow: Soul Drain on a poisoned target heals at 1.5x
+            rate (poison weakens the spirit's defenses).
+
+CORRODE     Earthbound + Poison: Acid Spit on an earthbound target deals double
+            the AcidCorrodedEffect defense shred (-2 defense instead of -1).
+
+HOLY FIRE   Burning + Holy: Smite against a burning target does NOT extinguish
+            ignite; instead it amplifies the smite's base damage by the number
+            of ignite stacks (floor(stacks/3) bonus, minimum +1).
+
+THAW        Chill + Holy: Mend strips chill (the purge mechanic extends to cold
+            via holy warmth).
+
+DRIFT       Chill + Wind: windswept entity with chill moves in the wind
+            direction if their tile is open — the chill doesn't prevent
+            windswept movement.
+
+SPORE       Poisoned + Wind: Gust against a poisoned target spreads the
+            poisoned to all entities between the target's push path and
+            their destination (slipstream).
+
+ANCHOR      Earthbound + Shadow: Soul Drain on an earthbound target lasts 2
+            extra turns (they can't flee the drain).
+
+GALE        Wet + Wind: Gust against a Wet target pushes them 1 extra tile
+            (the water reduces friction). If pushed into another entity,
+            deal 2 collision damage to both.
+
+Arc         Shocked + Wind: Gust against a shocked target transfers 1 shocked
+            stack to any entity it passes through on the push path (electrical
+            arc from the windswept charge).
+
+Venom       Shadowed + Poison: Plague Bolt against a shadowed target's plague
+            spread radius increases from 3 to 5 (concealed plague vector).
+
+================================================================================
+BALANCE CONSIDERATIONS
+================================================================================
+
+DAMAGE BENCHMARKS:
+  Floor 1-2 enemies: 10-20 HP. Target: low-tier spells deal 3-5 damage before
+  ignite stacks (DOT adds 3-5 more over 3 turns). Fine for pre-health enemies.
+  Floor 3-4 enemies: 25-50 HP. Mid-tier spells deal 5-8 direct + conditions.
+  Floor 5+ enemies: 50-100+ HP. High-tier spells deal 8-15 direct. Combos
+  needed for efficiency.
+
+BKS SCALING CALIBRATION:
+  floor(BKS/4): yields +2 at BKS 8, +3 at BKS 12, +4 at BKS 16, +5 at BKS 20.
+  floor(BKS/3): yields +2 at BKS 8, +4 at BKS 12, +5 at BKS 15.
+  Elementals use /4 as the standard ratio.
+  Arcane school uses /3 (slightly higher) to compensate for no element trick.
+
+CHARGE ECONOMY:
+  INF with cooldown: good for filler/basic attacks. 4-8 turn cooldowns.
+  /FL 2-3: mid-tier workhorses. Guaranteed 2-3 uses per floor.
+  /FL 1: high-value decisive moments.
+  ONCE/TOTAL: capstone/emergency uses only.
+
+POTENTIAL OVERPOWERED INTERACTIONS:
+  - Absolute Zero (freeze 6t) + Rockslide (delay 1t) + brittle consume:
+    possible but expensive — requires 2 /FL 1 abilities and 1 turn delay.
+    Net result on a boss could be massive. Acceptable for high-investment play.
+  - Smite + Luminous: 14+ damage floor at mid-BKS for a /FL 1 shot.
+    Consider whether this trivializes bosses. Mitigation: Spotlight uses INF
+    cooldown 5t; Smite /FL 1. Both cost spell slots and turns.
+  - Umbral Tide + Hurricane Round (fear + windswept): enemies fleeing in
+    random directions, also being pushed. Very chaotic. Acceptable — they
+    can still deal damage if they walk into you.
+  - Plague Bolt spread + crowded room: full room poisoned for free on one kill.
+    At 2 dmg/turn for 6 turns = 12 damage per enemy. Not an instant kill;
+    requires time. Acceptable.
+
+SKILL TREE INTEGRATION:
+  These spells are primarily sourced from Blackkk Magic tree, with cross-unlocks
+  to Pyromania (fire), Negromancy (shadow), and item sources. The existing
+  Blackkk Magic tree has no assigned perks at all levels — this compendium
+  provides a thematic direction: multi-element arcane caster.
+
+  Suggested Blackkk Magic progression:
+    L1: Lighter Fluid OR Cold Shoulder OR Static Slap OR Acid Spit OR Gust
+        (player picks one element path at L1)
+    L2: Arcane Bolt + Life Tap (universal unlocks at L2)
+    L3: Element-specific mid-tier (Backdraft/Permafrost/Ball Lightning/
+        Toxic Cloud/Vacuum Burst/etc.) + Elemental Catalyst unlock
+    L4: Kinetic Shield + Faraday Cage + element specialism cross-unlocks
+    L5: Napalm Strike / Absolute Zero / Overload / Arcane Surge / Rockslide /
+        Umbral Tide / Plague Bolt / Hurricane Round (pick one at L5)
+        + Prism Strike (if 4+ elements used)
+
+================================================================================
+END OF SUPPLEMENT III
+================================================================================
+
+Total new abilities designed: 48
+  Fire school:      Lighter Fluid, Backdraft, Napalm Strike, Phoenix Coat
+  Ice/Frost school: Cold Shoulder, Permafrost, Absolute Zero, Sleet Storm
+  Lightning school: Static Slap, Ball Lightning, Overload, Faraday Cage
+  Arcane/Force:     Arcane Bolt, Force Wall, Arcane Surge, Kinetic Shield
+  Earth/Stone:      Gravel Blast, Seismic Stomp, Stone Skin, Rockslide
+  Shadow/Dark:      Nightmare Fumes, Soul Drain, Umbral Tide, Life Tap
+  Holy/Light:       Spotlight, Mend, Sacred Ground, Smite
+  Poison/Acid:      Acid Spit, Toxic Cloud, Venom Strike, Plague Bolt
+  Wind/Air:         Gust, Vacuum Burst, Tailwind, Hurricane Round
+  Cross-Element:    Elemental Catalyst, Weather Report, Prism Strike
+
+New effect classes: 16
+New engine fields: 10
+New entity fields: 2
+
+All ability IDs:
+  lighter_fluid, backdraft, napalm_strike, phoenix_coat,
+  cold_shoulder, permafrost, absolute_zero, sleet_storm,
+  static_slap, ball_lightning, overload, faraday_cage,
+  arcane_bolt, force_wall, arcane_surge, kinetic_shield,
+  gravel_blast, seismic_stomp, stone_skin, rockslide,
+  nightmare_fumes, soul_drain, umbral_tide, life_tap,
+  spotlight, mend, sacred_ground, smite,
+  acid_spit, toxic_cloud, venom_strike, plague_bolt,
+  gust, vacuum_burst, tailwind, hurricane_round,
+  elemental_catalyst, weather_report, prism_strike

@@ -1,0 +1,891 @@
+"""
+Gun system: targeting, firing, reloading, and ammo management.
+
+All functions are module-level and take `engine` (GameEngine instance) as first parameter.
+"""
+
+import math
+import random
+
+import combat
+from config import DUNGEON_WIDTH, DUNGEON_HEIGHT, MIN_DAMAGE
+from effects import notify_gun_kill, dead_shot_gun_bonus, dead_shot_ammo_recovery
+from items import get_item_def
+from menu_state import MenuState
+
+# Colors for segmented log messages (mirrored from engine.py)
+_C_MSG_NEUTRAL = (200, 200, 100)
+
+# Gun skill XP per ammo type: light=20, medium=50, heavy=100
+_GUN_AMMO_XP = {"light": 20, "medium": 50, "heavy": 100}
+
+
+def _sts_gun_bonus(engine):
+    """Street Smarts gun damage bonus: +1 per 5 effective STS."""
+    return engine.player_stats.effective_street_smarts // 5
+
+
+def _award_gun_skill_xp(engine, gun_defn, num_shots):
+    """Award Gatting or Sniping XP based on firing mode and ammo consumed."""
+    ammo_type = gun_defn.get("ammo_type", "light")
+    xp_per_shot = _GUN_AMMO_XP.get(ammo_type, 20)
+    xp = xp_per_shot * num_shots
+    skill = "Sniping" if engine.gun_firing_mode == "accurate" else "Gatting"
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp(skill, xp, bksmt)
+
+
+def _award_drive_by_xp(engine, gun_defn, num_shots):
+    """Award Drive-By XP when using gun abilities (double tap, burst, spray)."""
+    ammo_type = gun_defn.get("ammo_type", "light")
+    xp_per_shot = _GUN_AMMO_XP.get(ammo_type, 20)
+    xp = xp_per_shot * num_shots
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Drive-By", xp, bksmt)
+
+
+def _gun_crit_unlocked(engine):
+    """Gun crits require Gatting level 3+ or Sniping level 3+."""
+    return (engine.skills.get("Gatting").level >= 3
+            or engine.skills.get("Sniping").level >= 3)
+
+
+def _get_calculated_aim(engine):
+    """Return the active CalculatedAimEffect on the player, or None."""
+    return next(
+        (e for e in engine.player.status_effects
+         if getattr(e, 'id', '') == 'calculated_aim'),
+        None,
+    )
+
+
+def _has_perfect_accuracy(engine):
+    """Check if Calculated Aim III grants 100% accuracy."""
+    aim = _get_calculated_aim(engine)
+    return aim is not None and aim.perfect_accuracy
+
+
+def _apply_sideways(engine, base_hit, energy_cost):
+    """Gatting L2 'Doin' It Sideways': in fast mode, -10% accuracy, -10 energy cost."""
+    if engine.skills.get("Gatting").level >= 2 and engine.gun_firing_mode == "fast":
+        base_hit = max(5, base_hit - 10)
+        energy_cost = max(10, energy_cost - 10)
+    return base_hit, energy_cost
+
+
+def _notify_ammo_spent(engine, gun, num_rounds):
+    """Handle auto-reload from Calculated Aim buff after ammo is spent."""
+    aim = _get_calculated_aim(engine)
+    if aim is None:
+        return
+    # Auto-reload: if gun is empty and buff has auto_reload
+    if aim.auto_reload and gun.current_ammo <= 0:
+        gun_defn = get_item_def(gun.item_id)
+        ammo_type = gun_defn.get("ammo_type") if gun_defn else None
+        if ammo_type:
+            ammo_item = next(
+                (it for it in engine.player.inventory
+                 if getattr(it, 'item_id', '') == ammo_type),
+                None,
+            )
+            if ammo_item:
+                needed = gun.mag_size - gun.current_ammo
+                loaded = min(needed, ammo_item.quantity)
+                gun.current_ammo += loaded
+                ammo_item.quantity -= loaded
+                if ammo_item.quantity <= 0:
+                    engine.player.inventory.remove(ammo_item)
+                engine.messages.append([
+                    ("Auto-reload! ", (100, 255, 100)),
+                    (f"({gun.current_ammo}/{gun.mag_size})", (200, 200, 200)),
+                ])
+
+
+def _get_primary_gun(engine):
+    """Return the Entity in the primary gun slot, or None."""
+    if engine.primary_gun is None:
+        return None
+    return engine.equipment.get(engine.primary_gun)
+
+
+def _find_nearest_visible_enemy(engine, max_range):
+    """Return the nearest alive, visible monster within Chebyshev distance, or None."""
+    best = None
+    best_dist = max_range + 1
+    for entity in engine.dungeon.get_monsters():
+        if not entity.alive:
+            continue
+        if not engine.dungeon.visible[entity.y, entity.x]:
+            continue
+        dist = max(abs(entity.x - engine.player.x), abs(entity.y - engine.player.y))
+        if dist <= max_range and dist < best_dist:
+            best = entity
+            best_dist = dist
+    return best
+
+
+def _enter_gun_ability_targeting(engine, spec: dict) -> bool:
+    """Enter gun targeting mode for a gun ability. spec contains ability stats.
+    Returns False (no turn consumed yet — turn consumed on confirm)."""
+    gun = _get_primary_gun(engine)
+    if gun is None:
+        engine.messages.append("No gun equipped.")
+        return False
+    if engine.gun_jammed:
+        engine.messages.append("Gun is jammed! Reload (Shift+R) to clear it.")
+        return False
+    gun_defn = get_item_def(gun.item_id)
+    if gun_defn is None:
+        return False
+    num_shots = spec.get("num_shots", 2)
+    if gun.current_ammo < num_shots:
+        if gun.current_ammo <= 0:
+            engine.messages.append("Click! Empty magazine. Reload with Shift+R.")
+        else:
+            engine.messages.append(f"Need {num_shots} rounds to fire. Reload with Shift+R.")
+        return False
+
+    ability_range = spec.get("range", 4)
+    nearest = _find_nearest_visible_enemy(engine, ability_range)
+    if nearest:
+        engine.gun_targeting_cursor = [nearest.x, nearest.y]
+    else:
+        engine.gun_targeting_cursor = [engine.player.x, engine.player.y]
+
+    engine.gun_ability_active = spec
+    engine.menu_state = MenuState.GUN_TARGETING
+    return False
+
+
+def _action_fire_gun(engine, _action):
+    """Enter gun targeting mode if the player has a loaded primary gun."""
+    gun = _get_primary_gun(engine)
+    if gun is None:
+        engine.messages.append("No gun equipped.")
+        return False
+    if engine.gun_jammed:
+        engine.messages.append("Gun is jammed! Reload (Shift+R) to clear it.")
+        return False
+    gun_defn = get_item_def(gun.item_id)
+    if gun_defn is None:
+        return False
+    # Check minimum ammo requirement (cone guns need multiple rounds)
+    ammo_per_shot = gun_defn.get("ammo_per_shot")
+    min_ammo = ammo_per_shot[0] if isinstance(ammo_per_shot, (list, tuple)) else 1
+    if gun.current_ammo < min_ammo:
+        if gun.current_ammo <= 0:
+            engine.messages.append("Click! Empty magazine. Reload with Shift+R.")
+        else:
+            engine.messages.append(f"Need at least {min_ammo} rounds to fire. Reload with Shift+R.")
+        return False
+
+    gun_range = gun_defn.get("gun_range", 4)
+    # Auto-place cursor on nearest visible enemy, or player pos if none
+    nearest = _find_nearest_visible_enemy(engine, gun_range)
+    if nearest:
+        engine.gun_targeting_cursor = [nearest.x, nearest.y]
+    else:
+        engine.gun_targeting_cursor = [engine.player.x, engine.player.y]
+
+    engine.menu_state = MenuState.GUN_TARGETING
+    return False
+
+
+def _handle_gun_targeting_input(engine, action):
+    """Handle input while in gun targeting mode."""
+    action_type = action.get("type")
+
+    if action_type == "close_menu":
+        engine.menu_state = MenuState.NONE
+        engine.gun_ability_active = None
+        return False
+
+    if action_type == "move":
+        dx = action.get("dx", 0)
+        dy = action.get("dy", 0)
+        nx = max(0, min(DUNGEON_WIDTH - 1, engine.gun_targeting_cursor[0] + dx))
+        ny = max(0, min(DUNGEON_HEIGHT - 1, engine.gun_targeting_cursor[1] + dy))
+        engine.gun_targeting_cursor = [nx, ny]
+        return False
+
+    if action_type == "toggle_firing_mode":
+        if engine.gun_firing_mode == "accurate":
+            engine.gun_firing_mode = "fast"
+        else:
+            engine.gun_firing_mode = "accurate"
+        return False
+
+    if action_type == "confirm_target":
+        tx, ty = engine.gun_targeting_cursor
+        gun = _get_primary_gun(engine)
+        if gun is None:
+            engine.menu_state = MenuState.NONE
+            return False
+        gun_defn = get_item_def(gun.item_id)
+
+        # Gun ability active — use ability's range, not gun's
+        if engine.gun_ability_active is not None:
+            ability_range = engine.gun_ability_active.get("range", 4)
+            if not engine.dungeon.visible[ty, tx]:
+                engine.messages.append("Can't see that tile.")
+                return False
+            dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+            if dist > ability_range:
+                engine.messages.append("Out of range!")
+                return False
+            if dist == 0:
+                engine.messages.append("Can't shoot yourself!")
+                return False
+            _resolve_gun_ability_shot(engine, tx, ty)
+            return True
+
+        gun_range = gun_defn.get("gun_range", 4)
+
+        # Validate visible and in range
+        if not engine.dungeon.visible[ty, tx]:
+            engine.messages.append("Can't see that tile.")
+            return False
+        dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+        if dist > gun_range:
+            engine.messages.append("Out of range!")
+            return False
+        if dist == 0:
+            engine.messages.append("Can't shoot yourself!")
+            return False
+
+        aoe_type = gun_defn.get("aoe_type", "target")
+        if aoe_type == "cone":
+            _resolve_cone_shot(engine, tx, ty)
+        elif aoe_type == "circle":
+            _resolve_circle_shot(engine, tx, ty)
+        else:
+            _resolve_gun_shot(engine, tx, ty)
+        return True
+
+    return False
+
+
+def _get_gun_cone_tiles(engine, tx, ty):
+    """Return list of (x, y) tiles in the primary gun's cone toward (tx, ty)."""
+    gun = _get_primary_gun(engine)
+    if gun is None:
+        return []
+    gun_defn = get_item_def(gun.item_id)
+    gun_range = gun_defn.get("gun_range", 5)
+    cone_angle = gun_defn.get("cone_angle", 30)
+    px, py = engine.player.x, engine.player.y
+    angle_to_target = math.atan2(ty - py, tx - px)
+    half_angle = math.radians(cone_angle / 2)
+    tiles = []
+    for y in range(py - gun_range, py + gun_range + 1):
+        for x in range(px - gun_range, px + gun_range + 1):
+            if x == px and y == py:
+                continue
+            dist = max(abs(x - px), abs(y - py))
+            if dist > gun_range or dist == 0:
+                continue
+            angle = math.atan2(y - py, x - px)
+            diff = abs(angle - angle_to_target)
+            if diff > math.pi:
+                diff = 2 * math.pi - diff
+            if diff <= half_angle:
+                tiles.append((x, y))
+    return tiles
+
+
+def _get_gun_line_tiles(engine, tx, ty, max_range):
+    """Return list of (x, y) tiles in a line from player toward (tx, ty), up to max_range tiles."""
+    px, py = engine.player.x, engine.player.y
+    dx = tx - px
+    dy = ty - py
+    if dx == 0 and dy == 0:
+        return []
+    # Normalize to unit direction (cardinal/diagonal)
+    unit_dx = (1 if dx > 0 else -1) if dx != 0 else 0
+    unit_dy = (1 if dy > 0 else -1) if dy != 0 else 0
+    tiles = []
+    cx, cy = px + unit_dx, py + unit_dy
+    for _ in range(max_range):
+        if cx < 0 or cx >= DUNGEON_WIDTH or cy < 0 or cy >= DUNGEON_HEIGHT:
+            break
+        if engine.dungeon.is_terrain_blocked(cx, cy):
+            break
+        tiles.append((cx, cy))
+        cx += unit_dx
+        cy += unit_dy
+    return tiles
+
+
+def _get_gun_circle_tiles(engine, cx, cy, radius):
+    """Return list of (x, y) tiles in a circle (Chebyshev distance) around (cx, cy)."""
+    tiles = []
+    for y in range(cy - radius, cy + radius + 1):
+        for x in range(cx - radius, cx + radius + 1):
+            if x < 0 or x >= DUNGEON_WIDTH or y < 0 or y >= DUNGEON_HEIGHT:
+                continue
+            if engine.dungeon.is_terrain_blocked(x, y):
+                continue
+            tiles.append((x, y))
+    return tiles
+
+
+def _resolve_gun_ability_shot(engine, tx, ty):
+    """Resolve firing a gun ability (double_tap, burst, spray) toward target tile."""
+    spec = engine.gun_ability_active
+    if spec is None:
+        return
+    gun = _get_primary_gun(engine)
+    gun_defn = get_item_def(gun.item_id)
+
+    ability_name = spec["name"]
+    num_shots = spec["num_shots"]
+    min_dmg, max_dmg = spec["damage"]
+    accuracy = spec["accuracy"]
+    energy_cost = spec["energy"]
+    aoe_type = spec.get("aoe_type", "line")
+    ability_range = spec.get("range", 4)
+    ability_id = spec.get("ability_id")
+
+    # Check ammo
+    if gun.current_ammo < num_shots:
+        engine.messages.append(f"Need {num_shots} rounds loaded. Reload with Shift+R.")
+        return
+
+    # Consume ammo
+    gun.current_ammo = max(0, gun.current_ammo - num_shots)
+    _award_drive_by_xp(engine, gun_defn, num_shots)
+    _notify_ammo_spent(engine, gun, num_shots)
+    dead_shot_ammo_recovery(engine, num_shots, gun_defn.get("ammo_type", "light"))
+
+    # Exit targeting
+    engine.menu_state = MenuState.NONE
+    engine.gun_ability_active = None
+
+    # Find targets in the AOE
+    if aoe_type == "line":
+        aoe_tiles = set(_get_gun_line_tiles(engine, tx, ty, ability_range))
+    elif aoe_type == "cone":
+        aoe_tiles = set(_get_gun_cone_tiles(engine, tx, ty))
+    else:
+        aoe_tiles = {(tx, ty)}
+
+    targets = []
+    for entity in engine.dungeon.get_monsters():
+        if entity.alive and (entity.x, entity.y) in aoe_tiles:
+            if engine.dungeon.visible[entity.y, entity.x]:
+                targets.append(entity)
+
+    if not targets:
+        engine.messages.append(f"{ability_name}! {num_shots} rounds into empty space!")
+        engine.player.energy -= energy_cost
+        if engine.running and engine.player.alive:
+            engine._run_energy_loop()
+        return
+
+    # Distribute shots: max ceil(num_shots / 2) per target
+    max_per_target = math.ceil(num_shots / 2)
+    hit_counts = {}
+    assignments = []
+    for _ in range(num_shots):
+        eligible = [t for t in targets
+                    if hit_counts.get(t.instance_id, 0) < max_per_target]
+        if not eligible:
+            break
+        target = random.choice(eligible)
+        assignments.append(target)
+        hit_counts[target.instance_id] = hit_counts.get(target.instance_id, 0) + 1
+
+    # Resolve each shot (with per-shot jam checks if ability specifies)
+    total_hits = 0
+    shots_fired = 0
+    kills = []
+    ability_jam_chance = spec.get("jam_chance", 0)
+    jammed = False
+    for target in assignments:
+        if not target.alive:
+            shots_fired += 1
+            continue
+        # Per-shot jam check (e.g. Spray & Pray)
+        if ability_jam_chance and random.randint(1, 100) <= ability_jam_chance:
+            jammed = True
+            # Refund unspent rounds
+            refund = num_shots - shots_fired - 1
+            if refund > 0:
+                gun.current_ammo = min(gun.mag_size, gun.current_ammo + refund)
+            break
+        shots_fired += 1
+        # Accuracy roll
+        if not _has_perfect_accuracy(engine) and random.randint(1, 100) > accuracy:
+            continue
+        # Dodge roll
+        if random.random() * 100 < target.dodge_chance:
+            continue
+        # Damage
+        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+        is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
+        if is_crit:
+            damage *= engine.crit_multiplier
+        damage = max(MIN_DAMAGE, damage - target.defense)
+        mult = engine.player_stats.outgoing_damage_mult
+        if mult != 1.0:
+            damage = int(damage * mult)
+        damage = engine._apply_damage_modifiers(damage, target)
+        damage = engine._apply_toxicity(damage, target)
+        killed = target.take_damage(damage)
+        engine._apply_virulent_vodka(target, damage)
+        engine._check_glow_up_proc(target)
+        total_hits += 1
+        if killed and target not in kills:
+            kills.append(target)
+
+    if jammed:
+        engine.gun_jammed = True
+        engine.messages.append([
+            (f"{ability_name}! ", (200, 150, 80)),
+            (f"{shots_fired} of {num_shots} rounds fired, {total_hits} hit{'s' if total_hits != 1 else ''} — ", (200, 200, 200)),
+            ("JAM!", (255, 80, 80)),
+        ])
+    else:
+        engine.messages.append(
+            f"{ability_name}! {num_shots} rounds fired, {total_hits} hit{'s' if total_hits != 1 else ''}."
+        )
+    for killed_target in kills:
+        engine.event_bus.emit("entity_died", killed_target, killer=engine.player)
+        notify_gun_kill(engine)
+
+    # Consume ability cooldown if specified
+    cooldown = spec.get("cooldown", 0)
+    if cooldown > 0 and ability_id:
+        engine.ability_cooldowns[ability_id] = cooldown
+
+    engine.player.energy -= energy_cost
+    if engine.running and engine.player.alive:
+        engine._run_energy_loop()
+
+
+def _resolve_cone_shot(engine, tx, ty):
+    """Resolve firing a cone-type gun toward target tile (tx, ty)."""
+    gun = _get_primary_gun(engine)
+    gun_defn = get_item_def(gun.item_id)
+    mode = engine.gun_firing_mode
+    modes = gun_defn.get("firing_modes", {})
+    mode_data = modes.get(mode, {"hit": 50, "energy": 50})
+    energy_cost = mode_data["energy"]
+    base_hit = mode_data["hit"]
+    min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
+
+    # Determine ammo to use
+    ammo_per_shot = gun_defn.get("ammo_per_shot", (1, 1))
+    if isinstance(ammo_per_shot, (list, tuple)):
+        num_shots = min(random.randint(ammo_per_shot[0], ammo_per_shot[1]),
+                       gun.current_ammo)
+    else:
+        num_shots = min(ammo_per_shot, gun.current_ammo)
+
+    # Consume ammo
+    gun.current_ammo = max(0, gun.current_ammo - num_shots)
+    _award_gun_skill_xp(engine, gun_defn, num_shots)
+    _notify_ammo_spent(engine, gun, num_shots)
+    dead_shot_ammo_recovery(engine, num_shots, gun_defn.get("ammo_type", "light"))
+
+    # Exit targeting
+    engine.menu_state = MenuState.NONE
+
+    # Find enemies in cone
+    cone_tiles = set(_get_gun_cone_tiles(engine, tx, ty))
+    targets = []
+    for entity in engine.dungeon.get_monsters():
+        if entity.alive and (entity.x, entity.y) in cone_tiles:
+            if engine.dungeon.visible[entity.y, entity.x]:
+                targets.append(entity)
+
+    if not targets:
+        engine.messages.append(f"You spray {num_shots} rounds into empty space!")
+        engine.player.energy -= energy_cost
+        if engine.running and engine.player.alive:
+            engine._run_energy_loop()
+        return
+
+    # Distribute shots: max ceil(num_shots / 2) hits per target
+    max_per_target = math.ceil(num_shots / 2)
+    hit_counts = {}
+    assignments = []
+    for _ in range(num_shots):
+        eligible = [t for t in targets
+                    if hit_counts.get(t.instance_id, 0) < max_per_target]
+        if not eligible:
+            break
+        target = random.choice(eligible)
+        assignments.append(target)
+        hit_counts[target.instance_id] = hit_counts.get(target.instance_id, 0) + 1
+
+    # Resolve each shot
+    total_hits = 0
+    kills = []
+    for target in assignments:
+        if not target.alive:
+            continue
+        # Accuracy roll
+        if not _has_perfect_accuracy(engine) and random.randint(1, 100) > base_hit:
+            continue
+        # Dodge roll
+        defender_dodge = target.dodge_chance
+        if random.random() * 100 < defender_dodge:
+            continue
+
+        # Damage
+        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+        is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
+        if is_crit:
+            damage *= engine.crit_multiplier
+        damage = max(MIN_DAMAGE, damage - target.defense)
+        mult = engine.player_stats.outgoing_damage_mult
+        if mult != 1.0:
+            damage = int(damage * mult)
+        damage = engine._apply_damage_modifiers(damage, target)
+        damage = engine._apply_toxicity(damage, target)
+        killed = target.take_damage(damage)
+        engine._apply_virulent_vodka(target, damage)
+        engine._check_glow_up_proc(target)
+        total_hits += 1
+        if killed and target not in kills:
+            kills.append(target)
+
+    engine.messages.append(
+        f"You spray {num_shots} rounds! {total_hits} hit{'s' if total_hits != 1 else ''}."
+    )
+    for killed_target in kills:
+        engine.event_bus.emit("entity_died", killed_target, killer=engine.player)
+        notify_gun_kill(engine)
+
+    engine.player.energy -= energy_cost
+    if engine.running and engine.player.alive:
+        engine._run_energy_loop()
+
+
+def _resolve_circle_shot(engine, tx, ty):
+    """Resolve firing a circle-AOE gun (e.g. RPG) at target tile (tx, ty)."""
+    gun = _get_primary_gun(engine)
+    gun_defn = get_item_def(gun.item_id)
+    mode = engine.gun_firing_mode
+    modes = gun_defn.get("firing_modes", {})
+    mode_data = modes.get(mode, {"hit": 50, "energy": 50})
+    energy_cost = mode_data["energy"]
+    base_hit = mode_data["hit"]
+    min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
+    aoe_radius = gun_defn.get("aoe_radius", 2)
+
+    # Consume ammo
+    gun.current_ammo = max(0, gun.current_ammo - 1)
+    _award_gun_skill_xp(engine, gun_defn, 1)
+    _notify_ammo_spent(engine, gun, 1)
+    dead_shot_ammo_recovery(engine, 1, gun_defn.get("ammo_type", "light"))
+
+    # Exit targeting
+    engine.menu_state = MenuState.NONE
+
+    # Accuracy roll — hit means explosion at target, miss means near player
+    px, py = engine.player.x, engine.player.y
+    if _has_perfect_accuracy(engine) or random.randint(1, 100) <= base_hit:
+        # Direct hit
+        ex, ey = tx, ty
+        engine.messages.append("Direct hit! The rocket explodes!")
+    else:
+        # Miss — explosion at random walkable tile near player
+        candidates = []
+        for cy in range(py - 2, py + 3):
+            for cx in range(px - 2, px + 3):
+                if cx < 0 or cx >= DUNGEON_WIDTH or cy < 0 or cy >= DUNGEON_HEIGHT:
+                    continue
+                if not engine.dungeon.is_terrain_blocked(cx, cy):
+                    candidates.append((cx, cy))
+        if candidates:
+            ex, ey = random.choice(candidates)
+        else:
+            ex, ey = px, py
+        engine.messages.append(
+            f"The rocket goes wide and explodes at ({ex},{ey})!"
+        )
+
+    # Get blast tiles and find targets
+    blast_tiles = set(_get_gun_circle_tiles(engine, ex, ey, aoe_radius))
+    kills = []
+
+    # Damage all alive monsters in blast radius
+    for entity in engine.dungeon.get_monsters():
+        if entity.alive and (entity.x, entity.y) in blast_tiles:
+            damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+            is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
+            if is_crit:
+                damage *= engine.crit_multiplier
+            damage = max(MIN_DAMAGE, damage - entity.defense)
+            mult = engine.player_stats.outgoing_damage_mult
+            if mult != 1.0:
+                damage = int(damage * mult)
+            damage = engine._apply_damage_modifiers(damage, entity)
+            damage = engine._apply_toxicity(damage, entity)
+            killed = entity.take_damage(damage)
+            engine._apply_virulent_vodka(entity, damage)
+            engine._check_glow_up_proc(entity)
+            if killed:
+                kills.append(entity)
+
+    # Check if player is in blast radius (self-damage)
+    if (px, py) in blast_tiles:
+        damage = random.randint(min_dmg, max_dmg)
+        damage = max(MIN_DAMAGE, damage)
+        engine.player.hp -= damage
+        engine.messages.append(f"You're caught in the blast! ({damage} damage)")
+        if engine.player.hp <= 0:
+            engine.player.hp = 0
+            engine.player.alive = False
+            engine.game_over = True
+
+    for killed_target in kills:
+        engine.event_bus.emit("entity_died", killed_target, killer=engine.player)
+        notify_gun_kill(engine)
+
+    engine.player.energy -= energy_cost
+    if engine.running and engine.player.alive:
+        engine._run_energy_loop()
+
+
+def _resolve_gun_shot(engine, tx, ty):
+    """Resolve firing the primary gun at target tile (tx, ty)."""
+    gun = _get_primary_gun(engine)
+    gun_defn = get_item_def(gun.item_id)
+    mode = engine.gun_firing_mode
+    modes = gun_defn.get("firing_modes", {})
+    mode_data = modes.get(mode, {"hit": 75, "energy": 50})
+    energy_cost = mode_data["energy"]
+    base_hit = mode_data["hit"]
+    base_hit, energy_cost = _apply_sideways(engine, base_hit, energy_cost)
+    min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
+
+    # Consume ammo
+    gun.current_ammo = max(0, gun.current_ammo - 1)
+    _award_gun_skill_xp(engine, gun_defn, 1)
+    _notify_ammo_spent(engine, gun, 1)
+    dead_shot_ammo_recovery(engine, 1, gun_defn.get("ammo_type", "light"))
+
+    # Exit targeting
+    engine.menu_state = MenuState.NONE
+
+    # Jam check
+    jam_chance = gun_defn.get("jam_chance", 0)
+    if jam_chance and random.randint(1, 100) <= jam_chance:
+        engine.gun_jammed = True
+        jam_cost = gun_defn.get("jam_clear_cost", 100)
+        engine.messages.append([
+            ("JAM! ", (255, 80, 80)),
+            ("Your gun jams! Reload (Shift+R) to clear it.", (200, 200, 200)),
+        ])
+        engine.player.energy -= energy_cost
+        if engine.running and engine.player.alive:
+            engine._run_energy_loop()
+        return
+
+    # Find target monster
+    target = None
+    for e in engine.dungeon.get_entities_at(tx, ty):
+        if e.entity_type == "monster" and e.alive:
+            target = e
+            break
+
+    # Track consecutive target for bonus damage (e.g. HV Express)
+    consecutive_bonus_per = gun_defn.get("consecutive_bonus", 0)
+    if target is not None and consecutive_bonus_per:
+        if engine.gun_consecutive_target_id != target.instance_id:
+            # Fired at a different target: reset
+            engine.gun_consecutive_target_id = target.instance_id
+            engine.gun_consecutive_count = 0
+
+    # Gatting L1 "Locked In": track consecutive target (fast mode only)
+    gatting_active = (engine.skills.get("Gatting").level >= 1
+                      and engine.gun_firing_mode == "fast")
+    if target is not None and gatting_active:
+        if engine.gatting_consecutive_target_id != target.instance_id:
+            engine.gatting_consecutive_target_id = target.instance_id
+            engine.gatting_consecutive_count = 0
+
+    if target is None:
+        engine.messages.append("The shot hits nothing.")
+        engine.player.energy -= energy_cost
+        if engine.running and engine.player.alive:
+            engine._run_energy_loop()
+        return
+
+    # Accuracy roll
+    if not _has_perfect_accuracy(engine) and random.randint(1, 100) > base_hit:
+        engine.messages.append([
+            ("You miss ", _C_MSG_NEUTRAL),
+            (target.name, target.color),
+            ("!", _C_MSG_NEUTRAL),
+        ])
+        engine.player.energy -= energy_cost
+        if engine.running and engine.player.alive:
+            engine._run_energy_loop()
+        return
+
+    # Dodge roll
+    defender_dodge = engine.player_stats.dodge_chance if target is engine.player else target.dodge_chance
+    if random.random() * 100 < defender_dodge:
+        engine.messages.append(f"{target.name} dodges the shot!")
+        engine.player.energy -= energy_cost
+        if engine.running and engine.player.alive:
+            engine._run_energy_loop()
+        return
+
+    # Damage calculation
+    damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+
+    # Consecutive hit bonus (HV Express)
+    bonus = 0
+    if consecutive_bonus_per and engine.gun_consecutive_count > 0:
+        bonus = consecutive_bonus_per * engine.gun_consecutive_count
+        damage += bonus
+    if consecutive_bonus_per:
+        engine.gun_consecutive_count += 1
+
+    # Gatting L1 "Locked In" consecutive bonus (fast mode, +1 per hit)
+    gatting_bonus = 0
+    if gatting_active and engine.gatting_consecutive_count > 0:
+        gatting_bonus = engine.gatting_consecutive_count
+        damage += gatting_bonus
+    if gatting_active:
+        engine.gatting_consecutive_count += 1
+
+    # Crit check
+    is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
+    is_mega_crit = False
+    if is_crit:
+        # Sniping L3 mega crit (accurate mode only)
+        if engine.gun_firing_mode == "accurate" and combat.check_mega_crit(engine):
+            is_mega_crit = True
+            damage *= combat.MEGA_CRIT_MULTIPLIER
+        else:
+            damage *= engine.crit_multiplier
+
+    damage = max(MIN_DAMAGE, damage - target.defense)
+    mult = engine.player_stats.outgoing_damage_mult
+    if mult != 1.0:
+        damage = int(damage * mult)
+    damage = engine._apply_damage_modifiers(damage, target)
+    damage = engine._apply_toxicity(damage, target)
+
+    killed = target.take_damage(damage)
+    engine._apply_virulent_vodka(target, damage)
+    engine._check_glow_up_proc(target)
+
+    crit_tag = " MEGA CRIT!" if is_mega_crit else (" CRIT!" if is_crit else "")
+    total_consec = bonus + gatting_bonus
+    bonus_tag = f" (+{total_consec} locked in)" if total_consec > 0 else ""
+    engine.messages.append([
+        ("You shoot ", _C_MSG_NEUTRAL),
+        (target.name, target.color),
+        (f" for {damage} damage!{crit_tag}{bonus_tag}", _C_MSG_NEUTRAL),
+    ])
+
+    if killed:
+        engine.event_bus.emit("entity_died", target, killer=engine.player)
+        notify_gun_kill(engine)
+        # Sniping L2 "Dead Eye": accurate kill = +1 swagger for the floor
+        if (engine.gun_firing_mode == "accurate"
+                and engine.skills.get("Sniping").level >= 2):
+            engine.player_stats.swagger += 1
+            engine.dead_eye_swagger_gained += 1
+            engine.messages.append([
+                ("Dead Eye! ", (255, 220, 100)),
+                ("+1 Swagger", (200, 200, 200)),
+            ])
+
+    engine.player.energy -= energy_cost
+    if engine.running and engine.player.alive:
+        engine._run_energy_loop()
+
+
+def _action_reload_gun(engine, _action):
+    """Reload the primary gun from inventory ammo. Also clears jams."""
+    gun = _get_primary_gun(engine)
+    if gun is None:
+        engine.messages.append("No gun equipped.")
+        return False
+    gun_defn = get_item_def(gun.item_id)
+    if gun_defn is None:
+        return False
+
+    # Clear jam if jammed (costs energy, doesn't reload ammo)
+    if engine.gun_jammed:
+        engine.gun_jammed = False
+        jam_cost = gun_defn.get("jam_clear_cost", 100)
+        engine.messages.append([
+            ("Cleared the jam! ", (100, 255, 100)),
+            (f"({gun.current_ammo}/{gun.mag_size})", (200, 200, 200)),
+        ])
+        if jam_cost > 0:
+            engine.player.energy -= jam_cost
+            if engine.running and engine.player.alive:
+                engine._run_energy_loop()
+            return True
+        return False
+
+    if gun.current_ammo >= gun.mag_size:
+        engine.messages.append("Magazine is already full.")
+        return False
+
+    ammo_type = gun_defn.get("ammo_type")
+    # Find matching ammo in inventory
+    ammo_item = None
+    for inv_item in engine.player.inventory:
+        if inv_item.item_id and inv_item.entity_type == "item":
+            idef = get_item_def(inv_item.item_id)
+            if idef and idef.get("ammo_type") == ammo_type and idef.get("category") == "ammo":
+                ammo_item = inv_item
+                break
+
+    if ammo_item is None:
+        engine.messages.append(f"No {ammo_type} ammo in inventory.")
+        return False
+
+    needed = gun.mag_size - gun.current_ammo
+    loaded = min(needed, ammo_item.quantity)
+    gun.current_ammo += loaded
+    ammo_item.quantity -= loaded
+    if ammo_item.quantity <= 0:
+        engine.player.inventory.remove(ammo_item)
+
+    engine.messages.append(f"Reloaded {loaded} rounds. ({gun.current_ammo}/{gun.mag_size})")
+
+    # Spend energy if reload has a cost
+    reload_speed = gun_defn.get("reload_speed", 0)
+    if reload_speed > 0:
+        engine.player.energy -= reload_speed
+        if engine.running and engine.player.alive:
+            engine._run_energy_loop()
+        return True
+    return False  # free action
+
+
+def _action_swap_primary_gun(engine, _action):
+    """Toggle the primary gun between weapon and sidearm slots."""
+    weapon = engine.equipment.get("weapon")
+    sidearm = engine.equipment.get("sidearm")
+    weapon_is_gun = weapon is not None and get_item_def(weapon.item_id).get("subcategory") == "gun"
+    sidearm_is_gun = sidearm is not None and get_item_def(sidearm.item_id).get("subcategory") == "gun"
+
+    if weapon_is_gun and sidearm_is_gun:
+        if engine.primary_gun == "weapon":
+            engine.primary_gun = "sidearm"
+            engine.messages.append(f"Switched to {sidearm.name}.")
+        else:
+            engine.primary_gun = "weapon"
+            engine.messages.append(f"Switched to {weapon.name}.")
+    elif weapon_is_gun:
+        engine.primary_gun = "weapon"
+        engine.messages.append("Only one gun equipped.")
+    elif sidearm_is_gun:
+        engine.primary_gun = "sidearm"
+        engine.messages.append("Only one gun equipped.")
+    else:
+        engine.messages.append("No guns equipped.")
+    return False

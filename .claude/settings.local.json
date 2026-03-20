@@ -12,7 +12,17 @@
       "Bash(gh:*)",
       "Bash(git config:*)",
       "Bash(pip install:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(pip show:*)",
+      "Bash(pyinstaller --version 2>/dev/null || echo \"NOT INSTALLED\")",
+      "Bash(find /c/Users/pappc/claude-projects/nigrl-trunk -type f \\\\\\( -name \"*.md\" -o -name \"*.txt\" \\\\\\) 2>/dev/null | head -20)",
+      "Bash(wc -l C:/Users/pappc/claude-projects/nigrl-trunk/*.py | sort -rn | head -20)",
+      "Bash(wc -l C:/Users/pappc/claude-projects/nigrl-trunk/*.py | sort -rn | tail -20)",
+      "Bash(echo \"=== CONFIG.PY: Which lines reference zones? ===\"\ngrep -n \"crack_den\\\\|meth_lab\\\\|tyrones_penthouse\" /c/Users/pappc/claude-projects/nigrl-trunk/config.py\n\necho \"\"\necho \"=== LOOT.PY: Which lines reference zones? ===\"\ngrep -n \"crack_den\\\\|meth_lab\\\\|tyrones_penthouse\" /c/Users/pappc/claude-projects/nigrl-trunk/loot.py | head -20)",
+      "Bash(__NEW_LINE_e45c45594ca4a99f__ echo:*)",
+      "Bash(git add:*)"
     ]
   }
 }

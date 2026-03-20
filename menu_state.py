@@ -25,3 +25,6 @@ class MenuState(Enum):
     ADJACENT_TILE_TARGETING = "adjacent_tile_targeting"
     EXAMINE = "examine"
     DEATH_SCREEN = "death_screen"
+    DEEP_FRYER = "deep_fryer"
+    GUN_TARGETING = "gun_targeting"
+    DEV_FLOOR_SELECT = "dev_floor_select"

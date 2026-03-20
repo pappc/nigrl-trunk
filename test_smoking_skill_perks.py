@@ -2,9 +2,10 @@
 Tests for Smoking skill perks.
 
 Perks:
-  Level 1 - Phat Cloud : When you smoke, deal 10 + tolerance//2 dmg to nearest visible enemy.
+  Level 1 - +2 TOL         : +2 Tolerance.
   Level 2 - +2 TOL, +2 CON : +2 Tolerance, +2 Constitution (permanent stat perk).
-  Level 3 - +2 TOL         : +2 Tolerance. 50% chance the joint is not consumed after smoking.
+  Level 3 - Phat Cloud      : When you smoke, deal 10 + tolerance//2 dmg to nearest visible enemy.
+  Level 4 - Roach Fiend     : 30% chance a blunt is not consumed when smoked.
 """
 
 import random
@@ -69,13 +70,13 @@ def smoke_joint(engine: GameEngine, index: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phat Cloud (Level 1)
+# Phat Cloud (Level 3)
 # ---------------------------------------------------------------------------
 
 def test_phat_cloud_deals_damage_to_nearest_visible_enemy():
     """Phat Cloud should deal 10 + tolerance//2 to the nearest visible enemy."""
     engine = make_engine()
-    set_smoking_level(engine, 1)
+    set_smoking_level(engine, 3)
 
     tlr = engine.player_stats.effective_tolerance
     expected_dmg = 10 + tlr // 2
@@ -95,7 +96,7 @@ def test_phat_cloud_deals_damage_to_nearest_visible_enemy():
 def test_phat_cloud_targets_nearest_visible_enemy():
     """Phat Cloud should target the closest visible enemy, not a farther one."""
     engine = make_engine()
-    set_smoking_level(engine, 1)
+    set_smoking_level(engine, 3)
 
     close_mob = place_visible_monster(engine, dx=2, hp=500)
     far_mob   = place_visible_monster(engine, dx=6, hp=500)
@@ -113,7 +114,7 @@ def test_phat_cloud_targets_nearest_visible_enemy():
 def test_phat_cloud_ignores_non_visible_enemies():
     """Phat Cloud should not hit enemies outside FOV."""
     engine = make_engine()
-    set_smoking_level(engine, 1)
+    set_smoking_level(engine, 3)
 
     px, py = engine.player.x, engine.player.y
     mx, my = px + 2, py
@@ -137,17 +138,17 @@ def test_phat_cloud_ignores_non_visible_enemies():
 def test_phat_cloud_no_crash_when_no_enemies():
     """Phat Cloud should silently skip (no error) when no visible enemies exist."""
     engine = make_engine()
-    set_smoking_level(engine, 1)
+    set_smoking_level(engine, 3)
 
     _, idx = add_joint(engine)
     # Should not raise
     smoke_joint(engine, idx)
 
 
-def test_phat_cloud_not_active_below_level_1():
-    """Enemies should take no Phat Cloud damage at Smoking level 0."""
+def test_phat_cloud_not_active_below_level_3():
+    """Enemies should take no Phat Cloud damage at Smoking level 2."""
     engine = make_engine()
-    # Do NOT set smoking level (stays 0)
+    set_smoking_level(engine, 2)
 
     monster = place_visible_monster(engine, dx=2, hp=500)
     initial_hp = monster.hp
@@ -157,7 +158,7 @@ def test_phat_cloud_not_active_below_level_1():
 
     # No Phat Cloud damage (OG Kush has no direct damage effect)
     assert monster.hp == initial_hp, (
-        f"Monster should not have taken Phat Cloud damage at Smoking level 0, "
+        f"Monster should not have taken Phat Cloud damage at Smoking level 2, "
         f"but HP changed: {initial_hp} -> {monster.hp}"
     )
 
@@ -165,7 +166,7 @@ def test_phat_cloud_not_active_below_level_1():
 def test_phat_cloud_damage_uses_effective_tolerance_with_ring_bonus():
     """Phat Cloud damage should reflect effective_tolerance (including ring bonuses)."""
     engine = make_engine()
-    set_smoking_level(engine, 1)
+    set_smoking_level(engine, 3)
 
     # Add a ring bonus to tolerance
     engine.player_stats.ring_bonuses["tolerance"] = 4
@@ -186,7 +187,7 @@ def test_phat_cloud_damage_uses_effective_tolerance_with_ring_bonus():
 def test_phat_cloud_kills_enemy_and_emits_death_event():
     """Phat Cloud killing blow should emit entity_died and mark monster dead."""
     engine = make_engine()
-    set_smoking_level(engine, 1)
+    set_smoking_level(engine, 3)
 
     tlr = engine.player_stats.effective_tolerance
     cloud_dmg = 10 + tlr // 2
@@ -288,18 +289,18 @@ def test_stat_up_no_double_apply_on_repeated_calls():
 
 
 # ---------------------------------------------------------------------------
-# +2 TOL / Roach Fiend mechanic (Level 3)
+# Roach Fiend (Level 4)
 # ---------------------------------------------------------------------------
 
 def test_roach_fiend_saves_joint_on_lucky_roll():
-    """When random < 0.5, Roach Fiend should prevent joint consumption."""
+    """When random < 0.3, Roach Fiend should prevent joint consumption."""
     engine = make_engine()
-    set_smoking_level(engine, 3)
+    set_smoking_level(engine, 4)
 
     item, idx = add_joint(engine)
     initial_qty = item.quantity  # 1
 
-    with patch("random.random", return_value=0.3):  # < 0.5 → save the joint
+    with patch("random.random", return_value=0.2):  # < 0.3 → save the joint
         smoke_joint(engine, idx)
 
     # The joint should still be in inventory at original quantity
@@ -311,31 +312,31 @@ def test_roach_fiend_saves_joint_on_lucky_roll():
 
 
 def test_roach_fiend_consumes_joint_on_unlucky_roll():
-    """When random >= 0.5, the joint should be consumed normally."""
+    """When random >= 0.3, the joint should be consumed normally."""
     engine = make_engine()
-    set_smoking_level(engine, 3)
+    set_smoking_level(engine, 4)
 
     item, idx = add_joint(engine)
 
-    with patch("random.random", return_value=0.7):  # >= 0.5 → consume
+    with patch("random.random", return_value=0.5):  # >= 0.3 → consume
         smoke_joint(engine, idx)
 
     still_in_inv = any(x is item for x in engine.player.inventory)
     assert not still_in_inv, "Joint should have been consumed when Roach Fiend roll fails"
 
 
-def test_roach_fiend_not_active_at_level_1():
-    """Roach Fiend should not trigger at Smoking level 1."""
+def test_roach_fiend_not_active_at_level_3():
+    """Roach Fiend should not trigger at Smoking level 3."""
     engine = make_engine()
-    set_smoking_level(engine, 1)
+    set_smoking_level(engine, 3)
 
     item, idx = add_joint(engine)
 
-    with patch("random.random", return_value=0.3):  # would save if level 3
+    with patch("random.random", return_value=0.1):  # would save if level 4
         smoke_joint(engine, idx)
 
     still_in_inv = any(x is item for x in engine.player.inventory)
-    assert not still_in_inv, "Joint should always be consumed at Smoking level 1"
+    assert not still_in_inv, "Joint should always be consumed at Smoking level 3"
 
 
 def test_roach_fiend_not_active_at_level_2():
@@ -345,7 +346,7 @@ def test_roach_fiend_not_active_at_level_2():
 
     item, idx = add_joint(engine)
 
-    with patch("random.random", return_value=0.1):  # would save if level 3
+    with patch("random.random", return_value=0.1):  # would save if level 4
         smoke_joint(engine, idx)
 
     still_in_inv = any(x is item for x in engine.player.inventory)
@@ -355,11 +356,11 @@ def test_roach_fiend_not_active_at_level_2():
 def test_roach_fiend_message_on_save():
     """Roach Fiend should append a message when it saves the joint."""
     engine = make_engine()
-    set_smoking_level(engine, 3)
+    set_smoking_level(engine, 4)
 
     _, idx = add_joint(engine)
 
-    with patch("random.random", return_value=0.2):
+    with patch("random.random", return_value=0.1):
         smoke_joint(engine, idx)
 
     has_roach_msg = any(
@@ -372,11 +373,11 @@ def test_roach_fiend_message_on_save():
 def test_roach_fiend_no_message_on_consume():
     """Roach Fiend should not append a message when the joint is consumed normally."""
     engine = make_engine()
-    set_smoking_level(engine, 3)
+    set_smoking_level(engine, 4)
 
     _, idx = add_joint(engine)
 
-    with patch("random.random", return_value=0.8):
+    with patch("random.random", return_value=0.5):
         smoke_joint(engine, idx)
 
     has_roach_msg = any(
@@ -386,10 +387,10 @@ def test_roach_fiend_no_message_on_consume():
     assert not has_roach_msg, "Should have no 'Roach Fiend!' message when joint is consumed"
 
 
-def test_roach_fiend_phat_cloud_both_active_at_level_3():
-    """At level 3, both Phat Cloud and Roach Fiend should be active together."""
+def test_roach_fiend_phat_cloud_both_active_at_level_4():
+    """At level 4, both Phat Cloud and Roach Fiend should be active together."""
     engine = make_engine()
-    set_smoking_level(engine, 3)
+    set_smoking_level(engine, 4)
 
     monster = place_visible_monster(engine, dx=2, hp=500)
     tlr = engine.player_stats.effective_tolerance
@@ -397,7 +398,7 @@ def test_roach_fiend_phat_cloud_both_active_at_level_3():
 
     item, idx = add_joint(engine)
 
-    with patch("random.random", return_value=0.2):  # Roach Fiend saves joint
+    with patch("random.random", return_value=0.1):  # Roach Fiend saves joint
         smoke_joint(engine, idx)
 
     # Phat Cloud should have fired
@@ -413,12 +414,12 @@ def test_roach_fiend_phat_cloud_both_active_at_level_3():
 
 def run_tests():
     tests = [
-        # Phat Cloud
+        # Phat Cloud (Level 3)
         ("phat_cloud: deals correct damage to nearest visible enemy",   test_phat_cloud_deals_damage_to_nearest_visible_enemy),
         ("phat_cloud: targets nearest (not farther) enemy",             test_phat_cloud_targets_nearest_visible_enemy),
         ("phat_cloud: ignores non-visible enemies",                     test_phat_cloud_ignores_non_visible_enemies),
         ("phat_cloud: no crash when no enemies present",                test_phat_cloud_no_crash_when_no_enemies),
-        ("phat_cloud: not active at level 0",                           test_phat_cloud_not_active_below_level_1),
+        ("phat_cloud: not active at level 2",                           test_phat_cloud_not_active_below_level_3),
         ("phat_cloud: uses effective_tolerance with ring bonus",        test_phat_cloud_damage_uses_effective_tolerance_with_ring_bonus),
         ("phat_cloud: killing blow emits entity_died event",            test_phat_cloud_kills_enemy_and_emits_death_event),
         # +2 TOL, +2 CON
@@ -427,14 +428,14 @@ def run_tests():
         ("stat_up: adds 20 max HP and heals 20 HP",                     test_stat_up_increases_max_hp_and_heals),
         ("stat_up: heal does not exceed new max_hp",                    test_stat_up_heal_does_not_exceed_new_max_hp),
         ("stat_up: stacks on double apply (caller responsibility)",     test_stat_up_no_double_apply_on_repeated_calls),
-        # +2 TOL (Roach Fiend mechanic)
-        ("roach_fiend: saves joint on lucky roll (< 0.5)",              test_roach_fiend_saves_joint_on_lucky_roll),
-        ("roach_fiend: consumes joint on unlucky roll (>= 0.5)",        test_roach_fiend_consumes_joint_on_unlucky_roll),
-        ("roach_fiend: not active at level 1",                          test_roach_fiend_not_active_at_level_1),
+        # Roach Fiend (Level 4)
+        ("roach_fiend: saves joint on lucky roll (< 0.3)",              test_roach_fiend_saves_joint_on_lucky_roll),
+        ("roach_fiend: consumes joint on unlucky roll (>= 0.3)",        test_roach_fiend_consumes_joint_on_unlucky_roll),
+        ("roach_fiend: not active at level 3",                          test_roach_fiend_not_active_at_level_3),
         ("roach_fiend: not active at level 2",                          test_roach_fiend_not_active_at_level_2),
         ("roach_fiend: appends message when joint saved",               test_roach_fiend_message_on_save),
         ("roach_fiend: no message when joint consumed normally",        test_roach_fiend_no_message_on_consume),
-        ("roach_fiend + phat_cloud: both active at level 3",           test_roach_fiend_phat_cloud_both_active_at_level_3),
+        ("roach_fiend + phat_cloud: both active at level 4",           test_roach_fiend_phat_cloud_both_active_at_level_4),
     ]
 
     passed = 0

@@ -1,0 +1,1647 @@
+NIGRL DESIGN DOC — FOOD & DRINK COMPENDIUM (50 IDEAS)
+=======================================================
+Author: Game Design Ideator
+Date: 2026-03-15
+File: nigrl-ideas/brainstorm-food-drink-compendium.txt
+
+PURPOSE: Research/brainstorm only. NOT ready for implementation.
+         50 entries organized by thematic category. Each entry notes which
+         new game systems it would require. Wide variety of effects — prioritizing
+         mechanics that don't exist anywhere in NIGRL yet.
+
+FORMAT PER ENTRY:
+  Name
+  Type: [Alcoholic Drink / Nonalcoholic Drank / Food]
+  Zone: [suggested zone(s)]
+  Appearance: char + color notes
+  Effect: full description
+  Requires: new system(s) needed, if any
+  Design Notes: synergies, quirks, balance flags
+
+==============================================================================
+CATEGORY A — COMPANION & SUMMON EFFECTS
+(Nothing in NIGRL currently summons a temporary ally or changes enemy allegiance)
+==============================================================================
+
+A1 — STRAY DOG CHILI
+--------------------
+Type: Food (multi-turn eat)
+Zone: Crack Den
+Appearance: char '%', color (150, 80, 40) — muddy brown
+
+Effect:
+  Eat time: 3 turns (standard meal).
+  On completion: Summons a "Stray Dog" companion entity on an adjacent tile.
+  The dog uses meander AI targeting enemies. It has 15 HP, 3 defense, deals
+  4-6 damage per hit. It persists until killed or until the player descends
+  to the next floor. Only one dog can be active at a time — eating a second
+  bowl replaces the first (old dog disappears, no refund).
+  Passive while dog is alive: player gains +1 Swagger (street presence of
+  having a dog).
+
+Requires:
+  - Companion entity system: entity with is_companion=True, allied AI that
+    attacks enemies but doesn't block player movement. Must be excluded from
+    enemy spawn counts and hostile AI targeting.
+  - Floor transition handling for companions (despawn or carry-over decision).
+
+Design Notes:
+  First food that produces a lasting battlefield presence. Huge thematic fit —
+  eating shady street chili to get a loyal mutt. Weak offensively but absorbs
+  hits and provides mild swagger. Synergizes with "dog" item potential later.
+  Risk: dog can be killed fast on deep floors. Reward: distraction value.
+
+------------------------------------------------------------------------------
+
+A2 — HENNESSY PACT
+------------------
+Type: Alcoholic Drink
+Zone: Crack Den (floors 3-4)
+Appearance: char '!', color (90, 50, 20) — dark brown
+
+Effect:
+  On drink: The next enemy you kill within 40 turns is "claimed."
+  A ghost/shade version of that enemy (half HP, same damage/AI, but allied)
+  rises from the corpse immediately and fights for you for 80 turns.
+  The shade's char is the enemy's char but rendered in dark gray (50,50,50).
+  Multiple pacts can stack — each kill within the claim window produces one shade.
+  Window resets on shade-spawn; you must drink again to claim another.
+
+Requires:
+  - Shade entity creation: post-death entity spawn from killer's kill event.
+    is_shade=True flag, allied AI, despawn on timeout.
+  - Kill event hook that checks active PactEffect and triggers shade spawn.
+  - Shade AI: copy of enemy's ai_type but target_faction="enemy" instead of
+    target_faction="player".
+
+Design Notes:
+  Different from Negromancy Raise Dead — Hennessy Pact is passive/reactive,
+  not activated on demand. Rewards aggressive play. Clip window of 40 turns
+  means you need to drink right before combat, not stockpile. Strong synergy
+  with Negromancy tree's soul shard generation. Dark flavor: you're making a
+  deal over a bottle of Henny.
+
+------------------------------------------------------------------------------
+
+A3 — PIGEON JERKY
+-----------------
+Type: Food
+Zone: Crack Den, future Casino zone
+Appearance: char '%', color (180, 170, 140) — grayish tan
+
+Effect:
+  Eat time: 2 turns (fast, it's just jerky).
+  On completion: Summons 3 Pigeons. Pigeons are tiny (3 HP each, 0 attack)
+  but use "swarm patrol" AI — they orbit the player at radius 2, and any
+  enemy moving into radius 2 is "startled" (applies a 3-turn Scared debuff,
+  -30 energy/tick, cannot move toward player). Pigeons despawn after 60 turns
+  or when killed. Killing all 3 ends the effect early.
+  Eating again while pigeons active: adds 3 more pigeons (no cap, but
+  they share the same expiry timer refresh).
+
+Requires:
+  - Swarm AI mode: entities that orbit around a target point (the player's
+    position) and trigger on-enter-radius events for enemies.
+  - Startled debuff (new effect): similar to intimidated but from animals.
+
+Design Notes:
+  Soft crowd control via positioning pressure. Pigeons die easily but buying
+  one extra turn per encounter is strong in a roguelike. Thematically perfect —
+  everyone knows the pigeons in the hood are everywhere. Synergy with Swagger:
+  high-SWG player attracts more pigeons naturally (passive variant idea).
+
+==============================================================================
+CATEGORY B — TILE & MAP TRANSFORMATION
+(Nothing in NIGRL currently modifies the dungeon tiles mid-floor)
+==============================================================================
+
+B4 — SPRAY PAINT SODA
+---------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den
+Appearance: char '!', color (200, 100, 255) — bright purple
+
+Effect:
+  Duration: instant (single use).
+  On drink: Player enters a "spray" targeting mode (like gun targeting cursor).
+  Player selects up to 3 tiles within range 5 that are currently floor tiles.
+  Each selected tile becomes a "tagged" tile — rendered with a graffiti char
+  (e.g., '#' in bright color) and gives any player on it +15 energy/tick
+  (home territory) and any enemy on it -15 energy/tick (slows them down, out
+  of their element). Tagged tiles persist for the entire floor.
+  Tags can be placed in corridors to create choke-point speed advantages.
+
+Requires:
+  - Tile-state system: floor tiles with optional modifier tags that affect
+    entities standing on them. Similar to fire hazard logic but positive/negative
+    split based on faction.
+  - Spray targeting mode: multi-tile selection interface (count-limited).
+
+Design Notes:
+  First environmental modification item. Strategic depth: tag a chokepoint
+  before pulling enemies. Tags are permanent per-floor so early investment
+  pays off all floor. Low floor count (3 tags) keeps it from being trivially
+  dominant. Thematically perfect for NIGRL.
+
+------------------------------------------------------------------------------
+
+B5 — LEAN FLOOD
+---------------
+Type: Nonalcoholic Drank
+Zone: Crack Den (rare)
+Appearance: char '!', color (180, 80, 220) — deep purple
+
+Effect:
+  On drink: All floor tiles within a 5-tile radius of the player are flooded
+  with "lean puddles" for 100 turns. Any entity (player or enemy) entering a
+  lean puddle tile loses 20 energy/tick while standing on it (slowed, drowsy).
+  Player also gains a passive: while standing IN the flood, +30% crit chance
+  (the lean is YOUR element — you know how to walk in it).
+  The flood radius cannot be targeted — it always centers on drink position.
+
+Requires:
+  - Temporary tile effect system: tiles with timed status that affects entities.
+    Lean puddle tile type (distinct from fire) with a drain energy hook.
+  - Zone-of-control: player buff only applies inside own flood zone.
+
+Design Notes:
+  Defensive zone denial. You drink it, back into your own flood, enemies wade
+  toward you at half speed while you crit them. Radius cap prevents map
+  flooding abuse. Duration limit means it's a "hold this room" tool, not
+  permanent advantage. Does not affect toxicity — purely energy/speed based.
+
+------------------------------------------------------------------------------
+
+B6 — EMERGENCY CEMENT SMOOTHIE
+-------------------------------
+Type: Food (but drinks instantly — "meals" can be weird)
+Zone: Meth Lab
+Appearance: char '%', color (160, 160, 160) — gray
+
+Effect:
+  Instant eat (0 turns — it's a smoothie, goes down fast regardless of what
+  it's made of).
+  On consume: Creates a wall tile at a targeted adjacent tile (range 1,
+  cardinal directions only). The wall is temporary — lasts 50 turns then
+  crumbles back to floor. Enemies treat it as a real wall (blocked movement,
+  LoS blocked). The player cannot pass through it either.
+  One use per item. The wall can be smashed by any entity dealing 10+ damage
+  to it (it has 20 HP shown as a special entity on the tile).
+
+Requires:
+  - Temporary wall entity: entity_type="obstacle", blocks_movement=True,
+    blocks_sight=True, has HP, expires on timer OR on death.
+  - FOV recalculation trigger when wall is placed/destroyed.
+  - Smash interaction: player/enemies can attack the wall tile.
+
+Design Notes:
+  Single-use emergency escape/trap tool. Block a doorway, force enemies to
+  go around. The 50-turn expiry and 20 HP destroyability keep it from being
+  a permanent map-solver. The "eat it instantly" joke is on purpose — your
+  character just chugs cement. Meth Lab setting where you'd find this stuff
+  lying around makes thematic sense.
+
+------------------------------------------------------------------------------
+
+B7 — NAPALM HOT SAUCE
+---------------------
+Type: Food (condiment, instant)
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (255, 80, 0) — fiery orange-red
+
+Effect:
+  Instant eat.
+  On consume: All floor tiles you've walked on in the last 30 turns
+  (tracking a "footprint trail") burst into fire simultaneously. Each
+  fire tile is a standard fire hazard entity (same as dungeon fire) and
+  lasts for 20 turns. If you've walked less than 5 tiles recently, it
+  creates fires on all adjacent tiles instead.
+  Also applies Heartburn: +4 fire damage on melee hits for 30 turns.
+
+Requires:
+  - Player footprint trail: engine tracks last N positions as a deque.
+    On napalm eat, create_fire() at each position.
+  - This is conceptually simple to add (footprint deque already useful for
+    other ideas too).
+
+Design Notes:
+  Retrospective AOE — punishes enemies that chased you. Path length variance
+  means mobile players get bigger fire fields. Corridor gameplay: running
+  down a hall and popping napalm hot sauce behind you is cinematic. Synergy
+  with Deep-Frying skill tree (fire damage specialist). Watch for self-damage
+  if player backtracks — intentional risk.
+
+==============================================================================
+CATEGORY C — TIME & TURN MANIPULATION
+(NIGRL has no time manipulation currently — huge design space)
+==============================================================================
+
+C8 — CHRONODRINK (BLACK LABEL SODA)
+------------------------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den (rare, floor 3-4 only)
+Appearance: char '!', color (20, 20, 20) — near-black with white label
+
+Effect:
+  On drink: Records a "snapshot" of the player's current state:
+    - HP, armor, position, all currently active effects (names + remaining
+      durations), inventory count (not contents), ammo count.
+  On death within the next 100 turns: Player is revived at snapshot HP/position
+  with snapshot effects restored. The player's inventory is NOT restored —
+  only HP/armor/effects/position. A "second chance" that doesn't erase the
+  run cost of the death.
+  Only one snapshot can be held at a time. Drinking a second replaces the first.
+  After activation (i.e., it saves you from death), it cannot be re-activated
+  until next floor.
+
+Requires:
+  - Snapshot system: engine stores player_snapshot dict on drink.
+  - Death handler: check for active snapshot before game_over=True.
+  - Partial restore logic (HP/position/effects but not inventory).
+  - is_snapshot_active flag on engine.
+
+Design Notes:
+  Expensive to find, but THIS is the one that can save a run. Rarity keeps it
+  balanced — you won't have one every floor. The inventory-doesn't-restore
+  clause is critical: if you had 5 drinks and died, you respawn with 0 drinks.
+  The game cost of death is preserved, only instant permadeath is avoided.
+  Strategic question: when do you drink it? Now for safety or save it for the
+  boss floor? The rare-floor-only restriction prevents stacking snapshots.
+
+------------------------------------------------------------------------------
+
+C9 — DEJA VU DRANK
+------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den
+Appearance: char '!', color (180, 180, 255) — pale blue-purple
+
+Effect:
+  On drink: For the next 60 turns, a "ghost trail" follows the player — a
+  phantom copy of your position 5 turns ago. At any time during this window,
+  pressing a keybind (e.g., Shift+Z) teleports you to the ghost position
+  instantly (no turn cost). This can escape melee, back out of AOE, or
+  reposition after a bad move. Ghost trail is visual only (rendered as
+  dim '@' chars).
+  One teleport use per drink. After use, the effect ends.
+
+Requires:
+  - Ghost trail: position history deque of last N frames (already discussed
+    for napalm hot sauce — dual use).
+  - Shift+Z keybind: consumes active deja_vu charge, moves player to
+    ghost_position, no turn cost.
+  - Ghost rendering: dim '@' chars at each position in the trail.
+
+Design Notes:
+  Tactical repositioning tool. Unlike a blink/teleport scroll, this is
+  deterministic — you know exactly where you'll go. The 5-turn delay means
+  planning ahead matters. If you're being pushed into a corner, the ghost
+  may be cornered too. Power floor: incredibly strong in tight corridors.
+  Weak floor: open rooms where the 5-turn offset doesn't help much.
+
+------------------------------------------------------------------------------
+
+C10 — DOUBLE-SIPPING (SIMULTANEOUS DRINK MECHANIC)
+---------------------------------------------------
+Type: Meta-mechanic idea (triggered by consuming two specific items
+      in the same turn via a new "chug both" action)
+Zone: Both zones
+Appearance: N/A — it's a mechanic overlay
+
+Effect:
+  New game mechanic: if the player selects "Drink" from inventory while
+  holding two drink items of the same type (same item_id), a "Double Sip"
+  prompt appears. Choosing Yes: both items consumed in 1 action, effect
+  applied twice (as if drinking two separate drinks but simultaneously).
+  Alcoholism XP doubled. Hangover stacks: +2 instead of +1 per drink.
+  This isn't an item — it's an interaction option unlocked by having 2 of
+  the same drink. Some drinks with extreme double-sip effects noted below.
+
+Requires:
+  - Input handler check: on drink action, if player has 2+ of same drink,
+    offer double sip option.
+  - Effect doubling: some effects have explicit double_sip behavior
+    (e.g., double-sip Virulent Vodka: +2 CON on kill instead of +1).
+
+Design Notes:
+  Gambling mechanic. You get more out of your stack, but the hangover
+  compounds. Strong Alcoholism tree perk synergy (future perk: "Iron Liver"
+  reduces hangover stacks). The real design interest is in drinks where
+  the doubled effect is qualitatively different, not just quantitatively.
+
+------------------------------------------------------------------------------
+
+C11 — SLOW POKE COLA
+--------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den
+Appearance: char '!', color (255, 200, 50) — bright yellow
+
+Effect:
+  Duration: 80 turns.
+  While active: All enemies on the floor move at 25% of their normal speed
+  (energy accumulation multiplied by 0.25 for all hostile entities).
+  Player speed: unaffected.
+  Visual indicator: enemies rendered with a faint "sluggish" color shift
+  (tint toward dark blue while the effect is active).
+  The player effectively gets 4 turns for every 1 enemy turn.
+  Trade-off: drinking it triggers a loud "POP" that alerts every enemy on
+  the floor to the player's position (all enemies enter CHASING state).
+
+Requires:
+  - Global energy modifier for enemies: engine applies a multiplier to all
+    enemy energy accumulation per tick when slow_poke_cola is active.
+  - Alert-all mechanic: mass CHASING state trigger (already possible per-enemy;
+    needs a "broadcast" wrapper).
+  - Faint color-tint override in render for affected enemies.
+
+Design Notes:
+  The trade-off is the entire design — you get 4:1 action economy, but every
+  enemy knows where you are. Ideal in open rooms where you can see them all
+  coming. Disaster in corridors with unknown enemy positions. Duration at 80
+  turns means it runs through most of a floor's combat. One of the most
+  powerful items in the game if used well.
+
+==============================================================================
+CATEGORY D — INVENTORY & ITEM MANIPULATION
+(Nothing in NIGRL currently transforms, duplicates, or transmutes items)
+==============================================================================
+
+D12 — POTION OF LOOT (BROWN BAG SPECIAL)
+-----------------------------------------
+Type: Alcoholic Drink
+Zone: Crack Den
+Appearance: char '!', color (140, 100, 50) — brown bag color
+
+Effect:
+  On drink: All items currently on the ground anywhere on the floor
+  (not yet picked up) are teleported to the player's feet (same tile or
+  adjacent tiles). The player doesn't auto-pick them up — they're just
+  pulled magnetically to the player's position. Useful for grabbing items
+  from rooms you can't safely reach.
+  Secondary effect: +2 Book Smarts for 60 turns (you're industrious).
+
+Requires:
+  - Floor item query: engine can already get all entities by type; needs
+    a "teleport to vicinity" function that places items in open tiles
+    near the player.
+
+Design Notes:
+  Exploration payoff item. You cleared most of a floor, there's a pile of
+  loot in the far corner guarded by a tough enemy. Brown Bag pulls it all
+  to you without the risk. The +2 Book Smarts is a minor rider that helps
+  with skill XP conversion on the floor you're using it. Simple to implement,
+  high fun factor.
+
+------------------------------------------------------------------------------
+
+D13 — MYSTERY MEAT SMOOTHIE
+----------------------------
+Type: Food (instant)
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (180, 90, 90) — pinkish-red
+
+Effect:
+  Instant eat.
+  On consume: One random item from the player's inventory is destroyed.
+  In exchange, the player receives a random item of the same category
+  (consumable → random consumable, equipment → random equipment, etc.)
+  from the current zone's loot table at a higher tier (floor_num + 1).
+  The destroyed item is chosen randomly — you don't get to pick.
+  If inventory is empty: no effect (wasted).
+
+Requires:
+  - Random inventory selection: pick random non-equipped item.
+  - Loot generation at floor+1: call loot.generate_floor_loot with
+    inflated floor number.
+  - Category-matching logic.
+
+Design Notes:
+  Russian roulette transmutation. Late-game gamble: you're sitting on a
+  pile of weak consumables and want to upgrade. The "you don't pick what
+  gets destroyed" clause is essential tension. High risk: might destroy
+  your best drink. High reward: might produce an amazing item one tier up.
+  Dark flavor: your character is grinding up everything in their bag into
+  a smoothie and just drinking it.
+
+------------------------------------------------------------------------------
+
+D14 — YARD SALE JUICE
+---------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den
+Appearance: char '!', color (255, 160, 0) — orange-yellow
+
+Effect:
+  On drink: All equipped items (weapon, rings, armor, hat, neck) are
+  instantly unequipped and placed in inventory. Then 3 random items from
+  the current floor's loot table are auto-equipped into whatever slots are
+  now free. The player cannot decline — whatever spawns goes on immediately.
+  Duration of forced equipment: 80 turns, after which the new items are
+  unequipped and placed in inventory (originals remain in inventory, must
+  be manually re-equipped).
+
+Requires:
+  - Batch equip/unequip: existing equipment manager, called in sequence.
+  - Timed un-equip: on expiry of YardSaleEffect, batch unequip the
+    force-equipped items.
+  - is_yard_sale_equipped flag on Entity to distinguish which items to
+    remove on expiry.
+
+Design Notes:
+  The ultimate chaos item. You might get incredible gear for 80 turns.
+  You might get worse gear. Since you can't decline AND can't manually
+  re-equip your originals during the 80 turns, this is a genuine commitment.
+  Thematically: you stopped at a neighborhood yard sale, bought everything
+  they had, and put it all on. Synergy with Abandoning skill tree ("burn
+  bridge" — discard past for new future).
+
+------------------------------------------------------------------------------
+
+D15 — DUPLICATION SODA
+-----------------------
+Type: Nonalcoholic Drank
+Zone: Meth Lab (rare)
+Appearance: char '!', color (80, 255, 200) — bright teal
+
+Effect:
+  On drink: Select one item in inventory (item-select menu). That item
+  is duplicated — you now have 2 of it (or count increases by 1 for
+  stackables). The duplicate is an exact copy including any current
+  charges on abilities granted by the item. This includes drinks.
+  Cooldown: cannot use another Duplication Soda until 3 floors later
+  (engine.duplication_floor_lock = current_floor + 3).
+
+Requires:
+  - Deep copy of item entity: create_item_entity() called with same item_id.
+  - Floor-gated cooldown: engine tracks duplication_floor_lock.
+  - Charges carry-over for ability-granting items (store charge count on
+    the item entity, copy it to duplicate).
+
+Design Notes:
+  Pure power — which is fine because it's Meth Lab rare and floor-locked.
+  The interesting decision: duplicate a Chronodrink for two death-saves?
+  Duplicate your best gun for two equipped weapons? Duplicate a Duplication
+  Soda itself (the recursion is tempting but the floor lock prevents spiraling).
+  The "include charges" clause rewards duplicating partially-used items that
+  still have charge value.
+
+==============================================================================
+CATEGORY E — ENEMY TRANSFORMATION & CONTROL
+(No current mechanic converts enemies or changes their behavior mid-combat)
+==============================================================================
+
+E16 — ROOFIE COLA
+-----------------
+Type: Nonalcoholic Drank
+Zone: Crack Den
+Appearance: char '!', color (200, 200, 200) — clear/white
+
+Effect:
+  On drink: Player enters targeting mode. Select one visible enemy within
+  range 6. That enemy immediately falls asleep (new "asleep" status: cannot
+  move or act, wakes if damaged). Duration: 30 turns or until hit.
+  While asleep, any non-damage action against the enemy (i.e., walking
+  adjacent) gives player a free "loot" action — taking one item from the
+  enemy's guaranteed drop pool immediately without killing it.
+  Waking the enemy: it enters CHASING state with +20 energy/tick rage bonus.
+
+Requires:
+  - Asleep status effect: variant of stun with wake-on-damage behavior and
+    longer duration.
+  - Pre-death loot preview: enemies have a "guaranteed_drop" field; asleep
+    loot pulls from it.
+  - Rage-on-wake: modified CHASING entry that temporarily boosts energy.
+
+Design Notes:
+  Stealth/theft fantasy. The Stealing skill tree's spiritual companion item.
+  Pre-killing loot is huge in a roguelike — getting your guaranteed drop and
+  THEN killing normally is double value. The rage-on-wake makes waking it
+  intentionally risky: you wanted that item more than you wanted easy combat.
+  Tone is perfectly NIGRL.
+
+------------------------------------------------------------------------------
+
+E17 — NARC JUICE
+----------------
+Type: Nonalcoholic Drank
+Zone: Meth Lab
+Appearance: char '!', color (100, 200, 100) — suspicious clear-green
+
+Effect:
+  On drink: For 80 turns, any enemy that damages the player "narcs" on
+  one random nearby ally enemy, causing that ally to become hostile to the
+  narced enemy (faction conflict spawned mid-combat). Two enemies from the
+  same faction suddenly fighting each other for 40 turns before returning
+  to normal hostility toward player.
+  The narced enemy has a "NARC" indicator rendered above it while the
+  effect is active.
+
+Requires:
+  - Enemy-on-enemy targeting: AI already supports faction enemies fighting
+    each other (Aldor vs Scryer). Needs a temporary faction-flip mechanic
+    for non-faction enemies.
+  - Narc event trigger: on_player_damaged hook checks for NarcJuiceEffect,
+    fires narc event.
+  - Visual NARC indicator: render small label on targeted enemy.
+
+Design Notes:
+  Deep NIGRL flavor. Snitching as a game mechanic. Makes you a magnet for
+  hits but each hit you take starts internecine fighting. Strong in rooms
+  with 4+ enemies — they'll start tearing each other apart. Weak against
+  solo enemies. The 40-turn conflict window means fights within fights.
+  Synergy: take a hit, watch chaos unfold, sneak away.
+
+------------------------------------------------------------------------------
+
+E18 — TRANQUILIZER GIN
+-----------------------
+Type: Alcoholic Drink
+Zone: Crack Den, Meth Lab
+Appearance: char '!', color (160, 200, 160) — pale sage green
+
+Effect:
+  Duration: 60 turns.
+  While active: Your attacks have a 25% chance to apply "tranquilized" to
+  the hit enemy instead of dealing damage. Tranquilized: enemy is set to
+  PASSIVE_UNTIL_HIT with a new 20-turn internal timer. If the timer expires
+  without being hit again, the enemy wanders away harmlessly (exits map if
+  possible, or enters WANDERING state permanently). If hit while tranquilized,
+  it wakes normally and enters CHASING.
+  Tranquilized enemies count as "fled" for XP purposes (partial XP: 25%).
+
+Requires:
+  - Tranquilized status: modified passive state with built-in timer and
+    conditional exit behavior.
+  - "Flee map" behavior: entity pathfinds to a map edge and is removed.
+  - XP-on-flee credit system.
+
+Design Notes:
+  Non-lethal gameplay option — actually rare in roguelikes. Lets you
+  thin a crowd without killing everything. Partial XP is the balancing
+  clause; you can't farm full XP by tranq-fleeing everything. Tone:
+  "I'm not trying to kill you, I'm just trying to get through." Future
+  synergy with a Diplomatic skills tree (hypothetical).
+
+------------------------------------------------------------------------------
+
+E19 — BIG HOMIE MALT
+--------------------
+Type: Alcoholic Drink
+Zone: Crack Den (floors 2-4 only)
+Appearance: char '!', color (200, 160, 60) — golden-amber
+
+Effect:
+  On drink: Select one enemy in sight range. That enemy becomes "allied" for
+  60 turns — it fights other enemies and does not attack the player. On ally
+  expiry, the enemy returns to CHASING state (angry about the alliance ending).
+  If the allied enemy is killed by another enemy or the player during the
+  alliance period, the player gains +4 Swagger for 50 turns (earned respect).
+  This counts as a "crew death" — some penalty system could later track
+  how many homies you lost.
+
+Requires:
+  - Single-target temporary faction flip: same system as E16/Narc Juice
+    but player-controlled targeting.
+  - Expiry aggression: on BigHomieMaltEffect expire, set entity back to CHASING.
+  - Crew death event hook for future crew tracking system.
+
+Design Notes:
+  The "recruit the enemy" fantasy. High risk: you need to be in sight of the
+  enemy to drink it (they might kill you before your homie is helping).
+  The reward for the homie dying for you is a Swagger boost, not XP — the
+  emotional payoff matches NIGRL's tone. Temporal alliance creates interesting
+  combat dynamics where you're managing "60 turns until this turns on me."
+
+==============================================================================
+CATEGORY F — STAT WARPING & BODY HORROR
+(Existing drinks are relatively clean stat modifiers; these get weirder)
+==============================================================================
+
+F20 — LEAN BONE BROTH
+---------------------
+Type: Food
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (200, 180, 100) — pale yellowish
+
+Effect:
+  Eat time: 4 turns (slow soup).
+  On completion: Grants "Hollow Bones" status for 80 turns.
+    - Speed: +40 energy/tick (you're light as air)
+    - Defense: -3 (bones are hollow, you snap)
+    - Dodge: +15%
+    - Max HP temporarily reduced by 20 (you weigh nothing, less mass to protect)
+  This is a high-variance speed/dodge build enabler — trading survivability
+  for action economy. Works extremely well with hit-and-run playstyle.
+
+Requires:
+  - Max HP modifier during effect: HollowBonesEffect.modify_max_hp()
+    (new lifecycle hook). HP clamped to new max on apply, restored on expire.
+  - Dodge modifier stacking with existing dodge calculation.
+
+Design Notes:
+  First food that has a significant drawback. The max HP reduction is real —
+  if you're at 40 HP out of a lowered max of 60, expiry suddenly drops you
+  to 60 HP but your current HP stays (positive) or is clamped (if you were
+  above new max). On expire: HP stays as-is if under original max. Rewards
+  planning around the duration: commit to a floor, then rest.
+
+------------------------------------------------------------------------------
+
+F21 — CURSED KOOL-AID
+---------------------
+Type: Nonalcoholic Drank (but should it be?)
+Zone: Crack Den (rare, floor 4)
+Appearance: char '!', color (120, 0, 0) — deep blood red
+
+Effect:
+  On drink: All 6 of the player's stats are randomized. Each stat is
+  rerolled to a random value between 6 and 12. The total point sum of all
+  stats is preserved (still 46 total + Swagger, but redistributed). This
+  is PERMANENT — not a timed effect. The new stat spread is the player's
+  new base.
+  Also: full HP/armor restore on drink (to compensate for potential
+  Constitution loss). And +2 Tolerance (permanent).
+
+Requires:
+  - Permanent stat reroll: modify PlayerStats._base values directly.
+  - Sum-preserving randomization algorithm: generate valid distribution
+    (each stat 6-12) that sums to existing total.
+  - HP recalculation after potential CON change.
+
+Design Notes:
+  One of the most dramatic single items in any roguelike. The floor-4-only
+  placement means you're at the end of Zone 1 with an established build —
+  and then this asks you to throw it all away. The sum-preservation means
+  you don't net lose power, just redistribute. Could land you in an amazing
+  spot or a miserable one. Full heal on drink softens the CON-loss edge case.
+  The +2 TOL is the "alcoholic twist" — only thing that definitely gets better.
+
+------------------------------------------------------------------------------
+
+F22 — LIQUID DIGNITY
+--------------------
+Type: Alcoholic Drink
+Zone: Crack Den, Meth Lab
+Appearance: char '!', color (200, 200, 255) — pale silvery blue
+
+Effect:
+  Duration: 60 turns.
+  While active: All stat bonuses from equipment are DOUBLED.
+  Power bonuses, defense bonuses, all stat_bonus entries on rings/chains/hats.
+  This does not affect base stats — only equipment-derived bonuses.
+  Also: Swagger gains +3 flat while active.
+  Trade-off: On expiry, Swagger drops by 5 (temporary, 30 turns). The
+  come-down after feeling yourself for a minute.
+
+Requires:
+  - Equipment bonus multiplier: new modifier layer in effective_stat calculation.
+    LiquidDignityEffect.modify_equipment_bonus_multiplier() returns 2.0.
+  - Post-expiry Swagger debuff: expire() applies a 30t -5 SWG effect.
+
+Design Notes:
+  Build amplifier. On a ring-heavy build this could be +12 stat points from
+  equipment. On a well-equipped endgame, this is roughly doubling your gear
+  value for one minute. The Swagger come-down is flavor and a mild mechanic
+  tax. High synergy with any character who has invested in equipment drops
+  and ring slots.
+
+------------------------------------------------------------------------------
+
+F23 — FREAKNIK PUNCH
+--------------------
+Type: Alcoholic Drink (party punch, shared)
+Zone: Crack Den (special: appears near enemy clusters)
+Appearance: char '!', color (255, 80, 150) — hot pink
+
+Effect:
+  On drink: Player gains Freaknik Aura for 50 turns.
+    - +4 Strength, +4 Tolerance, -2 Book Smarts, -2 Street Smarts
+    - Any melee hit on the player by an enemy has a 40% chance to apply
+      the Freaknik status to that enemy (they drink too, somehow) — giving
+      them +2 STR but also -50 energy/tick. They hit harder but move slower.
+  Freaknik status on enemies: persists 30 turns.
+  Stacks with itself (multiple players hitting you applies multiple stacks).
+  The enemy STR buff is real — don't let them hit you repeatedly.
+
+Requires:
+  - Contagion mechanic: on_player_melee_hit lifecycle hook (already exists).
+    Check for FreaknikAuraEffect, roll 40%, apply FreaknikEffect to attacker.
+  - Enemy stat modifier effect: enemies can receive temporary stat effects
+    (need +STR, -energy/tick on enemy entity).
+
+Design Notes:
+  Contagion design — the first "viral" item in NIGRL. Flavor: the party
+  starts and everyone gets sucked in. STR boost on enemies is intentional
+  danger — this isn't pure upside. You get a big offensive buff but every
+  enemy that hits you becomes a slow, hard-hitting bruiser. Encourages
+  kill-fast-before-they-punch-back aggression.
+
+------------------------------------------------------------------------------
+
+F24 — MUSCLE MILK (CREATINE SHAKE)
+-----------------------------------
+Type: Food
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (240, 240, 240) — white
+
+Effect:
+  Eat time: 2 turns.
+  On completion: +6 Strength (temporary, 100 turns).
+  Passive while active: Each melee kill while Muscle Milk is active grants
+  +1 permanent STR (up to 3 max permanent STR gained per Muscle Milk session).
+  Each permanent STR gain also sheds 1 stack of any negative effects currently
+  active (you're getting too strong to be held back by debuffs).
+  On expiry: -3 STR (crash). The permanent gains from kills persist.
+
+Requires:
+  - Kill-tracking hook during effect: MuscleEffect.on_kill_melee()
+    increments kill_count, checks cap, applies perm STR.
+  - Debuff-shedding on perm gain: on permanent stat increase, remove one
+    negative effect (lowest priority first).
+  - Effect-expiry crash: expire() applies -3 STR for 30t.
+
+Design Notes:
+  Scaling power fantasy. The permanent gains are the real prize — if you
+  can get 3 kills while jacked, you net +3 STR permanently even after the
+  crash. With the Stabbing skill tree (Windfury extra hit), landing kills
+  faster makes this consistent. The 3-kill cap prevents infinite farming.
+  The debuff shed is small QOL that makes it feel like raw power overcoming
+  your problems.
+
+==============================================================================
+CATEGORY G — VISION & INFORMATION MECHANICS
+(FOV and visibility are unexplored design space for consumables)
+==============================================================================
+
+G25 — THIRD EYE DROPS
+---------------------
+Type: Food (eye drops — "eat" = "use")
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (100, 200, 255) — electric blue
+
+Effect:
+  Instant use.
+  On use: For 40 turns, the player sees the entire map (all tiles revealed,
+  explored). Enemy positions visible through walls. Item positions visible.
+  The player also sees enemy "intent" indicators — small symbols above
+  each enemy showing their current AI state (idle='z', wandering='?',
+  chasing='!', fleeing='>').
+  After 40 turns: player goes temporarily blind (sight_radius = 0) for 10
+  turns (burning sensation from the chemicals).
+
+Requires:
+  - Full map reveal: set all dungeon.explored tiles to True; override FOV
+    check in render to show all entities.
+  - Intent indicator rendering: render small char above entity based on
+    AIState enum.
+  - Blindness effect: sight_radius=0 for 10 turns post-expiry.
+
+Design Notes:
+  Information is power in roguelikes. This grants perfect information for
+  40 turns — you can plan the entire floor before acting. The blindness
+  aftermath is an interesting design: do you rush to use the info before
+  going blind, or navigate to safety first? The intent indicators have
+  value even without the map reveal (reading enemy AI states mid-combat).
+
+------------------------------------------------------------------------------
+
+G26 — JUNGLE JUICE
+------------------
+Type: Alcoholic Drink
+Zone: Crack Den
+Appearance: char '!', color (60, 200, 80) — bright jungle green
+
+Effect:
+  Duration: 80 turns.
+  While active: player cannot see the map (sight_radius = 2, extreme nearsight).
+  BUT: the player gains superhuman hearing — all sound events within 8 tiles
+  are represented as directional audio cues in the log. More practically:
+  all enemies within 8 tiles have their position shown on the map even
+  through walls (as dim '?' chars), regardless of FOV.
+  The combo: you can't see much, but you always know where enemies are.
+  Also: +3 Street Smarts (you get good at listening) for the duration.
+
+Requires:
+  - Limited FOV mode: override sight_radius during effect.
+  - Sound/echo FOV layer: separate from visual FOV, shows enemy positions
+    only (not tiles, not items) within range regardless of walls.
+  - '?' char rendering for echo-visible enemies.
+
+Design Notes:
+  Inverted vision design — trading map clarity for enemy radar. Strong
+  against ambush monsters (female_alarm, wander_ambush). Dangerous in
+  rooms with hazards you can't see. The +3 STS gives crit bonus and
+  Stealing XP synergy. "Jungle Juice" at a party you can barely see but
+  you know exactly where everyone is.
+
+------------------------------------------------------------------------------
+
+G27 — GHOST PEPSI
+-----------------
+Type: Nonalcoholic Drank
+Zone: Crack Den (floor 1-2)
+Appearance: char '!', color (200, 200, 200) — white/transparent-looking
+
+Effect:
+  On drink: Player becomes temporarily "invisible" — enemies cannot initiate
+  CHASING state from the player's visual presence for 30 turns. Enemies
+  already in CHASING state remain chasing. New enemies encountered mid-
+  invisibility will not aggro. If the player attacks, invisibility ends
+  immediately.
+  The "free pass" mechanic: you can walk through a hostile room without
+  triggering aggro as long as you don't attack.
+  Visually: player '@' rendered as '.' (barely visible) while invisible.
+
+Requires:
+  - Invisible flag on engine/player: invisible=True, checked in enemy sight
+    detection before transitioning to CHASING.
+  - Attack-end condition: on any melee or gun attack, set invisible=False.
+  - Player render override for invisible state.
+
+Design Notes:
+  Stealth option. Enables "skip this fight" decision-making, which is
+  valuable in a permadeath game. The "already chasing" exclusion means
+  you can't use it to escape a pack — only to prevent new encounters.
+  Floor 1-2 placement: teaches stealth as a tool early. Synergy with
+  Stealing skill tree (steal from sleeping enemies, then Ghost Pepsi to
+  escape). "Ghost" because you're disappearing like you was never there.
+
+------------------------------------------------------------------------------
+
+G28 — CATARACTS CLEAR (PRESCRIPTION EYE DRINK)
+----------------------------------------------
+Type: Food (liquid prescription medicine — "eat" = "drink it")
+Zone: Meth Lab
+Appearance: char '%', color (200, 250, 200) — pale medicinal green
+
+Effect:
+  Instant use.
+  On use: Reveals all item locations on the current floor permanently
+  (they appear on the map even in unexplored tiles, rendered as their
+  item char but dim). This doesn't reveal enemy positions — only items.
+  Additional: +1 Book Smarts (permanent, max +3 ever from this item
+  across a full run).
+
+Requires:
+  - Item-only omniscient layer: separate from full map reveal. Store
+    item entity positions in a "known_items" set on dungeon, render them
+    in unexplored tiles as dim chars.
+  - Permanent BKS cap tracking across run (engine.cataracts_bks_gain,
+    max 3).
+
+Design Notes:
+  Loot-finding tool. Rewards thoroughness by removing the guesswork of
+  "is there anything good in that unexplored wing." The permanent BKS
+  cap at +3 means there's a reason to find multiples across the run.
+  Thematic: prescription medicine helping you see things clearly. Meth
+  Lab zone placement because medicine is lying around everywhere there.
+
+==============================================================================
+CATEGORY H — ENVIRONMENTAL & STRUCTURAL EFFECTS
+(Dungeon-level effects that change how a floor functions)
+==============================================================================
+
+H29 — ACID RAIN SODA (SHAKE-UP CAN)
+-------------------------------------
+Type: Nonalcoholic Drank
+Zone: Meth Lab
+Appearance: char '!', color (180, 255, 100) — neon yellow-green
+
+Effect:
+  On drink (or: throw against wall for ranged activation):
+  "Acid Rain" hazard descends on the floor for 60 turns. Every 5 turns,
+  3 random floor tiles become acid puddles (new tile type, similar to fire
+  but deals tox damage instead of HP damage — applies tox to entities standing
+  on them). Acid puddles persist for 20 turns each. Total potential coverage
+  increases over the 60 turns, creating a spreading hazard.
+  Player: +30% tox resistance while Acid Rain effect is active (you expect it).
+  Enemies: no resistance (they're caught off guard).
+
+Requires:
+  - Acid puddle tile/hazard: new hazard type, entity_type="hazard",
+    hazard_type="acid", applies tox on tick.
+  - Periodic spawning loop: engine tracks acid_rain_active and spawns
+    new acid puddles every 5 turns.
+  - Tox-based damage for tile hazards (distinct from fire/HP damage).
+
+Design Notes:
+  Creates a ticking clock on the floor — the longer you stay, the more
+  hazardous it becomes. Rewards speed. The player's built-in resistance
+  means this is an offensive tool, not suicide. Acid puddles spreading
+  means camping gets punished. Strong synergy with tox-damage builds
+  (Virulent Vodka, toxic enemies): you're making the whole floor a tox
+  delivery system.
+
+------------------------------------------------------------------------------
+
+H30 — EMERGENCY FLARE SHOT
+---------------------------
+Type: Food (flare cartridge — instant eat = bite the cap off and fire)
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (255, 100, 0) — emergency orange
+
+Effect:
+  Instant use.
+  On use: A massive burst of light floods the floor. For 20 turns, the
+  FOV sight radius for ALL entities (player AND enemies) is set to
+  maximum (the entire dungeon is "lit"). Darkness-dependent enemies
+  (any enemy with sight_radius < 6) are blinded instead (sight_radius = 1).
+  After 20 turns, everyone returns to normal. During the flare window,
+  the player has +2 to hit (light conditions).
+  Crates on the floor are also illuminated, revealing their contents
+  (items shown as dim chars on crate tiles, hinting at loot).
+
+Requires:
+  - Forced global sight modification: override all entity sight_radius
+    during flare active.
+  - Bright-light blindness: enemies with sight_radius < 6 get BlindEffect.
+  - Crate content preview: during flare, peek at guaranteed crate drop.
+
+Design Notes:
+  Tactical tool against lurking/ambush enemies. "Female alarm" enemies
+  that creep in low-visibility corridors suddenly can't hide. Also strong
+  in large rooms where you want full situational awareness before engaging.
+  The crate content preview is a small bonus that encourages using this
+  before smashing crates.
+
+------------------------------------------------------------------------------
+
+H31 — FUNKY FRESH AIR (AEROSOL REFRESHMENT)
+--------------------------------------------
+Type: Nonalcoholic Drank (aerosol drink — spray it in your mouth)
+Zone: Crack Den
+Appearance: char '!', color (100, 230, 255) — sky blue
+
+Effect:
+  On drink: All current debuffs on the player are paused for 30 turns
+  (timers don't tick, effects don't proc). Debuffs are NOT removed —
+  they resume with their remaining time after 30 turns. This includes
+  stun, fear, ignite stacks, tox, gouge — all paused.
+  The visual indicator: affected debuffs are rendered as gray on the
+  status bar (frozen color) instead of their normal colors.
+  Cannot be used while stunned (turns cost exists — you need a free turn).
+
+Requires:
+  - Effect pause flag: each Effect has a paused=True state that skips
+    all lifecycle hooks (tick, before_turn, etc.) when set.
+  - FunkyFreshEffect lifecycle: sets paused=True on all active debuffs
+    on apply, then on expire loops and clears paused=True.
+  - Stunned-check before use: input handler or effect handler validates
+    player can act.
+
+Design Notes:
+  "Borrow time" tool. You're burning at 20 stacks of ignite? Pause it,
+  fight back, let it resume. Brilliant for situations where debuffs would
+  kill you before you can respond. Does NOT remove the debuffs — after 30
+  turns you're right back in the fire (literally). High skill ceiling:
+  using this well means knowing exactly what debuffs are about to hurt you
+  the most.
+
+==============================================================================
+CATEGORY I — SKILL & XP MANIPULATION
+(No current consumable interacts directly with skill XP or perk unlocks)
+==============================================================================
+
+I32 — NERD JUICE (4AM STUDY DRINK)
+------------------------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den, Meth Lab
+Appearance: char '!', color (50, 100, 255) — deep blue
+
+Effect:
+  Duration: 80 turns.
+  While active: Book Smarts SP conversion rate is doubled (standard Book
+  Smarts formula applied twice — potential_exp converts to real_exp at 2x
+  the normal rate). Combined with the formula, at moderate Book Smarts
+  values this roughly quadruples usable XP gain.
+  Also: +2 Book Smarts for the duration (synergizes with the SP formula).
+  After expiry: player is mentally exhausted — -1 Book Smarts for 30 turns.
+
+Requires:
+  - SP gain rate multiplier: xp_progression uses a formula for SP conversion.
+    NerdJuiceEffect injects a multiplier into that formula during the window.
+  - Simple hook: modify_sp_conversion_rate() → return 2.0 if active.
+
+Design Notes:
+  XP economy item. On a Book Smarts-heavy build, this window is when you
+  aggressively engage in skill-relevant activities to bank XP efficiently.
+  The exhaustion debuff makes you commit to a "study session" timing — use
+  it when you plan to fight multiple groups. Works as an early-midgame
+  leveling accelerator. Synergy with skill trees that reward aggression
+  (Stabbing, Alcoholism) during the window.
+
+------------------------------------------------------------------------------
+
+I33 — PERK SODA (SKILL JUICE)
+------------------------------
+Type: Nonalcoholic Drank
+Zone: Meth Lab (very rare)
+Appearance: char '!', color (255, 255, 0) — bright yellow, like a trophy
+
+Effect:
+  On drink: One random skill that has reached its level threshold for
+  the NEXT perk (i.e., has enough real_exp) but hasn't had the perk
+  manually selected yet gains a free "auto-select" for its pending perk.
+  If no skills are at a threshold: 5000 potential XP is added to the
+  skill with the most recent XP activity.
+  This does NOT let you choose — it auto-selects the skill's next perk.
+  The perk notification fires normally.
+
+Requires:
+  - Pending perk detection: skills.py check for skills where
+    real_exp >= threshold[current_level] but perk not yet selected.
+  - Auto-select logic: trigger the perk unlock flow without player input.
+  - Fallback to XP grant if no pending perks.
+
+Design Notes:
+  "I don't care what I get, I just want SOMETHING" energy. The randomness
+  is intentional — you can't guarantee which perk unlocks. Meth Lab rarity
+  means you might find this once per run. The fallback XP grant means it's
+  never truly wasted. Huge value if you've been holding a perk selection
+  in multiple trees.
+
+------------------------------------------------------------------------------
+
+I34 — AMNESIA MOONSHINE
+------------------------
+Type: Alcoholic Drink
+Zone: Crack Den (floor 3-4)
+Appearance: char '!', color (250, 250, 230) — nearly clear, corn-whiskey color
+
+Effect:
+  On drink: Player chooses ONE skill tree. All XP in that tree is reset to 0
+  (levels and perks lost). In exchange, the player gains 3x that tree's total
+  XP value across ALL other skills simultaneously (distributed evenly).
+  Example: Stabbing tree had 600 XP at level 3. That 600 XP is wiped.
+  1800 XP is split across remaining 24 skill trees (75 XP each).
+  The redistributed XP cannot push any tree past level 5.
+  This is PERMANENT for the reset tree — cannot be re-leveled with this
+  same item (amnesia_moonshine_reset flag per tree).
+
+Requires:
+  - Tree XP wipe: skills.py sets real_exp and potential_exp to 0 for
+    chosen tree, clears perks.
+  - XP redistribution: calculate 3x total, divide by (tree_count - 1),
+    award via award_xp for each tree.
+  - Per-tree use-once flag: engine.amnesia_reset_trees set.
+
+Design Notes:
+  Respec mechanic with a roguelike twist — you can change your build but
+  you can't just move the XP exactly where you want it. The 3x multiplier
+  and spreading makes this a net XP gain across the board at the cost of
+  your most developed tree. Interesting crisis scenario: heavily invested
+  in Smoking but want to pivot to Stabbing. The spreading means your pivot
+  tree doesn't fully catch up — you're trading depth for breadth.
+
+==============================================================================
+CATEGORY J — BIZARRE / WEIRD / DARK COMEDY
+(NIGRL has an absurdist dark-humor tone — lean into it)
+==============================================================================
+
+J35 — GASOLINE SMOOTHIE
+------------------------
+Type: Food (instant — just chug it)
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (180, 150, 50) — amber-brown, slight rainbow sheen
+
+Effect:
+  Instant eat.
+  On consume: Player immediately vomits on their current tile (vomit hazard
+  entity spawned: deals 2 acid damage/turn to entities on it, lasts 30 turns).
+  After the vomit: player gains "Combustion Ready" for 40 turns.
+  While Combustion Ready: any fire damage dealt to the player is instead
+  reflected back at the attacker at 2x (you're flammable but also a weapon).
+  Any fire ability used by the player deals +50% damage.
+  If the player takes non-fire damage, Combustion Ready ends immediately
+  (the flames need specific conditions).
+
+Requires:
+  - Vomit hazard: new entity_type="hazard", hazard_type="vomit" — minor acid
+    damage, short duration.
+  - CombustionReadyEffect: modify_incoming_damage hook — if damage_type==fire,
+    redirect to attacker at 2x. on_receive_non_fire_damage: expire early.
+  - Fire damage typing: attacks need damage_type field (melee=physical,
+    ignite=fire, etc.) for CombustionReadyEffect to distinguish.
+
+Design Notes:
+  Chaotic and thematic — you drank GASOLINE. You immediately vomit. Now
+  you're a walking firework. The vomit puddle as environmental proof of
+  what you just did is pure comedy. Mechanically interesting: finding
+  fire-heavy floors and becoming a fire-immune reflector. Weakness: most
+  enemies deal physical damage, so Combustion Ready is often wasted.
+
+------------------------------------------------------------------------------
+
+J36 — SOUR PATCH KID JUICE
+---------------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den (floor 1-2)
+Appearance: char '!', color (255, 200, 0) — bright candy yellow
+
+Effect:
+  Duration: 50 turns (SOUR phase), then 50 turns (SWEET phase).
+  SOUR phase (first 50 turns):
+    - Player takes 50% increased damage from all sources.
+    - But deals 50% increased damage on all outgoing hits.
+  SWEET phase (next 50 turns):
+    - Player takes 50% reduced damage from all sources.
+    - And deals 50% reduced damage on all outgoing hits.
+  There is no way to skip or end the phases early. You must commit to both.
+
+Requires:
+  - Dual-phase effect: SourPatchEffect tracks phase (sour/sweet) and
+    switches at t=50. modify_incoming_damage and modify_outgoing_damage
+    hooks apply the multipliers.
+  - Outgoing damage modifier: effects.py needs an on_player_melee_hit hook
+    that modifies damage before it's dealt (already partially exists for
+    other effects).
+
+Design Notes:
+  Candy-brand-accurate design: first it's sour, then it's sweet. Players
+  must carefully decide: drink it when you're about to face big enemies
+  (kill faster in sour phase even if you take more hits), then use sweet
+  phase to heal up and restock. Using it badly = dying to your own increased
+  intake in sour phase. Using it well = burst-clearing a tough encounter
+  then recovering safely. Simple mechanic, high decision-making depth.
+
+------------------------------------------------------------------------------
+
+J37 — HOT GARBAGE SOUP
+-----------------------
+Type: Food
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (80, 100, 40) — dark olive-garbage
+
+Effect:
+  Eat time: 5 turns (it's garbage soup, takes a while to work up to it).
+  On completion: Completely random — roll on "garbage table" (d6):
+    1. Heal 50% max HP (it was nutritious garbage)
+    2. Gain random permanent perk from Munching tree (skip level req)
+    3. Gain a random negative mutation (not radiation-triggered — direct)
+    4. All enemies on floor become permanently neutral (they smell you coming)
+    5. +10 to all stats for 5 turns, then collapse (-20 energy/tick, 20 turns)
+    6. Nothing. Absolutely nothing. You ate garbage for no reason.
+  Message on outcome always says "Tastes like potential."
+
+Requires:
+  - d6 loot/effect table: evaluate which of 6 handlers to call on completion.
+  - Direct mutation grant: mutations.py function to apply one bad mutation
+    directly (bypassing rad threshold).
+  - Mass-neutral enemy state: set all hostile entities to passive_until_hit
+    permanently (no revert).
+
+Design Notes:
+  The chaos item. The 5-turn eat window is the tension — you're sitting
+  there ladling garbage down your gullet hoping for outcome 1 or 2.
+  Outcome 4 (mass-neutral) is arguably the most powerful but also the
+  weirdest: the whole floor stops caring about you. Outcome 6 is purely
+  comic — the game will never miss an opportunity to do absolutely nothing.
+  "Tastes like potential" as the universal message regardless of outcome
+  is the joke.
+
+------------------------------------------------------------------------------
+
+J38 — RAW DOUGH
+---------------
+Type: Food
+Zone: Crack Den
+Appearance: char '%', color (240, 220, 180) — pale doughy beige
+
+Effect:
+  Eat time: 1 turn (it's just raw dough, very easy to eat).
+  On completion: Player gains "Rising Dough" — an internal body temperature
+  effect. Over the next 40 turns, the dough expands in the player's stomach.
+  Every 10 turns, the player gains +5 max HP (the dough fills space).
+  At t=40, max HP boost peaks at +20 and the player gains "Bread Bloat"
+  (movement speed -20 energy/tick for 20 turns — too full to move quickly).
+  After Bread Bloat expires, the dough digests and max HP returns to normal.
+  Net gain: nothing permanent, but you're temporarily tankier.
+
+Requires:
+  - Staged effect: RisingDoughEffect with tick-phase milestones that
+    each add max HP modifier.
+  - Max HP modifier system (same as F20 Hollow Bones).
+  - Bread Bloat: new "slow" variant effect with specific flavor name.
+
+Design Notes:
+  Food that works like a game mechanic pun — the dough literally rises.
+  The max HP timing makes it a "eat before a tough fight" item. The Bread
+  Bloat is a funny tax: you ate raw dough and now you can barely move.
+  Simple to understand, funny in execution. The timing (40 turns to max,
+  20-turn slow after) rewards eating it pre-combat with time to let it rise.
+
+------------------------------------------------------------------------------
+
+J39 — FLAT DIET COLA
+--------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den (floor 1)
+Appearance: char '!', color (100, 100, 100) — flat, gray, sad
+
+Effect:
+  On drink: Nothing positive. The player is momentarily revulsed
+  (flavor text: "It's flat. And warm. And somehow still disappointing.").
+  However: the sheer act of drinking something this terrible grants
+  "Spite" for 60 turns — +1 to all stats (you're angry at the drink).
+  If the player drinks Flat Diet Cola twice in a row (two consecutive
+  drink actions, same item): "Spite" doubles to +2 all stats and
+  an additional effect "Unbreakable" for 20 turns (+5 defense, take
+  minimum 1 damage from all sources).
+
+Requires:
+  - Consecutive-drink tracking: engine.last_consumed_item_id field.
+    If equals current item_id on drink, trigger double-spite.
+  - SpiteEffect: small all-stat buff, simple duration.
+
+Design Notes:
+  Comedy item that's actually good if you play it right. Floor 1 placement
+  to introduce the "sometimes items are bad but you can leverage that"
+  concept. The doubled effect from drinking two in a row rewards finding
+  multiples on floor 1. "Unbreakable" for 20 turns is legitimately strong
+  early. The whole design is: bad item made good through spite.
+
+------------------------------------------------------------------------------
+
+J40 — PRISON WINE (TOILET HOOCH)
+----------------------------------
+Type: Alcoholic Drink
+Zone: Future Underprison zone (also rare Crack Den floor 4)
+Appearance: char '!', color (90, 60, 30) — dark brown, murky
+
+Effect:
+  On drink: 50% chance GOOD outcome / 50% chance BAD outcome (rolled on drink).
+  GOOD (50%): Heal to full HP, +3 perm Tolerance, immune to all debuffs for
+  30 turns (your gut bacteria are now load-bearing).
+  BAD (50%): Vomit (spawn vomit hazard), -3 Tolerance (permanent), gain
+  "Sick as a Dog" for 50 turns (-2 CON, -30 energy/tick, 20% skip-turn chance).
+  In both cases: gains Alcoholism XP normally.
+  Flavor text on GOOD: "Better than it had any right to be."
+  Flavor text on BAD: "You knew the risk."
+
+Requires:
+  - RNG branch on drink: simple 50/50 at time of consumption.
+  - Debuff immunity effect: buff that blocks any new debuff applications
+    for duration (check in apply_effect: if player has DebuffImmunityEffect,
+    skip apply for category=debuff).
+  - "Sick as a Dog": new combined debuff effect (CON penalty + slow +
+    skip chance).
+
+Design Notes:
+  Pure gambling in item form. Every single run of the Underprison will have
+  moments where you stare at this and debate. The permanent Tolerance outcomes
+  (both + and -) mean this isn't just a current-combat bet — it affects the
+  run permanently. The bad outcome is genuinely punishing which is what makes
+  the good outcome feel earned. Mandatory inclusion in any future Underprison
+  zone.
+
+==============================================================================
+CATEGORY K — FACTION & REPUTATION EFFECTS
+(Nothing currently lets consumables interact with the reputation system)
+==============================================================================
+
+K41 — ALDOR AMBROSIA
+--------------------
+Type: Alcoholic Drink
+Zone: Meth Lab (Aldor-aligned areas)
+Appearance: char '!', color (120, 80, 200) — deep purple, regal
+
+Effect:
+  On drink: +30 Aldor reputation immediately. +2 Swagger for 60 turns
+  (you smell like them now — people give way).
+  While active: Aldor faction enemies within 5 tiles enter PASSIVE_UNTIL_HIT
+  state (they sense the faction pheromones, don't attack first). Scryer
+  enemies within 5 tiles immediately aggro (they smell the enemy faction).
+  On expiry: Reputation change is permanent; behavior changes end.
+
+Requires:
+  - Faction-keyed behavior modifier: effect hook that checks enemy faction
+    tag and modifies AI state transitions.
+  - Scent radius: periodic check of nearby enemies, set state based on faction.
+
+Design Notes:
+  Reputation-as-resource item. The +30 rep could push a Neutral player to
+  Friendly with Aldor, unlocking better treatment from faction enemies.
+  The double-edged nature (Aldor calm, Scryer aggro) means you're picking
+  a side. Using this mid-combat as an "off switch" for Aldor enemies in a
+  mixed encounter is clever play. Pair with Scryer equivalent for faction
+  choice expression.
+
+------------------------------------------------------------------------------
+
+K42 — SCRYER SPICE SHOT
+------------------------
+Type: Alcoholic Drink
+Zone: Meth Lab (Scryer-aligned areas)
+Appearance: char '!', color (60, 180, 80) — chemical green
+
+Effect:
+  Mirror of Aldor Ambrosia — +30 Scryer reputation, +2 STS for 60 turns.
+  Scryer enemies within 5 tiles become PASSIVE; Aldor enemies immediately
+  aggro. Same mechanics, opposite faction. The +STS (Street Smarts) vs
+  the +SWG (Swagger) from Aldor Ambrosia reflects faction personality
+  differences: Scryers are cunning street-smart chemists vs Aldor swagger.
+
+Design Notes:
+  Faction symmetry is important — both factions should have equivalent rep
+  items so zone navigation remains fair. The different bonus stat (+SWG vs
+  +STS) gives flavor and makes the choice between factions more meaningful
+  for different builds. A STS-focused player prefers Scryer alignment.
+
+------------------------------------------------------------------------------
+
+K43 — NEUTRAL TERRITORY THERMOS
+---------------------------------
+Type: Food (hot beverage — tea/coffee, 2-turn drink)
+Zone: Meth Lab
+Appearance: char '%', color (200, 150, 80) — warm brown, thermos
+
+Effect:
+  Eat time: 2 turns.
+  On completion: For 80 turns, all enemies treat the player as neutral
+  regardless of faction alignment. This OVERRIDES current reputation — even
+  Archenemy-level enemies won't attack unless the player attacks first.
+  Also: +3 Book Smarts for the duration (diplomatic calm).
+  Using any weapon or ability ends the neutral status immediately.
+  Note: does NOT grant Aldor or Scryer reputation; it's a momentary ceasefire.
+
+Requires:
+  - Global neutral override: engine.player_truce_active = True.
+    Enemy AI state transition checks this flag before entering CHASING.
+  - Weapon-use end condition: on any melee, gun, or ability use, clear flag.
+
+Design Notes:
+  The "I'm just passing through" item. Lets you navigate faction territory
+  without combat, scout a floor safely, or recover in a hostile area. The
+  "any weapon ends it" clause is strict — you're committed to non-violence
+  for the duration. Book Smarts buff rewards using the ceasefire to gather
+  information (explore, find items) rather than sitting still. High skill
+  expression item.
+
+==============================================================================
+CATEGORY L — SYSTEMIC & CROSS-MECHANIC EFFECTS
+(Items that interact with multiple existing systems in novel combinations)
+==============================================================================
+
+L44 — DEEP FRYER OIL FLASK
+---------------------------
+Type: Food (deep frying supplies — instant use)
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (200, 160, 80) — golden oil color
+
+Effect:
+  Instant use.
+  On use: Upgrades one random item in the player's inventory by "deep frying"
+  it — applying the Deep-Fryer transformation without requiring the Deep Fryer
+  item. The item is chosen randomly from non-equipped items. The result is
+  whatever the Deep Fryer would normally produce from that item type.
+  If the player has no deep-friable items: spawns one random deep-fried food
+  item directly.
+  Awards Deep-Frying XP as if the player used the actual Deep Fryer.
+
+Requires:
+  - Deep fryer logic extraction: inventory_mgr.py's deep fryer handling
+    callable as a standalone function that takes an item entity.
+  - Random selection from non-equipped inventory items.
+
+Design Notes:
+  Convenience item for Deep-Frying build players. The Deep Fryer is a heavy
+  item that takes inventory space — Oil Flask lets you apply the same effect
+  without carrying the appliance. The randomness of which item gets fried
+  adds some chaos. Direct synergy with the entire Deep-Frying skill tree.
+
+------------------------------------------------------------------------------
+
+L45 — TOXIN TONIC SHOT
+-----------------------
+Type: Alcoholic Drink
+Zone: Meth Lab
+Appearance: char '!', color (150, 255, 100) — bright acidic green
+
+Effect:
+  On drink: Current player tox level is converted to offensive buffs:
+    Every 10 tox = +1 STR and +1 STS for 50 turns (at 100 tox: +10 STR
+    +10 STS — enormous burst).
+  After conversion: player tox drops by 50 (the alcohol counteracts some).
+  Remaining tox is not cleared.
+  For the buff duration: the player cannot gain any tox (tox-gain immunity).
+  This is a commitment: you can't stack more tox buffs via Virulent Vodka
+  or environmental tox during the Toxin Tonic window.
+
+Requires:
+  - Tox-to-stat conversion formula: read current tox, calculate buff magnitude,
+    apply temporary StatBuff(str=+n, sts=+n).
+  - Tox-gain immunity during window: modify_tox_gain() returns 0.
+  - Tox reduction on drink.
+
+Design Notes:
+  Tox-as-offensive-resource design (established in strains-v2 paradigm).
+  Encourages intentionally building up tox through the floor, then cashing
+  it in right before a boss room. The tox-gain immunity prevents double-
+  dipping — you either keep building tox (Virulent Vodka path) or convert
+  it (Toxin Tonic path). Those are two distinct strategies with this item
+  as the pivot point.
+
+------------------------------------------------------------------------------
+
+L46 — RADIATION ROCKS (CANDY)
+-------------------------------
+Type: Food
+Zone: Meth Lab
+Appearance: char '%', color (100, 255, 60) — bright radioactive green
+
+Effect:
+  Instant eat (it's candy, quick).
+  On eat: +80 radiation immediately.
+  For the next 5 turns, mutation chance is 100% (guaranteed mutation per
+  tick rather than % chance). You WILL get 1-3 mutations from this — the
+  rad level determines tier (80 rad = weak tier).
+  After the 5 guaranteed-mutation turns, rad returns to normal decay.
+  This is a forced mutation item — you're choosing to mutate right now.
+
+Requires:
+  - Guaranteed-mutation override: engine.mutation_guaranteed = True for 5
+    turns. Bypasses % chance check in mutation tick logic.
+  - Timer on override flag: count down 5 turns, clear flag.
+
+Design Notes:
+  Risk/reward mutation item for players who want to force-roll mutations.
+  The weak-tier (80 rad) means you're guaranteed weak mutations — not
+  dangerous endgame ones. The "I'm choosing this" commitment is the design:
+  you KNOW you'll get 1-3 mutations, you just don't know if they're good
+  or bad (67% bad baseline). High Tolerance builds reduce mutation risk;
+  high Five Loco stacks improve chances. The candy aesthetic against the
+  horror of what you're eating is perfect NIGRL tone.
+
+------------------------------------------------------------------------------
+
+L47 — ESPRESSO SHOT (TRIPLE)
+-----------------------------
+Type: Food (liquid — instant)
+Zone: Crack Den, Meth Lab
+Appearance: char '%', color (80, 50, 20) — very dark brown, tiny cup
+
+Effect:
+  Instant eat.
+  On consume: +100 energy/tick for 10 turns, then +60 energy/tick for
+  20 turns, then normal for 20 turns, then -40 energy/tick for 30 turns
+  (the crash). Total arc: 80 turns.
+  The staged energy decay mimics a real caffeine arc.
+  Also: all consumable food/drink actions during the boost window have
+  their "eat time" reduced by 1 turn (min 1). So 3-turn foods take 2 turns.
+  On crash phase: "Jittery" — any attack has 15% chance to miss (hands shaking).
+
+Requires:
+  - Staged energy modifier: EspressoEffect tracks phase by internal timer,
+    returns different energy_gain values per phase.
+  - Eat-time modifier: modify_eat_time() lifecycle hook that reduces
+    food eat turns while active.
+  - Jittery: new debuff applied on crash phase, 15% miss chance.
+
+Design Notes:
+  First consumable that modifies the eating time of OTHER consumables.
+  This creates interesting combos: espresso then immediately start eating
+  a 4-turn food — you'll finish it faster. Synergy with Munching tree
+  (faster eating is a Munching tree theme). The multi-phase arc makes
+  timing matter: don't pop it right before the crash hits.
+
+------------------------------------------------------------------------------
+
+L48 — STREET PROPHET'S WATER
+-----------------------------
+Type: Nonalcoholic Drank
+Zone: Crack Den (floor 2-3, rare)
+Appearance: char '!', color (200, 230, 255) — pale holy water blue
+
+Effect:
+  On drink: The next 5 items the player picks up are revealed before pickup —
+  a text display shows the item's name and effect before it enters inventory,
+  giving the player the option to leave it on the ground or take it.
+  After 5 item-choice reveals, the effect expires.
+  Also: +1 Book Smarts for 60 turns.
+  Special: if the player REFUSES an item (sees it and leaves it), that item
+  is replaced on the ground with a randomly better item (one tier up).
+  The refusal reward only triggers once per drink.
+
+Requires:
+  - Item-reveal-before-pickup: pickup flow intercepted by ProphetEffect —
+    show item name/effect, await Y/N input before adding to inventory.
+  - Refusal-upgrade: on player refusing pickup, delete current item entity,
+    spawn new item at same position via loot.generate_floor_loot(floor+1).
+  - Refusal-once tracking: ProphetEffect.refusal_used = True after first use.
+
+Design Notes:
+  Information and decision layering. Roguelikes normally hide item identity
+  until you commit. This temporarily removes that uncertainty, AND rewards
+  you for having taste (the refusal upgrade). The 5-item count means you
+  use it when you're about to loot a room. The "leave it and get something
+  better" mechanic models the "patient scavenger" playstyle perfectly.
+
+------------------------------------------------------------------------------
+
+L49 — BOTTOM-SHELF BOURBON (HANDLE)
+-------------------------------------
+Type: Alcoholic Drink
+Zone: Crack Den
+Appearance: char '!', color (160, 100, 40) — mid-brown
+
+Effect:
+  On drink: +2 Swagger, +1 STR, minor heal (15% max HP).
+  The REAL effect: This drink has a "handle" — counts as a melee weapon
+  while the "handle" sub-item is in inventory (a glass bottle that is
+  generated as a separate item on drink). The glass bottle deals 4-8
+  damage on hit, has no stat requirements, and after 3 hits it shatters
+  (destroyed). Shattering deals bonus 8 bleed damage to the target and
+  applies a 5-turn "glass shards" ground hazard on the enemy's tile.
+
+Requires:
+  - Sub-item generation: on drink, create_item_entity("bourbon_bottle")
+    and add to inventory.
+  - Bottle weapon: 3-use weapon with hit-counter, shatter event on third hit.
+  - Glass shard hazard: minor damage per-tick ground hazard, 5 turns.
+  - Hit-count tracking on item entity: entity.uses_remaining field.
+
+Design Notes:
+  The first drink that leaves behind a usable weapon. Thematically: drink
+  the bourbon, keep the bottle, use it in a fight, smash it over someone's
+  head. The shatter bonus rewards committing to all 3 hits. Glass shards
+  hazard punishes enemies who step through the shatter zone. Satisfying
+  multi-step item arc.
+
+------------------------------------------------------------------------------
+
+L50 — VENDING MACHINE MYSTERY SODA
+-------------------------------------
+Type: Nonalcoholic Drank
+Zone: All zones (future: vending machine hazard/interactable)
+Appearance: char '!', color (160, 160, 160) — gray, unknown brand
+
+Effect:
+  On drink: Checks which drinks the player has already consumed this run
+  (engine.drinks_consumed_this_run set). The mystery soda mimics the effect
+  of a drink NOT yet consumed by the player — a random one from the current
+  zone's drink table that the player hasn't tried yet. First time you drink
+  it each run, it's a genuinely new effect.
+  Second time drinking it (same run): it mimics the effect again, same pick.
+  Once all zone drinks have been tried: it generates a small burst of
+  random minor buffs (as if drinking 3 random potions half-strength).
+
+Requires:
+  - Run-lifetime drink log: engine.drinks_consumed_this_run set, updated on
+    each drink action.
+  - Drink-table query: loot/items system can list all drink item_ids for
+    current zone.
+  - Random selection from unconsumed list.
+  - Fallback: multi-minor-buff generator for when all drinks exhausted.
+
+Design Notes:
+  Exploration reward mechanic. If you're a completionist who samples
+  everything, the Mystery Soda gets weaker over the run (fewer new options).
+  If you're conservative and skip most drinks, the Mystery Soda could be
+  your only way to access certain effects. Pairs beautifully with Blue Drank
+  (double next drink) — if you want to gamble on a mystery soda being
+  something great. Also: a natural vending machine interactable item for
+  future environmental design.
+
+==============================================================================
+IMPLEMENTATION PRIORITY NOTES (for the developer)
+==============================================================================
+
+HIGHEST PRIORITY — Systems unlocking the most new design space:
+  1. Companion/allied entity system (A1, A2, A3, E17, E19 all use this)
+  2. Temporary tile effects system (B4, B5, H29 — three items use this)
+  3. Player footprint trail deque (B7, C9 — two items use this)
+  4. Max HP modifier lifecycle hook (F20, J38 — two items use this)
+  5. Pre-death snapshot system (C8 — high player impact)
+
+MEDIUM PRIORITY — Standalone but high value:
+  - Full map reveal + blindness aftermath (G25)
+  - Ghost Pepsi invisibility (G27)
+  - Damage-type system for fire reflection (J35, and several other items)
+  - Permanent stat reroll (F21 — dramatic single item)
+
+LOWER PRIORITY — Fun but isolated:
+  - Double-sip mechanic (C10 — meta overlay)
+  - Item-reveal-before-pickup (L48)
+  - Mystery soda drink log (L50)
+
+NEW EFFECTS SUMMARY (all effects.py additions implied):
+  HollowBonesEffect, FreaknikAuraEffect, NarcJuiceEffect, FreezingEffect,
+  SlowPokeColaEffect (global), AcidRainEffect (floor-level), SourPatchEffect,
+  RisingDoughEffect, PactEffect (kill-hook), AsleepEffect, CombustionReadyEffect,
+  TransquilizedEffect, LiquidDignityEffect, FunkyAirPauseEffect,
+  NerdJuiceEffect, YardSaleEffect, ToxinTonicEffect, EspressoEffect,
+  SpiteEffect, PrisonWineGoodEffect, PrisonWineBadEffect, FreaknikEffect (enemy)
+
+NEW ITEM ENTITIES / SUB-ITEMS:
+  bourbon_bottle (generated as sub-item from L49 drink)
+
+NEW ENGINE FLAGS NEEDED:
+  player_truce_active, acid_rain_active, slow_poke_cola_active,
+  ghost_trail_deque (position history), duplication_floor_lock,
+  mutation_guaranteed, drinks_consumed_this_run, amnesia_reset_trees,
+  cataracts_bks_gain, is_snapshot_active, player_snapshot
+
+==============================================================================
+END OF COMPENDIUM — 50 ENTRIES
+==============================================================================

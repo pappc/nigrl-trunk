@@ -74,16 +74,23 @@ def test_movement_prevents_eating():
     assert len(eating_effects) > 0
     initial_eating_duration = eating_effects[0].duration
 
-    # Try to move
+    # First move attempt: warns but doesn't remove
     initial_pos = (engine.player.x, engine.player.y)
     engine.handle_move(1, 0)
 
     # Should still be at same position (move rejected)
     assert engine.player.x == initial_pos[0], "Player moved while eating!"
 
-    # Eating effect should be removed
+    # Eating effect still present after first attempt (warning only)
     eating_effects = [e for e in engine.player.status_effects if getattr(e, 'id', '') == 'eating_food']
-    assert len(eating_effects) == 0, "Eating effect should be removed when moving"
+    assert len(eating_effects) > 0, "Eating effect should persist after first move (warning)"
+
+    # Second move attempt: wastes food and removes effect
+    engine.handle_move(1, 0)
+
+    # Eating effect should now be removed
+    eating_effects = [e for e in engine.player.status_effects if getattr(e, 'id', '') == 'eating_food']
+    assert len(eating_effects) == 0, "Eating effect should be removed after second move"
 
     print("[OK] Movement prevents eating")
 

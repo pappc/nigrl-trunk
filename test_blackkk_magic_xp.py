@@ -1,21 +1,22 @@
 """
-Test Blackkk Magic skill XP gain when casting spells.
+Test Smartsness skill XP gain when casting spells.
 
 XP formula: 20 * floor_skill_mult * zone_skill_mult
 - floor_skill_mult: 1.0 + (current_floor * 0.5)
-- zone_skill_mult: From ZONE_BLACKK_MAGIC_MULT (crack_den = 1.0)
+- zone_skill_mult: From ZONE_SMARTSNESS_MULT (crack_den = 2.0)
 """
 
 from engine import GameEngine
 from abilities import ABILITY_REGISTRY
+from config import ZONE_SMARTSNESS_MULT
 
 
 def test_spell_xp_unlock():
-    """Test that calling _gain_spell_xp unlocks Blackkk Magic skill."""
+    """Test that calling _gain_spell_xp unlocks Smartsness skill."""
     engine = GameEngine()
 
     # Check initial state
-    skill = engine.skills.get("Blackkk Magic")
+    skill = engine.skills.get("Smartsness")
     assert skill.level == 0
     assert skill.potential_exp == 0
 
@@ -23,14 +24,14 @@ def test_spell_xp_unlock():
     engine._gain_spell_xp("warp")
 
     # Check that skill was unlocked and gained XP
-    skill = engine.skills.get("Blackkk Magic")
+    skill = engine.skills.get("Smartsness")
     assert skill.potential_exp > 0, "Should have gained potential XP"
     # Check for unlock message (should have NEW SKILL UNLOCKED message)
     has_unlock_msg = any(
-        isinstance(m, list) and any("[NEW SKILL UNLOCKED] Blackkk Magic!" in str(item) for item in m)
+        isinstance(m, list) and any("[NEW SKILL UNLOCKED] Smartsness!" in str(item) for item in m)
         for m in engine.messages
     ) or any(
-        "[NEW SKILL UNLOCKED] Blackkk Magic!" in str(m)
+        "[NEW SKILL UNLOCKED] Smartsness!" in str(m)
         for m in engine.messages
     )
     assert has_unlock_msg, "Should have unlock message"
@@ -40,20 +41,17 @@ def test_spell_xp_calculation_floor_0():
     """Test XP calculation on floor 0 (1st floor).
 
     floor_mult = 1.0 + (0 * 0.5) = 1.0
-    zone_mult = 1.0 (crack_den)
-    base_xp = 20 * 1.0 * 1.0 = 20
+    zone_mult = ZONE_SMARTSNESS_MULT["crack_den"]
+    base_xp = 20 * 1.0 * zone_mult
     """
     engine = GameEngine()
     engine.current_floor = 0
+    zone_mult = ZONE_SMARTSNESS_MULT.get("crack_den", 1.0)
 
-    # Call _gain_spell_xp directly
     engine._gain_spell_xp("warp")
 
-    # Check XP gained
-    skill = engine.skills.get("Blackkk Magic")
-    # adjusted_xp = round(20 * xp_multiplier)
-    # Default xp_multiplier should be 1.0, so 20 XP
-    expected_xp = round(20 * engine.player_stats.xp_multiplier)
+    skill = engine.skills.get("Smartsness")
+    expected_xp = round(20 * 1.0 * zone_mult * engine.player_stats.xp_multiplier)
     assert skill.potential_exp == expected_xp, \
         f"Expected {expected_xp} XP on floor 0, got {skill.potential_exp}"
 
@@ -62,18 +60,17 @@ def test_spell_xp_calculation_floor_1():
     """Test XP calculation on floor 1 (2nd floor).
 
     floor_mult = 1.0 + (1 * 0.5) = 1.5
-    zone_mult = 1.0 (crack_den)
-    base_xp = 20 * 1.5 * 1.0 = 30
+    zone_mult = ZONE_SMARTSNESS_MULT["crack_den"]
+    base_xp = 20 * 1.5 * zone_mult
     """
     engine = GameEngine()
     engine.current_floor = 1
+    zone_mult = ZONE_SMARTSNESS_MULT.get("crack_den", 1.0)
 
-    # Call _gain_spell_xp directly
     engine._gain_spell_xp("warp")
 
-    # Check XP gained
-    skill = engine.skills.get("Blackkk Magic")
-    expected_xp = round(30 * engine.player_stats.xp_multiplier)
+    skill = engine.skills.get("Smartsness")
+    expected_xp = round(20 * 1.5 * zone_mult * engine.player_stats.xp_multiplier)
     assert skill.potential_exp == expected_xp, \
         f"Expected {expected_xp} XP on floor 1, got {skill.potential_exp}"
 
@@ -82,24 +79,23 @@ def test_spell_xp_calculation_floor_3():
     """Test XP calculation on floor 3 (4th floor).
 
     floor_mult = 1.0 + (3 * 0.5) = 2.5
-    zone_mult = 1.0 (crack_den)
-    base_xp = 20 * 2.5 * 1.0 = 50
+    zone_mult = ZONE_SMARTSNESS_MULT["crack_den"]
+    base_xp = 20 * 2.5 * zone_mult
     """
     engine = GameEngine()
     engine.current_floor = 3
+    zone_mult = ZONE_SMARTSNESS_MULT.get("crack_den", 1.0)
 
-    # Call _gain_spell_xp directly
     engine._gain_spell_xp("warp")
 
-    # Check XP gained
-    skill = engine.skills.get("Blackkk Magic")
-    expected_xp = round(50 * engine.player_stats.xp_multiplier)
+    skill = engine.skills.get("Smartsness")
+    expected_xp = round(20 * 2.5 * zone_mult * engine.player_stats.xp_multiplier)
     assert skill.potential_exp == expected_xp, \
         f"Expected {expected_xp} XP on floor 3, got {skill.potential_exp}"
 
 
 def test_only_spells_grant_xp():
-    """Test that only abilities with is_spell=True grant Blackkk Magic XP."""
+    """Test that only abilities with is_spell=True grant Smartsness XP."""
     engine = GameEngine()
 
     # Verify warp is marked as a spell
@@ -108,7 +104,7 @@ def test_only_spells_grant_xp():
     # Call _gain_spell_xp with warp (is a spell)
     engine._gain_spell_xp("warp")
 
-    skill = engine.skills.get("Blackkk Magic")
+    skill = engine.skills.get("Smartsness")
     initial_xp = skill.potential_exp
     assert initial_xp > 0, "Spell should grant XP"
 
@@ -125,15 +121,16 @@ def test_spell_xp_with_book_smarts():
     engine.current_floor = 0
 
     # Increase book smarts (this should increase skill_point gain, not XP gain)
-    # XP is still 20 * 1.0 * 1.0 = 20, but skill_points gained will be higher
+    # XP is still 20 * 1.0 * zone_mult, but skill_points gained will be higher
     engine.player_stats._base["book_smarts"] = 10
+    zone_mult = ZONE_SMARTSNESS_MULT.get("crack_den", 1.0)
 
     # Call _gain_spell_xp
     engine._gain_spell_xp("warp")
 
     # Check XP
-    skill = engine.skills.get("Blackkk Magic")
-    expected_xp = round(20 * engine.player_stats.xp_multiplier)  # 20 * 1.0 = 20
+    skill = engine.skills.get("Smartsness")
+    expected_xp = round(20 * zone_mult * engine.player_stats.xp_multiplier)
     assert skill.potential_exp == expected_xp, \
         f"Expected {expected_xp} XP, got {skill.potential_exp}"
     # Skill points should be higher due to book_smarts

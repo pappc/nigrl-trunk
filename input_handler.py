@@ -40,7 +40,10 @@ def handle_input(key):
             return {"type": "move", "dx": 1, "dy": 1}
 
         # Wait a turn
-        elif key_sym == tcod.event.KeySym.KP_5:
+        elif key_sym == tcod.event.KeySym.KP_5 or (
+            key_sym == tcod.event.KeySym.PERIOD
+            and not bool(key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT))
+        ):
             return {"type": "wait"}
 
         # Skills menu (lowercase only)
@@ -126,17 +129,43 @@ def handle_input(key):
         elif key_sym in (tcod.event.KeySym.RETURN, tcod.event.KeySym.KP_ENTER):
             return {"type": "confirm_target"}
 
-        # F — enter entity targeting mode (lowercase only)
+        # Shift+F — swap primary gun
+        elif key_sym == tcod.event.KeySym.f and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            return {"type": "swap_primary_gun"}
+
+        # F (no shift) — fire gun
         elif key_sym == tcod.event.KeySym.f and not bool(
             key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
         ):
+            return {"type": "fire_gun"}
+
+        # Shift+R — reload gun
+        elif key_sym == tcod.event.KeySym.r and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            return {"type": "reload_gun"}
+
+        # R (no shift) — enter entity targeting mode (reach weapons)
+        elif key_sym == tcod.event.KeySym.r and not bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
             return {"type": "start_entity_targeting"}
+
+        # TAB — toggle gun firing mode
+        elif key_sym == tcod.event.KeySym.TAB:
+            return {"type": "toggle_firing_mode"}
 
         # Shift+Q — quit game
         elif key_sym == tcod.event.KeySym.q and bool(
             key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
         ):
             return {"type": "quit"}
+
+        # / — autoexplore
+        elif key_sym == tcod.event.KeySym.SLASH:
+            return {"type": "autoexplore"}
 
         # A — toggle Abilities menu (lowercase only, checked before inventory letter keys)
         elif key_sym == tcod.event.KeySym.a and not bool(

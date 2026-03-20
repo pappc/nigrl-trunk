@@ -44,6 +44,15 @@ def _inject_hazard_tiles(tileset):
     except Exception as e:
         print(f"[warn] Could not load crate tile: {e}")
 
+    # Table tile: crop from urizen-nigrl-extratiles.png (tile #7, row at y=468, 12×12)
+    try:
+        extra_path = os.path.join(base_dir, "urizen-nigrl-extratiles.png")
+        _extra = PilImage.open(extra_path).convert("RGBA")
+        _table = np.array(_extra.crop((84, 468, 96, 480)))  # 12×12 RGBA
+        tileset.set_tile(0xE002, _pad_to_16x16(_table))
+    except Exception as e:
+        print(f"[warn] Could not load table tile: {e}")
+
     # Fire tile: base64 PNG embedded in fire_tile.pixil JSON
     try:
         pixil_path = os.path.join(base_dir, "fire_tile.pixil")
@@ -104,16 +113,20 @@ def main():
                                 break
                             action = handle_input(event)
                             if action:
-                                engine.cancel_auto_travel("Auto-travel cancelled.")
+                                msg = "Autoexplore cancelled." if engine.autoexploring else "Auto-travel cancelled."
+                                engine.cancel_auto_travel(msg)
                                 # Re-trigger descend_stairs would restart travel; swallow it.
                                 # Any other key is processed normally.
-                                if action.get("type") != "descend_stairs":
+                                if action.get("type") not in ("descend_stairs", "autoexplore"):
                                     engine.process_action(action)
                                 cancelled = True
                                 break
                         if not cancelled and engine.auto_traveling:
                             time.sleep(0.02)
-                            engine.step_auto_travel()
+                            if engine.autoexploring:
+                                engine.step_autoexplore()
+                            else:
+                                engine.step_auto_travel()
                     else:
                         for event in tcod.event.wait():
                             if isinstance(event, tcod.event.Quit):

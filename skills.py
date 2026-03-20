@@ -26,6 +26,7 @@ SKILL_NAMES = [
     "Pyromania",
     "Negromancy",
     "Blackkk Magic",
+    "Smartsness",
     "Stabbing",
     "Beating",
     "Smacking",
@@ -38,6 +39,15 @@ SKILL_NAMES = [
     "Dismantling",
     "Abandoning",
     "Meth-Head",
+    "Chemical Warfare",
+    "White Power",
+    "Mutation",
+    "Nuclear Research",
+    "Glow Up",
+    "Gatting",
+    "Sniping",
+    "Drive-By",
+    "Ammo Rat",
 ]
 
 DEFAULT_EXP_CURVE = [200, 400, 600, 800, 2000, 6000, 15000, 25000, 100000, 500000]
@@ -52,11 +62,39 @@ SKILL_PERKS: dict[str, list[dict]] = {
     skill_name: [_PLACEHOLDER] * 10
     for skill_name in [
         "Smoking", "Rolling", "Pyromania", "Negromancy", "Blackkk Magic",
-        "Stabbing", "Beating", "Smacking", "Stealing", "Jaywalking",
+        "Smartsness", "Stabbing", "Beating", "Smacking", "Stealing", "Jaywalking",
         "Deep-Frying", "Drinking", "Alcoholism", "Munching", "Dismantling",
-        "Abandoning", "Meth-Head",
+        "Abandoning", "Meth-Head", "Chemical Warfare", "White Power",
+        "Mutation", "Nuclear Research", "Glow Up", "Gatting", "Sniping",
+        "Drive-By",
+        "Ammo Rat",
     ]
 }
+
+SKILL_PERKS["White Power"] = [
+    {"name": "Bleached",  "perk_type": "stat", "effect": {"swagger": 4}, "desc": "+4 Swagger, +20% toxicity resistance. Your body rejects the poison."},  # level 1
+    {"name": "White Out", "perk_type": "activated", "effect": {"ability": "white_out"}, "desc": "3/floor. Gain 25 toxicity. +8 Swagger, -25% damage dealt for 50 turns."},  # level 2
+    {"name": "Pure",  "perk_type": "stat", "effect": {"swagger": 4}, "desc": "+4 Swagger. Double XP from toxicity resisted."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+]
+
+SKILL_PERKS["Mutation"] = [
+    {"name": "Mutagen", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 to all stats. Immediately mutate for free."},  # level 1
+    {"name": "Unstable", "perk_type": "passive", "effect": None, "desc": "20% on melee hit: gain Unstable buff (20t). +5 rad on apply, +2 melee dmg, hits irradiate enemies for 10 rad."},  # level 2
+    {"name": "Favorable Odds", "perk_type": "passive", "effect": None, "desc": "+50% good mutation multiplier. Mutations are more likely to be positive."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+]
+
+SKILL_PERKS["Nuclear Research"] = [
+    {"name": "Irradiated Intellect", "perk_type": "stat", "effect": {"book_smarts": 3}, "desc": "+3 Book Smarts. Radiation gained increased by Book Smarts% of amount gained."},  # level 1
+    {"name": "Rad Bomb", "perk_type": "activated", "effect": {"ability": "rad_bomb"}, "desc": "Place a crystal (range 2) that detonates in 3 turns (5x5, 15+BKS/2 dmg). 3 charges/floor, costs 25 rad. Free charge at 100+ rad. Passive: can't mutate below 150 rad."},  # level 2
+    {"name": "Nutrient Producer", "perk_type": "grant_item", "effect": {"item_id": "nutrient_producer"}, "desc": "Gain a Nutrient Producer tool. Combine it with any consumable to convert it into a RadBar."},  # level 3
+    {"name": "Isotope Junkie", "perk_type": "passive", "effect": None, "desc": "Using a consumable grants +5 radiation (pierces resistance). Rad Bomb damage upgraded to 20+BKS."},  # level 4
+    _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 6-10
+]
 
 SKILL_PERKS["Deep-Frying"] = [
     {"name": "Fry Shot",     "perk_type": "activated", "effect": {"ability": "fry_shot"},    "desc": "Hurl a ball of scorching hot oil that deals burn damage in a small area."},   # level 1
@@ -83,11 +121,13 @@ SKILL_PERKS["Abandoning"] = [
 ]
 
 SKILL_PERKS["Smoking"] = [
-    {"name": "Phat Cloud",  "perk_type": "passive", "effect": None,                                    "desc": "Smoking produces a cloud of smoke that obscures enemy vision in the area."},  # level 1
+    {"name": "+2 TOL",             "perk_type": "stat",    "effect": {"tolerance": 2},                        "desc": "+2 Tolerance. You're getting used to the smoke."},                            # level 1
     {"name": "+2 TOL, +2 CON",    "perk_type": "stat",    "effect": {"tolerance": 2, "constitution": 2},     "desc": "+2 Tolerance, +2 Constitution. Your body adapts to the abuse."},              # level 2
-    {"name": "+2 TOL", "perk_type": "stat",    "effect": {"tolerance": 2},                        "desc": "+2 Tolerance. You smoke the roach. Every last bit."},                         # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 4-10
+    {"name": "Phat Cloud",        "perk_type": "passive",  "effect": None,                                    "desc": "Smoking blows a phat cloud at the nearest enemy, dealing damage based on Tolerance."},  # level 3
+    {"name": "Roach Fiend",       "perk_type": "passive",  "effect": None,                                    "desc": "30% chance a joint is not consumed when smoked."},                            # level 4
+    {"name": "Contact High",      "perk_type": "passive",  "effect": None,                                    "desc": "Enemies hit by joints roll twice and take the worst. Debuffs spread to all enemies within 3 tiles."},  # level 5
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 6-10
 ]
 
 SKILL_PERKS["Pyromania"] = [
@@ -95,15 +135,18 @@ SKILL_PERKS["Pyromania"] = [
     {"name": "+3 CON",      "perk_type": "stat",      "effect": {"constitution": 3},          "desc": "+3 Constitution. Fire hardens the soul."},                                              # level 2
     {"name": "Ignite",        "perk_type": "activated", "effect": {"ability": "ignite_spell"}, "desc": "Targeted ignite spell — set a visible enemy ablaze from a distance."},                  # level 3
     {"name": "Neva Burn Out", "perk_type": "passive",   "effect": None,                        "desc": "You are completely immune to fire and burning damage."},                                 # level 4
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,        # levels 5-10
+    {"name": "Wildfire",      "perk_type": "passive",   "effect": None,                        "desc": "Ignited enemies have a 20% chance per turn to spread fire to adjacent enemies with fewer stacks."},  # level 5
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                      # levels 6-10
 ]
 
 SKILL_PERKS["Rolling"] = [
     {"name": "+1 STR, +1 TOL",       "perk_type": "stat",    "effect": {"strength": 1, "tolerance": 1}, "desc": "+1 Strength, +1 Tolerance. Rolling builds hands and resistance."},  # level 1
     {"name": "Seeing Double",  "perk_type": "passive", "effect": None,                             "desc": "Chance to roll an extra blunt when you roll one up."},               # level 2
     {"name": "Spectral Paper", "perk_type": "passive", "effect": None,                             "desc": "20% chance rolling a blunt doesn't consume your papers."},           # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 4-10
+    {"name": "Snickelfritz",  "perk_type": "passive", "effect": None,                             "desc": "25% chance to gain a bonus Snickelfritz joint when rolling. Very negative strain."},  # level 4
+    {"name": "Rollin' Cloud", "perk_type": "passive", "effect": None,                             "desc": "Rolling a joint triggers Phat Cloud, hitting the nearest visible enemy."},              # level 5
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 6-10
 ]
 
 SKILL_PERKS["Alcoholism"] = [
@@ -134,11 +177,13 @@ SKILL_PERKS["Stabbing"] = [
     {"name": "Gouge",     "perk_type": "activated", "effect": {"ability": "gouge"},        "desc": "Gouge a single target, dealing bonus damage and applying a bleed effect."},   # level 1
     {"name": "+2 STS",  "perk_type": "stat",      "effect": {"street_smarts": 2},        "desc": "+2 Street Smarts. You learn to read people by poking holes in them."},        # level 2
     {"name": "Windfury",  "perk_type": "passive",   "effect": None,                        "desc": "Chance to attack a second time immediately after each stab."},                # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                              # levels 4-10
+    {"name": "+4 STS, +4 STR", "perk_type": "stat", "effect": {"street_smarts": 4, "strength": 4}, "desc": "+4 Street Smarts, +4 Strength. The blade becomes an extension of your body."},  # level 4
+    {"name": "Lunge",    "perk_type": "passive",   "effect": None,                        "desc": "Moving into a tile with an enemy directly ahead auto-crits them for free."},  # level 5
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                              # levels 6-10
 ]
 
-SKILL_PERKS["Blackkk Magic"] = [
+SKILL_PERKS["Smartsness"] = [
     {"name": "+2 BKS",            "perk_type": "stat",      "effect": {"book_smarts": 2},           "desc": "+2 Book Smarts. Forbidden knowledge has its perks."},                    # level 1
     {"name": "Force Be With You",   "perk_type": "activated", "effect": {"ability": "force_push"},    "desc": "Force push an enemy backwards several tiles. Works through walls?"},      # level 2
     {"name": "Arcane Intelligence", "perk_type": "passive",   "effect": None,                         "desc": "All spells and abilities cost significantly less energy to use."},        # level 3
@@ -176,6 +221,56 @@ SKILL_PERKS["Stealing"] = [
     {"name": "Sticky Fingers",  "perk_type": "passive",   "effect": None,                         "desc": "Chance to gain +1 Street Smarts on the first item pickup each floor."},            # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 4-10
+]
+
+SKILL_PERKS["Gatting"] = [
+    {"name": "Locked In", "perk_type": "passive", "effect": None, "desc": "Fast mode: consecutive shots on the same target deal +1 stacking damage. Resets on target switch, melee, or ability use."},  # level 1
+    {"name": "Doin' It Sideways", "perk_type": "passive", "effect": None, "desc": "Fast mode: -10% accuracy (min 5%), -10 energy cost per shot (min 10)."},  # level 2
+    {"name": "Gun Crit", "perk_type": "passive", "effect": None, "desc": "Guns can now critically hit. Crit chance scales with Street Smarts."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 4-10
+]
+
+
+SKILL_PERKS["Sniping"] = [
+    {"name": "Sniper's Mark", "perk_type": "activated", "effect": {"ability": "snipers_mark"}, "desc": "Mark a visible enemy (+10% damage taken, rounds up). 1 use/floor. Charge refunded on marked target's death."},  # level 1
+    {"name": "Dead Eye", "perk_type": "passive", "effect": None, "desc": "Killing an enemy with an accurate gun shot grants +1 Swagger for the rest of the floor."},  # level 2
+    {"name": "Mega Crit", "perk_type": "stat", "effect": {"street_smarts": 2}, "desc": "+2 Street Smarts. Unlocks gun crits. Accurate mode crits can crit again for 4x damage."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+]
+
+SKILL_PERKS["Chemical Warfare"] = [
+    {"name": "Toxic Harvest", "perk_type": "activated", "effect": {"ability": "toxic_harvest"}, "desc": "1/floor. For 10 turns, any monster kill grants +5 toxicity and refreshes this buff."},  # level 1
+    {"name": "Toxic Resilience", "perk_type": "stat", "effect": {"tolerance": 5, "constitution": 3, "tox_resistance": -30}, "desc": "+5 Tolerance, +3 Constitution, -30% Toxicity Resistance. Embrace the poison."},  # level 2
+    {"name": "Acid Meltdown", "perk_type": "activated", "effect": {"ability": "acid_meltdown"}, "desc": "1/floor. Cost: 25 tox. 20 turns: halve move cost. Kills explode into 3x3 acid pools."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+]
+
+SKILL_PERKS["Meth-Head"] = [
+    {"name": "Sped", "perk_type": "passive", "effect": None, "desc": "20% on melee hit: gain Sped for 5 turns (half melee energy cost). Costs 10 meth. Cannot proc while active."},  # level 1
+    {"name": "Crack Hallucinations", "perk_type": "activated", "effect": {"ability": "crack_hallucinations"}, "desc": "1/floor. Next consumable used grants meth equal to its value, plus Meth-Head XP."},  # level 2
+    {"name": "Tweaker", "perk_type": "passive", "effect": None, "desc": "+10 speed per 25 meth. At full meth (250), that's +100 speed."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+]
+
+SKILL_PERKS["Ammo Rat"] = [
+    {"name": "Scrounger", "perk_type": "passive", "effect": None, "desc": "50% chance to gain +1 bonus round when picking up ammo."},  # level 1
+    {"name": "Ammo Nerd", "perk_type": "stat", "effect": {"book_smarts": 2, "street_smarts": 2}, "desc": "+2 Book-Smarts, +2 Street-Smarts. 2x XP from picking up ammo."},  # level 2
+    {"name": "Rat Race", "perk_type": "passive", "effect": None, "desc": "Dismantling any item yields ammo (5 light, 3 medium, 1 heavy). 20% chance on ammo pickup: +10 speed for 20 turns (stacks, refreshes)."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+]
+
+
+SKILL_PERKS["Glow Up"] = [
+    {"name": "Radiant", "perk_type": "stat", "effect": {"tolerance": 2, "strength": 2, "rad_resistance": 30}, "desc": "+30% Rad Resistance, +2 Tolerance, +2 Strength."},  # level 1
+    {"name": "Emission", "perk_type": "activated", "effect": {"ability": "emission"}, "desc": "Set all visible enemies' radiation to yours. 1 use/floor. Irradiated enemies take rad//50 damage/tick and decay 5 rad/tick."},  # level 2
+    {"name": "Fallout", "perk_type": "stat", "effect": {"strength": 2}, "desc": "+2 Strength. 20% chance on dealing damage to irradiate the target (+100 rad)."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 3-10
 ]
 
 
@@ -232,6 +327,10 @@ class Skill:
         """Add to potential_exp (uncapped)."""
         self.potential_exp += amount
 
+    def set_level(self, level: int) -> None:
+        """Set skill level directly, clamping to [0, MAX_LEVEL]."""
+        self.level = max(0, min(MAX_LEVEL, level))
+
     def is_maxed(self) -> bool:
         return self.level >= MAX_LEVEL
 
@@ -256,14 +355,16 @@ class Skills:
         return [skill for skill in self.all() if skill.level > 0 or skill.real_exp > 0 or skill.potential_exp > 0]
 
     def gain_potential_exp(self, skill_name: str, amount: float, bksmt: int,
-                           skill_mod_override: float = None) -> None:
+                           skill_mod_override: float = None,
+                           briskness: int = 0) -> None:
         """Award potential_exp to a skill and add scaled skill_points.
 
-        skill_points gained = amount * bksmt_mod(bksmt) * skill.skill_mod
+        skill_points gained = amount * (bksmt_mod(bksmt) + briskness/100) * skill.skill_mod
+        briskness is a percentage bonus (can be negative, no upper cap).
         """
         skill = self.skills[skill_name]
         smod = skill_mod_override if skill_mod_override is not None else skill.skill_mod
-        sp_gained = amount * bksmt_mod(bksmt) * smod
+        sp_gained = amount * (bksmt_mod(bksmt) + briskness / 100) * smod
         skill.add_potential_exp(amount)
         self.skill_points += sp_gained
 
@@ -281,6 +382,10 @@ class Skills:
         skill.potential_exp -= spendable
         self.skill_points -= spendable
         return skill.add_real_exp(spendable)
+
+    def set_skill_level(self, name: str, level: int) -> None:
+        """Set a skill's level directly, clamping to [0, MAX_LEVEL]."""
+        self.skills[name].set_level(level)
 
     def add_xp(self, name: str, amount: float) -> int:
         """Legacy: add directly to real_exp (used for backward compat). Returns levels gained."""

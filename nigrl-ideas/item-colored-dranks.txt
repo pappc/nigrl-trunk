@@ -1,0 +1,1128 @@
+NIGRL DESIGN DOC — COLORED DRANKS (META DRINK SYSTEM EXPANSION)
+================================================================
+Author: Game Design Ideator
+Date: 2026-03-15
+File: nigrl-ideas/item-colored-dranks.txt
+
+PURPOSE: Design all new colored dranks (nonalcoholic, meta-layer drinks).
+         Includes Orange Drank's final design (currently placeholder).
+         Emphasis on META effects — modifying, amplifying, or combining
+         the behavior of other drinks rather than direct combat effects.
+
+CONVENTIONS (applies to all entries unless noted):
+  - type: "soft_drink", drink_id: "[color]_drank"
+  - primary_skill: "Drinking"
+  - secondary_skill: None (dranks train Drinking only)
+  - Nonalcoholic: NO hangover stacks, not tracked by Alcoholism skill
+  - All award 100 Drinking potential XP (flat, same as existing dranks)
+  - char: "!" for all
+  - zones: ["crack_den"] unless noted (colored dranks are Zone 1 items)
+  - value: 25 (standard, matching existing colored dranks)
+  - Red Drank interaction: dranks consumed under Red Drank still get doubled
+    duration, free action, +100 energy — all new dranks should respect this
+  - Blue Drank interaction: calling the handler 2^stacks times applies to
+    all new dranks as well (the dispatch loop in inventory_mgr.py handles this)
+  - Green Drank interaction: Green Drank's on-drink heal/cleanse fires for
+    any drink consumed (including these) — all new dranks trigger that
+  - Purple Drank interaction: Purple Drank records last_drink_id and replays
+    the handler — all new dranks should set engine.last_drink_id normally
+
+IMPLEMENTATION PATTERN:
+  - Each new drank gets a _handle_[color]_drank(engine, item) function in
+    xp_progression.py (same module as the existing four handlers)
+  - Dispatch added to the elif chain in inventory_mgr.py's soft_drink block
+  - Effect class (if needed) in effects.py with @register decorator
+  - Item description text in items.py's soft_drink elif block
+  - engine.py delegate method: def _handle_[color]_drank(self, item): ...
+
+==============================================================================
+ORANGE DRANK — "Juice Box of Indeterminate Origin"
+==============================================================================
+
+ITEM_DEF (already exists in items.py as placeholder):
+  item_id:  "orange_drank"
+  name:     "Orange Drank"
+  char:     "!"
+  color:    (255, 150, 30)
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+The classic juice box. It tastes like orange-adjacent. Someone wrote "DRINK ME"
+on it in marker. Orange Drank is the HANGOVER CONVERTER — the only nonalcoholic
+drink that interacts directly with the hangover system. It does nothing if you
+haven't been drinking, and becomes more potent the more you've been drinking.
+The meta-fantasy: being a strategic drinker who knows when to cleanse.
+
+EFFECT — OrangeDrankEffect (immediate, no persistent buff):
+  On drink:
+    1. Read engine.pending_hangover_stacks (accumulated but not yet applied).
+       For each pending hangover stack, apply ONE of the following:
+         a. Heal 15 HP (flat, before CON scaling).
+         b. OR if player HP is full: gain +5 armor instead.
+       Formula: per_stack_heal = 15 if player.hp < player.max_hp else 0
+                per_stack_armor = 5 if player.hp >= player.max_hp else 0
+       Apply both simultaneously with a priority preference:
+         heal_amount = min(15 * stacks, player.max_hp - player.hp)
+         armor_amount = 5 * (stacks - heal_amount // 15)
+         (Any stacks "wasted" on a full-HP player give armor instead.)
+    2. CONSUME all pending_hangover_stacks (set to 0).
+       Those stacks are NOT applied on floor descent — they are gone.
+       The hangover is paid off with HP/armor instead of the debuff.
+    3. If pending_hangover_stacks was 0: no effect except XP.
+       Message: "The drank fizzles... drink more before coming back to this."
+
+  NOTE: This does NOT remove existing hangover debuffs already applied
+  (from a previous floor descent). It only consumes PENDING stacks.
+  The timing matters — drink it before going down stairs.
+
+STACKING BEHAVIOR:
+  Pure immediate effect. No persistent buff object. Drinking multiple Orange
+  Dranks in sequence each consumes whatever pending stacks remain.
+  First Orange clears all stacks. Second does nothing (message: fizzles).
+
+DESIGN NOTES:
+  - Tension: Do you drink more booze (piling up hangover stacks for a bigger
+    Orange Drank payoff) or play conservatively?
+  - Risk: if you forget and descend before drinking Orange Drank, the hangover
+    hits anyway and the Orange Dranks in your inventory are now useless until
+    you drink more booze on the new floor.
+  - Anti-synergy with Blue Drank: Blue Drank + Orange Drank = doubling of a
+    zero-effect drink. A trap if used wrong, very good if timed right.
+    (2x Orange Drank before a big drinking session: still 0 pending stacks.)
+  - Synergy with Chrome Handle (Meth Lab drink): Chrome Handle grants +2 CON
+    permanently and gives +2 hangover stacks. Orange Drank converts those into
+    30 HP heal + 10 armor rather than the hangover debuff.
+  - Synergy with Four Fingers of Fentanol (Meth Lab): +2 hangover stacks;
+    Orange Drank can pre-pay those before descending.
+
+ITEM DESCRIPTION LINES:
+  "Consumes all pending hangover stacks."
+  "Each stack: +15 HP (or +5 armor if full)."
+  "Drink booze first. Nonalcoholic."
+
+ENGINE FIELDS:
+  - Uses existing engine.pending_hangover_stacks (int). No new fields needed.
+
+IMPLEMENTATION NOTES:
+  - _handle_orange_drank(engine, item): read stacks, compute heal + armor,
+    apply, set pending_hangover_stacks = 0. Simple immediate logic.
+  - player.heal(amount) for HP; player.armor = min(player.max_armor, player.armor + armor) for armor.
+  - Two-branch message: stacks > 0 → show heal/armor gained; stacks == 0 → fizzle.
+  - No Effect subclass needed.
+
+
+==============================================================================
+YELLOW DRANK — "Mellow Yellow"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "yellow_drank"
+  name:     "Yellow Drank"
+  char:     "!"
+  color:    (255, 230, 40)    -- bright lemon yellow
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+Tastes like the inside of a highlighter. Yellow Drank is the DRINK QUEUE
+COMPRESSOR — it collapses all active drink buff durations into a shared pool
+and redistributes them evenly, extending the shortest buffs at the cost of
+cutting the longest ones. The meta-fantasy: a meticulous juggler who wants
+all their buffs to run out at the same time for a synchronized expiry combo.
+
+EFFECT — YellowDrankEffect (immediate):
+  On drink:
+    1. Collect all currently-active "alcohol buff" status effects on the player
+       (use the ALCOHOL_BUFF_IDS set from Chrome Handle design, or define a
+       DRINK_BUFF_IDS set here that includes both alcohol and soft_drink buffs).
+       Include: all effects whose id is in DRINK_BUFF_IDS.
+       EXCLUDE: floor-duration effects (green_drank, five_loco, alco_seltzer_tox_resist).
+       EXCLUDE: effects flagged as permanent or no-duration (four_fingers debt).
+    2. Sum all remaining durations: total = sum(e.duration for e in drink_buffs).
+    3. Count active buffs: n = len(drink_buffs).
+    4. If n < 2: no effect (can't balance a single buff). Message: fizzles.
+    5. Compute even_duration = total // n (integer division).
+    6. Set each buff's duration = even_duration.
+    7. Remainder (total % n) is awarded as bonus turns to the highest-priority
+       buff (lowest index in status_effects list).
+    8. Message: "Yellow Drank! {n} buffs synced to {even_duration}t each."
+
+  OUTCOME EXAMPLES:
+    - Red Drank (90t left) + Steel Reserve buff (10t left) + 40oz armor (30t left):
+      total = 130, n = 3, even = 43. All three synced to 43t.
+      The short Steel Reserve buff gets a big extension. Red Drank gets cut.
+    - Two identical Wizard Mind Bomb charges at 80t and 20t:
+      total = 100, even = 50. Both synced to 50t.
+    - One buff active: fizzles.
+
+STACKING BEHAVIOR:
+  Immediate effect. No persistent buff. Drinking two Yellow Dranks in sequence:
+  second one re-balances whatever state the buffs are in after the first.
+
+DESIGN NOTES:
+  - Yellow Drank rewards building many different drink buffs simultaneously.
+  - Anti-synergy: if you only have one buff active, it does nothing.
+  - Strong synergy with Red Drank: Red Drank at 200t is usually the longest
+    active buff. Yellow Drank cuts its duration down — NOT ideal to use early.
+    But if Red Drank is almost expired and you have several strong buffs at
+    low duration, Yellow Drank rescues the short ones at the cost of the dying Red.
+  - Synergy with Blue Drank: Blue Drank a drink right before Yellow Drank
+    means you have a fresh high-duration buff in the pool to equalize from.
+  - Timing puzzle: Yellow Drank is purely about knowing when to level the field.
+
+ITEM DESCRIPTION LINES:
+  "Syncs all active drink buff durations."
+  "Averages total time across all buffs."
+  "Extends short buffs; cuts long ones."
+  "Needs 2+ active buffs. Nonalcoholic."
+
+IMPLEMENTATION NOTES:
+  - DRINK_BUFF_IDS: set in effects.py of all drink buff effect ids (both
+    alcohol and soft_drink category). Starting set: {"malt_liquor", "40oz",
+    "fireball_shooter", "steel_reserve", "wizard_mind_bomb", "homemade_hennessy",
+    "mana_drink", "virulent_vodka", "five_loco", "white_gonster",
+    "dead_shot_daiquiri", "platinum_reserve", "radioactive_remy",
+    "long_island_iced_teeth", "cold_filtered_cope", "buckshot_bourbon",
+    "street_cred_spritzer", "lean_cuisine", "barrel_roll", "chrome_handle",
+    "red_drank"}. Add new entries as new drinks are designed.
+  - EXCLUDE_FROM_SYNC: {"green_drank", "five_loco", "alco_seltzer_tox_resist",
+    "four_fingers_of_fentanol"} (floor-duration or debt-carrying effects).
+  - Duration assignment: iterate over eligible effects, set .duration directly.
+  - No new Effect subclass needed; all logic in _handle_yellow_drank.
+
+
+==============================================================================
+PINK DRANK — "The Valentine's Special"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "pink_drank"
+  name:     "Pink Drank"
+  char:     "!"
+  color:    (255, 120, 180)   -- hot pink, candy-sweet
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+Comes in a can with a heart on it. Tastes like a fight outside a club.
+Pink Drank is the BUFF MIRROR — when consumed while any drink buff is active,
+it copies that buff's CURRENT state and applies it to the nearest enemy within
+sight range as a DEBUFF. The mirrored version inverts beneficial effects into
+harmful equivalents. The meta-fantasy: sharing the misery.
+
+EFFECT — PinkDrankEffect (immediate):
+  On drink:
+    1. Find all drink buffs on the player (use DRINK_BUFF_IDS excluding
+       floor-duration and permanent effects).
+    2. If no eligible buffs: no effect. Message: "Nothing to share."
+    3. If buffs present: pick the buff with the HIGHEST remaining duration.
+       (This is the "strongest" buff by time invested.)
+    4. Find the nearest enemy within player sight_radius with LOS.
+       If none: no effect on enemies, message: "No one to share the vibe with."
+    5. Apply DEBUFF MIRROR to that enemy:
+       The mirror effect is the "pink_mirrored" Effect — a generic debuff
+       that wraps a copy of the source buff's id and remaining duration.
+       The mirrored effect applies as follows (inversion rules):
+         Speed buff (modify_energy_gain +N)  → -N energy/tick debuff
+         Damage buff (+N dmg/mult)            → -N dmg flat debuff
+         Stat buff (+N stat)                  → -N to equivalent stat (if enemy has stats)
+         Armor buff (+N armor)                → +N incoming damage (pierce armor)
+         Generic buff (no numeric component)  → "shaken" status (3t, -15 speed)
+       Duration of mirror = same remaining duration as the source buff.
+    6. Message: "[Buff name] mirrored to [enemy]! They feel the vibe."
+
+  PinkMirroredEffect (on enemy):
+    id: "pink_mirrored"
+    category: debuff
+    duration: (copied from source)
+    Implementation: stores (source_id, inversion_type, magnitude) on init.
+    Applies its inversion via the appropriate lifecycle hook on the enemy entity.
+    Enemies with no stat systems ignore stat inversions (only energy/damage matter).
+
+STACKING BEHAVIOR:
+  One mirror per Pink Drank. Two Pink Dranks in sequence: the second mirrors
+  whatever buff is highest-duration at the moment of the second drink.
+  (If the first Pink Drank is consumed while Red Drank is active, the second
+  might mirror a different buff if Red Drank is now the copied one for expiry.)
+
+DESIGN NOTES:
+  - Pink Drank rewards having a diverse buff stack. You choose your strongest
+    buff and impose a mirrored version of it on an enemy.
+  - Powerful combo: Red Drank (200t) active → Pink Drank → nearest enemy gets
+    a 200t debuff. In practice, Red Drank has no numeric component (no speed or
+    damage value) → enemy gets "shaken" for 200 turns. Very long CC.
+  - Interesting combo: 40oz (armor buff) → Pink Drank → enemy takes +armor bonus
+    as pierce. The more armor you're enjoying, the harder you hit them back.
+  - LOS check matters: you need an enemy in sight. Incentivizes aggressive positioning.
+  - Blue Drank 2x: the handler fires twice, potentially mirroring two different
+    buffs to the same enemy (or two enemies if the first is killed... but it's
+    not killed, just debuffed).
+
+ITEM DESCRIPTION LINES:
+  "Mirrors your highest-duration drink buff"
+  "to the nearest visible enemy as a debuff."
+  "Speed/dmg/armor inverted. Nonalcoholic."
+
+IMPLEMENTATION NOTES:
+  - PinkMirroredEffect: generic debuff with stored tuple (inversion_type, magnitude, duration).
+    inversion_type: "speed" | "damage" | "armor_pierce" | "shaken".
+    apply() hook: add the debuff modifier to the enemy entity.
+    expire() hook: remove the modifier.
+    For enemies (non-player entities), modifiers apply via:
+      - speed: entity._speed_modifier -= magnitude (new field, checked in ai.py energy tick)
+      - damage: entity.base_stats["power"] -= magnitude (temporary, restored on expire)
+      - shaken: call apply_effect(entity, "intimidated") or custom shaken effect
+  - Source buff mapping (effects.py lookup dict):
+    DRINK_BUFF_INVERSION = {
+        "40oz":              ("armor_pierce", lambda e: e.armor_bonus if hasattr(e, 'armor_bonus') else 3),
+        "malt_liquor":       ("damage", 3),
+        "wizard_mind_bomb":  ("shaken", 0),
+        "homemade_hennessy": ("shaken", 0),
+        "dead_shot_daiquiri":("damage", 5),
+        "lean_cuisine":      ("speed", 20),
+        "barrel_roll":       ("speed", 15),
+        "chrome_handle":     ("shaken", 0),
+        # etc — add entries as drinks are finalized
+    }
+    If source_id not in mapping: default to shaken.
+  - Nearest LOS enemy: iterate engine.entities, filter alive + enemy_type set,
+    check tcod LOS from player to entity position, sort by Chebyshev distance.
+
+
+==============================================================================
+WHITE DRANK — "The Blank Check"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "white_drank"
+  name:     "White Drank"
+  char:     "!"
+  color:    (240, 240, 255)   -- near-white, ghostly pale
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+Comes in a clear cup with no label. Looks like water. Tastes like nothing.
+White Drank is the BLANK SLATE — it wipes ALL currently active drink buffs
+off the player and converts each wiped buff's remaining duration into flat
+permanent stat points. The meta-fantasy: cashing out your buffs before they
+expire, converting temporary power into permanent legacy.
+
+EFFECT — WhiteDrankEffect (immediate):
+  On drink:
+    1. Collect all eligible drink buffs on the player (use DRINK_BUFF_IDS).
+       Exclude floor-duration effects (green_drank, etc.).
+       Include Red Drank if active.
+    2. For each collected buff:
+       a. Record remaining duration.
+       b. Call eff.expire(player, engine) to trigger normal expiry cleanup.
+       c. Remove eff from player.status_effects.
+    3. Compute cash_out_value: sum of all removed durations.
+    4. Convert cash_out_value to stat points using the conversion table:
+         every 50 duration → +1 to a RANDOM eligible stat
+         (eligible stats: CON, STR, TOL, STS, BKS — no Swagger)
+         Minimum 0 stat points (if total duration < 50, nothing).
+         Maximum: 6 stat points per drink (cap to prevent absurd one-drink wins).
+         capped_value = min(cash_out_value, 300) -- cap the pool at 300 duration equivalent
+         stat_points = capped_value // 50
+    5. Award stat_points as PERMANENT stat increases:
+         for each point: pick random eligible stat, add 1 to _base[stat].
+         Same as a mutation-granted stat (permanent, shown on char sheet).
+    6. Message: "White Drank! Cashed out {n} buffs for +{stat_points} permanent stat!"
+
+  EDGE CASES:
+    - No active buffs: no effect except XP. Message: fizzles.
+    - Blue Drank calling this twice: second call finds no remaining buffs to wipe
+      (they were all removed on the first call). Nets +0 on the second call.
+      (This makes Blue Drank + White Drank less broken — only one cash-out.)
+    - Red Drank active when White Drank is drunk: Red Drank IS in the eligible
+      set. It gets wiped. The Red Drank free-action status is therefore also
+      consumed (the free-action benefit does apply to this White Drank).
+      This is a meaningful tradeoff — cash out your Red Drank for stat points,
+      but lose the remaining duration.
+
+DESIGN NOTES:
+  - White Drank is the "exit strategy" of a big drinking build. The dream is:
+    pop Red Drank, stack 4-5 buffs using the free actions, then White Drank at
+    peak saturation for 5-6 permanent stat points in one turn.
+  - Powerful but requires setup: you need to accumulate MANY buffs first.
+    On its own (no other buffs active) it does literally nothing.
+  - Creates a deliberate BUILD CYCLE: drink to stack buffs → White Drank to
+    convert them → repeat on next floor for more permanent stat gain.
+  - Balance: at 6 stat points per drink maximum, and one drink per loot pool,
+    this is equivalent to ~3 mutation tiers of stat gain per floor. Reasonable.
+  - Anti-synergy with Yellow Drank: Yellow Drank wants buffs to last equally;
+    White Drank wants buffs with any duration to cash out. They are not
+    sequential — use one or the other per session.
+  - Purple Drank replay: Purple Drank replays White Drank = wipes the now-
+    refreshed buffs (but you have fewer since White Drank just wiped them).
+    Net: two wipes for effectively one cash-out. Minimal benefit from replay.
+
+ITEM DESCRIPTION LINES:
+  "Wipes ALL active drink buffs."
+  "Each 50 turns of duration = +1 perm stat."
+  "Max +6 stats per drink. Nonalcoholic."
+  "Useless without active buffs."
+
+IMPLEMENTATION NOTES:
+  - _handle_white_drank: collect eligible effects, expire + remove each,
+    sum durations, floor-divide by 50, cap at 6, award stat points.
+  - Stat award: import random; stat = random.choice(["constitution",
+    "strength", "tolerance", "street_smarts", "book_smarts"]);
+    engine.player_stats._base[stat] += 1. Repeat for each point.
+  - Update max_hp if CON was raised: engine.player.max_hp = 30 + engine.player_stats.effective_constitution * 10.
+  - Display each stat grant as a separate message line for drama:
+    "+1 Strength! +1 Constitution!" etc.
+  - No Effect subclass needed; all logic in _handle_white_drank.
+
+
+==============================================================================
+GREY DRANK — "The Fog Machine"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "grey_drank"
+  name:     "Grey Drank"
+  char:     "!"
+  color:    (160, 160, 175)   -- muted steel grey, hazy
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+Poured from a thermos. Looks like diner coffee that gave up. Grey Drank is the
+DURATION SAVER — it freezes the tick-down timers on all active drink buffs for
+a short window, buying time to drink more before buffs expire. The meta-fantasy:
+hitting pause on your own buzz.
+
+EFFECT — GreyDrankEffect (persistent buff):
+  id: "grey_drank"
+  category: buff
+  duration: 30 turns (the freeze window)
+  stacks: no (reapply extends duration to max(existing, 30))
+
+  modify_energy_gain hook: none (player still moves normally)
+
+  FREEZE MECHANIC:
+    While grey_drank buff is active: the tick() method of ALL other drink buff
+    effects on the player does NOT decrement their duration counter.
+    Implementation approach:
+      Option A (preferred): In engine._run_energy_loop's effect tick phase,
+        before calling eff.tick(entity, engine), check if grey_drank is active.
+        If yes, and eff.id is in DRINK_BUFF_IDS, skip the tick() call for that eff.
+        (The grey_drank effect itself still ticks normally — it counts down.)
+      Option B: Each drink buff's tick() checks for grey_drank and returns early.
+        Less preferred (requires touching all drink buff classes).
+    Option A is cleaner: one check in the engine loop guards all drink buffs.
+
+  On expire: resume normal ticking. No cleanup needed; tick suppression ends.
+
+STACKING BEHAVIOR:
+  Single instance. On reapply: extend duration = max(existing, 30).
+  Two Grey Dranks in sequence: the second extends the freeze by at most 30t
+  if the first is nearly expired. If well-timed, two Grey Dranks can freeze
+  buffs for up to 60 turns total.
+
+DESIGN NOTES:
+  - Grey Drank is a panic button. You have 5 buffs with 10t left and no new
+    drinks in inventory. Pop Grey Drank: 30t to find a replacement.
+  - Combined with Red Drank (free drink actions): pop Grey Drank under Red Drank
+    to freeze everything while you chug your entire inventory.
+  - Does NOT freeze Green Drank or floor-duration effects (those don't tick down
+    anyway). Does freeze Red Drank, which means its 200t is paused while grey
+    drank is active. The freeze window IS included in Red Drank's duration budget.
+  - Anti-synergy: Grey Drank is a "preserve what you have" tool. If you've been
+    using White Drank to cash out, there's nothing left to freeze.
+  - Blue Drank interaction: Blue Drank doubles the handler, so the grey_drank
+    effect duration doubles (60t freeze instead of 30t). Very strong.
+
+ITEM DESCRIPTION LINES:
+  "Freezes all drink buff timers for 30 turns."
+  "Drink more before they expire."
+  "Blue Drank doubles the freeze window."
+  "Nonalcoholic."
+
+IMPLEMENTATION NOTES:
+  - GreyDrankEffect: @register class with id="grey_drank", duration=30.
+    No custom hooks needed — the freeze mechanic lives in the engine tick loop.
+  - Engine change: _run_energy_loop (or wherever effects are ticked) gets:
+      grey_freeze = any(getattr(e, 'id', '') == 'grey_drank' for e in entity.status_effects)
+      if grey_freeze and eff.id in DRINK_BUFF_IDS:
+          pass  # skip tick — duration frozen
+      else:
+          eff.tick(entity, engine)
+  - Red Drank freeze: Red Drank's id IS in DRINK_BUFF_IDS, so its timer also
+    freezes. This is intentional and adds a powerful combo ceiling.
+  - Display: "Grey Drank (30)" in status bar, counting down. The frozen buffs
+    all show their frozen duration (not decrementing — player can verify it's working).
+
+
+==============================================================================
+BLACK DRANK — "The Blackout"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "black_drank"
+  name:     "Black Drank"
+  char:     "!"
+  color:    (40, 20, 60)      -- near-black deep purple, ominous
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+The bottle is unlabeled and slightly warm. Nobody sells this — it just appears.
+Black Drank is the ROULETTE WHEEL of the drink system: it randomly selects one
+consumable from the game's drink pool, applies that drink's effect immediately
+WITHOUT adding it to inventory or consuming one of your items, and awards double
+XP. You don't choose. You don't know what you're getting. The meta-fantasy: all
+in, no looking back.
+
+EFFECT — BlackDrankEffect (immediate):
+  On drink:
+    1. Build the current zone's drink pool: all drink item_ids from loot.py's
+       drink loot table for the player's current zone (crack_den or meth_lab),
+       INCLUDING alcoholic drinks. Exclude Black Drank itself (no recursion).
+       Exclude other colored dranks (they have no direct effects on their own
+       without the meta context — exclude purple, blue, red, green, orange,
+       yellow, pink, white, grey, black, gold, silver to keep it sane).
+    2. Pick one item_id at random (uniform weight).
+    3. Create a temporary "ghost" item entity with that item_id's ITEM_DEF.
+    4. Trigger that drink's full effect handler as if the player drank it:
+         If alcohol: call _handle_alcohol(engine, ghost_item, drink_id)
+         If soft_drink: call the appropriate _handle_[color]_drank(engine, ghost_item)
+       All normal effects apply. If it's alcoholic: +1 hangover stack added normally.
+    5. Message: "BLACKOUT! You drank the [rolled drink name]... probably."
+    6. Award 200 Drinking XP (double, for the risk taken).
+
+  ON BLUE DRANK INTERACTION:
+    Blue Drank calls the handler twice. Each call picks a SEPARATE random drink.
+    You could get two different drinks from the roulette. Both apply fully.
+    (This is the highest-variance combo in the whole drink system.)
+
+  ON PURPLE DRANK REPLAY:
+    Purple Drank records engine.last_drink_id = "black_drank" and replays it.
+    Replay picks a NEW random drink. You don't get the same one twice.
+    Effectively: Purple Drank + Black Drank = two random drinks total.
+
+STACKING BEHAVIOR:
+  Immediate. No persistent effect.
+
+DESIGN NOTES:
+  - Black Drank is the chaos option. The expected value is approximately one
+    random Crack Den or Meth Lab drink. The variance is extreme.
+  - High-roll: lands on Chrome Handle or Platinum Reserve. Free.
+  - Low-roll: lands on a hangover-heavy drink like Four Fingers of Fentanol.
+    The hangover costs are NOT mitigated; you take the full hangover stack.
+  - Skill mastery hook: at Drinking L3+ (or a specific perk), Black Drank could
+    show the player 2 options to choose from (design hook for future perk).
+  - Blue Drank combo is EXTREMELY high variance — two random drinks, potentially
+    including alcoholic ones. Each adds hangover stacks if applicable.
+    This is the "galaxy brain" combo: Blue Drank x8 + Black Drank = 8 random drinks.
+  - Does NOT recursively trigger other meta-dranks: if Black Drank rolls purple,
+    it resolves purple's handler but there's nothing useful to copy (last drink
+    recorded as "black_drank", ghost entity is temporary — the add-to-inventory
+    step of Purple Drank creates a new Black Drank in inventory, which IS live).
+    Cap: if rolled drink is itself a drank (any color), resolve its full effect
+    normally. Recursion is bounded because colored dranks have immediate effects.
+
+ITEM DESCRIPTION LINES:
+  "Drinks a RANDOM drink from the loot pool."
+  "Alcoholic drinks add hangover normally."
+  "Double Drinking XP for the chaos."
+  "Blue Drank = two random drinks. Nonalcoholic."
+
+IMPLEMENTATION NOTES:
+  - _handle_black_drank: import loot.py's ZONE_DRINK_TABLES (or equivalent),
+    filter to current zone, exclude black_drank and other meta-dranks,
+    pick random item_id using zone weights, create ghost entity, dispatch to
+    _handle_alcohol or _handle_[color]_drank depending on the item's use_effect type.
+  - Ghost entity: Entity(x=-1, y=-1, entity_type="item", item_id=item_id,
+    name=ITEM_DEFS[item_id]["name"], color=..., char=..., alive=False).
+    The entity just needs name + item_id for message display; it's never placed.
+  - Dispatch: use the same logic as inventory_mgr.py's effect handling switch,
+    but call internal handlers directly from _handle_black_drank.
+  - 200 XP: override the default 100 XP for this drink only.
+  - Recursion guard: if rolled drink is another meta-drank, still resolve it
+    normally (the recursion terminates quickly since meta-dranks are immediate).
+
+
+==============================================================================
+GOLD DRANK — "Liquid Legacy"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "gold_drank"
+  name:     "Gold Drank"
+  char:     "!"
+  color:    (255, 200, 40)    -- rich metallic gold
+  zones:    ["crack_den"]
+  value:    40                -- slightly rarer / higher value than standard
+
+CONCEPT:
+Comes in a chalice that someone found in a dumpster. The surface shimmers.
+Gold Drank is the FLOOR LEGACY drink — when consumed, it records the current
+state of your strongest active drink buff and carries it forward to the NEXT
+floor, reapplying it at full recorded duration the moment you descend.
+The meta-fantasy: something from this floor matters on the next one.
+
+EFFECT — GoldDrankEffect (immediate + engine state):
+  On drink:
+    1. Find the drink buff with the HIGHEST remaining duration currently active
+       (same eligible set as White Drank / Yellow Drank: DRINK_BUFF_IDS, exclude
+       floor-duration and permanent effects).
+    2. If none: no effect except XP. Message: "Nothing to carry forward."
+    3. Store on engine: engine._gold_drank_carry = (buff_id, current_duration)
+       where current_duration = the buff's remaining duration at drink time.
+       If engine._gold_drank_carry already has a value (previous Gold Drank this
+       floor that wasn't cashed): OVERWRITE with the new value (new buff wins).
+    4. Message: "Gold Drank! [Buff name] ({duration}t) will carry to next floor."
+    5. The buff on the player continues normally — Gold Drank does NOT remove it.
+       It's a photograph of the buff's current state, not a transfer.
+
+  ON FLOOR DESCENT (engine._descend_floor):
+    After clearing floor-duration effects (green_drank etc.):
+      If engine._gold_drank_carry is set:
+        carry_id, carry_duration = engine._gold_drank_carry
+        Apply the buff: apply_effect(player, carry_id) with duration=carry_duration.
+        Clear engine._gold_drank_carry = None.
+        Message: "Gold Drank legacy! [{Buff name}] revives ({carry_duration}t)."
+
+  ON PURPLE DRANK REPLAY:
+    Replaying Gold Drank: records ANOTHER buff snapshot (potentially overwriting
+    the first). The last recorded buff (by time of replay) is what carries forward.
+    With Blue Drank (2x calls): records two snapshots, second overwrites first.
+    No way to carry multiple buffs from a single Gold Drank.
+
+STACKING BEHAVIOR:
+  Only one carry slot. Repeated Gold Dranks overwrite. No stacking.
+
+DESIGN NOTES:
+  - Gold Drank rewards planning around floor transitions. If you know you're
+    about to descend, Gold Drank captures your best buff and ensures it survives.
+  - Strong synergy with Red Drank: Red Drank (200t) carried to next floor means
+    a free-drink session on the very first turn of a new floor. Massive advantage.
+  - Strong synergy with Chrome Handle: carry the amplifier forward, then reload
+    your drink buffs on the new floor with the amplifier already running.
+  - Counterplay: Green Drank and floor-duration effects are EXCLUDED from carry
+    (they'd just be cleared on descent anyway). Gold Drank specifically captures
+    the timed buffs that would normally expire mid-floor.
+  - Risk: if you pick up Gold Drank mid-floor and drink it immediately, the
+    carried buff arrives on the NEXT floor fresh. But if your big buff expires
+    BEFORE you descend... the carry slot holds a dead buff id. On floor descent,
+    apply_effect would apply a fresh instance at (carry_duration) turns.
+    This is intentional: Gold Drank captures a SNAPSHOT, not a live reference.
+    If the buff expired before descending, the snapshot still reapplies at
+    the recorded duration. This makes Gold Drank MORE powerful if you drink it
+    and then descend quickly.
+
+ITEM DESCRIPTION LINES:
+  "Captures your highest-duration drink buff."
+  "On next floor descent: reapplies it at"
+  "full captured duration. Nonalcoholic."
+  "One carry slot. Overwritten by reuse."
+
+ENGINE FIELDS:
+  engine._gold_drank_carry: tuple[str, int] | None = None
+  (Reset to None on game over; persists across floor transitions until consumed.)
+
+IMPLEMENTATION NOTES:
+  - _handle_gold_drank: find max-duration eligible buff, store tuple.
+  - _descend_floor hook: check _gold_drank_carry before clearing floor effects;
+    apply the effect AFTER descent completes so it starts fresh on new floor.
+  - apply_effect(player, carry_id, duration=carry_duration): the carry_id must
+    be a valid @register effect id. Since we only store ids from DRINK_BUFF_IDS,
+    all entries are valid @register classes.
+
+
+==============================================================================
+SILVER DRANK — "The Dividend"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "silver_drank"
+  name:     "Silver Drank"
+  char:     "!"
+  color:    (200, 200, 220)   -- cool metallic silver, shinier than grey
+  zones:    ["crack_den"]
+  value:    30
+
+CONCEPT:
+Comes in a slim can with no brand name — just a silver bar logo. Corporate.
+Silver Drank is the INVESTMENT drink: it does nothing on its own, but it
+tracks how many total drink stacks/buffs the player accumulates from that
+point forward and, when its duration expires, pays out a lump sum of effect
+based on what was invested during its runtime.
+
+EFFECT — SilverDrankEffect (persistent buff):
+  id: "silver_drank"
+  category: buff
+  duration: 200 turns
+  stacks: no (reapply extends duration; only one instance)
+
+  While active:
+    - Tracks a counter: self._drinks_consumed: int = 0
+    - Every time the player drinks a drink (ANY type — alcohol, soft_drink,
+      including other meta-dranks): increment self._drinks_consumed by 1.
+      Implementation: on_drink hook in SilverDrankEffect (new lifecycle hook)
+        or: inventory_mgr.py's drink dispatch increments the counter if
+        silver_drank effect is active. (Simpler: check in the dispatch code.)
+
+  On expire (duration hits 0):
+    n = self._drinks_consumed
+    Pay out based on n:
+      n == 0:  nothing. "The investment dried up."
+      n == 1:  +10 HP heal. "Micro-dividend."
+      n == 2:  +25 HP heal + restore 5 armor.
+      n == 3:  +50 HP heal + restore 10 armor + clear 1 debuff.
+      n == 4:  +75 HP + 15 armor + 1 debuff clear + +20 energy.
+      n == 5:  +100 HP + 25 armor + 2 debuff clears + +50 energy.
+      n >= 6:  +100 HP + 25 armor + 2 debuffs + +50 energy + 1 random permanent stat.
+    Scales are fixed tiers (not linear) — the table rewards consistent drinking
+    over 200 turns.
+
+  ON PREMATURE EXPIRY (floor descent — Silver Drank is NOT floor-duration,
+  but if the player descends while it's active):
+    Silver Drank DOES survive floor transitions (it is a timed buff, not floor-
+    duration flagged). Its counter carries over. This is intentional.
+    A strategic player drinks Silver Drank early, spends two floors drinking,
+    then watches it pay out on the third floor.
+
+STACKING BEHAVIOR:
+  Single instance only. Reapply extends duration by 100 (not full reset).
+  Reapply also does NOT reset the counter — accumulated drinks carry forward.
+  So two Silver Dranks: first extends duration to max(remaining + 100, 200),
+  keeps the count. Very strong if you can sustain long drinking runs.
+
+DESIGN NOTES:
+  - Silver Drank rewards sustained drinking over a long time horizon.
+  - The 200-turn window is roughly one full floor's worth of play (maybe two
+    if the player is careful). Getting n >= 6 requires drinking 6 separate
+    drinks during that window — achievable with Red Drank (free drink actions).
+  - Meta combo: Red Drank + Silver Drank active. Use Red Drank's free drink
+    window to chug 6 drinks. Silver Drank's counter hits 6+. 200 turns later:
+    full payout including a permanent stat.
+  - Blue Drank interaction: Blue Drank calls the handler twice. Each call
+    triggers the on_drink hook. Blue Drank adds 2 to the counter, not 1.
+    A Blue Drank with stacks=3 (8x handler calls) adds 8 to the counter.
+    This is intentional — Blue Drank is a drink, and Silver Drank counts it.
+  - Anti-synergy with White Drank: White Drank wipes all buffs including
+    Silver Drank. Cashing out White Drank while Silver Drank has 5 drinks
+    counted means losing the Silver Drank payout entirely.
+
+ITEM DESCRIPTION LINES:
+  "200t buff. Counts drinks consumed."
+  "On expire: pays out based on count."
+  "6+ drinks: max payout + perm stat."
+  "Survives floor transitions. Nonalcoholic."
+
+IMPLEMENTATION NOTES:
+  - SilverDrankEffect: @register class, duration=200, self._drinks_consumed=0.
+  - Drink counter increment: in inventory_mgr.py's drink dispatch (BOTH the
+    soft_drink and alcohol branches), after resolving the drink effect, add:
+      silver = next((e for e in engine.player.status_effects
+                     if getattr(e, 'id', '') == 'silver_drank'), None)
+      if silver:
+          silver._drinks_consumed += 1
+  - expire() method: lookup tier from _drinks_consumed, apply payouts in order.
+  - Payout healing: engine.player.heal(hp_amount).
+  - Payout armor: engine.player.armor = min(engine.player.max_armor, engine.player.armor + armor).
+  - Payout debuff clear: same as Green Drank cleanse (pick random debuff, remove it).
+  - Payout energy: engine.player.energy += energy_amount.
+  - Payout stat: engine.player_stats._base[random_stat] += 1.
+  - Reapply: existing.duration += 100; do NOT reset counter.
+    The extend_cap: max duration ever = 400 (two reapplies).
+
+
+==============================================================================
+BROWN DRANK — "The Ketchup Packet"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "brown_drank"
+  name:     "Brown Drank"
+  char:     "!"
+  color:    (140, 80, 30)     -- murky brown, questionable
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+Technically soup. Or possibly a gravy mix. Brown Drank is the DRINK DOWNGRADE —
+it strips exactly ONE drink buff from the player (the one with the shortest
+remaining duration, i.e., the soonest-to-expire), completely removes it, and
+replaces it with a new randomly-selected drink from the current zone's pool.
+The meta-fantasy: forced reroll on your worst buff.
+
+EFFECT — BrownDrankEffect (immediate):
+  On drink:
+    1. Find all eligible drink buffs (DRINK_BUFF_IDS, exclude floor-duration).
+    2. If none: no effect. "Brown Drank fizzles. Nothing to reroll."
+    3. Select the buff with the LOWEST remaining duration (the dying one).
+    4. Force-expire it: call eff.expire(player, engine), remove from effects list.
+    5. Pick a random replacement from the current zone's drink pool (same logic
+       as Black Drank: ZONE_DRINK_TABLES filtered to current zone, exclude meta-dranks).
+    6. Apply the replacement drink's effect (full effect, as if consumed normally).
+       If replacement is alcoholic: +1 hangover stack applies.
+    7. Message: "Brown Drank! Rerolled [old buff] → [new drink name]."
+
+  EDGE CASE — PURPLE DRANK REPLAY:
+    Replaying Brown Drank rerolls the new shortest-duration buff
+    (whatever is shortest after the first Brown Drank resolved).
+    Two rerolls from one Blue Drank + Brown Drank combination.
+
+STACKING BEHAVIOR:
+  Immediate. No persistent effect.
+
+DESIGN NOTES:
+  - Brown Drank is the "cut your losses" drink. If you have a dying Steel Reserve
+    buff with 5t left, Brown Drank expires it cleanly and gives you a fresh
+    replacement instead of waiting 5 turns for natural expiry.
+  - Risk: the replacement is random. You could get something worse.
+    This is intentional — it's a reroll, not an upgrade.
+  - Synergy with Yellow Drank: use Yellow Drank to equalize all buff durations,
+    then Brown Drank's "lowest duration" selection becomes random (they're all equal).
+    Combined: Brown Drank randomly rerolls any of your buffs. Wild.
+  - Anti-synergy with Gold Drank: if your longest buff was captured by Gold Drank
+    and then expires, Brown Drank would have targeted the correct dying buff anyway.
+    But if you accidentally Brown Drank your Gold-Drank-captured buff to reroll it,
+    the Gold Drank carry slot still has the OLD buff recorded (the snapshot
+    persists even if the original buff was force-expired). Carries the ghost.
+  - Interesting use: intentionally stack a weak buff (e.g., drink a very old 40oz
+    with 2t left), then Brown Drank to reroll it for a random chance at something
+    better. Low-investment reroll.
+
+ITEM DESCRIPTION LINES:
+  "Force-expires your shortest drink buff."
+  "Immediately applies a random replacement."
+  "Risk: replacement is random. Nonalcoholic."
+
+IMPLEMENTATION NOTES:
+  - _handle_brown_drank: same pool construction as Black Drank.
+    Force-expire the shortest buff: min(eligible_buffs, key=lambda e: e.duration).
+    Call eff.expire(player, engine); remove from player.status_effects.
+    Then dispatch the replacement drink the same way Black Drank dispatches.
+  - Minimum viable implementation: no new Effect subclass needed.
+  - Message construction: record the old buff's display_name before expiring it.
+
+
+==============================================================================
+CLEAR DRANK — "Off-Brand Sparkling Water"
+==============================================================================
+
+ITEM_DEF:
+  item_id:  "clear_drank"
+  name:     "Clear Drank"
+  char:     "!"
+  color:    (220, 240, 255)   -- barely-there pale blue, almost invisible
+  zones:    ["crack_den"]
+  value:    25
+
+CONCEPT:
+A generic sparkling water with a generic label. It is the most boring thing in
+the game. It also might be the most useful. Clear Drank is the HANGOVER ABSORBER
+— when consumed WITH active drink buffs, it instantly applies the hangover stacks
+that would be waiting for the NEXT floor RIGHT NOW as a mini-debuff, clears the
+pending stack counter, and keeps the stack from compounding further.
+The meta-fantasy: taking the hit now instead of being surprised later.
+
+EFFECT — ClearDrankEffect (immediate):
+  On drink:
+    1. Read engine.pending_hangover_stacks.
+    2. If 0: no effect except XP. "All clear. Nothing to pre-pay."
+    3. If > 0:
+       n = pending_hangover_stacks
+       engine.pending_hangover_stacks = 0
+       Apply a TEMPORARY hangover effect right now, lasting:
+         duration = 15 * n turns (15t per absorbed stack)
+       This is a weaker hangover than a full floor hangover (which applies the
+       HangoverEffect with full debuff power). The pre-paid version:
+         a. -10 energy/tick per stack (vs full hangover's larger penalty)
+         b. Lasts 15t per stack (short)
+         c. This is implemented as a "mini_hangover" or "pre_hangover" effect.
+            It does NOT stack with or replace any existing hangover from a
+            previous floor descent. If a full HangoverEffect is already active,
+            the pre-paid mini-hangover is SKIPPED (you've already paid).
+       4. Message: "Clear Drank! Pre-paid {n} hangover stack(s).
+          Bracing for {15*n} turns of fog."
+
+  DESIGN INTENT:
+    The full hangover is applied on floor descent with full penalties (assumed
+    to include significant energy/stat debuffs). The pre-paid version is
+    intentionally lighter: 15t of mild slowdown NOW instead of the full
+    floor-start hangover later. This is worth doing if you plan to drink heavily
+    on the next floor — clearing the pending stacks means next floor's first
+    drinks won't compound the hangover further.
+
+STACKING BEHAVIOR:
+  Immediate. No persistent buff beyond the mini-hangover effect.
+
+  MiniHangoverEffect (new effect class):
+    id: "mini_hangover"
+    category: debuff
+    duration: 15 * n
+    modify_energy_gain: -10 per original stack
+    on_reapply: stacks not allowed — extend duration instead.
+    This effect is DISTINCT from the main HangoverEffect; both can coexist
+    since they represent different sources (one from pre-payment, one from
+    full floor descent).
+
+DESIGN NOTES:
+  - Clear Drank is the "responsible drinker's" tool. In a game about permadeath,
+    managing when the hangover hits matters. Landing on a new floor with a fresh
+    hangover from the last floor's binge is brutal. Clear Drank lets you pay
+    it off at a discount beforehand.
+  - Best used RIGHT before descending stairs (you've been drinking all floor,
+    pending stacks are high, you Clear Drank to pre-pay with mild slowdown
+    on your last few turns of the current floor instead of entering the new
+    floor debuffed).
+  - Anti-synergy with Orange Drank: Orange Drank converts pending stacks to HP/armor.
+    Clear Drank converts pending stacks to a temporary debuff.
+    Orange Drank is the "win" version; Clear Drank is the "controlled loss" version.
+    Using both in sequence: Orange Drank first (clears stacks for HP) = Clear Drank
+    then does nothing. Clear Drank first = Orange Drank then does nothing.
+    First one always wins; the second fizzles. Player chooses their preferred trade.
+  - Blue Drank: running Clear Drank twice: second call finds 0 pending stacks → fizzles.
+    No benefit from doubling Clear Drank.
+
+ITEM DESCRIPTION LINES:
+  "Pre-pays all pending hangover stacks NOW."
+  "Each stack: -10 energy/tick for 15 turns."
+  "Clears the pending counter. Nonalcoholic."
+  "First one wins vs. Orange Drank."
+
+IMPLEMENTATION NOTES:
+  - MiniHangoverEffect: @register class, category="debuff", modify_energy_gain
+    hook returning -10 * original_stacks (store stacks count on init).
+    Duration = 15 * n. on_reapply: extend duration (no double-stacking).
+  - _handle_clear_drank: read pending stacks, create MiniHangoverEffect with
+    n=pending_stacks, apply it, set pending_hangover_stacks=0.
+  - Check for existing HangoverEffect: if full HangoverEffect already active,
+    skip the mini-hangover (already in debuff territory).
+    Check: if any(getattr(e,'id','')=='hangover' for e in player.status_effects): skip.
+
+
+==============================================================================
+SUMMARY TABLE — ALL COLORED DRANKS
+==============================================================================
+
+COLOR       ITEM_ID         META ROLE                KEY MECHANIC
+------      -------         ---------                ------------
+Purple      purple_drank    Echo / Copy              Replays last drink; adds copy to inventory
+Blue        blue_drank      Multiplier               Next drink effect x2^stacks
+Red         red_drank       Mode Shift               Drinks free + doubled duration for 200t
+Green       green_drank     On-Drink Trigger         Each drink heals/cleanses (scales w/ stacks)
+Orange      orange_drank    Hangover Conversion      Converts pending hangovers to HP/armor
+Yellow      yellow_drank    Duration Sync            Averages all drink buff durations
+Pink        pink_drank      Buff Mirror              Copies your strongest buff to enemy as debuff
+White       white_drank     Cash Out                 Wipes all buffs → permanent stat points
+Grey        grey_drank      Freeze                   Pauses all drink buff timers for 30t
+Black       black_drank     Roulette                 Applies random drink from loot pool
+Gold        gold_drank      Floor Carry              Captures strongest buff; reapplies next floor
+Silver      silver_drank    Investment               Counts drinks over 200t; pays out on expire
+Brown       brown_drank     Reroll                   Force-expires worst buff; random replacement
+Clear       clear_drank     Pre-Pay                  Pays off pending hangover stacks as mild debuff now
+
+
+==============================================================================
+CROSS-DRANK INTERACTION MATRIX (Notable Combos)
+==============================================================================
+
+BEST COMBOS:
+  Blue + Orange:       Blue doubled if timed right — but two Oranges hit on 0 stacks.
+                       The TIMING is: drink lots → Blue Drank → Orange for double-clear.
+                       Result: 2x HP/armor payout from hangover stacks.
+
+  Blue + Grey:         60t freeze window instead of 30t. Best panic button in the game.
+
+  Red + Silver:        Red Drank's free drink window: chug 6 drinks. Silver counts them all.
+                       On Silver expire 200t later: max payout + perm stat.
+
+  Purple + Black:      Purple replays Black Drank → second random drink.
+                       Effectively: 2 random drinks, 3 Drinking XP events.
+
+  Gold + Red:          Capture Red Drank at high duration via Gold Drank.
+                       Next floor: Red Drank revives. Free drink session on the first turn.
+
+  Yellow + Pink:       Yellow equalizes all buff durations so Pink picks "randomly"
+                       (all are equal). More control over which buff gets mirrored.
+
+  White + big stack:   Red Drank (free actions) → stack 5 buffs in one turn → White Drank.
+                       Cash out: potentially 5+ permanent stat points from one floor.
+
+  Grey + Brown:        Grey freezes timers. Brown rerolls shortest buff.
+                       With Grey active, the "shortest" buff is genuinely random
+                       (all are frozen at different values but none are shrinking).
+                       Effectively: Brown randomly rerolls any buff.
+
+  Silver + Blue:       Blue Drank is consumed 2^stacks times. Each call increments Silver
+                       counter. One Blue Drank x8 = +8 to Silver counter in one action.
+
+INTERESTING TENSIONS:
+  Orange vs Clear:     Two hangover solutions with opposite tradeoffs.
+                       Orange: passive gain (HP). Clear: active cost (temp debuff now).
+                       First one wins; the second fizzles.
+
+  White vs Silver:     White cashes out immediately (no timing needed).
+                       Silver requires patience (200t) but can exceed White's output
+                       if you keep drinking during its window.
+                       Philosophically opposite: impatient vs patient.
+
+  Gold vs White:       Gold carries a buff forward (future value).
+                       White cashes out buffs now (present value).
+                       Using both: Gold then White wipes the remaining buffs for stats,
+                       but the Gold snapshot was already recorded. Gold carry survives White.
+
+  Grey vs Red:         Grey freezes all buff timers (including Red Drank's).
+                       Red Drank normally runs 200t. Under Grey, it's frozen.
+                       Combined: effectively extends Red Drank by the Grey freeze window.
+                       Very efficient — Grey + Red is a strong defensive combination.
+
+  Black roulette:      Blue Drank x3 + Black Drank = 8 random drinks.
+                       Some will be alcoholic. The hangover stacks accumulate.
+                       Orange Drank is a natural cleanup pair after a Black binge.
+
+
+==============================================================================
+SHARED SYSTEM ADDITIONS REQUIRED
+==============================================================================
+
+NEW ENGINE FIELDS (engine.py __init__):
+  engine._gold_drank_carry: tuple[str, int] | None = None
+    — Cleared to None on game start / on use at floor descent.
+
+NEW EFFECT CLASSES (effects.py):
+  GreyDrankEffect      id="grey_drank"    — 30t freeze buffer, category=buff
+  SilverDrankEffect    id="silver_drank"  — 200t investment counter, category=buff
+  PinkMirroredEffect   id="pink_mirrored" — generic enemy debuff, category=debuff
+  MiniHangoverEffect   id="mini_hangover" — light pre-paid hangover, category=debuff
+
+  No new effect classes needed for:
+    Orange (immediate logic only)
+    Yellow (immediate logic only)
+    White  (immediate logic only)
+    Black  (immediate logic only)
+    Gold   (immediate + engine state only)
+    Brown  (immediate logic only)
+    Clear  (creates MiniHangoverEffect, but itself is immediate)
+
+NEW ENGINE LIFECYCLE HOOK (optional, for Silver Drank counter):
+  Preferred: soft_drink/alcohol dispatch in inventory_mgr.py adds:
+    silver = [find SilverDrankEffect on player]
+    if silver: silver._drinks_consumed += 1
+  This avoids adding a new on_drink hook to the Effect base class.
+
+NEW DATA SETS (effects.py):
+  DRINK_BUFF_IDS: set[str]  — all drink buff effect ids (expand from ALCOHOL_BUFF_IDS)
+    Initial set: {"malt_liquor", "forty_oz", "fireball_shooter", "steel_reserve",
+    "wizard_mind_bomb", "homemade_hennessy", "mana_drink", "virulent_vodka",
+    "five_loco", "white_gonster", "alco_seltzer_tox_resist", "dead_shot_daiquiri",
+    "platinum_reserve", "radioactive_remy", "long_island_iced_teeth",
+    "cold_filtered_cope", "buckshot_bourbon", "street_cred_spritzer",
+    "lean_cuisine", "barrel_roll", "chrome_handle", "red_drank"}
+  EXCLUDE_FROM_SYNC: set[str]  — {"green_drank", "five_loco", "alco_seltzer_tox_resist",
+    "four_fingers_of_fentanol"}
+
+  DRINK_BUFF_INVERSION: dict[str, tuple]  — for Pink Drank mirror mapping
+
+NEW HANDLERS (xp_progression.py):
+  _handle_orange_drank(engine, item)
+  _handle_yellow_drank(engine, item)
+  _handle_pink_drank(engine, item)
+  _handle_white_drank(engine, item)
+  _handle_grey_drank(engine, item)
+  _handle_black_drank(engine, item)
+  _handle_gold_drank(engine, item)
+  _handle_silver_drank(engine, item)
+  _handle_brown_drank(engine, item)
+  _handle_clear_drank(engine, item)
+
+NEW DELEGATE METHODS (engine.py):
+  def _handle_orange_drank(self, item): return xp_progression._handle_orange_drank(self, item)
+  [... same pattern for all 10 new handlers]
+
+DISPATCH ADDITIONS (inventory_mgr.py, soft_drink block):
+  elif drink_id == "orange_drank": engine._handle_orange_drank(item)
+  elif drink_id == "yellow_drank": engine._handle_yellow_drank(item)
+  [... etc. for all new dranks]
+
+ENGINE FREEZE HOOK (engine.py or relevant tick loop):
+  In the per-entity effect tick loop (where eff.tick() is called):
+    grey_freeze = any(getattr(e,'id','')=='grey_drank' for e in entity.status_effects)
+    for eff in entity.status_effects:
+        if grey_freeze and getattr(eff, 'id', '') in DRINK_BUFF_IDS:
+            pass  # frozen — skip tick
+        else:
+            eff.tick(entity, engine)
+
+FLOOR DESCENT HOOK (engine._descend_floor or equivalent):
+  After clearing floor-duration effects, before applying hangover:
+    if engine._gold_drank_carry:
+        carry_id, carry_duration = engine._gold_drank_carry
+        from effects import apply_effect
+        apply_effect(engine.player, carry_id, duration=carry_duration)
+        engine.messages.append([("Gold Drank legacy! ", ...), ...])
+        engine._gold_drank_carry = None
+
+ITEM DESCRIPTIONS (items.py, soft_drink elif block):
+  Add elif blocks for each new drink_id with description lines.
+
+LOOT TABLE ADDITIONS (loot.py):
+  Add new dranks to crack_den drink pool with suggested weights:
+    orange_drank   — already exists (weight unchanged from placeholder)
+    yellow_drank   — weight 4
+    pink_drank     — weight 3
+    white_drank    — weight 3
+    grey_drank     — weight 4
+    black_drank    — weight 2  (rare — high variance)
+    gold_drank     — weight 3
+    silver_drank   — weight 3
+    brown_drank    — weight 4
+    clear_drank    — weight 4
+
+
+==============================================================================
+BALANCE REVIEW
+==============================================================================
+
+POWER TIER ASSESSMENT:
+
+  Tier S (requires setup, massive payoff):
+    White Drank    — up to +6 permanent stats from one drink; requires large buff stack
+    Gold Drank     — Red Drank carry to next floor is game-defining in the right build
+
+  Tier A (strong, build-enabling):
+    Silver Drank   — perm stat + full payout at n>=6; requires sustained drinking
+    Grey Drank     — panic freeze is always useful; Blue Drank combo is excellent
+    Orange Drank   — hangover conversion is straightforward and reliable
+
+  Tier B (fun, build-specific):
+    Blue Drank     — situationally powerful; combo enabler
+    Purple Drank   — (existing) combo piece
+    Red Drank      — (existing) mode shift; very strong foundation
+    Black Drank    — gambling tool; expected-value neutral but variance extreme
+    Green Drank    — (existing) on-drink cleanse; reliable
+
+  Tier C (utility, situational):
+    Yellow Drank   — synchronization tool; requires multiple buffs
+    Pink Drank     — buff mirror; requires enemy in LOS AND active buffs
+    Brown Drank    — forced reroll; useful for dying buffs, random payoff
+    Clear Drank    — hangover pre-payment; mild tradeoff; secondary to Orange
+
+  Tier D (specialist):
+    (none — all new dranks have concrete uses in specific builds)
+
+TUNING KNOBS:
+  - White Drank cap (currently +6 perm stats max):
+    Could be reduced to +4 if permanent stat accumulation feels too fast.
+    Alternatively: require at least 3 buffs active to get any payout at all.
+  - Silver Drank n>=6 perm stat:
+    Could be increased to n>=8 if the Red+Silver combo proves too accessible.
+  - Grey Drank freeze duration (30t):
+    Could be reduced to 20t if the Blue Drank 60t freeze is oppressive.
+  - Gold Drank captured duration:
+    Could cap the carried duration at min(original_duration, 100t) to prevent
+    carrying a fresh Red Drank with 200t remaining to the next floor intact.
+  - Pink Drank buff mirror:
+    The "200t shaken" case from Pink + Red should probably cap the mirror
+    duration at 50t regardless of source duration. Flag for playtesting.
+  - Black Drank rarity (weight 2): could be weight 1 if the Blue+Black combo
+    proves too accessible mid-run.

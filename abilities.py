@@ -58,6 +58,7 @@ class AbilityDef:
     execute_at: Callable = field(default=None, repr=False)  # (engine, tx, ty) -> bool; True = fired (consume charge)
     validate: Callable = field(default=None, repr=False)    # (engine, tx, ty) -> str|None; None = ok, str = error msg
     get_affected_tiles: Callable = field(default=None, repr=False)  # (engine, tx, ty) -> list[tuple[int,int]]; None = single-target default
+    rad_cost: int = 0              # Radiation consumed on cast. 0 = no rad cost.
 
 
 class AbilityInstance:
@@ -92,12 +93,34 @@ class AbilityInstance:
             return False
         return True
 
-    def consume(self):
-        """Spend one charge."""
+    def consume(self, engine=None):
+        """Spend one charge. If engine is provided and player has the muffin
+        buff, 50% chance to preserve the charge."""
+        import random as _rng
+        has_charges = self.charges_remaining > 0 or self.floor_charges_remaining > 0
+        if has_charges and engine is not None:
+            muffin = next(
+                (e for e in engine.player.status_effects
+                 if getattr(e, 'id', '') == 'muffin_buff' and not e.expired),
+                None,
+            )
+            if muffin and _rng.random() < 0.50:
+                engine.messages.append([
+                    ("Muffin Magic! ", (255, 220, 130)),
+                    ("Charge preserved!", (200, 255, 200)),
+                ])
+                return
         if self.charges_remaining > 0:
             self.charges_remaining -= 1
         if self.floor_charges_remaining > 0:
             self.floor_charges_remaining -= 1
+
+    def refund_charge(self, defn: AbilityDef):
+        """Restore one charge (e.g., free cast from high radiation)."""
+        if defn.charge_type in (ChargeType.PER_FLOOR, ChargeType.FLOOR_ONLY):
+            self.floor_charges_remaining += 1
+        elif defn.charge_type in (ChargeType.TOTAL, ChargeType.ONCE):
+            self.charges_remaining += 1
 
     def reset_floor(self, defn: AbilityDef):
         """Called when the player descends to a new floor."""
@@ -273,7 +296,7 @@ def _execute_at_pry(engine, tx: int, ty: int) -> bool:
 
 
 def _execute_at_bash(engine, tx: int, ty: int) -> bool:
-    """Bash an adjacent enemy with a blunt weapon. Always crits, knocks back 4 tiles.
+    """Bash an adjacent enemy with a beating weapon. Always crits, knocks back 4 tiles.
     Collision with another monster: both take STR damage and knockback stops.
     Collision with wall: enemy takes STR damage.
     """
@@ -282,9 +305,10 @@ def _execute_at_bash(engine, tx: int, ty: int) -> bool:
     if not weapon:
         engine.messages.append("Bash: you need a blunt weapon equipped!")
         return False
+    from items import weapon_matches_type
     wdefn = _ITEM_DEFS.get(weapon.item_id, {})
-    if wdefn.get("weapon_type") != "blunt":
-        engine.messages.append("Bash: you need a blunt weapon equipped!")
+    if not weapon_matches_type(wdefn, "beating"):
+        engine.messages.append("Bash: you need a beating weapon equipped!")
         return False
 
     target = next(
@@ -361,7 +385,7 @@ def _execute_at_bash(engine, tx: int, ty: int) -> bool:
 
 def _execute_at_force_push(engine, tx: int, ty: int) -> bool:
     """Push an adjacent enemy 3 tiles away from the player in a straight line.
-    Collisions with walls or the player deal 3 + BkSmt//2 damage to the pushed unit.
+    Collisions with walls or the player deal 3 + BKS//2 damage to the pushed unit.
     Collisions with another monster deal that damage to both.
     """
     target = next(
@@ -440,6 +464,53 @@ def _execute_at_place_fire(engine, tx: int, ty: int) -> bool:
     engine.dungeon.add_entity(fire)
     engine.messages.append("You strike your lighter — FOOM! Fire erupts!")
     return True
+
+
+def _rad_bomb_execute(engine) -> bool:
+    """Enter cursor targeting mode for Rad Bomb placement."""
+    from menu_state import MenuState
+    engine.targeting_cursor = [engine.player.x, engine.player.y]
+    engine.targeting_spell = {"type": "ability_cursor"}
+    engine.menu_state = MenuState.TARGETING
+    engine.messages.append("Rad Bomb: choose placement (range 2, Enter). [Esc] cancel.")
+    return False
+
+
+def _rad_bomb_execute_at(engine, tx: int, ty: int) -> bool:
+    """Place a rad bomb crystal at (tx, ty) if within range 2 and not blocked."""
+    from hazards import create_rad_bomb_crystal
+    px, py = engine.player.x, engine.player.y
+    dist = max(abs(tx - px), abs(ty - py))
+    if dist < 1:
+        engine.messages.append("Rad Bomb: can't place on yourself!")
+        return False
+    if dist > 2:
+        engine.messages.append("Rad Bomb: out of range! (max 2 tiles)")
+        return False
+    if engine.dungeon.is_blocked(tx, ty):
+        engine.messages.append("Rad Bomb: that tile is blocked!")
+        return False
+    bks = engine.player_stats.effective_book_smarts
+    if engine.skills.get("Nuclear Research").level >= 4:
+        damage = 20 + bks
+    else:
+        damage = 15 + bks // 2
+    crystal = create_rad_bomb_crystal(tx, ty, damage=damage)
+    engine.dungeon.add_entity(crystal)
+    engine.messages.append([
+        ("Rad Bomb placed! ", (120, 220, 80)),
+        (f"Detonates in 3 turns ({damage} dmg)", (160, 255, 120)),
+    ])
+    return True
+
+
+def _rad_bomb_validate(engine, tx: int, ty: int):
+    """Validate Rad Bomb targeting."""
+    px, py = engine.player.x, engine.player.y
+    dist = max(abs(tx - px), abs(ty - py))
+    if dist > 2:
+        return "Out of range (max 2)"
+    return None
 
 
 def _dash_execute(engine) -> bool:
@@ -521,14 +592,15 @@ def _execute_at_black_eye_slap(engine, tx: int, ty: int) -> bool:
 
 
 def _execute_at_gouge(engine, tx: int, ty: int) -> bool:
-    """Gouge an adjacent enemy. Requires stabbing weapon. Dmg = effective StSmt. Applies Gouge debuff."""
+    """Gouge an adjacent enemy. Requires stabbing weapon. Dmg = effective STS. Applies Gouge debuff."""
     from items import ITEM_DEFS as _ITEM_DEFS
     weapon = engine.equipment.get("weapon")
     if not weapon:
         engine.messages.append("Gouge: you need a stabbing weapon equipped!")
         return False
+    from items import weapon_matches_type
     wdefn = _ITEM_DEFS.get(weapon.item_id, {})
-    if wdefn.get("weapon_type") != "stabbing":
+    if not weapon_matches_type(wdefn, "stabbing"):
         engine.messages.append("Gouge: you need a stabbing weapon equipped!")
         return False
     target = next(
@@ -550,12 +622,12 @@ def _execute_at_gouge(engine, tx: int, ty: int) -> bool:
     )
     if not target.alive:
         engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
-    engine.ability_cooldowns["gouge"] = 7
+    engine.ability_cooldowns["gouge"] = 12
     return True
 
 
 def _execute_at_pickpocket(engine, tx: int, ty: int) -> bool:
-    """Pickpocket an adjacent enemy. Dmg = StSmt/2; player gains $25. 15-turn cooldown."""
+    """Pickpocket an adjacent enemy. Dmg = STS/2; player gains $25. 15-turn cooldown."""
     target = next(
         (e for e in engine.dungeon.get_entities_at(tx, ty)
          if e.entity_type == "monster" and e.alive),
@@ -612,6 +684,71 @@ def _execute_throw_bottle(engine) -> bool:
 _DRINK_BUFF_IDS = frozenset({"forty_oz", "malt_liquor", "wizard_mind_bomb", "hennessy", "peace_of_mind"})
 
 
+def _execute_double_tap(engine) -> bool:
+    """Enter gun targeting mode for Double Tap: 2 shots in a 4-tile line."""
+    return engine._enter_gun_ability_targeting({
+        "ability_id": "double_tap",
+        "name": "Double Tap",
+        "aoe_type": "line",
+        "num_shots": 2,
+        "damage": (6, 18),
+        "accuracy": 50,
+        "energy": 80,
+        "range": 4,
+        "cooldown": 0,
+    })
+
+
+def _execute_spray(engine) -> bool:
+    """Enter gun targeting mode for Spray: 5-round cone burst."""
+    return engine._enter_gun_ability_targeting({
+        "ability_id": "spray",
+        "name": "Spray",
+        "aoe_type": "cone",
+        "num_shots": 5,
+        "damage": (12, 25),
+        "accuracy": 50,
+        "energy": 120,
+        "range": 6,
+        "cooldown": 0,
+    })
+
+
+def _execute_burst(engine) -> bool:
+    """Enter gun targeting mode for Burst: 3-round line burst."""
+    return engine._enter_gun_ability_targeting({
+        "ability_id": "burst",
+        "name": "Burst",
+        "aoe_type": "line",
+        "num_shots": 3,
+        "damage": (12, 25),
+        "accuracy": 60,
+        "energy": 100,
+        "range": 6,
+        "cooldown": 0,
+    })
+
+
+def _execute_spray_and_pray(engine) -> bool:
+    """Fire 4 rapid shots at a single target. Each rolls hit independently at -15%.
+    Each shot has its own jam check. If a jam occurs, remaining shots are lost."""
+    if engine.gun_jammed:
+        engine.messages.append("Gun is jammed! Reload (Shift+R) to clear it.")
+        return False
+    return engine._enter_gun_ability_targeting({
+        "ability_id": "spray_and_pray",
+        "name": "Spray & Pray",
+        "aoe_type": "target",
+        "num_shots": 4,
+        "damage": (9, 14),
+        "accuracy": 55,           # base 70 accurate - 15 penalty
+        "energy": 50,
+        "range": 5,
+        "cooldown": 0,
+        "jam_chance": 18,         # per-shot jam check
+    })
+
+
 def _execute_slow_metabolism(engine) -> bool:
     """Double the duration of all currently active drink buffs on the player."""
     doubled = []
@@ -664,6 +801,291 @@ def _execute_at_throw_bottle(engine, tx: int, ty: int) -> bool:
     ])
     if not target.alive:
         engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
+    return True
+
+
+def _execute_pandemic(engine) -> bool:
+    """Pandemic: apply 100 toxicity to every monster on the floor."""
+    from combat import add_toxicity
+    monsters = [m for m in engine.dungeon.get_monsters() if m.alive]
+    if not monsters:
+        engine.messages.append("Pandemic: no enemies on the floor!")
+        return False
+    for m in monsters:
+        add_toxicity(engine, m, 100)
+    engine.messages.append([
+        ("Pandemic! ", (200, 180, 60)),
+        (f"100 toxicity applied to {len(monsters)} enemy(ies)!", (200, 255, 200)),
+    ])
+    return True
+
+
+def _execute_radiation_nova(engine) -> bool:
+    """Radiation Nova: AOE damage centered on player, radius 4.
+    Damage scales off player's radiation (capped at 200) + total_spell_damage.
+    Does NOT consume radiation."""
+    from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+    rad = engine.player.radiation
+    if rad <= 0:
+        engine.messages.append("Radiation Nova: you have no radiation!")
+        return False
+    capped_rad = min(rad, 200)
+    spell_dmg = engine.player_stats.total_spell_damage
+    damage = capped_rad // 2 + spell_dmg
+    px, py = engine.player.x, engine.player.y
+    radius = 4
+    hit_targets = []
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx == 0 and dy == 0:
+                continue
+            x, y = px + dx, py + dy
+            if not (0 <= x < DUNGEON_WIDTH and 0 <= y < DUNGEON_HEIGHT):
+                continue
+            # Chebyshev distance
+            if max(abs(dx), abs(dy)) > radius:
+                continue
+            for entity in engine.dungeon.get_entities_at(x, y):
+                if entity.entity_type == "monster" and entity.alive:
+                    actual = max(1, damage - entity.defense)
+                    entity.take_damage(actual)
+                    hit_targets.append((entity, actual))
+    if not hit_targets:
+        engine.messages.append(f"Radiation Nova pulses... but no enemies in range! ({damage} dmg)")
+        return True
+    engine.messages.append([
+        ("Radiation Nova! ", (160, 220, 100)),
+        (f"{len(hit_targets)} enemy(ies) hit for {damage} dmg (rad={capped_rad}, spell={spell_dmg})", (200, 255, 200)),
+    ])
+    for entity, _ in hit_targets:
+        if not entity.alive:
+            engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
+    return True
+
+
+def _execute_gas_attack(engine) -> bool:
+    """Gas Attack: apply fear to all enemies within 4 tiles of the player."""
+    from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+    from effects import apply_effect
+    px, py = engine.player.x, engine.player.y
+    radius = 4
+    feared = []
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx == 0 and dy == 0:
+                continue
+            x, y = px + dx, py + dy
+            if not (0 <= x < DUNGEON_WIDTH and 0 <= y < DUNGEON_HEIGHT):
+                continue
+            if max(abs(dx), abs(dy)) > radius:
+                continue
+            for entity in engine.dungeon.get_entities_at(x, y):
+                if entity.entity_type == "monster" and entity.alive:
+                    apply_effect(entity, engine, "fear", duration=10,
+                                 source_x=px, source_y=py)
+                    feared.append(entity)
+    if feared:
+        engine.messages.append([
+            ("Gas Attack! ", (160, 200, 80)),
+            (f"{len(feared)} enemy(ies) flee in terror!", (200, 255, 200)),
+        ])
+    else:
+        engine.messages.append("Gas Attack! ...but no enemies were nearby.")
+    return True
+
+
+def _execute_mirror_entity(engine) -> bool:
+    """Mirror Entity: create illusory copies that absorb melee hits."""
+    import math
+    from effects import apply_effect
+    bks = engine.player_stats.effective_book_smarts
+    stacks = _random.randint(2, 3) + bks // 5
+    effect = apply_effect(engine.player, engine, "mirror_entity",
+                          duration=100, stacks=stacks, silent=True)
+    if effect:
+        engine.messages.append([
+            ("Mirror Entity! ", (150, 200, 255)),
+            (f"{stacks} illusory copies surround you.", (200, 220, 255)),
+        ])
+    return True
+
+
+def _execute_fire_meatball(engine) -> bool:
+    """Fire Meatball: spawn 2 meatball summons adjacent to the player."""
+    from entity import Entity
+    from ai import get_initial_state
+    px, py = engine.player.x, engine.player.y
+    dungeon = engine.dungeon
+
+    # Find up to 2 free adjacent tiles
+    spawn_tiles = []
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]:
+        tx, ty = px + dx, py + dy
+        if not dungeon.is_blocked(tx, ty):
+            spawn_tiles.append((tx, ty))
+            if len(spawn_tiles) >= 2:
+                break
+
+    if not spawn_tiles:
+        engine.messages.append("You try to summon meatballs but there's no room! What the fuck?")
+        return False
+
+    for sx, sy in spawn_tiles:
+        meatball = Entity(
+            x=sx, y=sy,
+            char="o",
+            color=(180, 80, 40),
+            name="Meatball",
+            entity_type="monster",
+            hp=9999,
+            power=0,
+            defense=999,
+            ai_type="meatball",
+            speed=100,
+            is_summon=True,
+            summon_lifetime=20,
+        )
+        meatball.ai_state = get_initial_state("meatball")
+        meatball.dev_invincible = True  # cannot be killed
+        dungeon.add_entity(meatball)
+
+    count = len(spawn_tiles)
+    engine.messages.append([
+        ("Fire Meatball! ", (255, 140, 40)),
+        (f"{count} meatball{'s' if count > 1 else ''} launched!", (255, 200, 150)),
+    ])
+    return True
+
+
+def _execute_acid_meltdown(engine) -> bool:
+    """Activate the Acid Meltdown buff. Costs 25 toxicity."""
+    from effects import apply_effect
+    # Check if already active
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'acid_meltdown'),
+        None,
+    )
+    if existing:
+        engine.messages.append("Acid Meltdown is already active!")
+        return False
+    # Check toxicity cost
+    if engine.player.toxicity < 25:
+        engine.messages.append("Not enough toxicity! (need 25)")
+        return False
+    engine.player.toxicity -= 25
+    apply_effect(engine.player, engine, "acid_meltdown", duration=20)
+    engine.messages.append([
+        ("Acid Meltdown! ", (100, 255, 50)),
+        ("Move faster. Kills explode into acid. (20 turns)", (160, 255, 120)),
+    ])
+    return True
+
+
+def _execute_toxic_harvest(engine) -> bool:
+    """Activate the Toxic Harvest buff for 10 turns."""
+    from effects import apply_effect
+    # Check if already active — don't waste the charge
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'toxic_harvest'),
+        None,
+    )
+    if existing:
+        engine.messages.append("Toxic Harvest is already active!")
+        return False
+    apply_effect(engine.player, engine, "toxic_harvest", duration=10)
+    engine.messages.append([
+        ("Toxic Harvest! ", (80, 255, 80)),
+        ("Kills now feed your toxicity for 10 turns.", (160, 255, 160)),
+    ])
+    return True
+
+
+def _execute_white_out(engine) -> bool:
+    """White Out: gain 25 toxicity, +8 swagger / -25% damage dealt for 50 turns."""
+    from effects import apply_effect
+    from combat import add_toxicity
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'white_out'),
+        None,
+    )
+    if existing:
+        engine.messages.append("White Out is already active!")
+        return False
+    add_toxicity(engine, engine.player, 25, pierce_resistance=True)
+    apply_effect(engine.player, engine, "white_out", duration=50)
+    engine.messages.append([
+        ("White Out! ", (240, 240, 255)),
+        ("+25 toxicity. +8 Swagger, -25% damage dealt for 50 turns.", (200, 200, 240)),
+    ])
+    return True
+
+
+def _execute_crack_hallucinations(engine) -> bool:
+    """Set the crack hallucinations flag. Next consumable used grants meth equal to its value."""
+    if getattr(engine, 'crack_hallucinations_active', False):
+        engine.messages.append("Crack Hallucinations is already active!")
+        return False
+    engine.crack_hallucinations_active = True
+    engine.messages.append([
+        ("Crack Hallucinations! ", (180, 80, 255)),
+        ("Your next consumable will fuel your meth meter.", (200, 160, 255)),
+    ])
+    return True
+
+
+def _execute_emission(engine) -> bool:
+    """Set all visible enemies' radiation to the player's current radiation level."""
+    player_rad = engine.player.radiation
+    if player_rad <= 0:
+        engine.messages.append("You have no radiation to emit!")
+        return False
+    visible = engine.dungeon.visible
+    monsters = [
+        e for e in engine.dungeon.entities
+        if e.entity_type == "monster" and e.alive
+        and visible[e.y][e.x]
+    ]
+    if not monsters:
+        engine.messages.append("No enemies in sight!")
+        return False
+    count = 0
+    for m in monsters:
+        old_rad = getattr(m, 'radiation', 0)
+        if player_rad > old_rad:
+            m.radiation = player_rad
+            count += 1
+    engine.messages.append([
+        ("EMISSION! ", (120, 255, 80)),
+        (f"{count} enem{'y' if count == 1 else 'ies'} irradiated to {player_rad} rad!", (160, 255, 120)),
+    ])
+    # Glow Up XP: 5 per enemy irradiated
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Glow Up", count * 5, bksmt)
+    return True
+
+
+def _snipers_mark_execute_at(engine, tx, ty) -> bool:
+    """Apply Sniper's Mark debuff to a target monster."""
+    from effects import apply_effect
+    target = None
+    for e in engine.dungeon.get_entities_at(tx, ty):
+        if e.entity_type == "monster" and e.alive:
+            target = e
+            break
+    if target is None:
+        engine.messages.append("No target there!")
+        return False
+    # Check if already marked
+    if any(getattr(eff, 'id', '') == 'snipers_mark' for eff in target.status_effects):
+        engine.messages.append(f"{target.name} is already marked!")
+        return False
+    apply_effect(target, engine, "snipers_mark")
+    engine.messages.append([
+        ("Sniper's Mark! ", (255, 100, 100)),
+        (f"{target.name} takes 10% more damage.", (200, 200, 200)),
+    ])
+    # Track marked target for charge refund on kill
+    engine.snipers_mark_target_id = getattr(target, 'instance_id', id(target))
     return True
 
 
@@ -810,7 +1232,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "lesser_cloudkill": AbilityDef(
         ability_id="lesser_cloudkill",
         name="Lesser Cloudkill",
-        description="Target a 3×3 area (cannot include yourself). Dmg: max(1, 25 - Swagger + BkSmt/2). Applies Lesser Cloudkill: 1 dmg/turn + all stats -1 for 10 turns.",
+        description="Target a 3×3 area (cannot include yourself). Dmg: max(1, 25 - Swagger + BKS/2). Applies Lesser Cloudkill: 1 dmg/turn + all stats -1 for 10 turns.",
         char="K",
         color=(100, 200, 80),
         target_type=TargetType.SINGLE_ENEMY_LOS,
@@ -855,7 +1277,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "bash": AbilityDef(
         ability_id="bash",
         name="Bash",
-        description="Smash an adjacent enemy with a blunt weapon. Always crits. Knocks back 4 tiles; wall hit = STR dmg, enemy collision = both take STR dmg. 10-turn cooldown.",
+        description="Smash an adjacent enemy with a beating weapon. Always crits. Knocks back 4 tiles; wall hit = STR dmg, enemy collision = both take STR dmg. 10-turn cooldown.",
         char="B",
         color=(220, 120, 40),
         target_type=TargetType.ADJACENT,
@@ -897,7 +1319,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "pickpocket": AbilityDef(
         ability_id="pickpocket",
         name="Pickpocket",
-        description="Strike an adjacent enemy. Dmg: StSmt/2. Snag $25 from the target. 15-turn cooldown.",
+        description="Strike an adjacent enemy. Dmg: STS/2. Snag $25 from the target. 15-turn cooldown.",
         char="P",
         color=(255, 200, 50),
         target_type=TargetType.ADJACENT,
@@ -911,7 +1333,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "force_push": AbilityDef(
         ability_id="force_push",
         name="Force Push",
-        description="Push an adjacent enemy 3 tiles in a straight line. Collisions: 3 + BkSmt/2 dmg. 2 uses/floor, 20-turn cooldown.",
+        description="Push an adjacent enemy 3 tiles in a straight line. Collisions: 3 + BKS/2 dmg. 2 uses/floor, 20-turn cooldown.",
         char="~",
         color=(150, 100, 255),
         target_type=TargetType.ADJACENT,
@@ -964,6 +1386,46 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         execute=_dash_execute,
         execute_at=_dash_execute_at,
     ),
+    "rad_bomb": AbilityDef(
+        ability_id="rad_bomb",
+        name="Rad Bomb",
+        description="Place a crystal within 2 tiles. Detonates in 3 turns, dealing 15+BKS/2 damage in a 5x5 area (20+BKS at L4). 3 charges/floor. Costs 25 rad (free charge at 100+ rad).",
+        char="*",
+        color=(120, 220, 80),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=3,
+        rad_cost=25,
+        tags=frozenset({"spell", "aoe", "damage", "radiation", "active", "placement"}),
+        execute=_rad_bomb_execute,
+        execute_at=_rad_bomb_execute_at,
+        validate=_rad_bomb_validate,
+        is_spell=True,
+    ),
+    "snipers_mark": AbilityDef(
+        ability_id="snipers_mark",
+        name="Sniper's Mark",
+        description="Mark a visible enemy. It takes 10% more damage (rounds up). 1 charge/floor, refunded on marked target's death.",
+        char="X",
+        color=(255, 100, 100),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=1,
+        tags=frozenset({"debuff", "targeted", "active"}),
+        execute_at=_snipers_mark_execute_at,
+    ),
+    "emission": AbilityDef(
+        ability_id="emission",
+        name="Emission",
+        description="Set all visible enemies' radiation to your current radiation level. 1 use per floor.",
+        char="E",
+        color=(120, 255, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=1,
+        tags=frozenset({"radiation", "aoe", "active"}),
+        execute=_execute_emission,
+    ),
     "ignite_spell": AbilityDef(
         ability_id="ignite_spell",
         name="Ignite",
@@ -992,6 +1454,58 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         execute=_execute_quick_eat,
         is_spell=False,
     ),
+    "double_tap": AbilityDef(
+        ability_id="double_tap",
+        name="Double Tap",
+        description="Fire 2 rounds in a 4-tile line. Dmg: 6-18 per bullet. 50% accuracy. 80 energy. Requires 2+ rounds loaded.",
+        char="T",
+        color=(255, 200, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"gun", "active", "ranged"}),
+        execute=_execute_double_tap,
+        is_spell=False,
+    ),
+    "spray": AbilityDef(
+        ability_id="spray",
+        name="Spray",
+        description="Fire 5 rounds in a 30-degree cone. Dmg: 12-25 per bullet. 50% accuracy. 120 energy. Requires 5+ rounds loaded.",
+        char="S",
+        color=(200, 100, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"gun", "active", "ranged"}),
+        execute=_execute_spray,
+        is_spell=False,
+    ),
+    "burst": AbilityDef(
+        ability_id="burst",
+        name="Burst",
+        description="Fire 3 rounds in a 6-tile line. Dmg: 12-25 per bullet. 60% accuracy. 100 energy. Requires 3+ rounds loaded.",
+        char="B",
+        color=(180, 150, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"gun", "active", "ranged"}),
+        execute=_execute_burst,
+        is_spell=False,
+    ),
+    "spray_and_pray": AbilityDef(
+        ability_id="spray_and_pray",
+        name="Spray & Pray",
+        description="Fire 4 rapid shots at one target. Dmg: 9-14 per bullet. 55% accuracy. 50 energy. Each shot may jam the gun.",
+        char="P",
+        color=(90, 90, 95),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"gun", "active", "ranged"}),
+        execute=_execute_spray_and_pray,
+        is_spell=False,
+    ),
     "slow_metabolism": AbilityDef(
         ability_id="slow_metabolism",
         name="Slow Metabolism",
@@ -1003,6 +1517,123 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=2,
         tags=frozenset({"drink", "buff", "self_cast", "active"}),
         execute=_execute_slow_metabolism,
+        is_spell=False,
+    ),
+    "pandemic": AbilityDef(
+        ability_id="pandemic",
+        name="Pandemic",
+        description="Release a toxic wave across the entire floor. Applies 100 toxicity to every monster.",
+        char="P",
+        color=(200, 180, 60),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.TOTAL,
+        max_charges=0,
+        tags=frozenset({"spell", "aoe", "damage", "self_cast", "active", "toxicity"}),
+        execute=_execute_pandemic,
+        is_spell=False,
+    ),
+    "gas_attack": AbilityDef(
+        ability_id="gas_attack",
+        name="Gas Attack",
+        description="Release a noxious cloud. All enemies within 4 tiles flee in fear for 10 turns. 50% chance to break on damage.",
+        char="G",
+        color=(160, 200, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.TOTAL,
+        max_charges=0,
+        tags=frozenset({"spell", "aoe", "debuff", "self_cast", "active", "fear"}),
+        execute=_execute_gas_attack,
+        is_spell=False,
+    ),
+    "mirror_entity": AbilityDef(
+        ability_id="mirror_entity",
+        name="Mirror Entity",
+        description="Create illusory copies of yourself. Each copy can absorb one melee hit. Stacks: 2-3 + BKS/5. Lasts 100 turns.",
+        char="I",
+        color=(150, 200, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.TOTAL,
+        max_charges=0,
+        tags=frozenset({"spell", "buff", "defensive", "self_cast", "active"}),
+        execute=_execute_mirror_entity,
+        is_spell=False,
+    ),
+    "fire_meatball": AbilityDef(
+        ability_id="fire_meatball",
+        name="Fire Meatball",
+        description="Launch 2 meatball summons that chase the nearest enemy and explode on contact. 3x3 blast: 10 + BKS/2 dmg. Can hurt you!",
+        char="M",
+        color=(180, 80, 40),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.TOTAL,
+        max_charges=0,
+        tags=frozenset({"spell", "summon", "aoe", "damage", "self_cast", "active"}),
+        execute=_execute_fire_meatball,
+        is_spell=False,
+    ),
+    "radiation_nova": AbilityDef(
+        ability_id="radiation_nova",
+        name="Radiation Nova",
+        description="Emit a burst of nuclear energy. Hits all enemies within 4 tiles. Dmg: min(rad,200)/2 + spell_dmg. Does not consume radiation.",
+        char="N",
+        color=(160, 220, 100),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.TOTAL,
+        max_charges=0,
+        tags=frozenset({"spell", "aoe", "damage", "self_cast", "active", "radiation"}),
+        execute=_execute_radiation_nova,
+        is_spell=True,
+    ),
+    "acid_meltdown": AbilityDef(
+        ability_id="acid_meltdown",
+        name="Acid Meltdown",
+        description="Cost: 25 toxicity. For 20 turns, movement costs half energy and kills explode into 3x3 acid. 1/floor.",
+        char="A",
+        color=(100, 255, 50),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=1,
+        tags=frozenset({"toxicity", "buff", "self_cast", "active"}),
+        execute=_execute_acid_meltdown,
+        is_spell=False,
+    ),
+    "toxic_harvest": AbilityDef(
+        ability_id="toxic_harvest",
+        name="Toxic Harvest",
+        description="Activate: for 10 turns, any monster kill grants +5 toxicity and refreshes this buff. 1/floor.",
+        char="T",
+        color=(80, 255, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=1,
+        tags=frozenset({"toxicity", "buff", "self_cast", "active"}),
+        execute=_execute_toxic_harvest,
+        is_spell=False,
+    ),
+    "white_out": AbilityDef(
+        ability_id="white_out",
+        name="White Out",
+        description="Gain 25 toxicity. +8 Swagger, -25% damage dealt for 50 turns.",
+        char="W",
+        color=(240, 240, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=3,
+        tags=frozenset({"toxicity", "buff", "self_cast", "active"}),
+        execute=_execute_white_out,
+        is_spell=False,
+    ),
+    "crack_hallucinations": AbilityDef(
+        ability_id="crack_hallucinations",
+        name="Crack Hallucinations",
+        description="Your next consumable grants meth equal to its value, plus Meth-Head XP. 1 use per floor.",
+        char="H",
+        color=(180, 80, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=1,
+        tags=frozenset({"meth", "buff", "self_cast", "active"}),
+        execute=_execute_crack_hallucinations,
         is_spell=False,
     ),
 }

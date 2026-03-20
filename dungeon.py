@@ -6,23 +6,10 @@ import random
 import numpy as np
 import tcod
 from config import (
-    DUNGEON_WIDTH,
-    DUNGEON_HEIGHT,
     TILE_WALL,
     TILE_FLOOR,
-    ROOM_MIN_SIZE,
-    ROOM_MAX_SIZE,
-    MAX_ROOMS,
-    MAX_MONSTERS_PER_ROOM,
-    BASE_HP,
-    BASE_POWER,
-    BASE_DEFENSE,
 )
 from entity import Entity
-from items import create_item_entity
-from enemies import create_enemy, get_spawn_table, MONSTER_REGISTRY
-from loot import generate_floor_loot
-from items import STRAINS, build_item_name
 
 
 # ---------------------------------------------------------------------------
@@ -338,9 +325,10 @@ def build_mst(rooms):
 class Dungeon:
     """Represents a dungeon floor."""
 
-    def __init__(self, width, height):
+    def __init__(self, width, height, zone="crack_den"):
         self.width = width
         self.height = height
+        self.zone = zone
         self.tiles = [[TILE_WALL for _ in range(width)] for _ in range(height)]
         self.entities = []
         self.rooms = []
@@ -361,125 +349,98 @@ class Dungeon:
 
         self.room_tile_map: dict[tuple, int] = {}  # (x, y) -> room_index
 
-        self.generate()
+        from zone_generators import ZONE_GENERATORS
+        gen = ZONE_GENERATORS[zone]["generate"]
+        gen(self)
 
-    def generate(self):
-        """Place rooms randomly, then connect them all with MST corridors + extra connections."""
-        attempts = 0
-        max_attempts = MAX_ROOMS * 6
+    def _carve_wide_corridor(self, from_point, to_point, width):
+        """Carve an L-shaped corridor with a given tile width."""
+        x1, y1 = from_point
+        x2, y2 = to_point
+        half = width // 2
 
-        while len(self.rooms) < MAX_ROOMS and attempts < max_attempts:
-            attempts += 1
-            room = self._random_room()
-            if room is None:
-                continue
-            if any(room.intersects(other) for other in self.rooms):
-                continue
-            room.carve(self)
-            self.rooms.append(room)
+        if random.choice([True, False]):
+            # Horizontal first, then vertical
+            for x in range(min(x1, x2), max(x1, x2) + 1):
+                for dy in range(-half, -half + width):
+                    ny = y1 + dy
+                    if 0 <= x < self.width and 0 <= ny < self.height:
+                        self.tiles[ny][x] = TILE_FLOOR
+            for y in range(min(y1, y2), max(y1, y2) + 1):
+                for dx in range(-half, -half + width):
+                    nx = x2 + dx
+                    if 0 <= nx < self.width and 0 <= y < self.height:
+                        self.tiles[y][nx] = TILE_FLOOR
+        else:
+            # Vertical first, then horizontal
+            for y in range(min(y1, y2), max(y1, y2) + 1):
+                for dx in range(-half, -half + width):
+                    nx = x1 + dx
+                    if 0 <= nx < self.width and 0 <= y < self.height:
+                        self.tiles[y][nx] = TILE_FLOOR
+            for x in range(min(x1, x2), max(x1, x2) + 1):
+                for dy in range(-half, -half + width):
+                    ny = y2 + dy
+                    if 0 <= x < self.width and 0 <= ny < self.height:
+                        self.tiles[ny][x] = TILE_FLOOR
 
-        # Carve MST corridors (guaranteed connectivity)
-        for i, j in build_mst(self.rooms):
-            self.carve_corridor(self.rooms[i].center(), self.rooms[j].center())
+    def _place_tables(self, room):
+        """Place 0-3 rectangular tables inside a room.
+        Tables block movement but not FOV."""
+        # Skip very small rooms
+        room_w = room.x2 - room.x1
+        room_h = room.y2 - room.y1
+        if room_w < 6 or room_h < 6:
+            return
 
-        # Add extra connections for more interconnected layout
-        if len(self.rooms) > 2:
-            for _ in range(len(self.rooms) // 3):  # ~1/3 of rooms get an extra connection
-                i = random.randint(0, len(self.rooms) - 1)
-                j = random.randint(0, len(self.rooms) - 1)
-                if i != j:
-                    self.carve_corridor(self.rooms[i].center(), self.rooms[j].center())
+        num_tables = random.choices([0, 1, 2, 3], weights=[2, 4, 3, 1])[0]
 
-        # Build room tile map after all corridors are carved
-        self._build_room_tile_map()
+        for _ in range(num_tables):
+            # Table dimensions: 1-3 wide, 1-3 tall
+            tw = random.randint(1, 3)
+            th = random.randint(1, 3)
 
-    def _random_room(self):
-        """Pick a random room shape and position."""
-        shape = random.choices(
-            ["rect", "l", "u", "t", "hall", "oct", "cross", "diamond", "cavern", "pillar", "circle"],
-            weights=[  6,   4,   4,   3,      5,      3,       2,          2,          2,       2,        1],
-        )[0]
+            # Try to place with 1-tile margin from walls
+            for _attempt in range(20):
+                tx = random.randint(room.x1 + 1, room.x2 - tw - 1)
+                ty = random.randint(room.y1 + 1, room.y2 - th - 1)
 
-        lo = ROOM_MIN_SIZE
-        hi = ROOM_MAX_SIZE
+                # Check all table tiles are floor and unoccupied
+                valid = True
+                for dy in range(th):
+                    for dx in range(tw):
+                        px, py = tx + dx, ty + dy
+                        if not (0 <= px < self.width and 0 <= py < self.height):
+                            valid = False
+                            break
+                        if self.tiles[py][px] != TILE_FLOOR:
+                            valid = False
+                            break
+                        if self.is_blocked(px, py):
+                            valid = False
+                            break
+                    if not valid:
+                        break
+                if not valid:
+                    continue
 
-        if shape == "rect":
-            w = random.randint(lo, hi)
-            h = random.randint(lo, hi)
-            x = random.randint(1, self.width - w - 2)
-            y = random.randint(1, self.height - h - 2)
-            return RectRoom(x, y, w, h)
-
-        elif shape == "l":
-            w = random.randint(lo, hi)
-            h = random.randint(lo, hi)
-            x = random.randint(1, self.width - w - 2)
-            y = random.randint(1, self.height - h - 2)
-            return LRoom(x, y, x + w, y + h)
-
-        elif shape == "u":
-            w = random.randint(lo, hi)
-            h = random.randint(lo, hi)
-            x = random.randint(1, self.width - w - 2)
-            y = random.randint(1, self.height - h - 2)
-            return URoom(x, y, x + w, y + h)
-
-        elif shape == "t":
-            w = random.randint(lo + 2, hi)
-            h = random.randint(lo + 2, hi)
-            x = random.randint(1, self.width - w - 2)
-            y = random.randint(1, self.height - h - 2)
-            return TRoom(x, y, x + w, y + h)
-
-        elif shape == "hall":
-            length = random.randint(18, 32)
-            width  = random.randint(3, 5)
-            horiz  = random.choice([True, False])
-            if horiz:
-                x = random.randint(1, self.width - length - 2)
-                y = random.randint(1, self.height - width - 2)
-            else:
-                x = random.randint(1, self.width - width - 2)
-                y = random.randint(1, self.height - length - 2)
-            return HallRoom(x, y, length, width, horiz)
-
-        elif shape == "oct":
-            w = random.randint(lo, hi)
-            h = random.randint(lo, hi)
-            x = random.randint(1, self.width - w - 2)
-            y = random.randint(1, self.height - h - 2)
-            return OctRoom(x, y, w, h)
-
-        elif shape == "cross":
-            size = random.randint(lo // 2, hi // 2)
-            cx = random.randint(size + 1, self.width - size - 2)
-            cy = random.randint(size + 1, self.height - size - 2)
-            return CrossRoom(cx, cy, size)
-
-        elif shape == "diamond":
-            radius = random.randint(lo // 2, hi // 2)
-            cx = random.randint(radius + 1, self.width - radius - 2)
-            cy = random.randint(radius + 1, self.height - radius - 2)
-            return DiamondRoom(cx, cy, radius)
-
-        elif shape == "cavern":
-            size = random.randint(lo // 2, hi // 2)
-            cx = random.randint(size + 1, self.width - size - 2)
-            cy = random.randint(size + 1, self.height - size - 2)
-            return CavernRoom(cx, cy, size)
-
-        elif shape == "pillar":
-            w = random.randint(lo + 2, hi)
-            h = random.randint(lo + 2, hi)
-            x = random.randint(1, self.width - w - 2)
-            y = random.randint(1, self.height - h - 2)
-            return PillarRoom(x, y, w, h)
-
-        elif shape == "circle":
-            radius = random.randint(lo // 2, hi // 2)
-            cx = random.randint(radius + 1, self.width - radius - 2)
-            cy = random.randint(radius + 1, self.height - radius - 2)
-            return CircleRoom(cx, cy, radius)
+                # Place table entities
+                table_color = (255, 255, 255) if getattr(self, "zone", "crack_den") == "meth_lab" else (139, 119, 101)
+                for dy in range(th):
+                    for dx in range(tw):
+                        px, py = tx + dx, ty + dy
+                        table = Entity(
+                            x=px, y=py,
+                            char="\u2588",  # full block character
+                            color=table_color,
+                            name="Table",
+                            entity_type="hazard",
+                            hazard_type="table",
+                            blocks_movement=True,
+                            blocks_fov=False,
+                        )
+                        self.entities.append(table)
+                break  # placed successfully
 
     def carve_corridor(self, from_point, to_point):
         """Carve an L-shaped corridor between two points."""
@@ -524,6 +485,20 @@ class Dungeon:
                 reveals_on_sight=True,
             ))
 
+    def _spawn_staircase_for_zone(self, zone: str, floor_num: int):
+        """Conditionally spawn a staircase based on zone/floor rules."""
+        from config import get_total_floors, ZONE_ORDER
+        cumulative = 0
+        for z in ZONE_ORDER:
+            if z["key"] == zone:
+                global_floor = cumulative + floor_num
+                break
+            cumulative += z["floors"]
+        is_final_floor = (global_floor >= get_total_floors() - 1)
+        is_jerome_floor = (zone == "crack_den" and floor_num == 3)
+        if not is_final_floor and not is_jerome_floor:
+            self._spawn_staircase()
+
     def _build_room_tile_map(self):
         """Map each floor tile to the room index it belongs to."""
         self.room_tile_map = {}
@@ -535,378 +510,20 @@ class Dungeon:
         """Return the room index at (x, y), or None if in a corridor."""
         return self.room_tile_map.get((x, y))
 
-    def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None, special_rooms_spawned=None):
-        """Spawn monsters and items in rooms."""
-        self.zone = zone
-        self.entities.append(player)
+    def get_hallway_tiles(self) -> list[tuple[int, int]]:
+        """Return all walkable floor tiles that are NOT inside any room (i.e. corridor tiles)."""
+        hallway = []
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.tiles[y][x] == TILE_FLOOR and (x, y) not in self.room_tile_map:
+                    hallway.append((x, y))
+        return hallway
 
-        # Roll for special rooms and claim rooms before normal spawning
-        special_room_indices = set()
-        if special_rooms_spawned is not None:
-            special_room_indices = self._roll_special_rooms(floor_num, zone, special_rooms_spawned)
-
-        for room_idx, room in enumerate(self.rooms[1:], start=1):
-            if room_idx in special_room_indices:
-                continue  # special rooms handle their own spawns
-
-            floor_tiles = room.floor_tiles(self)
-            if not floor_tiles:
-                continue
-
-            # Zone-based monster spawning (per-floor weighted tables)
-            zone_table = get_spawn_table(zone, floor_num)
-            if zone_table:
-                enemy_types   = [t[0] for t in zone_table]
-                enemy_weights = [t[1] for t in zone_table]
-
-                # Precompute the frozenset of floor tiles for this room once,
-                # so every monster spawned here can reference it cheaply.
-                room_tile_set = frozenset(floor_tiles)
-
-                # Dynamic monster count: size-scaling + floor bonus + populated/empty gate
-                size_max = max(1, len(floor_tiles) // 10)
-                floor_bonus = floor_num // 2  # +1 at floor 3, +2 at floor 5, etc.
-                room_max = size_max + floor_bonus
-
-                # 65% of rooms are "populated", 35% are empty — creates natural pacing
-                if random.random() < 0.65:
-                    # Weighted distribution: favor 1 group, allow occasional spikes
-                    options = list(range(1, room_max + 1))
-                    # Weights peak at 1 and taper linearly: [4, 3, 2, 1, ...]
-                    weights = [max(1, room_max + 1 - i) for i in range(len(options))]
-                    n_groups = random.choices(options, weights=weights, k=1)[0]
-                else:
-                    n_groups = 0
-
-                for _ in range(n_groups):
-                    enemy_type = random.choices(enemy_types, weights=enemy_weights, k=1)[0]
-                    tmpl = MONSTER_REGISTRY[enemy_type]
-
-                    # Pick a free tile for the primary monster
-                    free = [(tx, ty) for tx, ty in floor_tiles if not self.is_blocked(tx, ty)]
-                    if not free:
-                        continue
-                    x, y = random.choice(free)
-                    monster = create_enemy(enemy_type, x, y)
-                    # Tag with spawn room so room_guard AI can detect player entry.
-                    monster.spawn_room_tiles = room_tile_set
-                    self.entities.append(monster)
-
-                    # Spawn escorts defined in the template (e.g. tweakers for drug dealer)
-                    for escort_spec in tmpl.spawn_with:
-                        escort_type  = escort_spec.type
-                        escort_count = random.randint(*escort_spec.count)
-                        for _ in range(escort_count):
-                            nearby_free = [
-                                (nx, ny) for nx, ny in floor_tiles
-                                if abs(nx - x) <= 4 and abs(ny - y) <= 4
-                                and not self.is_blocked(nx, ny)
-                            ]
-                            if nearby_free:
-                                ex, ey = random.choice(nearby_free)
-                                escort = create_enemy(escort_type, ex, ey)
-                                escort.spawn_room_tiles = room_tile_set
-                                # Mark the escort to follow the primary monster
-                                escort.leader = monster
-                                # Change from room_guard to escort AI
-                                escort.ai_type = "escort"
-                                escort.ai_state = None  # Let do_ai_turn reinit based on ai_type
-                                self.entities.append(escort)
-
-
-        # Spawn staircase first so its tile can be excluded from item/cash placement
-        if floor_num < 3:
-            self._spawn_staircase()
-
-        # Collect staircase positions to exclude from item/cash spawning
-        stair_tiles = frozenset(
-            (e.x, e.y) for e in self.entities if getattr(e, "entity_type", None) == "staircase"
-        )
-
-        # Spawn floor loot via zone-based loot system (round-robin across rooms)
-        floor_loot = generate_floor_loot(zone, floor_num, player_skills)
-        random.shuffle(floor_loot)
-        spawnable_rooms = self.rooms[1:]
-        if spawnable_rooms:
-            for i, (item_id, strain) in enumerate(floor_loot):
-                room = spawnable_rooms[i % len(spawnable_rooms)]
-                floor_tiles = room.floor_tiles(self)
-                if floor_tiles:
-                    x, y = random.choice(floor_tiles)
-                    if not self.is_blocked(x, y) and (x, y) not in stair_tiles:
-                        kwargs = create_item_entity(item_id, x, y, strain=strain)
-                        self.entities.append(Entity(**kwargs))
-
-        # Spawn cash piles: 7-10 total on the floor, 0-3 per room
-        # Amounts 1-15 with decreasing probability (weight 15 for $1, weight 1 for $15)
-        _CASH_AMOUNTS = list(range(1, 16))
-        _CASH_WEIGHTS = list(range(15, 0, -1))
-        cash_target = random.randint(7, 10)
-        cash_total = 0
-
-        for room in self.rooms[1:]:
-            if cash_total >= cash_target:
-                break
-            floor_tiles = room.floor_tiles(self)
-            if not floor_tiles:
-                continue
-            remaining = cash_target - cash_total
-            n_cash = random.randint(0, min(3, remaining))
-            for _ in range(n_cash):
-                x, y = random.choice(floor_tiles)
-                if not self.is_blocked(x, y) and (x, y) not in stair_tiles:
-                    amount = random.choices(_CASH_AMOUNTS, weights=_CASH_WEIGHTS, k=1)[0]
-                    self.entities.append(Entity(
-                        x=x, y=y,
-                        char="$",
-                        color=(255, 215, 0),
-                        name=f"${amount}",
-                        entity_type="cash",
-                        blocks_movement=False,
-                        cash_amount=amount,
-                    ))
-                    cash_total += 1
-
-    # ------------------------------------------------------------------
-    # Special rooms
-    # ------------------------------------------------------------------
-
-    # Each entry: (room_key, eligible_floors, chance)
-    SPECIAL_ROOM_DEFS = [
-        ("niglet_den",   {0, 1, 2}, 0.10),  # floors 1-3 (0-indexed), 10% chance
-        ("smoke_lounge", {1, 2, 3}, 0.10),  # floors 2-4 (0-indexed), 10% chance
-        ("jerome_room",  {3},       1.00),  # floor 4 only (0-indexed), guaranteed
-    ]
-
-    def _roll_special_rooms(self, floor_num, zone, special_rooms_spawned):
-        """Roll for special rooms on this floor. Returns set of room indices claimed."""
-        claimed = set()
-        # Need at least 3 rooms (room 0 is player spawn, need 1+ for normal + 1 for special)
-        available_indices = [i for i in range(1, len(self.rooms)) if i not in claimed]
-
-        for room_key, eligible_floors, chance in self.SPECIAL_ROOM_DEFS:
-            if room_key in special_rooms_spawned:
-                continue  # already spawned this game
-            if floor_num not in eligible_floors:
-                continue
-            if random.random() > chance:
-                continue
-            if not available_indices:
-                break
-
-            # Jerome's room needs the largest available room (many entities to fit)
-            if room_key == "jerome_room":
-                large = [i for i in available_indices
-                         if len(self.rooms[i].floor_tiles(self)) >= 20]
-                if not large:
-                    continue  # no room large enough; skip this floor
-                room_idx = max(large, key=lambda i: len(self.rooms[i].floor_tiles(self)))
-            else:
-                # Pick a room — prefer smaller rooms for niglet den, larger for smoke lounge
-                room_idx = random.choice(available_indices)
-
-            room = self.rooms[room_idx]
-            floor_tiles = room.floor_tiles(self)
-            if not floor_tiles or len(floor_tiles) < 6:
-                continue
-
-            if room_key == "niglet_den":
-                self._spawn_niglet_den(room, floor_tiles)
-            elif room_key == "smoke_lounge":
-                self._spawn_smoke_lounge(room, floor_tiles, zone)
-            elif room_key == "jerome_room":
-                self._spawn_jerome_room(room, floor_tiles)
-
-            special_rooms_spawned.add(room_key)
-            claimed.add(room_idx)
-            available_indices = [i for i in available_indices if i not in claimed]
-
-        return claimed
-
-    def _spawn_niglet_den(self, room, floor_tiles):
-        """Spawn a trap room packed with niglets. No loot — pure punishment."""
-        room_tile_set = frozenset(floor_tiles)
-        count = random.randint(5, 8)
-        for _ in range(count):
-            free = [(x, y) for x, y in floor_tiles if not self.is_blocked(x, y)]
-            if not free:
-                break
-            x, y = random.choice(free)
-            monster = create_enemy("niglet", x, y)
-            monster.spawn_room_tiles = room_tile_set
-            self.entities.append(monster)
-
-    def _spawn_smoke_lounge(self, room, floor_tiles, zone):
-        """Spawn a lounge guarded by thugs with guaranteed smoking/rolling drops."""
-        room_tile_set = frozenset(floor_tiles)
-
-        # Spawn 2-3 thugs
-        thug_count = random.randint(2, 3)
-        for _ in range(thug_count):
-            free = [(x, y) for x, y in floor_tiles if not self.is_blocked(x, y)]
-            if not free:
-                break
-            x, y = random.choice(free)
-            monster = create_enemy("thug", x, y)
-            monster.spawn_room_tiles = room_tile_set
-            self.entities.append(monster)
-
-        # Guaranteed loot drops
-        loot_list = []
-
-        # 1 grinder
-        loot_list.append(("grinder", None))
-
-        # 2-3 rolling papers
-        for _ in range(random.randint(2, 3)):
-            loot_list.append(("rolling_paper", None))
-
-        # 2-3 kush (random strains)
-        for _ in range(random.randint(2, 3)):
-            strain = random.choice(STRAINS)
-            loot_list.append(("kush", strain))
-
-        # 1-2 joints (random strains)
-        for _ in range(random.randint(1, 2)):
-            strain = random.choice(STRAINS)
-            loot_list.append(("joint", strain))
-
-        # 1-2 weed nugs (random strains)
-        for _ in range(random.randint(1, 2)):
-            strain = random.choice(STRAINS)
-            loot_list.append(("weed_nug", strain))
-
-        # 1-2 chickens (food)
-        for _ in range(random.randint(1, 2)):
-            loot_list.append(("chicken", None))
-
-        # Place loot on free tiles in the room
-        for item_id, strain in loot_list:
-            free = [(x, y) for x, y in floor_tiles if not self.is_blocked(x, y)]
-            if not free:
-                break
-            x, y = random.choice(free)
-            kwargs = create_item_entity(item_id, x, y, strain=strain)
-            self.entities.append(Entity(**kwargs))
-
-    def _spawn_jerome_room(self, room, floor_tiles):
-        """Spawn Jerome's guarded chamber on floor 4.
-
-        Layout (y-axis, top=min_y, bottom=max_y):
-          Back  (max_y row) — Jerome stands here, a door entity is placed in
-                              the wall tile just behind him.
-          Front (min_y half) — 2 Thugs + 2 Drug Dealers (each brings tweakers).
-        """
-        room_tile_set = frozenset(floor_tiles)
-
-        min_x = min(x for x, y in floor_tiles)
-        max_x = max(x for x, y in floor_tiles)
-        min_y = min(y for x, y in floor_tiles)
-        max_y = max(y for x, y in floor_tiles)
-        center_x = (min_x + max_x) // 2
-        mid_y    = (min_y + max_y) // 2
-
-        # ── Door entity + 2×2 back room ──────────────────────────────────
-        door_x = center_x
-        door_y = max_y + 1  # one tile into the back wall
-
-        if 0 < door_y < self.height - 3:  # need 3 more rows for door + 2×2 room
-            # Carve the door tile
-            self.tiles[door_y][door_x] = TILE_FLOOR
-            door_entity = Entity(
-                x=door_x, y=door_y,
-                char='+',
-                color=(139, 90, 43),
-                name="Door",
-                entity_type="hazard",
-                hazard_type="door",
-                blocks_movement=True,
-                blocks_fov=True,
-            )
-            self.entities.append(door_entity)
-
-            # Carve 2×2 room behind the door
-            room_left  = door_x - 1
-            room_right = door_x
-            room_top   = door_y + 1
-            room_bot   = door_y + 2
-            back_room_tiles = []
-            for ry in range(room_top, room_bot + 1):
-                for rx in range(room_left, room_right + 1):
-                    if 0 < rx < self.width - 1 and 0 < ry < self.height - 1:
-                        self.tiles[ry][rx] = TILE_FLOOR
-                        back_room_tiles.append((rx, ry))
-
-            # Place meth_zone_stairs in the back room
-            if back_room_tiles:
-                sx, sy = random.choice(back_room_tiles)
-                stairs = Entity(
-                    x=sx, y=sy,
-                    char='>',
-                    color=(255, 255, 255),
-                    name="meth_zone_stairs",
-                    entity_type="staircase",
-                    blocks_movement=False,
-                    reveals_on_sight=True,
-                )
-                self.entities.append(stairs)
-
-        # ── Jerome: back row, centered, one tile in front of the door ────
-        jerome_x = center_x
-        jerome_y = max_y
-        # Shift jerome_x slightly if the center tile is already blocked
-        for candidate_x in [center_x, center_x - 1, center_x + 1,
-                             center_x - 2, center_x + 2]:
-            if (candidate_x, jerome_y) in room_tile_set and \
-               not self.is_blocked(candidate_x, jerome_y):
-                jerome_x = candidate_x
-                break
-        jerome = create_enemy("big_nigga_jerome", jerome_x, jerome_y)
-        jerome.spawn_room_tiles = room_tile_set
-        self.entities.append(jerome)
-
-        # ── Front group: 2 thugs + 2 drug dealers (each with tweakers) ──
-        front_tiles = [(x, y) for x, y in floor_tiles if y <= mid_y]
-        if not front_tiles:
-            front_tiles = floor_tiles  # fallback
-
-        # Thugs
-        for _ in range(2):
-            free = [(x, y) for x, y in front_tiles if not self.is_blocked(x, y)]
-            if not free:
-                break
-            x, y = random.choice(free)
-            thug = create_enemy("thug", x, y)
-            thug.spawn_room_tiles = room_tile_set
-            self.entities.append(thug)
-
-        # Drug dealers + their tweaker escorts
-        for _ in range(2):
-            free = [(x, y) for x, y in front_tiles if not self.is_blocked(x, y)]
-            if not free:
-                break
-            x, y = random.choice(free)
-            dealer = create_enemy("drug_dealer", x, y)
-            dealer.spawn_room_tiles = room_tile_set
-            self.entities.append(dealer)
-
-            # Spawn tweakers around each dealer (1–3 per dealer)
-            tweaker_count = random.randint(1, 3)
-            for _ in range(tweaker_count):
-                nearby = [
-                    (nx, ny) for nx, ny in floor_tiles
-                    if abs(nx - x) <= 4 and abs(ny - y) <= 4
-                    and not self.is_blocked(nx, ny)
-                ]
-                if not nearby:
-                    break
-                ex, ey = random.choice(nearby)
-                tweaker = create_enemy("tweaker", ex, ey)
-                tweaker.spawn_room_tiles = room_tile_set
-                tweaker.leader   = dealer
-                tweaker.ai_type  = "escort"
-                tweaker.ai_state = None
-                self.entities.append(tweaker)
+    def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None, player_stats=None, special_rooms_spawned=None):
+        """Spawn monsters and items in rooms. Delegates to zone-specific spawner."""
+        from zone_generators import ZONE_GENERATORS
+        spawner = ZONE_GENERATORS[zone]["spawn"]
+        spawner(self, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned)
 
     def is_terrain_blocked(self, x, y):
         """Check if terrain alone blocks a tile (ignores entities)."""

@@ -34,6 +34,18 @@ All foods follow a declarative structure with flexible effect support.
 #
 #   "hot_cheetos"   : fiery buff (grants +2 all stats, 50% melee ignite, ignites on expire)
 #       duration    : number of turns
+#
+#   "radiation"     : adds radiation to the player (goes through rad resistance)
+#       amount      : radiation to add
+#
+#   "remove_radiation" : removes radiation from the player
+#       amount      : radiation to remove
+#
+#   "toxicity"      : adds toxicity to the player (goes through tox resistance)
+#       amount      : toxicity to add
+#
+#   "remove_toxicity" : removes toxicity from the player
+#       amount      : toxicity to remove
 # ---------------------------------------------------------------------------
 
 FOOD_DEFS = {
@@ -45,7 +57,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (200, 180, 140),
         "zones": ["crack_den"],
-        "weight": 5,
+
         "effects": [
             {
                 "type": "heal",
@@ -65,8 +77,9 @@ FOOD_DEFS = {
         "well_fed_effect_name": "Hyped Up",
         "char": "f",
         "color": (255, 200, 100),
-        "zones": ["crack_den"],
-        "weight": 3,
+        "zones": ["crack_den", "meth_lab"],
+
+
         "effects": [
             {
                 "type": "speed_boost",
@@ -82,8 +95,8 @@ FOOD_DEFS = {
         "well_fed_effect_name": "Spicy Vibes",
         "char": "f",
         "color": (255, 140, 40),
-        "zones": ["crack_den"],
-        "weight": 2,
+        "zones": ["crack_den", "meth_lab"],
+
         "effects": [
             {
                 "type": "hot_cheetos",
@@ -98,10 +111,11 @@ FOOD_DEFS = {
         "well_fed_effect_name": "Cornbread High",
         "char": "f",
         "color": (220, 180, 80),
-        "zones": ["crack_den"],
-        "weight": 3,
+        "zones": ["crack_den", "meth_lab"],
+
+
         "effects": [
-            {"type": "cornbread_buff", "duration": 10},
+            {"type": "cornbread_buff", "duration": 30},
             {"type": "grant_ability_charges", "ability_id": "zap", "charges": 10},
         ],
     },
@@ -112,8 +126,8 @@ FOOD_DEFS = {
         "well_fed_effect_name": "Corn Dogged Up",
         "char": "f",
         "color": (220, 160, 60),
-        "zones": ["crack_den"],
-        "weight": 3,
+        "zones": ["crack_den", "meth_lab"],
+
         "effects": [
             {"type": "heal", "amount": 15},
             {"type": "grant_ability_charges", "ability_id": "corn_dog", "charges": 3},
@@ -127,10 +141,111 @@ FOOD_DEFS = {
         "char": "f",
         "color": (180, 140, 100),
         "zones": [],
-        "weight": 0,
+
         "effects": [
             {"type": "heal", "amount": 10},
             {"type": "leftovers_well_fed", "duration": 10},
+        ],
+    },
+    "jell_o": {
+        "name": "Jell-O",
+        "eat_length": 10,
+        "eating_effect_name": "Eating Jell-O",
+        "well_fed_effect_name": "Jiggly",
+        "char": "f",
+        "color": (255, 100, 120),
+        "zones": ["meth_lab"],
+
+
+        "effects": [
+            {"type": "heal", "amount": 58},
+            {"type": "grant_ability_charges", "ability_id": "mirror_entity", "charges": [1, 3]},
+        ],
+    },
+    "meatball_sub": {
+        "name": "Meatball Sub",
+        "eat_length": 10,
+        "eating_effect_name": "Eating Meatball Sub",
+        "well_fed_effect_name": "Meat Sweats",
+        "char": "f",
+        "color": (180, 80, 40),
+        "zones": ["meth_lab"],
+
+
+        "effects": [
+            {"type": "heal", "amount": 50},
+            {"type": "grant_ability_charges", "ability_id": "fire_meatball", "charges": [2, 5]},
+        ],
+    },
+    "heinz_baked_beans": {
+        "name": "Heinz Baked Beans",
+        "eat_length": 10,
+        "eating_effect_name": "Eating Heinz Baked Beans",
+        "well_fed_effect_name": "Gassed Up",
+        "char": "f",
+        "color": (180, 100, 50),
+        "zones": ["meth_lab"],
+
+
+        "effects": [
+            {"type": "heal", "amount": 50},
+            {"type": "grant_ability_charges", "ability_id": "gas_attack", "charges": [2, 5]},
+        ],
+    },
+    "altoid": {
+        "name": "Altoid",
+        "eat_length": 3,
+        "eating_effect_name": "Eating Altoid",
+        "well_fed_effect_name": "Minty Fresh",
+        "char": "f",
+        "color": (200, 240, 240),
+        "zones": ["meth_lab"],
+
+
+        "effects": [
+            {"type": "remove_toxicity", "amount": 20},
+        ],
+    },
+    "asbestos": {
+        "name": "Asbestos",
+        "eat_length": 3,
+        "eating_effect_name": "Eating Asbestos",
+        "well_fed_effect_name": "Toxic",
+        "char": "f",
+        "color": (180, 180, 160),
+        "zones": ["meth_lab"],
+
+
+        "effects": [
+            {"type": "toxicity", "amount": 20},
+        ],
+    },
+    "rad_away": {
+        "name": "Rad Away",
+        "eat_length": 3,
+        "eating_effect_name": "Drinking Rad Away",
+        "well_fed_effect_name": "Cleansed",
+        "char": "f",
+        "color": (100, 200, 255),
+        "zones": ["meth_lab"],
+
+
+        "effects": [
+            {"type": "remove_radiation", "amount": 20},
+        ],
+    },
+    "radbar": {
+        "name": "RadBar",
+        "eat_length": 3,
+        "eating_effect_name": "Eating RadBar",
+        "well_fed_effect_name": "Irradiated",
+        "char": "f",
+        "color": (100, 220, 50),
+        "zones": ["meth_lab"],
+
+
+        "effects": [
+            {"type": "radiation", "amount": 20},
         ],
     },
     "lightskin_beans": {
@@ -140,11 +255,41 @@ FOOD_DEFS = {
         "well_fed_effect_name": "Gassed Up",
         "char": "f",
         "color": (160, 200, 120),
-        "zones": ["crack_den"],
-        "weight": 2,
+        "zones": ["crack_den", "meth_lab"],
+
+
         "effects": [
             {"type": "heal", "amount": 15},
             {"type": "grant_ability_charges", "ability_id": "lesser_cloudkill", "charges": 5},
+        ],
+    },
+    "muffin": {
+        "name": "Muffin",
+        "eat_length": 10,
+        "eating_effect_name": "Eating Muffin",
+        "well_fed_effect_name": "Muffin Magic",
+        "char": "f",
+        "color": (255, 220, 130),
+        "zones": ["crack_den", "meth_lab"],
+
+
+        "effects": [
+            {"type": "heal", "amount": 50},
+            {"type": "muffin_buff"},
+        ],
+    },
+    "protein_powder": {
+        "name": "Protein Powder",
+        "eat_length": 10,
+        "eating_effect_name": "Chugging Protein Powder",
+        "well_fed_effect_name": "Swole",
+        "char": "f",
+        "color": (220, 180, 255),
+        "zones": ["crack_den", "meth_lab"],
+
+
+        "effects": [
+            {"type": "protein_powder"},
         ],
     },
 }
@@ -193,5 +338,13 @@ def validate_food_registry():
                 assert "duration" in effect, f"Food {food_id} speed_boost effect missing 'duration'"
             elif effect_type == "hot_cheetos":
                 assert "duration" in effect, f"Food {food_id} hot_cheetos effect missing 'duration'"
-            elif effect_type in ("grant_ability_charges", "cornbread_buff", "leftovers_well_fed"):
+            elif effect_type == "radiation":
+                assert "amount" in effect, f"Food {food_id} radiation effect missing 'amount'"
+            elif effect_type == "remove_radiation":
+                assert "amount" in effect, f"Food {food_id} remove_radiation effect missing 'amount'"
+            elif effect_type == "toxicity":
+                assert "amount" in effect, f"Food {food_id} toxicity effect missing 'amount'"
+            elif effect_type == "remove_toxicity":
+                assert "amount" in effect, f"Food {food_id} remove_toxicity effect missing 'amount'"
+            elif effect_type in ("grant_ability_charges", "cornbread_buff", "leftovers_well_fed", "protein_powder", "muffin_buff"):
                 pass  # No extra required fields beyond "type"

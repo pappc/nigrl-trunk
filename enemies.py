@@ -85,6 +85,14 @@ class AIType(Enum):
     FEMALE_ALARM      = "female_alarm"       # Wanders passively; chases everywhere when any female dies on the floor
     STATIONARY_GUARD  = "stationary_guard"   # Stands completely still until damaged, then chases permanently
     JEROME_GUARD      = "jerome_guard"       # Jerome-specific: stationary until any damage, then chases; faster action rate
+    PROXIMITY_ALARM   = "proximity_alarm"    # Meanders until any monster within 10 tiles is attacked, then chases permanently
+    CARTEL_UNIT       = "cartel_unit"        # Stationary; aggro depends on faction reputation
+    FALCON_ALERT      = "falcon_alert"       # Run to ally, alert 9x9, then chase
+    CARTEL_RANGED     = "cartel_ranged"      # Ranged cartel unit; maintain distance, shoot, blink
+    RANGED_ROOM_GUARD = "ranged_room_guard"  # Room guard that kites at exact range
+    STATIONARY_SPAWNER = "stationary_spawner"  # Stationary mid-combat spawner (never moves)
+    SUICIDE_BOMBER     = "suicide_bomber"      # Wanders, chases on sight, explodes when adjacent
+    CHEMIST_RANGED     = "chemist_ranged"      # Stationary ranged vial thrower
 
 
 class EffectKind(Enum):
@@ -97,6 +105,13 @@ class EffectKind(Enum):
     CHILD_SUPPORT = "child_support"  # Drains $1 per player move for N turns
     MOGGED        = "mogged"         # Stacking debuff that reduces swagger
     WELL_FED      = "well_fed"       # Buff that increases damage and defense
+    RAD_BURST     = "rad_burst"      # Instant radiation on hit
+    TOX_BURST     = "tox_burst"      # Instant toxicity on hit
+    DEPORT        = "deport"         # Teleport player to random tile + stun
+    RAD_POISON    = "rad_poison"     # Radiation DOT (rad per turn)
+    CONVERSION    = "conversion"     # Converts higher tox/rad to lower 2:1
+    RABIES        = "rabies"         # -1 all stats debuff
+    BUFF_PURGE    = "buff_purge"     # Remove random buff, gain tox = duration
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -283,10 +298,30 @@ class MonsterTemplate:
     special_attacks: list[SpecialAttack] = field(default_factory=list)
     on_hit_effects:  list[OnHitEffect]   = field(default_factory=list)
 
+    # ── Faction ──────────────────────────────────────────────────────────
+    faction:        Optional[str]  = None   # "scryer" | "aldor" | None
+    ranged_attack:  Optional[dict] = None   # {"range": int, "damage": (min,max), "miss_chance": float, "knockback": int}
+    blink_charges:  int            = 0      # emergency teleport charges for specialists
+
+    # ── Spawner ─────────────────────────────────────────────────────────
+    spawner_type:   Optional[str] = None   # enemy_type key to spawn mid-combat (e.g. "rad_rat")
+    max_spawned:    int            = 0     # max alive children at once
+
+    # ── Death behaviors ────────────────────────────────────────────────
+    death_split_type:    Optional[str] = None   # enemy_type to spawn on death
+    death_split_count:   int           = 0      # number of children on death
+    death_creep_radius:  int           = 0      # radius of toxic creep on death
+    death_creep_duration: int          = 0      # duration of death creep
+    death_creep_tox:     int           = 0      # tox/turn of death creep
+
+    # ── Trail ──────────────────────────────────────────────────────────
+    leaves_trail:   Optional[dict] = None  # {"duration": int, "tox": int}
+
     # ── Drops ─────────────────────────────────────────────────────────────
     cash_drop: tuple[int, int] = (0, 0)
     death_drop_chance: float     = 0.0    # probability (0.0–1.0) of dropping an item on death
     death_drop_table:  list[str] = field(default_factory=list)  # item_ids to pick from
+    death_drop_quantity: tuple[int, int] | None = None  # (min, max) stack size for dropped item
 
     # ── Validation & coercion ─────────────────────────────────────────────
 
@@ -405,8 +440,6 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         sight_radius  = 6,
         speed         = 80,
         cash_drop     = (0, 3),
-        death_drop_chance = 0.25,
-        death_drop_table  = ["joint"],
     ),
 
     # ── CRACK ADDICT ─────────────────────────────────────────────────────
@@ -648,7 +681,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         book_smarts   = (3, 5),
         tolerance     = (5, 7),
         swagger       = (15, 15),
-        base_hp       = 0,
+        base_hp       = 25,
         base_damage   = (0, 0),
         defense       = 2,
         male_chance   = 1.0,
@@ -675,6 +708,725 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         cash_drop          = (20, 50),
         death_drop_chance  = 1.0,
         death_drop_table   = ["big_niggas_key"],
+    ),
+    # ══════════════════════════════════════════════════════════════════════════
+    #  METH LAB — SCRYER FACTION  (red-orange: 255, 120, 50)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── SCRYER GRUNT ────────────────────────────────────────────────────
+    # Fast-moving cartel foot soldier.  Passive until aggro'd, then chases.
+    "scryer_grunt": MonsterTemplate(
+        name          = "Scryer Grunt",
+        char          = "G",
+        color         = (255, 120, 50),
+        constitution  = (6, 8),
+        strength      = (3, 5),
+        street_smarts = (1, 2),
+        book_smarts   = (1, 2),
+        tolerance     = (3, 5),
+        swagger       = (2, 4),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.8,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.CARTEL_UNIT,
+        sight_radius  = 6,
+        speed         = 100,
+        move_cost     = 60,
+        cash_drop     = (3, 8),
+        faction       = "scryer",
+    ),
+
+    # ── SCRYER FALCON ───────────────────────────────────────────────────
+    # Hallway scout that runs to an ally and alerts a 9x9 area.
+    "scryer_falcon": MonsterTemplate(
+        name          = "Scryer Falcon",
+        char          = "F",
+        color         = (255, 120, 50),
+        constitution  = (4, 6),
+        strength      = (3, 4),
+        street_smarts = (1, 2),
+        book_smarts   = (1, 2),
+        tolerance     = (3, 5),
+        swagger       = (1, 3),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.7,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.FALCON_ALERT,
+        sight_radius  = 6,
+        speed         = 120,
+        cash_drop     = (2, 6),
+        faction       = "scryer",
+    ),
+
+    # ── SCRYER HITMAN ───────────────────────────────────────────────────
+    # Dangerous melee fighter with DOT, radiation, and toxicity procs.
+    "scryer_hitman": MonsterTemplate(
+        name          = "Scryer Hitman",
+        char          = "H",
+        color         = (255, 120, 50),
+        constitution  = (8, 10),
+        strength      = (5, 7),
+        street_smarts = (2, 3),
+        book_smarts   = (2, 3),
+        tolerance     = (3, 5),
+        swagger       = (3, 5),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 2,
+        male_chance   = 0.85,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.CARTEL_UNIT,
+        sight_radius  = 6,
+        speed         = 100,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Poison",
+                kind     = EffectKind.DOT,
+                chance   = 0.25,
+                amount   = 2,
+                duration = 4,
+            ),
+            OnHitEffect(
+                name     = "Rad Burst",
+                kind     = EffectKind.RAD_BURST,
+                chance   = 0.20,
+                amount   = 5,
+                duration = 1,
+            ),
+            OnHitEffect(
+                name     = "Tox Burst",
+                kind     = EffectKind.TOX_BURST,
+                chance   = 0.20,
+                amount   = 5,
+                duration = 1,
+            ),
+        ],
+        cash_drop     = (8, 15),
+        death_drop_chance = 0.5,
+        death_drop_table  = ["light_rounds", "medium_rounds"],
+        death_drop_quantity = (5, 12),
+        faction       = "scryer",
+    ),
+
+    # ── SCRYER SPECIALIST ───────────────────────────────────────────────
+    # Ranged attacker with emergency blink.  Weak in melee.
+    "scryer_specialist": MonsterTemplate(
+        name          = "Scryer Specialist",
+        char          = "S",
+        color         = (255, 120, 50),
+        constitution  = (5, 7),
+        strength      = (2, 3),
+        street_smarts = (2, 3),
+        book_smarts   = (3, 5),
+        tolerance     = (3, 5),
+        swagger       = (2, 4),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.6,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.CARTEL_RANGED,
+        sight_radius  = 6,
+        speed         = 100,
+        cash_drop     = (5, 12),
+        death_drop_chance = 0.5,
+        death_drop_table  = ["light_rounds", "medium_rounds"],
+        death_drop_quantity = (5, 12),
+        faction       = "scryer",
+        ranged_attack = {"range": 4, "damage": (5, 8), "miss_chance": 0.25, "knockback": 0},
+        blink_charges = 1,
+    ),
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  METH LAB — ALDOR FACTION  (red-purple: 180, 50, 200)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── ALDOR GRUNT ─────────────────────────────────────────────────────
+    "aldor_grunt": MonsterTemplate(
+        name          = "Aldor Grunt",
+        char          = "G",
+        color         = (180, 50, 200),
+        constitution  = (6, 8),
+        strength      = (3, 5),
+        street_smarts = (1, 2),
+        book_smarts   = (1, 2),
+        tolerance     = (3, 5),
+        swagger       = (2, 4),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.8,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.CARTEL_UNIT,
+        sight_radius  = 6,
+        speed         = 100,
+        move_cost     = 60,
+        cash_drop     = (3, 8),
+        faction       = "aldor",
+    ),
+
+    # ── ALDOR FALCON ────────────────────────────────────────────────────
+    "aldor_falcon": MonsterTemplate(
+        name          = "Aldor Falcon",
+        char          = "F",
+        color         = (180, 50, 200),
+        constitution  = (4, 6),
+        strength      = (3, 4),
+        street_smarts = (1, 2),
+        book_smarts   = (1, 2),
+        tolerance     = (3, 5),
+        swagger       = (1, 3),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.7,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.FALCON_ALERT,
+        sight_radius  = 6,
+        speed         = 120,
+        cash_drop     = (2, 6),
+        faction       = "aldor",
+    ),
+
+    # ── ALDOR HITMAN ────────────────────────────────────────────────────
+    # Dangerous melee fighter with stun proc.
+    "aldor_hitman": MonsterTemplate(
+        name          = "Aldor Hitman",
+        char          = "H",
+        color         = (180, 50, 200),
+        constitution  = (8, 10),
+        strength      = (5, 7),
+        street_smarts = (2, 3),
+        book_smarts   = (2, 3),
+        tolerance     = (3, 5),
+        swagger       = (3, 5),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 2,
+        male_chance   = 0.85,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.CARTEL_UNIT,
+        sight_radius  = 6,
+        speed         = 100,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Stunned",
+                kind     = EffectKind.STUN,
+                chance   = 0.25,
+                amount   = 0,
+                duration = 3,
+            ),
+        ],
+        cash_drop     = (8, 15),
+        death_drop_chance = 0.5,
+        death_drop_table  = ["light_rounds", "medium_rounds"],
+        death_drop_quantity = (5, 12),
+        faction       = "aldor",
+    ),
+
+    # ── ALDOR SPECIALIST ────────────────────────────────────────────────
+    # Ranged attacker with knockback and emergency blink.
+    "aldor_specialist": MonsterTemplate(
+        name          = "Aldor Specialist",
+        char          = "S",
+        color         = (180, 50, 200),
+        constitution  = (5, 7),
+        strength      = (2, 3),
+        street_smarts = (2, 3),
+        book_smarts   = (3, 5),
+        tolerance     = (3, 5),
+        swagger       = (2, 4),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.6,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.CARTEL_RANGED,
+        sight_radius  = 6,
+        speed         = 100,
+        cash_drop     = (5, 12),
+        death_drop_chance = 0.5,
+        death_drop_table  = ["light_rounds", "medium_rounds"],
+        death_drop_quantity = (5, 12),
+        faction       = "aldor",
+        ranged_attack = {"range": 3, "damage": (3, 6), "miss_chance": 0.20, "knockback": 1, "knockback_chance": 0.50},
+        blink_charges = 1,
+    ),
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  METH LAB — LAW ENFORCEMENT  (later floors, no faction)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── ICE AGENT ───────────────────────────────────────────────────────
+    # Tough melee unit.  Chance on hit to "deport" — teleports the player
+    # to a random tile on the floor and stuns them for 6 turns.
+    "ice_agent": MonsterTemplate(
+        name          = "ICE Agent",
+        char          = "I",
+        color         = (200, 50, 50),
+        constitution  = (8, 10),
+        strength      = (5, 7),
+        street_smarts = (2, 4),
+        book_smarts   = (3, 5),
+        tolerance     = (4, 6),
+        swagger       = (4, 6),
+        base_hp       = 5,
+        base_damage   = (0, 0),
+        defense       = 2,
+        male_chance   = 0.75,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.ROOM_GUARD,
+        sight_radius  = 7,
+        speed         = 100,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Deported",
+                kind     = EffectKind.DEPORT,
+                chance   = 0.20,
+                amount   = 0,
+                duration = 6,
+            ),
+        ],
+        cash_drop     = (10, 20),
+        death_drop_chance = 0.6,
+        death_drop_table  = ["light_rounds", "medium_rounds", "heavy_rounds"],
+        death_drop_quantity = (8, 15),
+    ),
+
+    # ── DEA AGENT ───────────────────────────────────────────────────────
+    # Ranged unit that kites at exactly range 3.  Low attack cost lets it
+    # shoot and reposition in the same turn.
+    "dea_agent": MonsterTemplate(
+        name          = "DEA Agent",
+        char          = "A",
+        color         = (200, 50, 50),
+        constitution  = (6, 8),
+        strength      = (2, 3),
+        street_smarts = (3, 5),
+        book_smarts   = (4, 6),
+        tolerance     = (3, 5),
+        swagger       = (3, 5),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 1,
+        male_chance   = 0.7,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.RANGED_ROOM_GUARD,
+        sight_radius  = 7,
+        speed         = 100,
+        attack_cost   = 40,
+        cash_drop     = (8, 18),
+        death_drop_chance = 0.6,
+        death_drop_table  = ["light_rounds", "medium_rounds", "heavy_rounds"],
+        death_drop_quantity = (8, 15),
+        ranged_attack = {"range": 3, "damage": (4, 7), "miss_chance": 0.15, "knockback": 0},
+    ),
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  METH LAB — RADIATION ENEMIES  (non-faction, red-colored)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── RAD RAT ──────────────────────────────────────────────────────────
+    # Tiny, fast, 1 unblockable damage + 10 radiation per hit.  Spawns in
+    # groups of 3.  Also spawned by Rad Rats Nest mid-combat.
+    "rad_rat": MonsterTemplate(
+        name          = "Rad Rat",
+        char          = "r",
+        color         = (200, 50, 50),
+        constitution  = (1, 2),
+        strength      = (1, 1),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 0,
+        base_damage   = (1, 1),
+        defense       = 0,
+        male_chance   = 0.5,
+        spawn_min     = 3,
+        spawn_max     = 3,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 8,
+        speed         = 140,
+        move_cost     = 50,
+        attack_cost   = 50,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Irradiate",
+                kind     = EffectKind.RAD_BURST,
+                chance   = 1.0,
+                amount   = 10,
+                duration = 1,
+            ),
+        ],
+        cash_drop     = (0, 1),
+    ),
+
+    # ── RAD RATS NEST ────────────────────────────────────────────────────
+    # Stationary spawner: sits in place, creates Rad Rats up to max 3 alive.
+    "rad_rats_nest": MonsterTemplate(
+        name          = "Rad Rats Nest",
+        char          = "N",
+        color         = (200, 50, 50),
+        constitution  = (5, 7),
+        strength      = (1, 1),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 1,
+        male_chance   = 0.5,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.STATIONARY_SPAWNER,
+        sight_radius  = 8,
+        speed         = 80,
+        spawner_type  = "rad_rat",
+        max_spawned   = 3,
+        cash_drop     = (3, 8),
+    ),
+
+    # ── MUTATOR ──────────────────────────────────────────────────────────
+    # 15% chance for 100-rad burst + always 15 rad per hit.
+    "mutator": MonsterTemplate(
+        name          = "Mutator",
+        char          = "M",
+        color         = (200, 50, 50),
+        constitution  = (6, 8),
+        strength      = (4, 6),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 1,
+        male_chance   = 0.5,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 8,
+        speed         = 100,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Rad Burst",
+                kind     = EffectKind.RAD_BURST,
+                chance   = 0.15,
+                amount   = 100,
+                duration = 1,
+            ),
+            OnHitEffect(
+                name     = "Irradiate",
+                kind     = EffectKind.RAD_BURST,
+                chance   = 1.0,
+                amount   = 15,
+                duration = 1,
+            ),
+        ],
+        cash_drop     = (3, 10),
+    ),
+
+    # ── CONVERTOR ────────────────────────────────────────────────────────
+    # 40% on hit: debuff that converts higher tox/rad → lower at 2:1 for 20 turns.
+    "convertor": MonsterTemplate(
+        name          = "Convertor",
+        char          = "C",
+        color         = (200, 50, 50),
+        constitution  = (6, 8),
+        strength      = (3, 5),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 1,
+        male_chance   = 0.5,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 8,
+        speed         = 100,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Conversion",
+                kind     = EffectKind.CONVERSION,
+                chance   = 0.40,
+                amount   = 0,
+                duration = 20,
+            ),
+        ],
+        cash_drop     = (3, 10),
+    ),
+
+    # ── URANIUM BEETLE ───────────────────────────────────────────────────
+    # High defense (5), 50% on hit: rad poison DOT (10 rad/turn for 5 turns).
+    "uranium_beetle": MonsterTemplate(
+        name          = "Uranium Beetle",
+        char          = "U",
+        color         = (200, 50, 50),
+        constitution  = (2, 3),
+        strength      = (4, 6),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 0,
+        base_damage   = (0, 0),
+        defense       = 5,
+        male_chance   = 0.5,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 8,
+        speed         = 90,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Rad Poison",
+                kind     = EffectKind.RAD_POISON,
+                chance   = 0.50,
+                amount   = 10,
+                duration = 5,
+            ),
+        ],
+        cash_drop     = (2, 6),
+    ),
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # METH LAB ZONE — toxic enemies
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── COVID-26 ──────────────────────────────────────────────────────────
+    # Suicide bomber. Wanders until player spotted, then rushes in and explodes
+    # for heavy unblockable damage + toxicity. Dies on detonation.
+    "covid_26": MonsterTemplate(
+        name          = "Covid-26",
+        char          = "o",
+        color         = (200, 50, 50),
+        constitution  = (2, 3),
+        strength      = (1, 1),
+        street_smarts = (0, 0),
+        book_smarts   = (0, 0),
+        tolerance     = (0, 0),
+        swagger       = (0, 0),
+        base_hp       = 5,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.5,
+        spawn_min     = 2,
+        spawn_max     = 4,
+        ai            = AIType.SUICIDE_BOMBER,
+        sight_radius  = 8,
+        speed         = 140,
+        cash_drop     = (0, 2),
+    ),
+
+    # ── PURGER ────────────────────────────────────────────────────────────
+    # Medium fighter. 35% chance on hit to remove a random buff from the player
+    # and convert its remaining duration into toxicity.
+    "purger": MonsterTemplate(
+        name          = "Purger",
+        char          = "P",
+        color         = (200, 50, 50),
+        constitution  = (4, 6),
+        strength      = (3, 5),
+        street_smarts = (0, 0),
+        book_smarts   = (0, 0),
+        tolerance     = (0, 0),
+        swagger       = (0, 0),
+        base_hp       = 15,
+        base_damage   = (4, 7),
+        defense       = 2,
+        male_chance   = 0.5,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 6,
+        speed         = 100,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Purge",
+                kind     = EffectKind.BUFF_PURGE,
+                chance   = 0.35,
+                amount   = 0,
+                duration = 1,
+            ),
+        ],
+        cash_drop     = (1, 5),
+    ),
+
+    # ── TOXIC SLUG ────────────────────────────────────────────────────────
+    # Slow creature that leaves toxic creep trails and explodes into creep on death.
+    "toxic_slug": MonsterTemplate(
+        name          = "Toxic Slug",
+        char          = "s",
+        color         = (200, 50, 50),
+        constitution  = (5, 7),
+        strength      = (2, 4),
+        street_smarts = (0, 0),
+        book_smarts   = (0, 0),
+        tolerance     = (0, 0),
+        swagger       = (0, 0),
+        base_hp       = 20,
+        base_damage   = (3, 5),
+        defense       = 1,
+        male_chance   = 0.5,
+        ai            = AIType.MEANDER,
+        sight_radius  = 5,
+        speed         = 60,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Toxic Slime",
+                kind     = EffectKind.TOX_BURST,
+                chance   = 1.0,
+                amount   = 10,
+                duration = 1,
+            ),
+        ],
+        leaves_trail         = {"duration": 10, "tox": 5},
+        death_creep_radius   = 2,
+        death_creep_duration = 10,
+        death_creep_tox      = 5,
+        cash_drop     = (0, 3),
+    ),
+
+    # ── STRAY DOG ─────────────────────────────────────────────────────────
+    # Fast, aggressive. Tox on hit + 25% chance to inflict rabies (-1 all stats).
+    "stray_dog": MonsterTemplate(
+        name          = "Stray Dog",
+        char          = "d",
+        color         = (200, 50, 50),
+        constitution  = (4, 6),
+        strength      = (4, 6),
+        street_smarts = (0, 0),
+        book_smarts   = (0, 0),
+        tolerance     = (0, 0),
+        swagger       = (0, 0),
+        base_hp       = 12,
+        base_damage   = (5, 8),
+        defense       = 1,
+        male_chance   = 0.5,
+        ai            = AIType.WANDER_AMBUSH,
+        sight_radius  = 7,
+        speed         = 130,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Toxic Bite",
+                kind     = EffectKind.TOX_BURST,
+                chance   = 1.0,
+                amount   = 8,
+                duration = 1,
+            ),
+            OnHitEffect(
+                name     = "Rabies",
+                kind     = EffectKind.RABIES,
+                chance   = 0.25,
+                amount   = 0,
+                duration = 15,
+            ),
+        ],
+        cash_drop     = (0, 2),
+    ),
+
+    # ── SLUDGE AMALGAM ────────────────────────────────────────────────────
+    # Slow, tanky blob. Deals heavy tox. Splits into 2 Mini Sludges on death.
+    "sludge_amalgam": MonsterTemplate(
+        name          = "Sludge Amalgam",
+        char          = "O",
+        color         = (200, 50, 50),
+        constitution  = (8, 12),
+        strength      = (2, 3),
+        street_smarts = (0, 0),
+        book_smarts   = (0, 0),
+        tolerance     = (0, 0),
+        swagger       = (0, 0),
+        base_hp       = 30,
+        base_damage   = (2, 4),
+        defense       = 3,
+        male_chance   = 0.5,
+        ai            = AIType.MEANDER,
+        sight_radius  = 5,
+        speed         = 70,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Toxic Slam",
+                kind     = EffectKind.TOX_BURST,
+                chance   = 1.0,
+                amount   = 20,
+                duration = 1,
+            ),
+        ],
+        death_split_type  = "mini_sludge",
+        death_split_count = 2,
+        cash_drop     = (2, 8),
+    ),
+
+    # ── MINI SLUDGE ───────────────────────────────────────────────────────
+    # Small sludge spawned by Amalgam death. NOT in spawn tables.
+    "mini_sludge": MonsterTemplate(
+        name          = "Mini Sludge",
+        char          = "m",
+        color         = (200, 50, 50),
+        constitution  = (3, 4),
+        strength      = (2, 3),
+        street_smarts = (0, 0),
+        book_smarts   = (0, 0),
+        tolerance     = (0, 0),
+        swagger       = (0, 0),
+        base_hp       = 8,
+        base_damage   = (2, 4),
+        defense       = 1,
+        male_chance   = 0.5,
+        ai            = AIType.MEANDER,
+        sight_radius  = 6,
+        speed         = 110,
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Toxic Touch",
+                kind     = EffectKind.TOX_BURST,
+                chance   = 1.0,
+                amount   = 10,
+                duration = 1,
+            ),
+        ],
+        cash_drop     = (0, 2),
+    ),
+
+    # ── CHEMIST ───────────────────────────────────────────────────────────
+    # Stationary ranged enemy. Throws toxic vials at player's position,
+    # creating toxic creep tiles. Doesn't move when player is in LOS.
+    "chemist": MonsterTemplate(
+        name          = "Chemist",
+        char          = "k",
+        color         = (200, 50, 50),
+        constitution  = (3, 5),
+        strength      = (1, 2),
+        street_smarts = (0, 0),
+        book_smarts   = (0, 0),
+        tolerance     = (0, 0),
+        swagger       = (0, 0),
+        base_hp       = 10,
+        base_damage   = (2, 3),
+        defense       = 1,
+        male_chance   = 0.5,
+        ai            = AIType.CHEMIST_RANGED,
+        sight_radius  = 6,
+        speed         = 100,
+        cash_drop     = (1, 4),
     ),
 }
 
@@ -735,10 +1487,173 @@ ZONE_SPAWN_TABLES: dict[str, dict[int, list[tuple[str, int]]]] = {
         ],
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
-    "meth_lab":          {},   # TODO: populate when meth lab zone is built
+    # meth_lab uses faction tables instead of ZONE_SPAWN_TABLES (see below)
+    "meth_lab":          {},
     "casino_botanical":  {},   # TODO: populate when casino + botanical garden zone is built
     "the_underprison":   {},   # TODO: populate when The Underprison zone is built
 }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  HALLWAY SPAWN TABLES — monsters that spawn in corridors between rooms
+# ══════════════════════════════════════════════════════════════════════════════
+#  Same structure as ZONE_SPAWN_TABLES: zone -> floor_num -> [(enemy_key, weight)]
+#  Only zones with entries here will have hallway spawning.
+#  Crack Den has NO hallway spawns (empty / absent = no hallway monsters).
+
+ZONE_HALLWAY_SPAWN_TABLES: dict[str, dict[int, list[tuple[str, int]]]] = {
+    # "crack_den" intentionally absent — no hallway spawning in crack den
+    # "meth_lab" — hallways are falcon-only (handled by _spawn_hallway_falcons)
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  METH LAB FACTION SPAWN TABLES — per-faction, per-floor enemy weights
+# ══════════════════════════════════════════════════════════════════════════════
+#  Used by spawn_meth_lab() instead of ZONE_SPAWN_TABLES.
+#  NO falcons in these tables — falcons spawn in hallways only.
+
+METH_LAB_SCRYER_TABLES: dict[int, list[tuple[str, int]]] = {
+    0: [("scryer_grunt", 50), ("scryer_hitman", 5),  ("scryer_specialist", 5)],
+    1: [("scryer_grunt", 60), ("scryer_hitman", 10), ("scryer_specialist", 10)],
+    2: [("scryer_grunt", 40), ("scryer_hitman", 10), ("scryer_specialist", 5)],
+    3: [("scryer_grunt", 40), ("scryer_hitman", 15), ("scryer_specialist", 10)],
+    4: [("scryer_grunt", 40), ("scryer_hitman", 20), ("scryer_specialist", 15)],
+    5: [("scryer_grunt", 30), ("scryer_hitman", 15), ("scryer_specialist", 15)],
+    6: [("scryer_grunt", 20), ("scryer_hitman", 15), ("scryer_specialist", 15)],
+}
+
+METH_LAB_ALDOR_TABLES: dict[int, list[tuple[str, int]]] = {
+    0: [("aldor_grunt", 50), ("aldor_hitman", 5),  ("aldor_specialist", 5)],
+    1: [("aldor_grunt", 60), ("aldor_hitman", 10), ("aldor_specialist", 10)],
+    2: [("aldor_grunt", 40), ("aldor_hitman", 10), ("aldor_specialist", 5)],
+    3: [("aldor_grunt", 40), ("aldor_hitman", 15), ("aldor_specialist", 10)],
+    4: [("aldor_grunt", 40), ("aldor_hitman", 20), ("aldor_specialist", 15)],
+    5: [("aldor_grunt", 30), ("aldor_hitman", 15), ("aldor_specialist", 15)],
+    6: [("aldor_grunt", 20), ("aldor_hitman", 15), ("aldor_specialist", 15)],
+}
+
+METH_LAB_NEUTRAL_TABLES: dict[int, list[tuple[str, int]]] = {
+    0: [
+        ("rad_rat",         20),
+        ("covid_26",        36),
+        ("stray_dog",       18),
+        ("toxic_slug",      12),
+        ("chemist",          8),
+        ("purger",           5),
+        ("convertor",        3),
+        ("mutator",          3),
+        ("uranium_beetle",   3),
+        ("dea_agent",        5),
+    ],
+    1: [
+        ("rad_rat",         20),
+        ("covid_26",        36),
+        ("stray_dog",       18),
+        ("toxic_slug",      12),
+        ("chemist",          8),
+        ("purger",           5),
+        ("convertor",        3),
+        ("mutator",          3),
+        ("uranium_beetle",   3),
+        ("dea_agent",        5),
+    ],
+    2: [
+        ("rad_rat",         18),
+        ("covid_26",        30),
+        ("stray_dog",       15),
+        ("toxic_slug",      10),
+        ("chemist",         10),
+        ("purger",           8),
+        ("convertor",        6),
+        ("mutator",          5),
+        ("uranium_beetle",   5),
+        ("sludge_amalgam",   2),
+        ("rad_rats_nest",    2),
+        ("ice_agent",        5),
+        ("dea_agent",        8),
+    ],
+    3: [
+        ("rad_rat",         18),
+        ("covid_26",        30),
+        ("stray_dog",       15),
+        ("toxic_slug",      10),
+        ("chemist",         10),
+        ("purger",          10),
+        ("convertor",        8),
+        ("mutator",          5),
+        ("uranium_beetle",   5),
+        ("sludge_amalgam",   3),
+        ("rad_rats_nest",    3),
+        ("ice_agent",        5),
+        ("dea_agent",       10),
+    ],
+    4: [
+        ("rad_rat",         15),
+        ("covid_26",        24),
+        ("stray_dog",       12),
+        ("toxic_slug",      10),
+        ("chemist",         10),
+        ("purger",          12),
+        ("convertor",       10),
+        ("mutator",          8),
+        ("uranium_beetle",   8),
+        ("sludge_amalgam",   5),
+        ("rad_rats_nest",    5),
+        ("ice_agent",        8),
+        ("dea_agent",       10),
+    ],
+    5: [
+        ("rad_rat",         12),
+        ("covid_26",        24),
+        ("stray_dog",       10),
+        ("toxic_slug",      10),
+        ("chemist",         10),
+        ("purger",          12),
+        ("convertor",       10),
+        ("mutator",          8),
+        ("uranium_beetle",   8),
+        ("sludge_amalgam",   6),
+        ("rad_rats_nest",    5),
+        ("ice_agent",       10),
+        ("dea_agent",       10),
+    ],
+    6: [
+        ("rad_rat",         10),
+        ("covid_26",        20),
+        ("stray_dog",        8),
+        ("toxic_slug",       8),
+        ("chemist",         10),
+        ("purger",          12),
+        ("convertor",       10),
+        ("mutator",         10),
+        ("uranium_beetle",  10),
+        ("sludge_amalgam",   8),
+        ("rad_rats_nest",    5),
+        ("ice_agent",       10),
+        ("dea_agent",       15),
+    ],
+}
+
+_METH_LAB_FACTION_TABLES = {
+    "scryer":  METH_LAB_SCRYER_TABLES,
+    "aldor":   METH_LAB_ALDOR_TABLES,
+    "neutral": METH_LAB_NEUTRAL_TABLES,
+}
+
+
+def get_meth_lab_faction_table(faction: str, floor_num: int) -> list[tuple[str, int]]:
+    """Return the meth lab spawn table for a faction + floor, with floor fallback."""
+    tables = _METH_LAB_FACTION_TABLES.get(faction, {})
+    if not tables:
+        return []
+    if floor_num in tables:
+        return tables[floor_num]
+    # Fall back to highest defined floor <= floor_num
+    valid = [f for f in tables if f <= floor_num]
+    if valid:
+        return tables[max(valid)]
+    return tables[min(tables.keys())]
 
 
 def get_spawn_table(zone: str, floor_num: int) -> list[tuple[str, int]]:
@@ -749,6 +1664,16 @@ def get_spawn_table(zone: str, floor_num: int) -> list[tuple[str, int]]:
     if floor_num in zone_floors:
         return zone_floors[floor_num]
     # Fall back to highest defined floor (future-proofs extra floors)
+    return zone_floors[max(zone_floors.keys())]
+
+
+def get_hallway_spawn_table(zone: str, floor_num: int) -> list[tuple[str, int]]:
+    """Return the hallway spawn table for a zone + floor, falling back to the highest defined floor."""
+    zone_floors = ZONE_HALLWAY_SPAWN_TABLES.get(zone, {})
+    if not zone_floors:
+        return []
+    if floor_num in zone_floors:
+        return zone_floors[floor_num]
     return zone_floors[max(zone_floors.keys())]
 
 
@@ -781,6 +1706,11 @@ def validate_registry() -> None:
                 errors.append(
                     f"  [{key}] spawn_with references unknown type '{escort.type}'"
                 )
+        # ── Death split references ──
+        if tmpl.death_split_type and tmpl.death_split_type not in MONSTER_REGISTRY:
+            errors.append(
+                f"  [{key}] death_split_type references unknown type '{tmpl.death_split_type}'"
+            )
 
     # ── Zone table references (per-floor tables) ──
     for zone, floor_tables in ZONE_SPAWN_TABLES.items():
@@ -798,6 +1728,25 @@ def validate_registry() -> None:
                 if enemy_key in seen_keys:
                     errors.append(
                         f"  zone '{zone}' floor {floor_num}: duplicate entry for '{enemy_key}'"
+                    )
+                seen_keys.add(enemy_key)
+
+    # ── Meth Lab faction table references ──
+    for label, faction_tables in _METH_LAB_FACTION_TABLES.items():
+        for floor_num, table in faction_tables.items():
+            seen_keys = set()
+            for enemy_key, weight in table:
+                if enemy_key not in MONSTER_REGISTRY:
+                    errors.append(
+                        f"  meth_lab faction '{label}' floor {floor_num}: references unknown enemy '{enemy_key}'"
+                    )
+                if weight <= 0:
+                    errors.append(
+                        f"  meth_lab faction '{label}' floor {floor_num}: weight for '{enemy_key}' must be > 0, got {weight}"
+                    )
+                if enemy_key in seen_keys:
+                    errors.append(
+                        f"  meth_lab faction '{label}' floor {floor_num}: duplicate entry for '{enemy_key}'"
                     )
                 seen_keys.add(enemy_key)
 
@@ -913,4 +1862,16 @@ def create_enemy(enemy_type: str, x: int, y: int):
         attack_cost=tmpl.attack_cost,
         death_drop_chance=tmpl.death_drop_chance,
         death_drop_table=list(tmpl.death_drop_table),
+        death_drop_quantity=tmpl.death_drop_quantity,
+        faction=tmpl.faction,
+        blink_charges=tmpl.blink_charges,
+        ranged_attack=dict(tmpl.ranged_attack) if tmpl.ranged_attack else None,
+        spawner_type=tmpl.spawner_type,
+        max_spawned=tmpl.max_spawned,
+        death_split_type=tmpl.death_split_type,
+        death_split_count=tmpl.death_split_count,
+        death_creep_radius=tmpl.death_creep_radius,
+        death_creep_duration=tmpl.death_creep_duration,
+        death_creep_tox=tmpl.death_creep_tox,
+        leaves_trail=dict(tmpl.leaves_trail) if tmpl.leaves_trail else None,
     )

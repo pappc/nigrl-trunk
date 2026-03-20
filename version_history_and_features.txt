@@ -89,35 +89,49 @@ spell targeting fixes
 -tolerance implemented
 -death screen and reset
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-version 0.7 opened 3/9/2026 10:30 am
+version 0.7 opened 3/9/2026 10:30 am closed 3/20/2026 12:00 am
 tons of bug fixes(last patch added a fuck ton of shit with hardly fixing anything) i could list any interesting ones below if they were that atleast
 	- this patch attempts to remove all bugs currentl;y in the game, or at least the game breaking one
+tons of balancing as well, none of that shit was done before this point.
 -jerome room implemented
 -monster rebalance
 -monster floor placement enhanced
 -auto travel to next floor
 -swagger rework
+-monster movement/action split
+-skeleton of meth lab created
+-1 Gun and gun system added
+-guns and sidearm implemented ~10 guns for crack den
+	-3 different firing types
+-Hats! ~100 different procedurally generated for crack den
+- tox, toxres, rads, radres, briskness
+autoexplore
+meth lab room generation
+meth lab monsters implemented
+meth lab chains
+mutations
+8 new skills exp gain
+meth lab added so much stuff it burnt me out, but it is currently still a wip, but most of the skeleton is there atm.
+have fun
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
 -unique room encounters
 -future add ability to make a hotbar to easily select abilities
--implement tolerance in drug tables
 -smart targeting
--autoexplore
 -autoplay
 -on death automatically start new game
 -main menu
 	-fullscreen options
 	-handling game restarts
--implement new zone meth_lab
-	-2 major mechanics
-		-radiation and mutation system
-		-toxicity system in technically
-		-each mechanic has it's own suite of items and stats related to them
-	-2 cartel factions aldor and scryer
--armeor changes so it is more intuitive
--when ugly stripper is hit make her hostile
-
-
-
-fix hangover 9999999 duration
+-interactable crafting stations 
+	- meth machine
+-overhaul of skill system ie skills branch into 2 or more paths as you level up
+	-ex rolling progresses into bong packing or blunt specialization.
+	-allow for players to go down both paths of the trees (or not)
+-add dev tool to generate a character right after jerome
+add snicklefritz strain
+meth lab final room
+meth lab red keycard
+meth lab specific rooms
+heal every floor?
+gun spawns
