@@ -139,6 +139,35 @@ def get_zone_total_floors(zone_key):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Random floor events — per-zone pools of special events that modify a floor.
+# Each game, one floor is chosen at random and one event is assigned to it.
+# The event_id is stored on the engine and passed to dungeon generation.
+# ---------------------------------------------------------------------------
+FLOOR_EVENT_REGISTRY = {
+    "spider_infestation": {
+        "name": "Infested with Spiders",
+        "message": "The floor appears to be infested by spiders.",
+    },
+    "stench_of_death": {
+        "name": "Smells Like Rotting Flesh",
+        "message": "The air reeks of rotting flesh. Shambling figures lurch in the shadows...",
+    },
+    "occult_occupation": {
+        "name": "Inhabited by the Occult",
+        "message": "This area is inhabited by the occult. You sense a dark presence below...",
+    },
+}
+
+# Per-zone: which zone_floors can have events, and which event IDs are in the pool.
+ZONE_FLOOR_EVENTS = {
+    "crack_den": {
+        "eligible_floors": [1, 2],   # zone_floor indices (2nd and 3rd floor)
+        "event_pool": ["spider_infestation", "stench_of_death", "occult_occupation"],
+    },
+}
+
+
 # Zone damage multipliers — scales ALL attack damage in the zone (default 1.0)
 ZONE_DAMAGE_MULT = {
     "crack_den": 0.5,

@@ -24,7 +24,6 @@ SKILL_NAMES = [
     "Smoking",
     "Rolling",
     "Pyromania",
-    "Negromancy",
     "Blackkk Magic",
     "Smartsness",
     "Stabbing",
@@ -48,6 +47,10 @@ SKILL_NAMES = [
     "Sniping",
     "Drive-By",
     "Ammo Rat",
+    "L Farming",
+    "Arachnigga",
+    "Graffiti",
+    "Infected",
 ]
 
 DEFAULT_EXP_CURVE = [200, 400, 600, 800, 2000, 6000, 15000, 25000, 100000, 500000]
@@ -61,13 +64,17 @@ _PLACEHOLDER = {"name": "Placeholder", "perk_type": "none", "effect": None}
 SKILL_PERKS: dict[str, list[dict]] = {
     skill_name: [_PLACEHOLDER] * 10
     for skill_name in [
-        "Smoking", "Rolling", "Pyromania", "Negromancy", "Blackkk Magic",
+        "Smoking", "Rolling", "Pyromania", "Blackkk Magic",
         "Smartsness", "Stabbing", "Beating", "Smacking", "Stealing", "Jaywalking",
         "Deep-Frying", "Drinking", "Alcoholism", "Munching", "Dismantling",
         "Abandoning", "Meth-Head", "Chemical Warfare", "White Power",
         "Mutation", "Nuclear Research", "Glow Up", "Gatting", "Sniping",
         "Drive-By",
         "Ammo Rat",
+        "L Farming",
+        "Arachnigga",
+        "Graffiti",
+        "Infected",
     ]
 }
 
@@ -89,7 +96,7 @@ SKILL_PERKS["Mutation"] = [
 
 SKILL_PERKS["Nuclear Research"] = [
     {"name": "Irradiated Intellect", "perk_type": "stat", "effect": {"book_smarts": 3}, "desc": "+3 Book Smarts. Radiation gained increased by Book Smarts% of amount gained."},  # level 1
-    {"name": "Rad Bomb", "perk_type": "activated", "effect": {"ability": "rad_bomb"}, "desc": "Place a crystal (range 2) that detonates in 3 turns (5x5, 15+BKS/2 dmg). 3 charges/floor, costs 25 rad. Free charge at 100+ rad. Passive: can't mutate below 150 rad."},  # level 2
+    {"name": "Rad Bomb", "perk_type": "activated", "effect": {"ability": "rad_bomb"}, "desc": "Place a crystal within 2 tiles that detonates after 3 turns, dealing 15+BKS/2 damage in a 5x5 area (20+BKS at L4). 3 charges/floor. Each cast costs 25 radiation and grants 50 Nuclear Research XP. At 100+ rad, the charge is refunded (rad still spent). Passive: can't mutate below 150 rad."},  # level 2
     {"name": "Nutrient Producer", "perk_type": "grant_item", "effect": {"item_id": "nutrient_producer"}, "desc": "Gain a Nutrient Producer tool. Combine it with any consumable to convert it into a RadBar."},  # level 3
     {"name": "Isotope Junkie", "perk_type": "passive", "effect": None, "desc": "Using a consumable grants +5 radiation (pierces resistance). Rad Bomb damage upgraded to 20+BKS."},  # level 4
     _PLACEHOLDER,
@@ -113,16 +120,17 @@ SKILL_PERKS["Dismantling"] = [
 ]
 
 SKILL_PERKS["Abandoning"] = [
-    {"name": "+1 All Stats", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 to all stats. Leaving things behind builds character."},  # level 1
-    {"name": "+1 All Stats", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 to all stats. And it keeps building."},                   # level 2
-    {"name": "Anotha Motha", "perk_type": "passive", "effect": None, "desc": "Receive 5 extra item drops when descending to the next floor."},                                                                                         # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                          # levels 4-10
+    {"name": "+2 All Stats", "perk_type": "stat", "effect": {"constitution": 2, "strength": 2, "street_smarts": 2, "book_smarts": 2, "tolerance": 2, "swagger": 2}, "desc": "+2 to all stats. Leaving things behind builds character."},  # level 1
+    {"name": "Anotha Motha", "perk_type": "passive", "effect": None, "desc": "Receive 5 extra item drops when descending to the next floor."},                                                                                           # level 2
+    {"name": "Left Behind",  "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 all stats. On descend, gain +1 DR per item left on the floor (lasts until next floor)."},  # level 3
+    {"name": "Milk From The Store", "perk_type": "activated", "effect": {"ability": "milk_from_the_store"}, "desc": "+1 all stats. Activate to double all stats for 10 turns. 3 charges/floor."},  # level 4
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                          # levels 5-10
 ]
 
 SKILL_PERKS["Smoking"] = [
-    {"name": "+2 TOL",             "perk_type": "stat",    "effect": {"tolerance": 2},                        "desc": "+2 Tolerance. You're getting used to the smoke."},                            # level 1
-    {"name": "+2 TOL, +2 CON",    "perk_type": "stat",    "effect": {"tolerance": 2, "constitution": 2},     "desc": "+2 Tolerance, +2 Constitution. Your body adapts to the abuse."},              # level 2
+    {"name": "+2 TOL, +2 CON",    "perk_type": "stat",    "effect": {"tolerance": 2, "constitution": 2},     "desc": "+2 Tolerance, +2 Constitution. Your body adapts to the abuse."},              # level 1
+    {"name": "Stress Smoke",      "perk_type": "passive",  "effect": None,                                    "desc": "10% chance when hit by an attack to auto-smoke a random joint from your inventory."},  # level 2
     {"name": "Phat Cloud",        "perk_type": "passive",  "effect": None,                                    "desc": "Smoking blows a phat cloud at the nearest enemy, dealing damage based on Tolerance."},  # level 3
     {"name": "Roach Fiend",       "perk_type": "passive",  "effect": None,                                    "desc": "30% chance a joint is not consumed when smoked."},                            # level 4
     {"name": "Contact High",      "perk_type": "passive",  "effect": None,                                    "desc": "Enemies hit by joints roll twice and take the worst. Debuffs spread to all enemies within 3 tiles."},  # level 5
@@ -131,7 +139,7 @@ SKILL_PERKS["Smoking"] = [
 ]
 
 SKILL_PERKS["Pyromania"] = [
-    {"name": "Fire!",         "perk_type": "activated", "effect": {"ability": "place_fire"},   "desc": "Place a fire tile on an adjacent square. Enemies that step on it take burn damage."},  # level 1
+    {"name": "Fire!",         "perk_type": "activated", "effect": {"ability": "place_fire", "constitution": 2},   "desc": "+2 Constitution. Spawn a line of 4 fire tiles in a cardinal direction (10 turns). 3/floor."},  # level 1
     {"name": "+3 CON",      "perk_type": "stat",      "effect": {"constitution": 3},          "desc": "+3 Constitution. Fire hardens the soul."},                                              # level 2
     {"name": "Ignite",        "perk_type": "activated", "effect": {"ability": "ignite_spell"}, "desc": "Targeted ignite spell — set a visible enemy ablaze from a distance."},                  # level 3
     {"name": "Neva Burn Out", "perk_type": "passive",   "effect": None,                        "desc": "You are completely immune to fire and burning damage."},                                 # level 4
@@ -139,10 +147,18 @@ SKILL_PERKS["Pyromania"] = [
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                      # levels 6-10
 ]
 
+SKILL_PERKS["Blackkk Magic"] = [
+    {"name": "Curse of Ham",    "perk_type": "activated", "effect": {"ability": "curse_of_ham"},    "desc": "Curse enemies in a cone (range 3, 60°). Cursed monsters attack slower and deal 50% less damage. 3/floor."},  # level 1
+    {"name": "Curse of DOT",    "perk_type": "activated", "effect": {"ability": "curse_of_dot"},    "desc": "Curse a single enemy. Each turn gains a stack and deals 1-5 damage, hitting harder at high stacks. Spreads on death. 3/floor."},  # level 2
+    {"name": "Curse of COVID",  "perk_type": "activated", "effect": {"ability": "curse_of_covid"},  "desc": "Curse a single enemy. Each turn applies 20 rad or tox (capped 150). 50% to stack, 25% to spread. 3/floor."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,                                                                     # levels 4-5
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                          # levels 6-10
+]
+
 SKILL_PERKS["Rolling"] = [
-    {"name": "+1 STR, +1 TOL",       "perk_type": "stat",    "effect": {"strength": 1, "tolerance": 1}, "desc": "+1 Strength, +1 Tolerance. Rolling builds hands and resistance."},  # level 1
-    {"name": "Seeing Double",  "perk_type": "passive", "effect": None,                             "desc": "Chance to roll an extra blunt when you roll one up."},               # level 2
-    {"name": "Spectral Paper", "perk_type": "passive", "effect": None,                             "desc": "20% chance rolling a blunt doesn't consume your papers."},           # level 3
+    {"name": "+2 SWG, +2 TOL",       "perk_type": "stat",    "effect": {"swagger": 2, "tolerance": 2}, "desc": "+2 Swagger, +2 Tolerance. Rolling builds swagger and resistance."},  # level 1
+    {"name": "Spectral Paper", "perk_type": "stat",    "effect": {"tolerance": 2},                "desc": "+2 Tolerance. Gain a Spectral Paper — a reusable rolling paper that is never consumed."},  # level 2
+    {"name": "Seeing Double",  "perk_type": "passive", "effect": None,                             "desc": "50% chance to roll an extra blunt when you roll one up."},           # level 3
     {"name": "Snickelfritz",  "perk_type": "passive", "effect": None,                             "desc": "25% chance to gain a bonus Snickelfritz joint when rolling. Very negative strain."},  # level 4
     {"name": "Rollin' Cloud", "perk_type": "passive", "effect": None,                             "desc": "Rolling a joint triggers Phat Cloud, hitting the nearest visible enemy."},              # level 5
     _PLACEHOLDER, _PLACEHOLDER,
@@ -150,9 +166,9 @@ SKILL_PERKS["Rolling"] = [
 ]
 
 SKILL_PERKS["Alcoholism"] = [
-    {"name": "Im Drinkin Here", "perk_type": "passive",   "effect": None,                           "desc": "Taking damage while drunk has a chance to not interrupt your drinking."},       # level 1
-    {"name": "+2 TOL",        "perk_type": "stat",      "effect": {"tolerance": 2},               "desc": "+2 Tolerance. Your liver is basically pickled at this point."},                 # level 2
-    {"name": "Throw Bottle",    "perk_type": "activated", "effect": {"ability": "throw_bottle"},    "desc": "Hurl a bottle at an enemy for damage with a chance to stun them."},            # level 3
+    {"name": "Throw Bottle",    "perk_type": "activated", "effect": {"ability": "throw_bottle"},    "desc": "Hurl a bottle at an enemy for damage with a chance to stun them."},            # level 1
+    {"name": "+4 TOL",        "perk_type": "stat",      "effect": {"tolerance": 4},               "desc": "+4 Tolerance. Your liver is basically pickled at this point."},                 # level 2
+    {"name": "Stash Finder",  "perk_type": "passive",   "effect": None,                           "desc": "15% chance when entering a new room to find a random bottle in your inventory."},  # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                       # levels 4-10
 ]
@@ -200,7 +216,7 @@ SKILL_PERKS["Smacking"] = [
 ]
 
 SKILL_PERKS["Munching"] = [
-    {"name": "Fast Food",    "perk_type": "activated", "effect": {"constitution": 2, "ability": "quick_eat"}, "desc": "+2 Constitution. Grants Quick Eat ability: instantly eat your next food."},  # level 1
+    {"name": "Fast Food",    "perk_type": "activated", "effect": {"constitution": 2, "ability": "quick_eat"}, "desc": "+2 Constitution. Grants Quick Eat: instantly eat your next food. 1 use per floor."},  # level 1
     {"name": "+2 CON",  "perk_type": "stat",    "effect": {"constitution": 2}, "desc": "+2 Constitution. You're a unit. No cap."},                     # level 2
     {"name": "Better Later", "perk_type": "passive", "effect": None,               "desc": "Food effects last 50% longer before wearing off."},            # level 3
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
@@ -216,10 +232,11 @@ SKILL_PERKS["Jaywalking"] = [
 ]
 
 SKILL_PERKS["Stealing"] = [
-    {"name": "+3 STS",  "perk_type": "stat",      "effect": {"street_smarts": 3},         "desc": "+3 Street Smarts. You learn real quick who to trust and who to rob."},              # level 1
-    {"name": "Pickpocket",      "perk_type": "activated", "effect": {"ability": "pickpocket"},    "desc": "Attempt to pickpocket an adjacent enemy, stealing cash or an item from them."},    # level 2
-    {"name": "Sticky Fingers",  "perk_type": "passive",   "effect": None,                         "desc": "Chance to gain +1 Street Smarts on the first item pickup each floor."},            # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
+    {"name": "Pickpocket",      "perk_type": "activated", "effect": {"ability": "pickpocket"},    "desc": "Pickpocket adjacent enemies for 1-10 + STS cash. Also grants +2 Street Smarts."},  # level 1
+    {"name": "Sticky Fingers",  "perk_type": "passive",   "effect": None,                         "desc": "Chance to gain +1 Street Smarts on the first item pickup each floor."},             # level 2
+    {"name": "Shakedown",      "perk_type": "passive",   "effect": None,                         "desc": "Enemies drop a bonus consumable on death. Chance: 10 + STS/3 %."},              # level 3
+    {"name": "Sleight of Hand", "perk_type": "passive", "effect": None,                         "desc": "Pickpocket has min(STS*2, 60)% chance to distract the target, causing their next attack to miss. +2 Street Smarts."},  # level 4
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 4-10
 ]
 
@@ -256,6 +273,15 @@ SKILL_PERKS["Meth-Head"] = [
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
 ]
 
+SKILL_PERKS["L Farming"] = [
+    {"name": "Shake It Off", "perk_type": "stat", "effect": {"constitution": 2}, "desc": "+2 Constitution. Heal 2 HP whenever you kill an enemy."},  # level 1
+    {"name": "Built Different", "perk_type": "stat", "effect": {"swagger": 4, "constitution": 2}, "desc": "+4 Swagger, +2 Constitution. You've been hit so many times it doesn't even phase you."},  # level 2
+    {"name": "Unfazed", "perk_type": "passive", "effect": None, "desc": "25% chance when taking damage to gain +1 Swagger for the rest of the floor. Stacks."},  # level 3
+    {"name": "Armor Up", "perk_type": "passive", "effect": None, "desc": "35% chance when hit while you have armor to block the hit, reducing damage to 1."},  # level 4
+    _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 5-10
+]
+
 SKILL_PERKS["Ammo Rat"] = [
     {"name": "Scrounger", "perk_type": "passive", "effect": None, "desc": "50% chance to gain +1 bonus round when picking up ammo."},  # level 1
     {"name": "Ammo Nerd", "perk_type": "stat", "effect": {"book_smarts": 2, "street_smarts": 2}, "desc": "+2 Book-Smarts, +2 Street-Smarts. 2x XP from picking up ammo."},  # level 2
@@ -271,6 +297,29 @@ SKILL_PERKS["Glow Up"] = [
     {"name": "Fallout", "perk_type": "stat", "effect": {"strength": 2}, "desc": "+2 Strength. 20% chance on dealing damage to irradiate the target (+100 rad)."},  # level 3
     _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 3-10
+]
+
+SKILL_PERKS["Arachnigga"] = [
+    {"name": "Web Trail", "perk_type": "activated", "effect": {"ability": "web_trail"}, "desc": "You are immune to webs. Activate: for 5 turns, every tile you move off of gets a cobweb. 3/floor."},  # level 1
+    {"name": "Summon Spider", "perk_type": "activated", "effect": {"ability": "summon_spiderling"}, "desc": "Summon a Spider Hatchling on an adjacent tile. It guards until enemies approach, then chases and bites. 5/floor."},  # level 2
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                  # levels 3-5
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                      # levels 6-10
+]
+
+SKILL_PERKS["Graffiti"] = [
+    {"name": "Taggin'", "perk_type": "stat", "effect": {"swagger": 1, "street_smarts": 2}, "desc": "+1 Swagger, +2 Street-Smarts. 50% chance spraying doesn't consume a charge."},  # level 1
+    {"name": "Street Art", "perk_type": "passive", "effect": None, "desc": "When any enemy dies on a painted tile, heal 5 HP. If you're also on a painted tile, heal 5 more."},  # level 2
+    {"name": "Living Canvas", "perk_type": "passive", "effect": None, "desc": "20% on melee hit: enemy tile turns red. 20% when hit: your tile turns green. 20% on ability use: your tile turns blue."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,                                                                # levels 4-5
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                      # levels 6-10
+]
+
+SKILL_PERKS["Infected"] = [
+    {"name": "Purge", "perk_type": "activated", "effect": {"ability": "purge"}, "desc": "Unlimited. Remove 20 infection. Your next 3 melee attacks deal 50% damage. Stacks."},  # level 1
+    {"name": "Zombie Rage", "perk_type": "activated", "effect": {"ability": "zombie_rage"}, "desc": "+2 Strength. Activate: +20% melee damage, +20 energy/tick for 10 turns. +5 infection on use and per melee kill. 40t cooldown."},  # level 2
+    {"name": "Zombie Stare", "perk_type": "activated", "effect": {"ability": "zombie_stare"}, "desc": "+2 Strength. Target enemy within 3 tiles: stunned 3 turns, feared 10 turns. +5 infection. 15t cooldown."},  # level 3
+    _PLACEHOLDER, _PLACEHOLDER,                                                                # levels 4-5
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                      # levels 6-10
 ]
 
 

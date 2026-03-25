@@ -54,6 +54,15 @@ class FakeDungeon:
         return False
 
 
+class _FakeSkill:
+    level = 0
+
+class _FakeSkills:
+    def get(self, name):
+        return _FakeSkill()
+    def gain_potential_exp(self, *a, **kw):
+        pass
+
 class FakeEngine:
     """Minimal engine stub for AI tests."""
 
@@ -61,6 +70,8 @@ class FakeEngine:
         self.messages = []
         self.player = player
         self.dungeon = dungeon
+        self.player_stats = getattr(player, 'stats', None)
+        self.skills = _FakeSkills()
 
     def handle_monster_attack(self, monster):
         self.messages.append(f"{monster.name} attacks!")
@@ -99,11 +110,11 @@ class TestTemplateValidation:
 
     def test_scryer_color(self):
         for key in ["scryer_grunt", "scryer_falcon", "scryer_hitman", "scryer_specialist"]:
-            assert MONSTER_REGISTRY[key].color == (255, 120, 50)
+            assert MONSTER_REGISTRY[key].color == (255, 140, 30)
 
     def test_aldor_color(self):
         for key in ["aldor_grunt", "aldor_falcon", "aldor_hitman", "aldor_specialist"]:
-            assert MONSTER_REGISTRY[key].color == (180, 50, 200)
+            assert MONSTER_REGISTRY[key].color == (220, 50, 180)
 
     def test_role_chars(self):
         for prefix in ("scryer_", "aldor_"):
@@ -156,8 +167,16 @@ class TestFieldPropagation:
 class TestAIConditions:
     """Cartel aggro conditions based on reputation."""
 
-    def test_faction_hostile_at_default_rep(self):
+    def test_faction_not_hostile_at_default_rep(self):
+        """Default rep (-1000) is Neutral — not hostile."""
         player = make_player()
+        monster = create_enemy("scryer_grunt", 15, 15)
+        dungeon = FakeDungeon()
+        assert faction_is_hostile(monster, player, dungeon) is False
+
+    def test_faction_hostile_at_unfriendly_rep(self):
+        """Unfriendly rep (< -2000) is hostile."""
+        player = make_player(rep_scryer=-5000)
         monster = create_enemy("scryer_grunt", 15, 15)
         dungeon = FakeDungeon()
         assert faction_is_hostile(monster, player, dungeon) is True
@@ -170,7 +189,7 @@ class TestAIConditions:
 
     def test_cartel_aggro_hostile_player_in_sight(self):
         """At hostile rep, player in sight triggers aggro."""
-        player = make_player(x=12, y=12)
+        player = make_player(x=12, y=12, rep_scryer=-5000)
         monster = create_enemy("scryer_grunt", 15, 15)
         dungeon = FakeDungeon()
         assert cartel_should_aggro(monster, player, dungeon) is True
@@ -243,9 +262,8 @@ class TestGruntBehavior:
         engine = FakeEngine(player, dungeon)
         tick_data = prepare_ai_tick(player, dungeon, [monster])
         do_ai_turn(monster, player, dungeon, engine, **tick_data)
-        # Should still be idle
+        # Should still be idle (wandering, not chasing)
         assert monster.ai_state == AIState.IDLE
-        assert monster.x == 15 and monster.y == 15
 
     def test_grunt_aggressive_at_hostile_rep(self):
         """Grunt chases when player is hostile and in sight."""

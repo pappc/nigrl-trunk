@@ -1,0 +1,902 @@
+NIGRL — Black Widow Mini-Boss: Three Variations
+================================================
+Date: 2026-03-23
+Zone: Crack Den (zone_floors 1-2, floors 2-3)
+Event: spider_infestation
+Context: Three distinct mini-boss concepts for the spider event floor.
+  These are alternatives/variations to The Landlord concept (spider-enemy-roster.txt).
+  One of these would be chosen as the actual implementation, or they could serve
+  as a revision/redesign menu. Each occupies the same structural role: one guaranteed
+  mini-boss room per spider event floor, the climactic fight of the event.
+
+Reference stats for this design space:
+  Zone damage mult: 0.5x (crack_den)
+  Player HP range: ~70-130 at these floors
+  Wolf Spider effective damage: 3-6/hit — these bosses should hit ~4-8/hit after mult
+  Target HP: ~80 (base_hp + con*5; e.g. base_hp=30 + con(8,10) gives 70-80)
+  At crack den 0.5x mult, 80 HP is a 160-HP equivalent fight by raw damage — it's meaty
+  Existing Sac Spider webbed effect: -25 energy/tick, 10t
+  Existing web_stuck: 50% escape per attempt, auto-escape at 5 failures
+  EffectKinds available: DOT, STUN, FEAR, CHILD_SUPPORT, MOGGED, WELL_FED,
+    RAD_BURST, TOX_BURST, DEPORT, RABIES, BUFF_PURGE, INFECTION
+  New effects referenced: each variation spec'd new Effect subclasses needed
+
+Arachnigga note:
+  Any player with Arachnigga skill has web immunity (cannot be web_stuck).
+  This is a significant power differential on the spider floor. Boss designs
+  must be dangerous to BOTH Arachnigga and non-Arachnigga builds.
+  The "signature nasty debuff" on each variation is INDEPENDENT of web mechanics
+  so it hits Arachnigga players equally hard.
+
+===========================================================================
+VARIATION A — "THE RECLUSIVE" (Sustained Pressure)
+===========================================================================
+
+Concept:
+  The spider that has been in the walls the longest. Not the biggest or the
+  fastest — the most venomous. A matriarch black widow the size of a dinner
+  plate, abdomen swollen with hemotoxin refined over years of Crack Den
+  chemistry exposure. She hits you once, and the poison stays. The fight
+  is a race. She has time. You don't.
+
+  Design pillar: SUSTAINED PRESSURE. The fight isn't dangerous in single
+  moments — it's dangerous because the damage keeps compounding. The
+  player who goes in healthy can survive five minutes if they're careful.
+  The player who goes in already hurt from the floor is on a hard timer.
+
+  Distinct from the other variations: no burst, no CC, no repositioning.
+  Pure escalating venom attrition. She doesn't need to stun you. She just
+  needs to bite you enough times.
+
+Registry key: the_reclusive
+char: 'W'   -- uppercase W, suggests widow, large body; distinct from wolf 'w'
+color: (180, 20, 20)   -- deep blood red; darker and more saturated than pipe spider's (200,50,50)
+
+--- STATS ---
+
+constitution:  (8, 10)
+strength:      (4, 6)
+street_smarts: (5, 7)
+book_smarts:   (3, 5)
+tolerance:     (8, 10)
+swagger:       (6, 9)
+
+base_hp:       30
+base_damage:   (3, 5)
+defense:       2
+dodge_chance:  10
+
+Computed HP range:    30 + (8-10)*5 = 70-80 HP
+Computed power range: (3-5) + (4-6) = 7-11 before 0.5x
+Effective damage:     3-5 per hit after zone multiplier
+Swagger defense bonus: int((6-9 - 8) / 2) = -1 to +0 additional def.
+Total defense: 1-2.
+Crit chance: 15-21% from street_smarts 5-7
+
+AI: WANDER_AMBUSH — patrols her room until player enters sight, then
+  pursues relentlessly. Speed 95 means she is slightly slower than the
+  player — you CAN outrun her, but her venom means running just delays.
+sight_radius: 10
+speed: 95
+spawn_min: 1, spawn_max: 1
+
+spawn_with: [SpawnEscort(type="brown_recluse", count=(2, 3))]
+  She has Brown Recluses nesting near her. The escorting Brown Recluses
+  are PASSIVE_UNTIL_HIT — they will not aggro unless the player hits them
+  or gets too close while fighting The Reclusive. The tension is: do you
+  clear them first (safe but slow, spending time in her room), or do you
+  go directly for her (fast but you may accidentally aggro both recluses
+  mid-fight)?
+
+--- SIGNATURE NASTY DEBUFF: NECROTIC STACK ---
+
+New effect needed: NeuroVenomEffect (id: "neuro_venom")
+  Category: debuff
+  Display name: "Neurotoxin (Xd)" where X is stack count
+
+  Mechanism:
+  - Each stack is an independent timer that deals 2 dmg/turn for 12 turns
+  - On reapply: ADDS a new 12-turn timer alongside existing stacks (true stacking,
+    not refresh)
+  - Stack count display shows total active stacks
+  - Unlike DotEffect, multiple stacks deal cumulative damage per tick:
+    e.g. 3 stacks = 6 dmg/turn, 12 turns each
+  - Each stack is removed independently when its timer expires
+  - Maximum useful stacks: unlimited, but 5+ stacks (10+ dmg/turn) is
+    functionally lethal without healing
+
+  Implementation notes:
+  - Internally stores list of timers: self.timers: list[int]
+  - tick(): decrement all timers, deal len(timers)*2 damage, remove zeros
+  - on_reapply(): always appends a new timer=12 (true stacking)
+  - This is a NEW pattern in effects.py — most effects either stack by
+    refreshing duration OR by incrementing a counter. NeuroVenomEffect uses
+    independent timer lists like IgniteEffect does (see effects.py IgniteEffect
+    for the reference implementation of the list-of-timers pattern).
+
+Why this is the scary one:
+  Every hit has a chance to add a permanent 12-turn DOT stack. These
+  don't refresh each other — they pile up. By turn 6 of the fight, if
+  the player has taken several hits, they may have 2-4 stacks ticking
+  simultaneously (4-8 dmg/turn from venom alone, plus however many other
+  venom DOTs accumulated from the floor's other spiders). The player is
+  not losing HP from one sudden explosion. They are slowly drowning in
+  venom while trying to deal 70-80 effective HP of damage with defense 1-2.
+
+  This is the sustained pressure fantasy. The fight asks: how well
+  did you manage your resources on the way here?
+
+--- SPECIAL ATTACKS ---
+
+SpecialAttack(
+    name="Widow Bite",
+    chance=0.35,
+    damage_mult=1.4,
+    on_hit_effect=OnHitEffect(
+        name="Neurotoxin",
+        kind=EffectKind.DOT,   -- maps to NeuroVenomEffect when effect is implemented
+        amount=2,
+        duration=12,
+        chance=1.0,
+    ),
+)
+
+  Widow Bite fires 35% of turns. Each fire adds a fresh 12-turn neuro_venom
+  stack. The 1.4x damage multiplier means the hit itself also hurts —
+  this is not a 0-damage setup move. It hits AND voids.
+
+  Over a 10-attack fight: 97% chance to fire at least 3 times.
+  3 stacks of neuro_venom = 6 dmg/turn if all active simultaneously.
+  Expect 3-4 stacks in a full fight from Widow Bite alone.
+
+SpecialAttack(
+    name="Silk Smear",
+    chance=0.15,
+    damage_mult=0.5,
+    on_hit_effect=OnHitEffect(
+        name="Silk Smear",
+        kind=EffectKind.STUN,
+        amount=0,
+        duration=1,
+        chance=1.0,
+    ),
+)
+
+  Silk Smear: low-damage hit that stuns for exactly 1 turn. This is not
+  the heavy stun of the Orb Weaver's 2-3 turn stuns. It's one free attack
+  she gets while you're dazed. This fires 15% of the time — one in seven
+  attacks. Not reliable, not the focus. Just a reminder that she can.
+
+  Crucially: 1 turn of stun during active NeuroVenomEffect is 1 turn of
+  receiving her follow-up normal attack, PLUS 2*stacks venom damage. The
+  stun is scarier the longer the fight has gone.
+
+--- ON-HIT EFFECTS ---
+
+OnHitEffect(
+    name="Neurotoxin",
+    kind=EffectKind.DOT,
+    amount=2,
+    duration=12,
+    chance=0.30,
+)
+
+  Base attack also applies neuro_venom at 30% chance. Combined with Widow
+  Bite's 35% chance to add a stack, extended fights are exponentially more
+  dangerous. A 10-attack fight: Widow Bite fires ~3-4 times (1 stack each),
+  basic attacks apply venom ~3 times (30% × remaining ~7 attacks). Final
+  expected stacks: 4-6 active neuro_venom timers ticking simultaneously.
+
+  At 6 stacks: 12 dmg/turn for 12 turns. That is a hard timer.
+
+--- DEATH BEHAVIOR ---
+
+death_split_type:  "pipe_spider"
+death_split_count: 4
+
+  Four Pipe Spiders emerge on death. Classic Brood Mother-style cleanup.
+  The player is almost certainly carrying 2-4 active neuro_venom stacks
+  at this point. The death-split spiders arrive while the venom is still
+  ticking. Resource check: kill four spiders or use healing. The
+  neuro_venom stacks naturally expire over 12 turns but that's 12 turns
+  of 4-8 dmg/turn during cleanup — 48-96 additional damage.
+
+  Consider: a developer may want to implement the neuro_venom stack so
+  that there IS a counter or cure item (anti-venom, benadryl, etc.) that
+  clears all stacks. This would provide meaningful resource decision-making
+  and make the item pool relevant to the fight outcome.
+
+death_drop_chance: 1.0
+death_drop_table: ["mature_spider_egg", "benadryl"]
+
+  Always drops a spider egg (thematic) and benadryl (anti-venom, practical).
+  The benadryl drop on death is a consolation prize — if the player
+  survives the fight with venom stacks ticking, they immediately receive
+  a cure. The timing matters: Benadryl helps the cleanup phase, not the
+  fight itself. This is good roguelike loot timing.
+
+cash_drop: (10, 30)
+
+--- ARACHNIGGA INTERACTION ---
+
+  The Reclusive does NOT use web-based attacks. The neuro_venom stacking
+  threat is identical for Arachnigga and non-Arachnigga players. However:
+  - Arachnigga L3+ Spiderlings can apply steady chip damage while the player
+    kites, reducing the number of hits the player takes — directly reducing
+    the rate at which neuro_venom stacks accumulate.
+  - Arachnigga Tree B "Venom Dealer" creates a philosophical tension: the
+    player has their own venom DOT on The Reclusive, which races against
+    the boss's venom on the player. Both combatants are slowly poisoning
+    each other. Good emergent drama.
+  - Web Snare (Tree A L3) does NOT help directly — The Reclusive moves at
+    speed 95, so it won't escape. But pinning her while spiderlings attack
+    is efficient.
+
+--- FLOOR ROOM SETUP ---
+
+  The Reclusive's room: medium density web cluster (4-6 cobwebs).
+  Web placement: along the walls and in two corners — she lives in the
+  corners, like a real black widow. The room should NOT be the web-dense
+  maze that The Landlord uses. The Reclusive's danger is her venom, not
+  her room. Players can pick their path through the room.
+
+  Escort recluses: place 1-2 tiles before the room entrance (in the
+  hallway) as ambush. The rest inside. This simulates a natural
+  spider distribution across a neglected apartment.
+
+===========================================================================
+VARIATION B — "MAMA EIGHT" (Burst Danger)
+===========================================================================
+
+Concept:
+  The one that found a Crack Den chemistry experiment. She's been living
+  near a crack pipe for three years and something happened to her venom.
+  It's different now. Concentrated. When she bites, you don't get slow
+  poison. You get a sudden, catastrophic whole-body event. She's actually
+  smaller than you'd expect for something this dangerous. They usually are.
+
+  Design pillar: BURST DANGER. Unlike The Reclusive's grinding attrition,
+  Mama Eight creates sudden dramatic spikes. Most of the fight she's
+  manageable. Then she lands ONE specific attack and the next 5 turns are
+  an emergency. The player is playing around specific attack windows,
+  not around sustained pressure.
+
+  Distinct from other variations: erratic behavior, unpredictable speed,
+  and a signature debuff that inverts the usual "fight or flight" calculus —
+  the debuff makes RUNNING dangerous instead of safe.
+
+Registry key: mama_eight
+char: 'Q'   -- looks like a spider body; uppercase for mini-boss status
+color: (200, 100, 30)   -- burnt orange; like a black widow that ate something chemical
+
+--- STATS ---
+
+constitution:  (7, 9)
+strength:      (5, 8)
+street_smarts: (6, 8)
+book_smarts:   (2, 4)
+tolerance:     (6, 9)
+swagger:       (4, 6)
+
+base_hp:       30
+base_damage:   (4, 6)
+defense:       1
+dodge_chance:  20
+
+Computed HP range:    30 + (7-9)*5 = 65-75 HP
+  (Slightly lower than the ~80 target; compensated by higher burst threat)
+Computed power range: (4-6) + (5-8) = 9-14 before 0.5x
+Effective damage:     4-7 per hit after zone multiplier — the highest base
+  damage of the three variations. Hits harder on normal attacks.
+Swagger defense:      int((4-6 - 8) / 2) = -2 to -1 bonus (negative).
+  Combined with base 1: total defense 0 (or even negative, clamped to 0).
+  She's fragile by design. Bursty but killable fast if you stay in.
+
+  NOTE: Defense of 0 is intentional design. Mama Eight is DANGEROUS but
+  FRAGILE. She does not tank. The fight is: can you survive her burst windows
+  long enough to deal 65-75 HP of damage?
+
+AI: WOLF_SPIDER (fast wander_ambush predator)
+  Using the wolf_spider AI mode. At speed 130 she is the fastest of the
+  three variations — she will close distances quickly and acts more often.
+  This creates "burst cycle" gameplay: she catches you, hits multiple times
+  in rapid succession, then you have a window to respond.
+sight_radius: 8
+speed: 130
+spawn_min: 1, spawn_max: 1
+
+spawn_with: [SpawnEscort(type="wolf_spider", count=(1, 2))]
+  Escorted by Wolf Spiders. Thematic: Mama Eight is the pack leader of
+  the most aggressive unit on the floor. The Wolf Spider escorts attack
+  independently at speed 140. Three fast spiders in a room is a
+  nightmare positioning puzzle. Kill escorts first — but Mama Eight will
+  not let you pick your targets.
+
+--- SIGNATURE NASTY DEBUFF: VENOM PANIC ---
+
+New effect needed: VenomPanicEffect (id: "venom_panic")
+  Category: debuff
+  Display name: "Venom Panic (Xt)" where X is remaining turns
+  Duration: 8 turns
+  Priority: 50 (above most effects, below stun)
+
+  Mechanism:
+  - While Venom Panic is active, the player CANNOT WAIT (skip turn).
+    Every turn the player must take an action — move or attack.
+    Waiting costs 3 HP (active choice to stop moving = the venom surges).
+  - Additionally: 2 DOT per turn for 8 turns (16 total)
+  - Reapply: refreshes duration, does NOT stack the DOT
+
+  Implementation notes:
+  - The "no waiting" mechanic requires a hook in engine.py's handle_wait()
+    (or the equivalent rest/wait action handler). Before allowing wait:
+    check if player has "venom_panic" in status_effects. If yes: apply
+    3 HP, post message "The venom surges — you can't stop moving! (-3 HP)",
+    and process the wait action as usual (costs energy). The wait is not
+    BLOCKED — the player CAN wait — but it costs HP to do so.
+  - This avoids issues with "player gets stuck" (not a stun). They
+    always have agency. The cost is just higher.
+  - The DOT component is handled in tick() — standard 2 dmg/turn.
+  - modify_movement hook: no change. Player moves freely.
+  - before_turn hook: returns False (does not skip turn — player chooses).
+  - The "wait costs HP" hook is an engine-level check, not an Effect hook.
+    Suggest implementing as: in engine.handle_wait(), if any effect has
+    attribute punish_wait_cost (new int field on VenomPanicEffect set to 3),
+    apply that damage before processing the wait.
+
+Why this is the scary one:
+  Roguelikes are about information control and positioning. "Wait" is a
+  fundamental tool: heal a turn, let an enemy come to you, time a potion.
+  Venom Panic removes that tool. While panicked, the player must always
+  be moving — toward the spider, away from it, or attacking. The player
+  cannot stand still and drink a potion safely (well, they can, but they
+  pay 3 HP per turn while doing it). This forces suboptimal positioning.
+  In a cramped room with Wolf Spider escorts present, "you must keep moving"
+  transforms the space from manageable to chaos.
+
+  Non-Arachnigga players feel this acutely when web_stuck — trapped and
+  panicking, each turn in the web costs 3 HP if they wait, or they risk
+  wasted escape attempts from the web. The combo of web_stuck + venom_panic
+  is extremely nasty.
+
+--- SPECIAL ATTACKS ---
+
+SpecialAttack(
+    name="Crack Bite",
+    chance=0.30,
+    damage_mult=1.8,
+    on_hit_effect=OnHitEffect(
+        name="Venom Panic",
+        kind=EffectKind.DOT,   -- DOT is the closest existing kind;
+                                -- VenomPanicEffect replaces it at effect layer
+        amount=2,
+        duration=8,
+        chance=1.0,
+    ),
+)
+
+  Crack Bite: her signature attack. 30% chance to fire. 1.8x damage PLUS
+  the Venom Panic debuff. A hit from Crack Bite is a sudden gear-shift in
+  the fight: big damage, then 8 turns of forced movement + 2 DOT/turn.
+  At speed 130 she will attack approximately every 0.77 player turns.
+  Over a 12-turn fight: Crack Bite fires ~3.5 times on average.
+  First proc: manageable (resources likely up). Third proc with panic
+  still ticking from first: catastrophic.
+
+  The 1.8x multiplier at effective 4-7 = 7-12 effective damage per Crack
+  Bite hit. Three Crack Bites over a fight: 21-36 raw damage from the
+  special attacks alone, plus 8-24 DOT from the panic ticks.
+
+SpecialAttack(
+    name="Scuttle",
+    chance=0.20,
+    damage_mult=0.0,
+    on_hit_effect=None,
+)
+
+  Scuttle: a zero-damage repositioning move. When this fires, the spider
+  teleports 2-4 tiles in a random valid direction (not into walls, not
+  off-screen). No damage, no effect — just movement disruption.
+
+  Implementation: damage_mult=0.0 produces 0 damage. The on_hit_effect
+  is None. The ACTUAL behavior (random teleport) must be implemented in
+  the special attack dispatch in engine.py: when special_attack.name ==
+  "Scuttle", instead of applying damage, teleport the monster to a random
+  valid tile within Chebyshev distance 4. Use the existing blink_charges
+  teleport logic as a reference (see enemies.py blink_charges field and
+  its dispatch in engine.py).
+
+  Why Scuttle exists: Mama Eight is fast but not untouchable. Scuttle
+  creates unpredictability. You lined up a ranged shot — she moved. You
+  committed to melee — she's on the other side of the room now. Combined
+  with Venom Panic (you can't just wait for her to come back), the player
+  has to constantly re-chase. This is the "frustrating in the best way"
+  variant. Wolf Spider escorts do not move out of the way when she Scuttles —
+  she may reappear next to them, creating dangerous new clusters.
+
+--- ON-HIT EFFECTS ---
+
+OnHitEffect(
+    name="Hot Venom",
+    kind=EffectKind.DOT,
+    amount=3,
+    duration=5,
+    chance=0.40,
+)
+
+  Base attack: 40% chance for 3 DOT per turn for 5 turns (15 total).
+  Simpler than The Reclusive's stacking — this is a flat short-term DOT.
+  Combined with Crack Bite's Venom Panic (8 turns), the player can be
+  simultaneously managing: 2 DOT/turn panic + 3 DOT/turn basic venom +
+  forced movement + Wolf Spider escorts. All at once. It's a lot.
+
+--- DEATH BEHAVIOR ---
+
+death_split_type:  "wolf_spider"
+death_split_count: 2
+
+  Two Wolf Spiders emerge on death — NOT Pipe Spiders. Mama Eight's escorts
+  were Wolf Spiders and her children are too. Two speed-140 spiders spawning
+  when the player is already hurt and likely still Venom Panic'd is a
+  meaningful threat. This is the highest-danger death split of the three
+  variations. The player may want to wait for Venom Panic to expire (8 turns)
+  before engaging the death-splits — but they're chasing at speed 140.
+  Can't really wait. Can't really run. Classic panic design.
+
+death_drop_chance: 1.0
+death_drop_table: ["kush", "kush"]
+
+  Always drops two kush. Kush is a healing consumable — reward structure
+  is practical recovery tools. This acknowledges that the player is almost
+  certainly in rough shape. Two kush heals are the "well done" prize.
+  (Dropping two means the item_id appears twice in the list — use the
+  drop_quantity approach if that's cleaner, but two separate entries
+  works with the existing death_drop_table list approach.)
+
+cash_drop: (12, 35)
+
+--- ARACHNIGGA INTERACTION ---
+
+  Mama Eight and Arachnigga have interesting friction:
+  - Arachnigga web immunity: HELPS with the Wolf Spider escorts (who may
+    trigger cobweb hazards in the room), but Mama Eight herself doesn't
+    use webs. Web immunity is a nice quality-of-life advantage.
+  - Venom Panic: NOT affected by web immunity. Arachnigga players are
+    just as panicked as anyone else.
+  - The web_snare ability (SINGLE_ENEMY_LOS, CD 8) can STOP Scuttle
+    mid-fight by webbing Mama Eight — web_stuck prevents movement.
+    This creates a satisfying counterplay: "I pinned the thing that keeps
+    teleporting." However, web_snare is on an 8-turn cooldown. Use it
+    wisely.
+  - Arachnigga spiderlings chase Mama Eight even through her Scuttles,
+    since they use MEANDER AI (approach nearest enemy). She can't escape
+    the entire swarm. This makes Arachnigga particularly strong vs Mama
+    Eight specifically.
+
+--- FLOOR ROOM SETUP ---
+
+  Mama Eight's room: open-floor priority. Fewer cobwebs than The Reclusive
+  variant (2-3), more floor space. She needs room to Scuttle. The danger
+  here is not terrain — it's her speed and repositioning.
+
+  Wolf Spider escorts spawn inside the room. Unlike The Reclusive's passive-
+  until-hit recluses, these are active as soon as the player enters sight.
+  There is no "smart approach" to this room. It is a brawl.
+
+===========================================================================
+VARIATION C — "THE WIDOW QUEEN" (Control / Denial)
+===========================================================================
+
+Concept:
+  The original. The one that was here before the Crack Den was a Crack Den.
+  She was here when it was an apartment building. She was here when it was
+  a boarding house. She is very, very old and her web covers most of this
+  floor's infrastructure. You are not fighting a spider. You are trespassing
+  in a spider's home.
+
+  Design pillar: CONTROL AND DENIAL. The Widow Queen fights by rearranging
+  the battlefield against the player. She doesn't need to hit hard — she
+  makes hitting her difficult. She doesn't need to be fast — she controls
+  what tiles are safe to stand on. The fight is about finding and holding
+  the few tiles that aren't her territory, while dealing enough damage to
+  kill something with 80 HP and 3 defense.
+
+  Distinct from other variations: slow, methodical, defensive. The scariest
+  thing about her is not what she does to you directly — it's what she
+  does to the room. She is the environmental hazard as boss.
+
+Registry key: widow_queen
+char: 'W'   -- same char as The Reclusive; dev can disambiguate with color
+color: (15, 15, 120)   -- dark blue-black; old widow marking, midnight color,
+                         -- distinctly different from all other red/earth spiders
+
+--- STATS ---
+
+constitution:  (9, 12)
+strength:      (3, 5)
+street_smarts: (4, 6)
+book_smarts:   (5, 8)   -- unusually high book_smarts for a spider;
+                          -- she has been watching for a very long time
+tolerance:     (9, 12)
+swagger:       (8, 12)
+
+base_hp:       25
+base_damage:   (2, 4)
+defense:       3
+dodge_chance:  5
+
+Computed HP range:    25 + (9-12)*5 = 70-85 HP
+  She is the tankiest of the three variations.
+Computed power range: (2-4) + (3-5) = 5-9 before 0.5x
+Effective damage:     2-4 per hit after zone multiplier — the LOWEST of
+  the three variations. She barely hits for anything. This is intentional.
+Swagger defense:      int((8-12 - 8) / 2) = 0-2 additional defense.
+  Total defense: 3-5. Genuinely hard to damage efficiently.
+
+  NOTE: The Widow Queen is the most HP and defense-heavy. She is also the
+  lowest-damage of the three. The danger is not her offence — it is the
+  combined pressure of the room hazards she creates and maintains.
+
+AI: STATIONARY_GUARD (initially), then MEANDER once player is in sight
+  Mechanic: The Widow Queen starts stationary in the center of her room,
+  surrounded by cobwebs. She will not leave her web cluster until the player
+  enters her sight radius. Once the player is seen, she pursues at speed 80
+  (slower than player). She can be kited — but kiting her through her own
+  webs is extremely dangerous, since she is immune to web effects.
+
+  Implementation note: STATIONARY_GUARD existing AI switches to chasing
+  permanently once the player is spotted. Speed 80 means she is the
+  slowest boss (below player's 100). You can run. But she will not stop.
+sight_radius: 9
+speed: 80
+spawn_min: 1, spawn_max: 1
+
+spawn_with: [SpawnEscort(type="sac_spider", count=(1, 2))]
+  Attended by Sac Spiders. ROOM_GUARD AI. The room has web coverage from
+  sac spider shots AND from the Widow Queen's active web spawning. The
+  pre-placed cobwebs are thick: 8-10 at floor generation time. This is the
+  densest web room in the game.
+
+--- SIGNATURE NASTY DEBUFF: SILK BURIAL ---
+
+New effect needed: SilkBurialEffect (id: "silk_burial")
+  Category: debuff
+  Display name: "Silk Burial (Xt)"
+  Duration: 12 turns
+  Priority: 70 (high)
+
+  Mechanism:
+  - Applies -40 energy/tick (severe slow — worse than webbed's -25)
+  - Also applies a 25% chance each turn to skip the player's action
+    entirely ("You're wrapped in silk! You struggle against the bindings.")
+    The skip chance represents silk accumulating around joints. It is NOT
+    the same as stun — stun is binary (always skip), Silk Burial is
+    probabilistic. The player has agency but an unreliable turn economy.
+  - Reapply: EXTENDS duration by 6 turns (to max 18). Does not reset to
+    12; it adds 6 more turns on top of current remaining.
+  - The extension on reapply means if she hits you with it twice, you
+    are under Silk Burial for potentially 18-24 turns total.
+
+  Implementation notes:
+  - modify_energy_gain hook: return max(1, amount - 40). Even more severe
+    than SlowEffect at ratio=0.6 (which would be 60 energy at speed 100).
+    At -40: player acts at 60 energy/tick vs enemy at 80 speed — the Widow
+    Queen has effectively a 33% turn advantage despite being slower.
+  - before_turn hook (for player): return random.random() < 0.25
+    Wait — before_turn is a monster hook. For player, the skip logic
+    requires an engine-level check in _run_energy_loop or the player action
+    processing phase. Suggest: in engine.py where the player takes their
+    turn, check for any effect with attribute chance_to_skip_turn (float).
+    If random < that chance, consume the player's energy (treat as wasted
+    turn), post message, and return to energy loop. VenomPanicEffect's
+    "wait cost" and SilkBurialEffect's "skip chance" are BOTH engine-level
+    hooks — add a consistent API for this (e.g. effect.on_player_turn_start()
+    returning True to skip the turn).
+  - duration extension on reapply (not standard): override on_reapply to
+    add 6 to existing.duration (capped at 18) rather than max comparison.
+
+Why this is the scary one:
+  -40 energy/tick is debilitating on its own. At 60 energy/tick, the player
+  acts only 60% as often as normal — but the 25% skip chance means effective
+  action rate is 60% * 75% = 45% of baseline. The Widow Queen at speed 80
+  now acts MORE than the player. A 12-18 turn Silk Burial during the fight
+  means the player takes many more hits than expected. Her low damage seems
+  fine until you realize you're taking it twice as often as you planned.
+
+  This is the control/denial fantasy. The player who respects the debuff
+  uses items to cure it (if available). The player who tries to muscle
+  through it discovers that "I'll just heal through it" falls apart when
+  your turn economy halves.
+
+  Crucially: this is a TIMING debuff, not a damage debuff. The player still
+  has health. They can still fight. They just can't keep up with the room.
+
+--- SPECIAL ATTACKS ---
+
+SpecialAttack(
+    name="Weave",
+    chance=0.35,
+    damage_mult=0.0,
+    on_hit_effect=None,
+)
+
+  Weave is a ROOM MODIFICATION attack, not a damage attack. When Weave
+  fires, the Widow Queen places 2-3 cobweb entities on random valid floor
+  tiles within a 5-tile radius of herself. No damage. No player effect.
+  She is literally re-weaving her room during the fight.
+
+  Implementation: similar to Scuttle, this requires custom dispatch in
+  engine.py: when special_attack.name == "Weave", use dungeon.spawn_cobweb()
+  (or equivalent from hazards.py) for 2-3 tiles near the monster. If the
+  tile is already a cobweb, skip it. The cobwebs persist as normal hazards.
+
+  Why this matters: over a 10-attack fight, Weave fires ~3 times, placing
+  6-9 new cobwebs on the battlefield in real time. The room, which started
+  with 8-10 cobwebs pre-placed at floor gen, can END the fight with 14-19.
+  Any tile that was briefly safe is now a web. Kiting the Widow Queen
+  through the room means running into new cobwebs. There is nowhere safe
+  to stand by turn 8.
+
+  Arachnigga exception: cobwebs are neutral terrain for the player with
+  web immunity. The Widow Queen's Weave attack ACTIVELY BENEFITS Arachnigga
+  players who use the cobwebs offensively. This is the intended asymmetry —
+  Arachnigga turns her battlefield control into a weapon against her.
+
+SpecialAttack(
+    name="Silk Burial",
+    chance=0.25,
+    damage_mult=0.8,
+    on_hit_effect=OnHitEffect(
+        name="Silk Burial",
+        kind=EffectKind.STUN,   -- closest existing kind for display purposes;
+                                 -- SilkBurialEffect replaces at effect layer
+        amount=0,
+        duration=12,
+        chance=1.0,
+    ),
+)
+
+  Silk Burial: her signature attack. 25% chance per attack. 0.8x damage
+  (slightly reduced — she wraps you more carefully than she hits you) PLUS
+  the SilkBurialEffect (12 turns, extendable). If she hits this twice
+  (24% cumulative chance in a 10-attack fight for the second proc while
+  first is active), duration extends to 18 turns. At 18 turns of Silk
+  Burial, the fight is in serious danger of turning into a complete loss.
+
+  Fires less often than Mama Eight's Crack Bite (25% vs 30%). Compensated
+  by the duration extension on reapply — the FIRST proc is recoverable;
+  the SECOND proc during the first is potentially fight-ending without
+  an item response.
+
+--- ON-HIT EFFECTS ---
+
+OnHitEffect(
+    name="Binding Silk",
+    kind=EffectKind.STUN,   -- duration=1; one-turn micro-stun on every hit
+    amount=0,
+    duration=1,
+    chance=0.20,
+)
+
+  20% chance on every basic hit for a 1-turn micro-stun. This is the
+  same duration-1 stun used in The Reclusive variation's "Silk Smear."
+  But here it serves a different purpose: in combination with the Widow
+  Queen's Weave attack (which fires 35% of turns), the player is always
+  at risk of a micro-stun followed immediately by Weave, during which two
+  new cobwebs appear while they're frozen for one turn. Micro-stun + Weave
+  combo creates 2 cobwebs the player had no ability to respond to.
+
+  This is a background threat, not a headline one. It's the room-control
+  version of the "chance to miss" effects — a tax on the player's
+  positioning decisions.
+
+--- DEATH BEHAVIOR ---
+
+death_split_type:  "sac_spider"
+death_split_count: 2
+
+  Two Sac Spiders emerge on death. These are ROOM_GUARD AI — they do not
+  chase. They spawn in the remnants of the Widow Queen's room and wait.
+  The death-split Sac Spiders bring their web-shooting attack and can
+  web the player mid-cleanup. A web during cleanup while Silk Burial is
+  still ticking is a very bad situation. The player may need to wait for
+  Silk Burial to expire (12+ turns) before safely entering to kill them —
+  but that's 12 turns of the DOT from any remaining Silk Burial.
+
+  The cleanup phase is the most deliberate of the three variations. No
+  rush. Plan the approach. Use items if needed.
+
+death_drop_chance: 1.0
+death_drop_table: ["pipe_venom_antidote", "spider_silk"]
+
+  "pipe_venom_antidote": a new item suggestion (developer note). Clears
+    all DOT effects (venom, necrosis, neurotoxin, silk burial DOT). The
+    boss drop for the web-focused spider boss is an item that counters the
+    main threat profile of the entire spider floor event. If no antidote
+    item exists yet, substitute "benadryl" as the closest existing item.
+    Flag for the item design pass.
+  "spider_silk": new material item suggestion. Could be used in crafting
+    for Arachnigga-related equipment (e.g., web upgrade components). If
+    no crafting use exists, treat as a sell item or quest item stub.
+    If neither exists, use "kush" as the fallback drop.
+
+  Note: both items above are design suggestions for future development.
+  The death_drop_table should be implemented with existing item IDs until
+  the new items are created. Fallback: ["benadryl", "kush"].
+
+cash_drop: (8, 25)
+  Less cash than the other two variations. She doesn't have money. She
+  has been here since before money. Whatever was in her web is just
+  old bones.
+
+--- ARACHNIGGA INTERACTION ---
+
+  The Widow Queen is the most interesting Arachnigga interaction of the
+  three variations:
+
+  - Web immunity: the player is COMPLETELY immune to cobweb hazards,
+    including all the pre-placed room webs AND the Weave-created webs.
+    The densest web room in the game is freely traversable for Arachnigga.
+    This is an enormous power advantage — approximately 8-19 cobwebs the
+    non-Arachnigga player must navigate around.
+
+  - Silk Burial: NOT blocked by web immunity. The debuff is on the player
+    entity (reduced energy/skip chance), not a terrain effect. Arachnigga
+    still gets Silk Burial'd.
+
+  - Cobweb Warfare: Arachnigga players who use Tree A's lay_web or web_burst
+    have an absurd combo opportunity. Place webs on tiles around the Widow
+    Queen; her Sac Spider escorts walk into them (non-immune); the web_burst
+    capstone ability detonates ALL pre-placed webs simultaneously. In a
+    room with 10+ webs already seeded, a well-timed web_burst while the
+    Widow Queen's escorts are positioned in them is a floor-clearing play.
+    The Widow Queen is the Arachnigga tree's most thematic encounter. She
+    is a spider you out-spider.
+
+  - Spiderlings: they do not interact with webs (immune as allies).
+    Against the slow-moving Widow Queen at speed 80, spiderlings are
+    steady DPS sources that she can't outrun. Tree D's spiderling army
+    is well-suited here.
+
+--- FLOOR ROOM SETUP ---
+
+  The Widow Queen's room is the most web-dense encounter in the game.
+  Developer should implement specific spawn logic for this room:
+    - 8-10 cobweb hazards pre-seeded throughout the room at floor gen
+    - Cobwebs concentrated around the center (where she sits) and
+      along the walls, leaving 2-3 clear floor tiles near the entrance
+    - Sac Spider escorts placed INSIDE the web cluster, not at the entrance
+    - The entrance corridor should have 1-2 cobweb hazards just before
+      the doorway — web even before the room
+
+  Message on entering sight: "Something ancient shifts in the silk. The
+  walls here are entirely web."
+
+===========================================================================
+SUMMARY COMPARISON TABLE
+===========================================================================
+
+  Key             char  Color             HP     Threat Style
+  --------------- ----- ----------------- ------ --------------------
+  the_reclusive   'W'   (180, 20, 20)     70-80  Sustained DOT stacking
+  mama_eight      'Q'   (200, 100, 30)    65-75  Burst + forced movement
+  widow_queen     'W'   (15, 15, 120)     70-85  Terrain control + slow
+
+  char Note: 'W' is used by both The Reclusive and Widow Queen. If both
+  are to exist as alternate roster entries in enemies.py, they need
+  different chars or the dev must pick. Suggestions: The Reclusive keeps
+  'W' (widow association), Widow Queen uses 'Q' or uppercase '@'.
+
+  Signature Debuff Summary:
+  The Reclusive:  neuro_venom (true-stacking DOT; each proc adds new 12t timer)
+  Mama Eight:     venom_panic (can't safely wait; forced movement tax)
+  Widow Queen:    silk_burial (-40 energy/tick + 25% turn skip; extends on reapply)
+
+  New Effects Required:
+  The Reclusive:  NeuroVenomEffect — list-of-timers stacking DOT (see IgniteEffect)
+  Mama Eight:     VenomPanicEffect — DOT + wait penalty; engine hook in handle_wait()
+  Widow Queen:    SilkBurialEffect — energy drain + turn skip%; engine hook for
+                  player turn start; on_reapply duration extension (+6, max 18)
+
+  Common engine hooks needed for Mama Eight + Widow Queen:
+  - engine.py: before player action, iterate effects for on_player_turn_start()
+    returning True to skip the action (consume energy, post message, abort).
+    Both VenomPanic's wait penalty and SilkBurial's 25% skip share this need.
+    Design as a unified system: Effect.punish_wait_cost (int) and
+    Effect.chance_to_skip_turn (float) as optional fields on the base Effect
+    class, checked by the engine per-turn.
+
+  Existing EffectKind usage:
+  All three use DOT / STUN via OnHitEffect. No new EffectKinds needed for
+  the on-hit effects. The new Effect subclasses (NeuroVenom, VenomPanic,
+  SilkBurial) are registered in effects.py like any other Effect, but their
+  dispatch from EffectKind.DOT to the new class requires a special case in
+  the on-hit effect application code (or use a new EffectKind.NEURO_VENOM,
+  VENOM_PANIC, SILK_BURIAL). Developer recommendation: add the three new
+  EffectKind entries for clean dispatch rather than mapping them through DOT.
+
+  Death Split Comparison:
+  The Reclusive:  4x pipe_spider (manageable; primary concern is active venom stacks)
+  Mama Eight:     2x wolf_spider (fast chasers; most dangerous cleanup)
+  Widow Queen:    2x sac_spider  (stationary; most deliberate cleanup; web shooters)
+
+  Room Design Comparison:
+  The Reclusive:  Medium webs (4-6); Brown Recluse ambush at entrance
+  Mama Eight:     Sparse webs (2-3); Wolf Spider escorts, open brawl space
+  Widow Queen:    Dense webs (8-10+); Sac Spider escorts, most tactical room
+
+  Arachnigga Asymmetry Rating:
+  The Reclusive:  Low — webs don't matter; venom hits everyone equally
+  Mama Eight:     Medium — web snare counters Scuttle; spiderlings pressure her
+  Widow Queen:    High — Arachnigga completely bypasses main terrain hazard
+
+===========================================================================
+DESIGN NOTES FOR SELECTION
+===========================================================================
+
+  If this is the ONLY mini-boss variation (one per run):
+    The three are mechanically distinct enough that the game is meaningfully
+    different each run with a random selection. All three satisfy the brief
+    (dreadful signature debuff, ~80 HP, spider-floor climactic fight).
+
+  If only one can be chosen (fixed implementation):
+    Recommendation: VARIATION A (The Reclusive) for the cleanest mechanics
+    and most compatible implementation. NeuroVenomEffect follows an existing
+    pattern (IgniteEffect's list-of-timers). No engine hooks needed beyond
+    effects.py. However, Variation C (Widow Queen) has the most memorable
+    design identity and best Arachnigga synergy if the engine hooks for
+    SilkBurialEffect are acceptable to implement.
+
+  Balance note on zone 0.5x damage multiplier:
+    At crack_den 0.5x, all effective damages above are post-multiplier.
+    The Reclusive's Widow Bite (3-5 base * 1.4 = 4.2-7 * 0.5 = 2.1-3.5)
+    seems low but the neuro_venom stacking provides all the pressure.
+    Mama Eight's Crack Bite (4-6 base * 1.8 = 7.2-10.8 * 0.5 = 3.6-5.4)
+    is the highest single-hit threat. Widow Queen's base hit is negligible
+    but her turn advantage from Silk Burial means she gets MORE attacks
+    through the 0.5x multiplier than she "should." These are calibrated
+    for Crack Den. If these bosses ever appear in a 1.0x zone they would
+    be significantly more dangerous.
+
+===========================================================================
+IMPLEMENTATION CHECKLIST
+===========================================================================
+
+For ANY of the three variations:
+
+  effects.py:
+  [ ] Add at least one new Effect subclass (NeuroVenomEffect, VenomPanicEffect,
+      or SilkBurialEffect depending on chosen variation)
+  [ ] Register with @register decorator
+  [ ] Add corresponding EffectKind entry if using the clean-dispatch approach
+
+  engine.py:
+  [ ] Variation B only: in handle_wait(), check for punish_wait_cost attribute
+      on any active effect; apply HP cost before processing wait
+  [ ] Variation C only: add per-turn skip check for on_player_turn_start() hook
+      OR check chance_to_skip_turn attribute at player turn processing
+  [ ] Variation B only: custom dispatch in special attack handler for "Scuttle"
+      (random blink teleport)
+  [ ] Variation C only: custom dispatch in special attack handler for "Weave"
+      (cobweb placement)
+
+  enemies.py:
+  [ ] Add MonsterTemplate for chosen variation
+  [ ] NOT added to ZONE_SPAWN_TABLES — spawns as guaranteed room guardian only
+
+  zone_generators.py:
+  [ ] Implement spider_infestation event spawning (currently not handled;
+      zombie floor pattern in spawn_crack_den() is the reference)
+  [ ] Specifically: select a room for the boss (largest, or ≥6x6), seed it
+      with cobwebs (8-10 for Widow Queen, 4-6 for Reclusive, 2-3 for Mama Eight)
+  [ ] Place chosen boss + escorts in that room
+  [ ] Replace 50-60% of non-spider event room spawns with spider enemies
+      using the spawn table weights from spider-enemy-roster.txt
+
+  hazards.py:
+  [ ] May need create_cobweb() function (distinct from create_web() if not
+      already implemented) for the pre-seeding logic and Weave attack
+
+  items.py (optional, if new drop items are implemented):
+  [ ] pipe_venom_antidote (full design pass deferred)
+  [ ] spider_silk material (full design pass deferred)

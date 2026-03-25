@@ -152,10 +152,41 @@ def _random_crack_den_room(dungeon):
         return CircleRoom(cx, cy, radius)
 
 
-def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned):
+def _spawn_sublevel_stairs(dungeon, sublevel_key: str):
+    """Spawn purple stairs leading to a sublevel. Avoids existing stair tiles."""
+    stair_positions = frozenset(
+        (e.x, e.y) for e in dungeon.entities if getattr(e, "entity_type", None) == "staircase"
+    )
+    eligible = dungeon.rooms[1:]
+    random.shuffle(eligible)
+    for room in eligible:
+        tiles = room.floor_tiles(dungeon)
+        free = [
+            (x, y) for x, y in tiles
+            if not dungeon.is_blocked(x, y) and (x, y) not in stair_positions
+        ]
+        if free:
+            x, y = random.choice(free)
+            stair = Entity(
+                x=x, y=y,
+                char=">",
+                color=(180, 100, 255),
+                name="Stairs Down (Haitian Daycare)",
+                entity_type="staircase",
+                blocks_movement=False,
+                reveals_on_sight=True,
+            )
+            stair.sublevel = sublevel_key
+            dungeon.entities.append(stair)
+            return
+
+
+def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned, floor_event=None):
     """Spawn monsters, items, and cash for the Crack Den zone."""
     dungeon.zone = zone
     dungeon.entities.append(player)
+
+    is_zombie_floor = (floor_event == "stench_of_death")
 
     # Roll for special rooms and claim rooms before normal spawning
     special_room_indices = set()
@@ -182,6 +213,10 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
             size_max = max(1, len(floor_tiles) // 10)
             floor_bonus = floor_num // 2
             room_max = size_max + floor_bonus
+
+            # Stench of Death: +50% mob count
+            if is_zombie_floor:
+                room_max = max(room_max, int(room_max * 1.5))
 
             # 65% populated, 35% empty
             if random.random() < 0.65:
@@ -222,6 +257,25 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
                             escort.ai_state = None
                             dungeon.entities.append(escort)
 
+    # ── Stench of Death: guaranteed zombie injection ─────────────────
+    if is_zombie_floor:
+        zombie_count = random.randint(13, 17)
+        spawnable_rooms = [r for r in dungeon.rooms[1:]]
+        random.shuffle(spawnable_rooms)
+        zombies_placed = 0
+        for room in spawnable_rooms * 3:  # cycle rooms to fill quota
+            if zombies_placed >= zombie_count:
+                break
+            tiles = room.floor_tiles(dungeon)
+            free = [(tx, ty) for tx, ty in tiles if not dungeon.is_blocked(tx, ty)]
+            if not free:
+                continue
+            x, y = random.choice(free)
+            zombie = create_enemy("zombie", x, y)
+            zombie.spawn_room_tiles = frozenset(tiles)
+            dungeon.entities.append(zombie)
+            zombies_placed += 1
+
     # ── Hallway spawning (zone-specific) ──────────────────────────────
     hallway_table = get_hallway_spawn_table(zone, floor_num)
     if hallway_table:
@@ -244,6 +298,10 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
 
     # Spawn staircase
     dungeon._spawn_staircase_for_zone(zone, floor_num)
+
+    # Occult event: spawn purple stairs to Haitian Daycare sublevel
+    if floor_event == "occult_occupation":
+        _spawn_sublevel_stairs(dungeon, "haitian_daycare")
 
     # Collect staircase positions to exclude from item/cash spawning
     stair_tiles = frozenset(
@@ -293,7 +351,7 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
                 ))
                 cash_total += 1
 
-    # Trap Kitchen bonus: scatter 3 pre-greased foods across non-special rooms
+# Trap Kitchen bonus: scatter 3 pre-greased foods across non-special rooms
     if getattr(dungeon, "_trap_kitchen_bonus_food", False):
         from loot import ZONE_FOOD_TABLES, _weighted_pick
         from foods import get_food_prefix_def
@@ -433,15 +491,14 @@ def _spawn_smoke_lounge(dungeon, room, floor_tiles, zone):
             tweaker.ai_state = None
             dungeon.entities.append(tweaker)
 
-    # 2 Ugly Strippers with proximity_alarm AI
+    # 2 Ugly Strippers with room_combat AI
     for _ in range(2):
         free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
         if not free:
             break
         x, y = random.choice(free)
         stripper = create_enemy("ugly_stripper", x, y)
-        stripper.spawn_room_tiles = room_tile_set
-        stripper.ai_type = "proximity_alarm"
+        stripper.ai_type = "room_combat"
         stripper.ai_state = None
         dungeon.entities.append(stripper)
 
@@ -482,13 +539,12 @@ def _spawn_dive_bar(dungeon, room, floor_tiles, zone):
         thug.spawn_room_tiles = room_tile_set
         dungeon.entities.append(thug)
 
-    # 1 Ugly Stripper with proximity_alarm AI
+    # 1 Ugly Stripper with room_combat AI
     free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
     if free:
         x, y = random.choice(free)
         stripper = create_enemy("ugly_stripper", x, y)
-        stripper.spawn_room_tiles = room_tile_set
-        stripper.ai_type = "proximity_alarm"
+        stripper.ai_type = "room_combat"
         stripper.ai_state = None
         dungeon.entities.append(stripper)
 
@@ -582,6 +638,19 @@ def _spawn_jerome_room(dungeon, room, floor_tiles):
         room_top   = door_y + 1
         room_bot   = door_y + 2
         back_room_tiles = []
+
+        # Wall off the border around the back room so adjacent rooms/corridors
+        # can't breach in.  Skip the door tile itself (door_x, door_y).
+        for ry in range(room_top - 1, room_bot + 2):
+            for rx in range(room_left - 1, room_right + 2):
+                if rx == door_x and ry == door_y:
+                    continue  # don't overwrite the door tile
+                is_interior = (room_left <= rx <= room_right
+                               and room_top <= ry <= room_bot)
+                if not is_interior:
+                    if 0 < rx < dungeon.width - 1 and 0 < ry < dungeon.height - 1:
+                        dungeon.tiles[ry][rx] = TILE_WALL
+
         for ry in range(room_top, room_bot + 1):
             for rx in range(room_left, room_right + 1):
                 if 0 < rx < dungeon.width - 1 and 0 < ry < dungeon.height - 1:
@@ -761,7 +830,7 @@ def generate_meth_lab(dungeon):
     dungeon._build_room_tile_map()
 
 
-def spawn_meth_lab(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned):
+def spawn_meth_lab(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned, floor_event=None):
     """Spawn entities for a Meth Lab floor."""
     dungeon.zone = zone
     dungeon.entities.append(player)
@@ -1004,7 +1073,7 @@ def generate_penthouse(dungeon):
     dungeon._build_room_tile_map()
 
 
-def spawn_penthouse(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned):
+def spawn_penthouse(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned, floor_event=None):
     """Place player and stairs in the penthouse."""
     dungeon.zone = zone
 
@@ -1035,8 +1104,413 @@ def spawn_penthouse(dungeon, player, floor_num, zone, player_skills, player_stat
 # Zone Generator Registry
 # ===================================================================
 
+# ===================================================================
+# Event Generator: Spider Infestation
+# ===================================================================
+
+def generate_spider_infestation(dungeon):
+    """Generate a spider infestation floor for the Crack Den.
+
+    Layout:
+    - Center: small 5x5 spawn room (room 0)
+    - North: branching spider rooms → boss room (circular, radius 6) in top-left or top-right
+    - South: normal Crack Den rooms with stairs down
+    - Cobwebs in north-side hallways and room corners
+    """
+    from dungeon import build_mst, RectRoom, CircleRoom
+
+    cx, cy = dungeon.width // 2, dungeon.height // 2
+
+    # --- Room 0: spawn room (center, 5x5) ---
+    spawn_room = RectRoom(cx - 2, cy - 2, 5, 5)
+    spawn_room.carve(dungeon)
+    dungeon.rooms.append(spawn_room)
+
+    # --- Boss room: circular, radius 6, top-left or top-right ---
+    boss_side = random.choice(["left", "right"])
+    if boss_side == "left":
+        boss_cx = dungeon.width // 4
+    else:
+        boss_cx = dungeon.width * 3 // 4
+    boss_cy = 10
+    boss_room = CircleRoom(boss_cx, boss_cy, 6)
+    boss_room.carve(dungeon)
+    dungeon.rooms.append(boss_room)  # room 1 = boss room
+
+    # --- North spider rooms (between spawn and boss) ---
+    north_rooms = []
+    margin = 2
+    for _ in range(random.randint(4, 6)):
+        for _attempt in range(30):
+            w = random.randint(5, 9)
+            h = random.randint(5, 9)
+            rx = random.randint(margin, dungeon.width - w - margin)
+            ry = random.randint(margin, cy - 3)  # north half
+            room = RectRoom(rx, ry, w, h)
+            if any(room.intersects(other) for other in dungeon.rooms):
+                continue
+            room.carve(dungeon)
+            dungeon.rooms.append(room)
+            north_rooms.append(room)
+            break
+
+    # --- South normal rooms ---
+    south_rooms = []
+    for _ in range(random.randint(4, 7)):
+        for _attempt in range(30):
+            w = random.randint(5, 10)
+            h = random.randint(5, 8)
+            rx = random.randint(margin, dungeon.width - w - margin)
+            ry = random.randint(cy + 4, dungeon.height - h - margin)  # south half
+            room = RectRoom(rx, ry, w, h)
+            if any(room.intersects(other) for other in dungeon.rooms):
+                continue
+            room.carve(dungeon)
+            dungeon.rooms.append(room)
+            south_rooms.append(room)
+            break
+
+    # --- Connect rooms with MST ---
+    if len(dungeon.rooms) > 1:
+        for i, j in build_mst(dungeon.rooms):
+            dungeon._carve_wide_corridor(dungeon.rooms[i].center(), dungeon.rooms[j].center(), 2)
+
+    # Extra connections for loops
+    if len(dungeon.rooms) > 3:
+        for _ in range(len(dungeon.rooms) // 4):
+            i = random.randint(0, len(dungeon.rooms) - 1)
+            j = random.randint(0, len(dungeon.rooms) - 1)
+            if i != j:
+                dungeon._carve_wide_corridor(dungeon.rooms[i].center(), dungeon.rooms[j].center(), 2)
+
+    # Build room tile map
+    dungeon._build_room_tile_map()
+
+    # --- Place cobwebs in north-side hallways and room corners ---
+    from hazards import create_web
+    from config import TILE_FLOOR
+
+    # Cobwebs in corridors north of center
+    corridor_webs = 0
+    for y in range(0, cy):
+        for x in range(dungeon.width):
+            if dungeon.tiles[y][x] != TILE_FLOOR:
+                continue
+            # Only in corridors (not in rooms)
+            if dungeon.room_tile_map.get((x, y)) is not None:
+                continue
+            if random.random() < 0.15:  # 15% chance per corridor tile
+                web = create_web(x, y)
+                dungeon.entities.append(web)
+                corridor_webs += 1
+
+    # Cobwebs in corners of north rooms (including boss room)
+    for room in [dungeon.rooms[1]] + north_rooms:  # boss room + spider rooms
+        tiles = room.floor_tiles(dungeon)
+        if not tiles:
+            continue
+        # Find corner-ish tiles (near room edges)
+        x1, y1, x2, y2 = room.x1, room.y1, room.x2, room.y2
+        for tx, ty in tiles:
+            near_edge_x = (tx <= x1 + 1 or tx >= x2 - 1)
+            near_edge_y = (ty <= y1 + 1 or ty >= y2 - 1)
+            if near_edge_x and near_edge_y and random.random() < 0.5:
+                if not any(e.x == tx and e.y == ty for e in dungeon.entities):
+                    web = create_web(tx, ty)
+                    dungeon.entities.append(web)
+
+    # Mark which rooms are spider rooms vs normal
+    dungeon.spider_rooms = [1] + [dungeon.rooms.index(r) for r in north_rooms if r in dungeon.rooms]
+    dungeon.south_rooms = [dungeon.rooms.index(r) for r in south_rooms if r in dungeon.rooms]
+    dungeon.boss_room_index = 1
+
+
+def spawn_spider_infestation(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned):
+    """Spawn entities for a spider infestation floor."""
+    from items import create_item_entity
+    from entity import Entity
+
+    dungeon.zone = zone
+    dungeon.entities.append(player)
+
+    # Stairs in the southernmost room
+    south_rooms = getattr(dungeon, 'south_rooms', [])
+    if south_rooms:
+        stair_room_idx = max(south_rooms, key=lambda idx: dungeon.rooms[idx].center()[1])
+    else:
+        stair_room_idx = len(dungeon.rooms) - 1
+    stair_room = dungeon.rooms[stair_room_idx]
+    sx, sy = stair_room.center()
+    dungeon.entities.append(Entity(
+        x=sx, y=sy,
+        char=">",
+        color=(255, 220, 80),
+        name="Stairs Down",
+        entity_type="staircase",
+        blocks_movement=False,
+        reveals_on_sight=True,
+    ))
+
+    # --- Spawn spiders in north rooms ---
+    spider_rooms = getattr(dungeon, 'spider_rooms', [])
+    boss_idx = getattr(dungeon, 'boss_room_index', 1)
+    spider_table = [("pipe_spider", 50), ("sac_spider", 25), ("wolf_spider", 25)]
+
+    for room_idx in spider_rooms:
+        if room_idx == boss_idx:
+            continue  # boss room handled separately
+        room = dungeon.rooms[room_idx]
+        floor_tiles = room.floor_tiles(dungeon)
+        if not floor_tiles:
+            continue
+
+        room_tile_set = frozenset(floor_tiles)
+        n_monsters = random.randint(3, 6)
+
+        for _ in range(n_monsters):
+            types = [t[0] for t in spider_table]
+            weights = [t[1] for t in spider_table]
+            enemy_type = random.choices(types, weights=weights, k=1)[0]
+
+            free = [(tx, ty) for tx, ty in floor_tiles if not dungeon.is_blocked(tx, ty)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            monster = create_enemy(enemy_type, x, y)
+            monster.spawn_room_tiles = room_tile_set
+            dungeon.entities.append(monster)
+
+    # --- Boss room: Black Widow + 3-5 mature spider eggs ---
+    boss_room = dungeon.rooms[boss_idx]
+    boss_tiles = boss_room.floor_tiles(dungeon)
+    boss_tile_set = frozenset(boss_tiles)
+    bx, by = boss_room.center()
+
+    # Spawn Black Widow near center
+    free = [(tx, ty) for tx, ty in boss_tiles if not dungeon.is_blocked(tx, ty)]
+    if free:
+        # Place boss near center
+        boss_candidates = [(tx, ty) for tx, ty in free if abs(tx - bx) <= 2 and abs(ty - by) <= 2]
+        if boss_candidates:
+            wx, wy = random.choice(boss_candidates)
+        else:
+            wx, wy = random.choice(free)
+        widow = create_enemy("black_widow", wx, wy)
+        widow.spawn_room_tiles = boss_tile_set
+        dungeon.entities.append(widow)
+
+    # Place 3-5 mature spider eggs in the back (far from entrance)
+    n_eggs = random.randint(3, 5)
+    # "Back" = tiles farthest from center of dungeon
+    egg_tiles = sorted(boss_tiles, key=lambda t: -abs(t[1] - dungeon.height // 2))
+    eggs_placed = 0
+    for tx, ty in egg_tiles:
+        if eggs_placed >= n_eggs:
+            break
+        if dungeon.is_blocked(tx, ty):
+            continue
+        if any(e.x == tx and e.y == ty for e in dungeon.entities):
+            continue
+        egg_kwargs = create_item_entity("mature_spider_egg", tx, ty)
+        dungeon.entities.append(Entity(**egg_kwargs))
+        eggs_placed += 1
+
+    # --- Spawn normal Crack Den enemies in south rooms ---
+    zone_table = get_spawn_table(zone, floor_num)
+    if zone_table:
+        for room_idx in getattr(dungeon, 'south_rooms', []):
+            room = dungeon.rooms[room_idx]
+            floor_tiles = room.floor_tiles(dungeon)
+            if not floor_tiles:
+                continue
+            room_tile_set = frozenset(floor_tiles)
+            n_monsters = random.randint(2, 5)
+            enemy_types = [t[0] for t in zone_table]
+            enemy_weights = [t[1] for t in zone_table]
+            for _ in range(n_monsters):
+                enemy_type = random.choices(enemy_types, weights=enemy_weights, k=1)[0]
+                free = [(tx, ty) for tx, ty in floor_tiles if not dungeon.is_blocked(tx, ty)]
+                if not free:
+                    break
+                x, y = random.choice(free)
+                monster = create_enemy(enemy_type, x, y)
+                monster.spawn_room_tiles = room_tile_set
+                dungeon.entities.append(monster)
+
+    # --- Spawn loot in south rooms ---
+    _spawn_floor_loot_in_rooms(dungeon, dungeon.south_rooms, zone, floor_num, player_skills)
+
+    # --- Extra consumables in spider rooms (reward for clearing the north) ---
+    from loot import pick_random_consumable
+    from items import create_item_entity as _cie
+    spider_loot_rooms = [idx for idx in spider_rooms if idx != boss_idx]
+    for _ in range(6):
+        if not spider_loot_rooms:
+            break
+        room_idx = random.choice(spider_loot_rooms)
+        room = dungeon.rooms[room_idx]
+        free = [(tx, ty) for tx, ty in room.floor_tiles(dungeon) if not dungeon.is_blocked(tx, ty)]
+        if not free:
+            continue
+        ix, iy = random.choice(free)
+        item_id, strain = pick_random_consumable(zone)
+        kwargs = _cie(item_id, ix, iy, strain=strain)
+        dungeon.entities.append(Entity(**kwargs))
+
+
+def _spawn_floor_loot_in_rooms(dungeon, room_indices, zone, floor_num, player_skills):
+    """Spawn loot items in the given rooms using the zone's loot tables."""
+    from loot import generate_floor_loot
+    from items import create_item_entity
+    from entity import Entity
+
+    loot_list = generate_floor_loot(zone, floor_num, player_skills)
+    for item_id, strain in loot_list:
+        if not room_indices:
+            break
+        room_idx = random.choice(room_indices)
+        room = dungeon.rooms[room_idx]
+        floor_tiles = room.floor_tiles(dungeon)
+        free = [(tx, ty) for tx, ty in floor_tiles if not dungeon.is_blocked(tx, ty)]
+        if free:
+            ix, iy = random.choice(free)
+            kwargs = create_item_entity(item_id, ix, iy, strain=strain)
+            dungeon.entities.append(Entity(**kwargs))
+
+
+# ===================================================================
+# Sublevel: Haitian Daycare
+# ===================================================================
+
+def generate_haitian_daycare(dungeon):
+    """Generate the Haitian Daycare sublevel.
+
+    Compact cluster of square rooms connected by tiny 1-2 tile hallways.
+    Does not fill the whole map — rooms packed into a ~35x25 area.
+    """
+    from dungeon import build_mst, RectRoom
+
+    # Define the active area — compact cluster offset from top-left
+    area_x, area_y = 10, 8
+    area_w, area_h = 38, 28
+
+    # Room size pools: small and large
+    sizes = [
+        (4, 4), (4, 5), (5, 4), (5, 5),   # small
+        (6, 5), (5, 6), (6, 6),             # medium
+        (7, 6), (6, 7), (8, 6), (7, 7),    # large
+    ]
+
+    target_rooms = random.randint(8, 12)
+    attempts = 0
+    max_attempts = target_rooms * 20
+
+    while len(dungeon.rooms) < target_rooms and attempts < max_attempts:
+        attempts += 1
+        w, h = random.choice(sizes)
+        # Place within the compact area with 1-2 tile gaps (padding=2 allows tiny hallways)
+        x = random.randint(area_x, area_x + area_w - w - 1)
+        y = random.randint(area_y, area_y + area_h - h - 1)
+        room = RectRoom(x, y, w, h)
+
+        # Check overlap — allow rooms within 2 tiles of each other (tiny hallways)
+        # but not overlapping
+        if any(room.intersects(other) for other in dungeon.rooms):
+            continue
+
+        # Reject rooms that are too far from any existing room (keep cluster tight)
+        if dungeon.rooms:
+            cx, cy = room.center()
+            min_dist = min(
+                max(abs(cx - ox), abs(cy - oy))
+                for r in dungeon.rooms
+                for ox, oy in [r.center()]
+            )
+            if min_dist > 14:  # reject outliers
+                continue
+
+        room.carve(dungeon)
+        dungeon.rooms.append(room)
+
+    # Connect rooms with MST — corridors will be short (1-2 tiles) due to tight packing
+    if len(dungeon.rooms) >= 2:
+        for i, j in build_mst(dungeon.rooms):
+            dungeon.carve_corridor(dungeon.rooms[i].center(), dungeon.rooms[j].center())
+
+    dungeon._build_room_tile_map()
+
+
+def spawn_haitian_daycare(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned, floor_event=None):
+    """Spawn entities for the Haitian Daycare sublevel."""
+    dungeon.zone = "haitian_daycare"
+    dungeon.entities.append(player)
+
+    # Spawn upstairs in the first room (sends player back to the occult floor)
+    if dungeon.rooms:
+        room = dungeon.rooms[0]
+        tiles = room.floor_tiles(dungeon)
+        free = [(x, y) for x, y in tiles if not dungeon.is_blocked(x, y)]
+        if free:
+            x, y = random.choice(free)
+            dungeon.entities.append(Entity(
+                x=x, y=y,
+                char="<",
+                color=(180, 100, 255),
+                name="Stairs Up",
+                entity_type="staircase",
+                blocks_movement=False,
+                reveals_on_sight=True,
+            ))
+
+    # Spawn 1-3 enemies per room (50/50 ritualist/occultist), skip room 0 (spawn room)
+    _DAYCARE_ENEMIES = ["ritualist", "occultist"]
+    for room in dungeon.rooms[1:]:
+        tiles = room.floor_tiles(dungeon)
+        room_tile_set = frozenset(tiles)
+        n_mobs = random.randint(1, 3)
+        for _ in range(n_mobs):
+            free = [(x, y) for x, y in tiles if not dungeon.is_blocked(x, y)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            enemy_type = random.choice(_DAYCARE_ENEMIES)
+            monster = create_enemy(enemy_type, x, y)
+            monster.spawn_room_tiles = room_tile_set
+            dungeon.entities.append(monster)
+
+    # Spawn 6 voodoo dolls spread across rooms
+    spawnable = dungeon.rooms[1:]
+    if spawnable:
+        for i in range(6):
+            room = spawnable[i % len(spawnable)]
+            tiles = room.floor_tiles(dungeon)
+            free = [(x, y) for x, y in tiles if not dungeon.is_blocked(x, y)]
+            if free:
+                x, y = random.choice(free)
+                kwargs = create_item_entity("voodoo_doll", x, y)
+                dungeon.entities.append(Entity(**kwargs))
+
+    # Spawn 10 items from the Crack Den loot pool
+    if spawnable and player_skills and player_stats:
+        crack_den_loot = generate_floor_loot("crack_den", 1, player_skills, player_stats)
+        random.shuffle(crack_den_loot)
+        for i, (item_id, strain) in enumerate(crack_den_loot[:10]):
+            room = spawnable[i % len(spawnable)]
+            tiles = room.floor_tiles(dungeon)
+            if tiles:
+                x, y = random.choice(tiles)
+                if not dungeon.is_blocked(x, y):
+                    kwargs = create_item_entity(item_id, x, y, strain=strain)
+                    dungeon.entities.append(Entity(**kwargs))
+
+
 ZONE_GENERATORS = {
     "crack_den":         {"generate": generate_crack_den,  "spawn": spawn_crack_den},
     "meth_lab":          {"generate": generate_meth_lab,   "spawn": spawn_meth_lab},
     "tyrones_penthouse": {"generate": generate_penthouse,  "spawn": spawn_penthouse},
+    "haitian_daycare":   {"generate": generate_haitian_daycare, "spawn": spawn_haitian_daycare},
+}
+
+EVENT_GENERATORS = {
+    "spider_infestation": {"generate": generate_spider_infestation, "spawn": spawn_spider_infestation},
 }

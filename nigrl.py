@@ -6,9 +6,6 @@ Traditional roguelike inspired by Rogue, Angband, Brogue, and Cataclysm: DDA.
 
 import os
 import sys
-import json
-import base64
-import io
 import time
 import tcod
 import numpy as np
@@ -53,17 +50,41 @@ def _inject_hazard_tiles(tileset):
     except Exception as e:
         print(f"[warn] Could not load table tile: {e}")
 
-    # Fire tile: base64 PNG embedded in fire_tile.pixil JSON
+    # Fire tile: mono-color PNG from dev-assets, tinted orange
     try:
-        pixil_path = os.path.join(base_dir, "fire_tile.pixil")
-        with open(pixil_path) as _f:
-            _pixil = json.load(_f)
-        _b64 = _pixil["frames"][0]["layers"][0]["src"].split(",", 1)[1]
-        _fire_img = PilImage.open(io.BytesIO(base64.b64decode(_b64))).convert("RGBA")
-        _fire = np.array(_fire_img)
-        tileset.set_tile(0xE001, _pad_to_16x16(_fire))
+        fire_path = os.path.join(base_dir, "dev-assets", "fire_tile_v1.png")
+        _fire_img = PilImage.open(fire_path).convert("RGBA")
+        _fire = np.array(_fire_img, dtype=np.uint8)
+        # Tint all visible pixels to orange, preserve alpha
+        _mask = _fire[:, :, 3] > 0
+        _fire[_mask, 0] = 255   # R
+        _fire[_mask, 1] = 140   # G
+        _fire[_mask, 2] = 0     # B
+        tileset.set_tile(0xE001, _fire)
     except Exception as e:
         print(f"[warn] Could not load fire tile: {e}")
+
+    # Web tile: cobweb from dev-assets (already 16×16)
+    try:
+        web_path = os.path.join(base_dir, "dev-assets", "cobweb_16x16.png")
+        _web_img = PilImage.open(web_path).convert("RGBA")
+        _web = np.array(_web_img, dtype=np.uint8)
+        if _web.shape[0] != 16 or _web.shape[1] != 16:
+            _web = _pad_to_16x16(_web)
+        tileset.set_tile(0xE003, _web)
+    except Exception as e:
+        print(f"[warn] Could not load web tile: {e}")
+
+    # Spider hatchling tile: monocolor sprite from dev-assets (16×16)
+    try:
+        spider_path = os.path.join(base_dir, "dev-assets", "spiderling_16.png")
+        _spider_img = PilImage.open(spider_path).convert("RGBA")
+        _spider = np.array(_spider_img, dtype=np.uint8)
+        if _spider.shape[0] != 16 or _spider.shape[1] != 16:
+            _spider = _pad_to_16x16(_spider)
+        tileset.set_tile(0xE004, _spider)
+    except Exception as e:
+        print(f"[warn] Could not load spider hatchling tile: {e}")
 
 
 def main():
@@ -87,21 +108,36 @@ def main():
             validate_registry()
             running = True
 
+            # SDL overlay for pixel-level effects (floating damage numbers, etc.)
+            from sdl_overlay import SDLOverlay
+            sdl_overlay = SDLOverlay(context)
+
             while running:
                 engine = GameEngine()
+                engine.sdl_overlay = sdl_overlay
+                engine.tcod_context = context
 
                 # Give engine a render callback for mid-turn visuals (fear flee, etc.)
                 def _mid_turn_render():
                     console.clear()
                     render_all(console, engine)
-                    context.present(console)
+                    sdl_overlay.render_title_text_on_console(console)
+                    sdl_overlay.update_cursed_tiles(engine)
+                    sdl_overlay.present(console)
                 engine.render_callback = _mid_turn_render
 
-                while engine.running:
-                    console.clear()
-                    render_all(console, engine)
-                    context.present(console)
+                # Initial render before first input
+                console.clear()
+                render_all(console, engine)
+                sdl_overlay.render_title_text_on_console(console)
+                sdl_overlay.update_cursed_tiles(engine)
+                sdl_overlay.present(console)
 
+                _needs_render = True
+                _last_anim_render = 0.0
+
+                while engine.running:
+                    # --- INPUT FIRST (minimal latency) ---
                     if engine.auto_traveling:
                         # Non-blocking poll: any keypress cancels auto-travel
                         cancelled = False
@@ -115,8 +151,6 @@ def main():
                             if action:
                                 msg = "Autoexplore cancelled." if engine.autoexploring else "Auto-travel cancelled."
                                 engine.cancel_auto_travel(msg)
-                                # Re-trigger descend_stairs would restart travel; swallow it.
-                                # Any other key is processed normally.
                                 if action.get("type") not in ("descend_stairs", "autoexplore"):
                                     engine.process_action(action)
                                 cancelled = True
@@ -127,7 +161,27 @@ def main():
                                 engine.step_autoexplore()
                             else:
                                 engine.step_auto_travel()
+                        _needs_render = True
+                    elif sdl_overlay.has_active():
+                        # Poll so floating texts animate without blocking
+                        for event in tcod.event.get():
+                            if isinstance(event, tcod.event.Quit):
+                                engine.running = False
+                                running = False
+                            else:
+                                action = handle_input(event)
+                                if action:
+                                    engine.process_action(action)
+                                    _needs_render = True
+                        # Animation frames: render at ~30fps when idle
+                        now = time.time()
+                        if not _needs_render and (now - _last_anim_render) >= 0.033:
+                            _needs_render = True
+                        if not _needs_render:
+                            time.sleep(0.005)
+                            continue  # skip render
                     else:
+                        # Block until input — no animation running
                         for event in tcod.event.wait():
                             if isinstance(event, tcod.event.Quit):
                                 engine.running = False
@@ -135,6 +189,20 @@ def main():
                             else:
                                 action = handle_input(event)
                                 engine.process_action(action)
+                            break  # process one event, then render
+                        _needs_render = True
+
+                    # --- RENDER (only when needed) ---
+                    if not engine.running:
+                        break
+                    if _needs_render:
+                        console.clear()
+                        render_all(console, engine)
+                        sdl_overlay.render_title_text_on_console(console)
+                        sdl_overlay.update_cursed_tiles(engine)
+                        sdl_overlay.present(console)
+                        _needs_render = False
+                        _last_anim_render = time.time()
 
                 if not getattr(engine, "restart_requested", False):
                     running = False

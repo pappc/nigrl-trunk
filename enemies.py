@@ -90,9 +90,16 @@ class AIType(Enum):
     FALCON_ALERT      = "falcon_alert"       # Run to ally, alert 9x9, then chase
     CARTEL_RANGED     = "cartel_ranged"      # Ranged cartel unit; maintain distance, shoot, blink
     RANGED_ROOM_GUARD = "ranged_room_guard"  # Room guard that kites at exact range
+    ROOM_COMBAT       = "room_combat"        # Wanders passively; chases permanently when player attacks in same room
     STATIONARY_SPAWNER = "stationary_spawner"  # Stationary mid-combat spawner (never moves)
     SUICIDE_BOMBER     = "suicide_bomber"      # Wanders, chases on sight, explodes when adjacent
     CHEMIST_RANGED     = "chemist_ranged"      # Stationary ranged vial thrower
+    PIPE_SPIDER_PACK   = "pipe_spider_pack"    # Slow wander; pack-aggro on sight/room hit
+    SAC_SPIDER         = "sac_spider"          # Room guard; shoots web at range, melee when target webbed
+    WOLF_SPIDER        = "wolf_spider"         # Fast wander_ambush predator
+    BLACK_WIDOW        = "black_widow"         # Mini-boss; room guard, neuro venom stacker
+    ZOMBIE_PACK        = "zombie_pack"         # Wander; 10-tile LOS aggro; room pack-aggro
+    OCCULTIST_RANGED   = "occultist_ranged"    # Room aggro; ranged hex, prioritize attack
 
 
 class EffectKind(Enum):
@@ -112,6 +119,8 @@ class EffectKind(Enum):
     CONVERSION    = "conversion"     # Converts higher tox/rad to lower 2:1
     RABIES        = "rabies"         # -1 all stats debuff
     BUFF_PURGE    = "buff_purge"     # Remove random buff, gain tox = duration
+    INFECTION     = "infection"      # Instant infection on hit
+    STAT_DRAIN    = "stat_drain"    # Permanently reduce a random player stat by 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -423,7 +432,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "tweaker": MonsterTemplate(
         name          = "Tweaker",
         char          = "t",
-        color         = (160, 130, 100),
+        color         = (200, 50, 50),
         constitution  = (3, 5),
         strength      = (3, 5),
         street_smarts = (0, 0),
@@ -447,7 +456,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "crack_addict": MonsterTemplate(
         name          = "Crack Addict",
         char          = "c",
-        color         = (200, 80, 50),
+        color         = (200, 50, 50),
         constitution  = (2, 4),
         strength      = (4, 8),
         street_smarts = (0, 0),
@@ -471,7 +480,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "drug_dealer": MonsterTemplate(
         name          = "Drug Dealer",
         char          = "D",
-        color         = (60, 180, 60),
+        color         = (200, 50, 50),
         constitution  = (3, 5),
         strength      = (3, 5),
         street_smarts = (0, 0),
@@ -500,7 +509,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "ugly_stripper": MonsterTemplate(
         name          = "Ugly Stripper",
         char          = "S",
-        color         = (220, 80, 180),
+        color         = (200, 50, 50),
         constitution  = (4, 5),
         strength      = (5, 6),
         street_smarts = (0, 0),
@@ -513,7 +522,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         male_chance   = 0.1,
         spawn_min     = 1,
         spawn_max     = 2,
-        ai            = AIType.ALARM_CHASER,
+        ai            = AIType.ROOM_COMBAT,
         sight_radius  = 6,
         speed         = 100,
         special_attacks = [
@@ -546,7 +555,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "baby_momma": MonsterTemplate(
         name          = "Baby Momma",
         char          = "B",
-        color         = (230, 200, 50),
+        color         = (200, 50, 50),
         constitution  = (5, 9),
         strength      = (2, 4),
         street_smarts = (0, 0),
@@ -580,7 +589,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "niglet": MonsterTemplate(
         name          = "Niglet",
         char          = "n",
-        color         = (150, 100, 50),
+        color         = (200, 50, 50),
         constitution  = (1, 2),
         strength      = (6, 7),
         street_smarts = (0, 0),
@@ -614,7 +623,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "fat_gooner": MonsterTemplate(
         name          = "Fat Gooner",
         char          = "G",
-        color         = (180, 140, 80),
+        color         = (200, 50, 50),
         constitution  = (8, 10),
         strength      = (3, 3),
         street_smarts = (0, 0),
@@ -639,7 +648,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "thug": MonsterTemplate(
         name          = "Thug",
         char          = "T",
-        color         = (120, 80, 200),
+        color         = (200, 50, 50),
         constitution  = (5, 6),
         strength      = (5, 5),
         street_smarts = (0, 0),
@@ -674,7 +683,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "big_nigga_jerome": MonsterTemplate(
         name          = "Big Nigga Jerome",
         char          = "J",
-        color         = (200, 120, 50),
+        color         = (200, 50, 50),
         constitution  = (10, 10),
         strength      = (4, 4),
         street_smarts = (3, 3),
@@ -710,7 +719,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         death_drop_table   = ["big_niggas_key"],
     ),
     # ══════════════════════════════════════════════════════════════════════════
-    #  METH LAB — SCRYER FACTION  (red-orange: 255, 120, 50)
+    #  METH LAB — SCRYER FACTION  (orange: 255, 140, 30)
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── SCRYER GRUNT ────────────────────────────────────────────────────
@@ -718,7 +727,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "scryer_grunt": MonsterTemplate(
         name          = "Scryer Grunt",
         char          = "G",
-        color         = (255, 120, 50),
+        color         = (255, 140, 30),
         constitution  = (6, 8),
         strength      = (3, 5),
         street_smarts = (1, 2),
@@ -744,7 +753,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "scryer_falcon": MonsterTemplate(
         name          = "Scryer Falcon",
         char          = "F",
-        color         = (255, 120, 50),
+        color         = (255, 140, 30),
         constitution  = (4, 6),
         strength      = (3, 4),
         street_smarts = (1, 2),
@@ -769,7 +778,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "scryer_hitman": MonsterTemplate(
         name          = "Scryer Hitman",
         char          = "H",
-        color         = (255, 120, 50),
+        color         = (255, 140, 30),
         constitution  = (8, 10),
         strength      = (5, 7),
         street_smarts = (2, 3),
@@ -820,7 +829,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "scryer_specialist": MonsterTemplate(
         name          = "Scryer Specialist",
         char          = "S",
-        color         = (255, 120, 50),
+        color         = (255, 140, 30),
         constitution  = (5, 7),
         strength      = (2, 3),
         street_smarts = (2, 3),
@@ -846,14 +855,14 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     ),
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  METH LAB — ALDOR FACTION  (red-purple: 180, 50, 200)
+    #  METH LAB — ALDOR FACTION  (purple-pink: 220, 50, 180)
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── ALDOR GRUNT ─────────────────────────────────────────────────────
     "aldor_grunt": MonsterTemplate(
         name          = "Aldor Grunt",
         char          = "G",
-        color         = (180, 50, 200),
+        color         = (220, 50, 180),
         constitution  = (6, 8),
         strength      = (3, 5),
         street_smarts = (1, 2),
@@ -878,7 +887,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "aldor_falcon": MonsterTemplate(
         name          = "Aldor Falcon",
         char          = "F",
-        color         = (180, 50, 200),
+        color         = (220, 50, 180),
         constitution  = (4, 6),
         strength      = (3, 4),
         street_smarts = (1, 2),
@@ -903,7 +912,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "aldor_hitman": MonsterTemplate(
         name          = "Aldor Hitman",
         char          = "H",
-        color         = (180, 50, 200),
+        color         = (220, 50, 180),
         constitution  = (8, 10),
         strength      = (5, 7),
         street_smarts = (2, 3),
@@ -940,7 +949,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
     "aldor_specialist": MonsterTemplate(
         name          = "Aldor Specialist",
         char          = "S",
-        color         = (180, 50, 200),
+        color         = (220, 50, 180),
         constitution  = (5, 7),
         strength      = (2, 3),
         street_smarts = (2, 3),
@@ -990,7 +999,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 2,
         ai            = AIType.ROOM_GUARD,
         sight_radius  = 7,
-        speed         = 100,
+        speed         = 70,
         on_hit_effects = [
             OnHitEffect(
                 name     = "Deported",
@@ -1219,7 +1228,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         name          = "Covid-26",
         char          = "o",
         color         = (200, 50, 50),
-        constitution  = (2, 3),
+        constitution  = (0, 1),
         strength      = (1, 1),
         street_smarts = (0, 0),
         book_smarts   = (0, 0),
@@ -1233,7 +1242,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         spawn_max     = 4,
         ai            = AIType.SUICIDE_BOMBER,
         sight_radius  = 8,
-        speed         = 140,
+        speed         = 100,
         cash_drop     = (0, 2),
     ),
 
@@ -1285,7 +1294,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         base_damage   = (3, 5),
         defense       = 1,
         male_chance   = 0.5,
-        ai            = AIType.MEANDER,
+        ai            = AIType.WANDER_AMBUSH,
         sight_radius  = 5,
         speed         = 60,
         on_hit_effects = [
@@ -1311,13 +1320,13 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         char          = "d",
         color         = (200, 50, 50),
         constitution  = (4, 6),
-        strength      = (4, 6),
+        strength      = (1, 2),
         street_smarts = (0, 0),
         book_smarts   = (0, 0),
         tolerance     = (0, 0),
         swagger       = (0, 0),
         base_hp       = 12,
-        base_damage   = (5, 8),
+        base_damage   = (2, 8),
         defense       = 1,
         male_chance   = 0.5,
         ai            = AIType.WANDER_AMBUSH,
@@ -1328,7 +1337,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
                 name     = "Toxic Bite",
                 kind     = EffectKind.TOX_BURST,
                 chance   = 1.0,
-                amount   = 8,
+                amount   = 3,
                 duration = 1,
             ),
             OnHitEffect(
@@ -1358,7 +1367,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         base_damage   = (2, 4),
         defense       = 3,
         male_chance   = 0.5,
-        ai            = AIType.MEANDER,
+        ai            = AIType.WANDER_AMBUSH,
         sight_radius  = 5,
         speed         = 70,
         on_hit_effects = [
@@ -1391,7 +1400,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         base_damage   = (2, 4),
         defense       = 1,
         male_chance   = 0.5,
-        ai            = AIType.MEANDER,
+        ai            = AIType.WANDER_AMBUSH,
         sight_radius  = 6,
         speed         = 110,
         on_hit_effects = [
@@ -1427,6 +1436,212 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         sight_radius  = 6,
         speed         = 100,
         cash_drop     = (1, 4),
+    ),
+
+    # ── Spider event enemies (not in spawn tables — spawned by floor events) ──
+
+    "pipe_spider": MonsterTemplate(
+        name          = "Pipe Spider",
+        char          = "s",
+        color         = (200, 50, 50),
+        constitution  = (1, 2),
+        strength      = (1, 2),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 5,
+        base_damage   = (3, 3),
+        defense       = 0,
+        male_chance   = 0.5,
+        ai            = AIType.PIPE_SPIDER_PACK,
+        sight_radius  = 4,
+        speed         = 100,
+        spawn_min     = 2,
+        spawn_max     = 4,
+        cash_drop     = (0, 1),
+        death_drop_chance = 0.05,
+        death_drop_table  = ["mature_spider_egg"],
+        on_hit_effects = [
+            OnHitEffect("pipe_venom", EffectKind.DOT, amount=1, duration=10, chance=1.0),
+        ],
+    ),
+
+    "sac_spider": MonsterTemplate(
+        name          = "Sac Spider",
+        char          = "S",
+        color         = (200, 50, 50),
+        constitution  = (1, 2),
+        strength      = (1, 2),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 18,
+        base_damage   = (5, 7),
+        defense       = 0,
+        male_chance   = 0.5,
+        ai            = AIType.SAC_SPIDER,
+        sight_radius  = 5,
+        speed         = 100,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        cash_drop     = (1, 3),
+        death_drop_chance = 0.10,
+        death_drop_table  = ["mature_spider_egg"],
+    ),
+
+    "wolf_spider": MonsterTemplate(
+        name          = "Wolf Spider",
+        char          = "w",
+        color         = (200, 50, 50),
+        constitution  = (2, 3),
+        strength      = (2, 4),
+        street_smarts = (1, 2),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 15,
+        base_damage   = (5, 7),
+        defense       = 0,
+        dodge_chance   = 20,
+        male_chance   = 0.5,
+        ai            = AIType.WOLF_SPIDER,
+        sight_radius  = 5,
+        speed         = 140,
+        spawn_min     = 1,
+        spawn_max     = 2,
+        cash_drop     = (1, 4),
+        death_drop_chance = 0.08,
+        death_drop_table  = ["mature_spider_egg"],
+        special_attacks = [
+            SpecialAttack(name="Pounce", chance=0.30, damage_mult=1.5),
+        ],
+        on_hit_effects = [
+            OnHitEffect("wolf_spider_venom", EffectKind.DOT, amount=1, duration=10, chance=1.0),
+        ],
+    ),
+
+    "black_widow": MonsterTemplate(
+        name          = "Black Widow",
+        char          = "W",
+        color         = (200, 50, 50),
+        constitution  = (3, 5),
+        strength      = (3, 5),
+        street_smarts = (2, 3),
+        book_smarts   = (1, 2),
+        tolerance     = (2, 3),
+        swagger       = (2, 3),
+        base_hp       = 58,
+        base_damage   = (7, 10),
+        defense       = 2,
+        male_chance   = 0.0,
+        ai            = AIType.BLACK_WIDOW,
+        sight_radius  = 6,
+        speed         = 110,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        cash_drop     = (5, 15),
+        death_split_type  = "pipe_spider",
+        death_split_count = 4,
+        death_drop_chance = 0.25,
+        death_drop_table  = ["mature_spider_egg"],
+        on_hit_effects = [
+            OnHitEffect("neuro_venom", EffectKind.DOT, amount=1, duration=12, chance=0.50),
+        ],
+    ),
+
+    # ── Zombie event enemies (not in spawn tables — spawned by events) ──
+
+    "zombie": MonsterTemplate(
+        name          = "Zombie",
+        char          = "z",
+        color         = (120, 200, 50),
+        constitution  = (3, 5),
+        strength      = (3, 5),
+        street_smarts = (1, 1),
+        book_smarts   = (1, 1),
+        tolerance     = (1, 1),
+        swagger       = (1, 1),
+        base_hp       = 5,
+        base_damage   = (2, 3),
+        defense       = 0,
+        male_chance   = 0.5,
+        ai            = AIType.ZOMBIE_PACK,
+        sight_radius  = 10,
+        speed         = 120,
+        spawn_min     = 3,
+        spawn_max     = 5,
+        cash_drop     = (0, 1),
+        death_drop_chance = 0.02,
+        death_drop_table  = [
+            "ruger_mark_v", "hv_express", "glizzy_19", "uzi", "ar_14",
+            "sawed_off", "m16", "tec_9", "rpg", "cruiser_500", "draco",
+        ],
+        on_hit_effects = [
+            OnHitEffect("Infection", EffectKind.INFECTION, amount=5, duration=1, chance=0.50),
+        ],
+    ),
+
+    # ── Haitian Daycare enemies (spawned in sublevel only) ──
+
+    "ritualist": MonsterTemplate(
+        name          = "Ritualist",
+        char          = "r",
+        color         = (200, 50, 50),
+        constitution  = (4, 5),
+        strength      = (2, 2),
+        street_smarts = (2, 3),
+        book_smarts   = (3, 5),
+        tolerance     = (2, 3),
+        swagger       = (2, 3),
+        base_hp       = 12,
+        base_damage   = (3, 3),
+        defense       = 0,
+        male_chance   = 0.5,
+        ai            = AIType.ROOM_GUARD,
+        sight_radius  = 7,
+        speed         = 100,
+        spawn_min     = 1,
+        spawn_max     = 3,
+        cash_drop     = (1, 5),
+        on_hit_effects = [
+            OnHitEffect("Stat Drain", EffectKind.STAT_DRAIN, amount=1, duration=1, chance=0.10),
+        ],
+    ),
+
+    "occultist": MonsterTemplate(
+        name          = "Occultist",
+        char          = "o",
+        color         = (200, 50, 50),
+        constitution  = (4, 5),
+        strength      = (1, 1),
+        street_smarts = (2, 3),
+        book_smarts   = (4, 6),
+        tolerance     = (2, 3),
+        swagger       = (2, 3),
+        base_hp       = 5,
+        base_damage   = (0, 0),
+        defense       = 0,
+        male_chance   = 0.5,
+        ai            = AIType.OCCULTIST_RANGED,
+        sight_radius  = 7,
+        speed         = 90,
+        spawn_min     = 1,
+        spawn_max     = 3,
+        cash_drop     = (2, 6),
+        ranged_attack = {
+            "damage": (1, 5),
+            "range": 4,
+            "miss_chance": 0.0,
+            "pierces_defense": True,
+            "name": "hexes",
+            "on_hit_effect": {
+                "chance": 0.20,
+                "effect_id": "hex_slow",
+                "kwargs": {"duration": 20, "stacks": 1},
+            },
+        },
     ),
 }
 

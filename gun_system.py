@@ -145,12 +145,18 @@ def _enter_gun_ability_targeting(engine, spec: dict) -> bool:
             engine.messages.append(f"Need {num_shots} rounds to fire. Reload with Shift+R.")
         return False
 
+    # Cursor start: last targeted enemy > nearest visible > player pos
+    last = engine.last_targeted_enemy
     ability_range = spec.get("range", 4)
-    nearest = _find_nearest_visible_enemy(engine, ability_range)
-    if nearest:
-        engine.gun_targeting_cursor = [nearest.x, nearest.y]
+    if (last is not None and getattr(last, 'alive', False)
+            and engine.dungeon.visible[last.y, last.x]):
+        engine.gun_targeting_cursor = [last.x, last.y]
     else:
-        engine.gun_targeting_cursor = [engine.player.x, engine.player.y]
+        nearest = _find_nearest_visible_enemy(engine, ability_range)
+        if nearest:
+            engine.gun_targeting_cursor = [nearest.x, nearest.y]
+        else:
+            engine.gun_targeting_cursor = [engine.player.x, engine.player.y]
 
     engine.gun_ability_active = spec
     engine.menu_state = MenuState.GUN_TARGETING
@@ -180,12 +186,17 @@ def _action_fire_gun(engine, _action):
         return False
 
     gun_range = gun_defn.get("gun_range", 4)
-    # Auto-place cursor on nearest visible enemy, or player pos if none
-    nearest = _find_nearest_visible_enemy(engine, gun_range)
-    if nearest:
-        engine.gun_targeting_cursor = [nearest.x, nearest.y]
+    # Cursor start: last targeted enemy > nearest visible > player pos
+    last = engine.last_targeted_enemy
+    if (last is not None and getattr(last, 'alive', False)
+            and engine.dungeon.visible[last.y, last.x]):
+        engine.gun_targeting_cursor = [last.x, last.y]
     else:
-        engine.gun_targeting_cursor = [engine.player.x, engine.player.y]
+        nearest = _find_nearest_visible_enemy(engine, gun_range)
+        if nearest:
+            engine.gun_targeting_cursor = [nearest.x, nearest.y]
+        else:
+            engine.gun_targeting_cursor = [engine.player.x, engine.player.y]
 
     engine.menu_state = MenuState.GUN_TARGETING
     return False
@@ -217,6 +228,7 @@ def _handle_gun_targeting_input(engine, action):
 
     if action_type == "confirm_target":
         tx, ty = engine.gun_targeting_cursor
+        engine._record_targeted_enemy_at(tx, ty)
         gun = _get_primary_gun(engine)
         if gun is None:
             engine.menu_state = MenuState.NONE
@@ -266,7 +278,13 @@ def _handle_gun_targeting_input(engine, action):
 
 
 def _get_gun_cone_tiles(engine, tx, ty):
-    """Return list of (x, y) tiles in the primary gun's cone toward (tx, ty)."""
+    """Return list of (x, y) tiles in the primary gun's cone toward (tx, ty).
+
+    Uses corner-inclusive angle check: a tile is in the cone if ANY of its four
+    corners falls within the cone angle.  Tiles blocked by walls (no LOS from
+    player) are excluded.
+    """
+    from ai import _has_los
     gun = _get_primary_gun(engine)
     if gun is None:
         return []
@@ -276,6 +294,8 @@ def _get_gun_cone_tiles(engine, tx, ty):
     px, py = engine.player.x, engine.player.y
     angle_to_target = math.atan2(ty - py, tx - px)
     half_angle = math.radians(cone_angle / 2)
+    # Corner offsets — check all four corners of each tile
+    corners = [(-0.4, -0.4), (-0.4, 0.4), (0.4, -0.4), (0.4, 0.4)]
     tiles = []
     for y in range(py - gun_range, py + gun_range + 1):
         for x in range(px - gun_range, px + gun_range + 1):
@@ -284,12 +304,22 @@ def _get_gun_cone_tiles(engine, tx, ty):
             dist = max(abs(x - px), abs(y - py))
             if dist > gun_range or dist == 0:
                 continue
-            angle = math.atan2(y - py, x - px)
-            diff = abs(angle - angle_to_target)
-            if diff > math.pi:
-                diff = 2 * math.pi - diff
-            if diff <= half_angle:
-                tiles.append((x, y))
+            # Check if any corner of the tile falls within the cone
+            in_cone = False
+            for cx, cy in corners:
+                angle = math.atan2((y + cy) - py, (x + cx) - px)
+                diff = abs(angle - angle_to_target)
+                if diff > math.pi:
+                    diff = 2 * math.pi - diff
+                if diff <= half_angle:
+                    in_cone = True
+                    break
+            if not in_cone:
+                continue
+            # Skip tiles behind walls
+            if not _has_los(engine.dungeon, px, py, x, y):
+                continue
+            tiles.append((x, y))
     return tiles
 
 
@@ -431,7 +461,7 @@ def _resolve_gun_ability_shot(engine, tx, ty):
             damage = int(damage * mult)
         damage = engine._apply_damage_modifiers(damage, target)
         damage = engine._apply_toxicity(damage, target)
-        killed = target.take_damage(damage)
+        killed = combat.deal_damage(engine, damage, target)
         engine._apply_virulent_vodka(target, damage)
         engine._check_glow_up_proc(target)
         total_hits += 1
@@ -450,7 +480,7 @@ def _resolve_gun_ability_shot(engine, tx, ty):
             f"{ability_name}! {num_shots} rounds fired, {total_hits} hit{'s' if total_hits != 1 else ''}."
         )
     for killed_target in kills:
-        engine.event_bus.emit("entity_died", killed_target, killer=engine.player)
+        engine.event_bus.emit("entity_died", entity=killed_target, killer=engine.player)
         notify_gun_kill(engine)
 
     # Consume ability cooldown if specified
@@ -474,16 +504,18 @@ def _resolve_cone_shot(engine, tx, ty):
     base_hit = mode_data["hit"]
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
 
-    # Determine ammo to use
+    # Determine ammo to use and projectile count
     ammo_per_shot = gun_defn.get("ammo_per_shot", (1, 1))
     if isinstance(ammo_per_shot, (list, tuple)):
-        num_shots = min(random.randint(ammo_per_shot[0], ammo_per_shot[1]),
-                       gun.current_ammo)
+        ammo_cost = min(random.randint(ammo_per_shot[0], ammo_per_shot[1]),
+                        gun.current_ammo)
     else:
-        num_shots = min(ammo_per_shot, gun.current_ammo)
+        ammo_cost = min(ammo_per_shot, gun.current_ammo)
+    # Projectiles can differ from ammo consumed (e.g. shotguns: 1 shell = 5 pellets)
+    num_shots = gun_defn.get("projectiles", ammo_cost)
 
     # Consume ammo
-    gun.current_ammo = max(0, gun.current_ammo - num_shots)
+    gun.current_ammo = max(0, gun.current_ammo - ammo_cost)
     _award_gun_skill_xp(engine, gun_defn, num_shots)
     _notify_ammo_spent(engine, gun, num_shots)
     dead_shot_ammo_recovery(engine, num_shots, gun_defn.get("ammo_type", "light"))
@@ -544,7 +576,7 @@ def _resolve_cone_shot(engine, tx, ty):
             damage = int(damage * mult)
         damage = engine._apply_damage_modifiers(damage, target)
         damage = engine._apply_toxicity(damage, target)
-        killed = target.take_damage(damage)
+        killed = combat.deal_damage(engine, damage, target)
         engine._apply_virulent_vodka(target, damage)
         engine._check_glow_up_proc(target)
         total_hits += 1
@@ -555,7 +587,7 @@ def _resolve_cone_shot(engine, tx, ty):
         f"You spray {num_shots} rounds! {total_hits} hit{'s' if total_hits != 1 else ''}."
     )
     for killed_target in kills:
-        engine.event_bus.emit("entity_died", killed_target, killer=engine.player)
+        engine.event_bus.emit("entity_died", entity=killed_target, killer=engine.player)
         notify_gun_kill(engine)
 
     engine.player.energy -= energy_cost
@@ -624,7 +656,7 @@ def _resolve_circle_shot(engine, tx, ty):
                 damage = int(damage * mult)
             damage = engine._apply_damage_modifiers(damage, entity)
             damage = engine._apply_toxicity(damage, entity)
-            killed = entity.take_damage(damage)
+            killed = combat.deal_damage(engine, damage, entity)
             engine._apply_virulent_vodka(entity, damage)
             engine._check_glow_up_proc(entity)
             if killed:
@@ -642,7 +674,7 @@ def _resolve_circle_shot(engine, tx, ty):
             engine.game_over = True
 
     for killed_target in kills:
-        engine.event_bus.emit("entity_died", killed_target, killer=engine.player)
+        engine.event_bus.emit("entity_died", entity=killed_target, killer=engine.player)
         notify_gun_kill(engine)
 
     engine.player.energy -= energy_cost
@@ -773,7 +805,7 @@ def _resolve_gun_shot(engine, tx, ty):
     damage = engine._apply_damage_modifiers(damage, target)
     damage = engine._apply_toxicity(damage, target)
 
-    killed = target.take_damage(damage)
+    killed = combat.deal_damage(engine, damage, target)
     engine._apply_virulent_vodka(target, damage)
     engine._check_glow_up_proc(target)
 

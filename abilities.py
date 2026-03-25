@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
 
+from combat import deal_damage as _deal_damage
+
 
 class TargetType(Enum):
     """How an ability selects its target."""
@@ -53,6 +55,7 @@ class AbilityDef:
     tags: frozenset[str] = field(default_factory=frozenset)
     execute: Callable = field(default=None, repr=False)
     is_spell: bool = False         # If True, this is a magic spell (affected by Wizard Mind-Bomb bonus)
+    is_curse: bool = False         # If True, this is a curse (debuff replaces existing curse on target)
     max_range: float = 0.0         # 0.0 = unlimited; Manhattan tile distance from player
     aoe_radius: float = 0.0        # For AOE_CIRCLE target type (future use)
     execute_at: Callable = field(default=None, repr=False)  # (engine, tx, ty) -> bool; True = fired (consume charge)
@@ -94,26 +97,45 @@ class AbilityInstance:
         return True
 
     def consume(self, engine=None):
-        """Spend one charge. If engine is provided and player has the muffin
-        buff, 50% chance to preserve the charge."""
+        """Spend one charge.  Charge-preservation sources stack additively
+        (muffin buff 50%, blue spray-paint tile 25%, etc.) and roll once.
+        Returns True if a charge was actually consumed, False if preserved."""
         import random as _rng
         has_charges = self.charges_remaining > 0 or self.floor_charges_remaining > 0
         if has_charges and engine is not None:
-            muffin = next(
-                (e for e in engine.player.status_effects
-                 if getattr(e, 'id', '') == 'muffin_buff' and not e.expired),
-                None,
+            preserve_chance = 0.0
+            # Muffin Magic buff: +50%
+            has_muffin = any(
+                getattr(e, 'id', '') == 'muffin_buff' and not e.expired
+                for e in engine.player.status_effects
             )
-            if muffin and _rng.random() < 0.50:
-                engine.messages.append([
-                    ("Muffin Magic! ", (255, 220, 130)),
-                    ("Charge preserved!", (200, 255, 200)),
-                ])
-                return
+            if has_muffin:
+                preserve_chance += 0.50
+            # Blue spray-paint tile: +25%
+            spray = engine.dungeon.spray_paint.get(
+                (engine.player.x, engine.player.y)
+            )
+            if spray == "blue":
+                preserve_chance += 0.25
+            if preserve_chance > 0 and _rng.random() < preserve_chance:
+                parts = []
+                if has_muffin and spray == "blue":
+                    parts.append(("Muffin Magic + Blue Paint! ", (130, 180, 255)))
+                elif has_muffin:
+                    parts.append(("Muffin Magic! ", (255, 220, 130)))
+                else:
+                    parts.append(("Blue Paint! ", (80, 140, 255)))
+                parts.append(("Charge preserved!", (200, 255, 200)))
+                engine.messages.append(parts)
+                return False
+        consumed = False
         if self.charges_remaining > 0:
             self.charges_remaining -= 1
+            consumed = True
         if self.floor_charges_remaining > 0:
             self.floor_charges_remaining -= 1
+            consumed = True
+        return consumed
 
     def refund_charge(self, defn: AbilityDef):
         """Restore one charge (e.g., free cast from high radiation)."""
@@ -134,12 +156,13 @@ class AbilityInstance:
         if defn.charge_type == ChargeType.INFINITE:
             return "inf"
         if defn.charge_type == ChargeType.PER_FLOOR:
-            return f"{self.floor_charges_remaining}/{defn.max_charges} /fl"
+            return str(self.floor_charges_remaining)
         if defn.charge_type in (ChargeType.TOTAL, ChargeType.ONCE):
-            return f"{self.charges_remaining} left"
+            return str(self.charges_remaining)
         if defn.charge_type == ChargeType.FLOOR_ONLY:
-            return f"{self.floor_charges_remaining} /fl"
+            return str(self.floor_charges_remaining)
         return "?"
+
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +244,24 @@ def _execute_breath_fire(engine) -> bool:
     return False
 
 
+def _execute_curse_of_ham(engine) -> bool:
+    """Enter cone targeting mode for Curse of Ham."""
+    engine._enter_spell_targeting({"type": "curse_of_ham"})
+    return False
+
+
+def _execute_curse_of_dot(engine) -> bool:
+    """Enter targeting mode for Curse of DOT."""
+    engine._enter_spell_targeting({"type": "curse_of_dot"})
+    return False
+
+
+def _execute_curse_of_covid(engine) -> bool:
+    """Enter targeting mode for Curse of COVID."""
+    engine._enter_spell_targeting({"type": "curse_of_covid"})
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Per-ability execute_at functions (called when player confirms target)
 # Each takes (engine, tx, ty) and returns True if the spell fired (charge consumed),
@@ -257,6 +298,18 @@ def _execute_at_arcane_missile(engine, tx: int, ty: int) -> bool:
 
 def _execute_at_breath_fire(engine, tx: int, ty: int) -> bool:
     return engine._spell_breath_fire(tx, ty)
+
+
+def _execute_at_curse_of_ham(engine, tx: int, ty: int) -> bool:
+    return engine._spell_curse_of_ham(tx, ty)
+
+
+def _execute_at_curse_of_dot(engine, tx: int, ty: int) -> bool:
+    return engine._spell_curse_of_dot(tx, ty)
+
+
+def _execute_at_curse_of_covid(engine, tx: int, ty: int) -> bool:
+    return engine._spell_curse_of_covid(tx, ty)
 
 
 def _execute_zap(engine) -> bool:
@@ -324,7 +377,10 @@ def _execute_at_bash(engine, tx: int, ty: int) -> bool:
     atk_power = engine._compute_player_attack_power()
     def_defense = target.defense
     damage = max(1, atk_power - def_defense) * engine.crit_multiplier
-    target.take_damage(damage)
+    _deal_damage(engine, damage, target)
+    # Beating XP: damage dealt
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Beating", damage, bksmt)
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
     engine.messages.append(
         f"BASH! CRITICAL! {target.name} takes {damage} dmg! ({hp_disp})"
@@ -345,12 +401,15 @@ def _execute_at_bash(engine, tx: int, ty: int) -> bool:
         cx, cy = tx, ty
         for _ in range(4):
             nx, ny = cx + dx, cy + dy
-            # Wall collision
-            if engine.dungeon.is_terrain_blocked(nx, ny):
-                target.take_damage(str_dmg)
+            # Wall or blocking hazard (table) collision
+            if engine.dungeon.is_terrain_blocked(nx, ny) or any(
+                e.blocks_movement and e.entity_type == "hazard"
+                for e in engine.dungeon.get_entities_at(nx, ny)
+            ):
+                _deal_damage(engine, str_dmg, target)
                 hp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
                 engine.messages.append(
-                    f"{target.name} slams into a wall! -{str_dmg} dmg ({hp})"
+                    f"{target.name} slams into an obstacle! -{str_dmg} dmg ({hp})"
                 )
                 if not target.alive:
                     engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
@@ -362,8 +421,8 @@ def _execute_at_bash(engine, tx: int, ty: int) -> bool:
                 None,
             )
             if blocker:
-                target.take_damage(str_dmg)
-                blocker.take_damage(str_dmg)
+                _deal_damage(engine, str_dmg, target)
+                _deal_damage(engine, str_dmg, blocker)
                 hp_t = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
                 hp_b = f"{blocker.hp}/{blocker.max_hp}" if blocker.alive else "dead"
                 engine.messages.append(
@@ -412,17 +471,20 @@ def _execute_at_force_push(engine, tx: int, ty: int) -> bool:
     cx, cy = tx, ty
     for _ in range(3):
         nx, ny = cx + dx, cy + dy
-        # Wall collision
-        if engine.dungeon.is_terrain_blocked(nx, ny):
-            target.take_damage(col_dmg)
+        # Wall or blocking hazard (table) collision
+        if engine.dungeon.is_terrain_blocked(nx, ny) or any(
+            e.blocks_movement and e.entity_type == "hazard"
+            for e in engine.dungeon.get_entities_at(nx, ny)
+        ):
+            _deal_damage(engine, col_dmg, target)
             hp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
-            engine.messages.append(f"{target.name} slams into a wall! -{col_dmg} dmg ({hp})")
+            engine.messages.append(f"{target.name} slams into an obstacle! -{col_dmg} dmg ({hp})")
             if not target.alive:
                 engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
             break
         # Player blocker
         if (nx, ny) == (engine.player.x, engine.player.y):
-            target.take_damage(col_dmg)
+            _deal_damage(engine, col_dmg, target)
             hp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
             engine.messages.append(f"{target.name} slams into you! -{col_dmg} dmg ({hp})")
             if not target.alive:
@@ -435,8 +497,8 @@ def _execute_at_force_push(engine, tx: int, ty: int) -> bool:
             None,
         )
         if blocker:
-            target.take_damage(col_dmg)
-            blocker.take_damage(col_dmg)
+            _deal_damage(engine, col_dmg, target)
+            _deal_damage(engine, col_dmg, blocker)
             hp_t = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
             hp_b = f"{blocker.hp}/{blocker.max_hp}" if blocker.alive else "dead"
             engine.messages.append(
@@ -458,18 +520,37 @@ def _execute_at_force_push(engine, tx: int, ty: int) -> bool:
 
 
 def _execute_at_place_fire(engine, tx: int, ty: int) -> bool:
-    """Spawn a fire hazard at the chosen adjacent tile."""
+    """Spawn a line of 4 fire tiles in a cardinal direction from the player."""
     from hazards import create_fire
-    fire = create_fire(tx, ty)
-    engine.dungeon.add_entity(fire)
-    engine.messages.append("You strike your lighter — FOOM! Fire erupts!")
+    # Derive direction from the chosen adjacent tile
+    dx = tx - engine.player.x
+    dy = ty - engine.player.y
+    count = 0
+    for i in range(1, 5):
+        fx = engine.player.x + dx * i
+        fy = engine.player.y + dy * i
+        if engine.dungeon.is_terrain_blocked(fx, fy):
+            break
+        # Don't stack fires on existing fire tiles
+        has_fire = any(
+            getattr(h, 'hazard_type', None) == 'fire'
+            for h in engine.dungeon.get_entities_at(fx, fy)
+        )
+        if not has_fire:
+            engine.dungeon.add_entity(create_fire(fx, fy, duration=10))
+            count += 1
+    if count > 0:
+        engine.messages.append(f"You strike your lighter — FOOM! A wall of fire erupts! ({count} tiles)")
+    else:
+        engine.messages.append("The fire fizzles — nowhere to spread!")
+        return False
     return True
 
 
 def _rad_bomb_execute(engine) -> bool:
     """Enter cursor targeting mode for Rad Bomb placement."""
     from menu_state import MenuState
-    engine.targeting_cursor = [engine.player.x, engine.player.y]
+    engine.targeting_cursor = engine._get_smart_targeting_cursor()
     engine.targeting_spell = {"type": "ability_cursor"}
     engine.menu_state = MenuState.TARGETING
     engine.messages.append("Rad Bomb: choose placement (range 2, Enter). [Esc] cancel.")
@@ -516,7 +597,7 @@ def _rad_bomb_validate(engine, tx: int, ty: int):
 def _dash_execute(engine) -> bool:
     """Enter cursor targeting mode for the Dash ability."""
     from menu_state import MenuState
-    engine.targeting_cursor = [engine.player.x, engine.player.y]
+    engine.targeting_cursor = engine._get_smart_targeting_cursor()
     engine.targeting_spell = {"type": "ability_cursor"}
     engine.menu_state = MenuState.TARGETING
     engine.messages.append("Dash: choose destination (arrow keys, Enter). [Esc] cancel.")
@@ -560,7 +641,12 @@ def _execute_at_ignite_spell(engine, tx: int, ty: int) -> bool:
 
 
 def _execute_at_black_eye_slap(engine, tx: int, ty: int) -> bool:
-    """Bitch Slap an adjacent enemy. Dmg = STR; vs. females: 10 + 2*STR."""
+    """Bitch Slap an adjacent enemy. Requires unarmed. Dmg = STR; vs. females: 2 + 2*STR."""
+    # Requires unarmed (no weapon equipped)
+    if engine.equipment.get("weapon") is not None:
+        engine.messages.append("Bitch Slap: you need to be unarmed!")
+        return False
+
     target = next(
         (e for e in engine.dungeon.get_entities_at(tx, ty)
          if e.entity_type == "monster" and e.alive),
@@ -573,11 +659,14 @@ def _execute_at_black_eye_slap(engine, tx: int, ty: int) -> bool:
     strength = engine.player_stats.effective_strength
     is_female = getattr(target, "gender", None) == "female"
     if is_female:
-        damage = 10 + 2 * strength
+        damage = 2 + 2 * strength
     else:
         damage = max(1, strength - target.defense)
 
-    target.take_damage(damage)
+    _deal_damage(engine, damage, target)
+    # Smacking XP: damage dealt
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Smacking", damage, bksmt)
 
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
     gender_str = " (FEMALE BONUS!)" if is_female else ""
@@ -614,8 +703,11 @@ def _execute_at_gouge(engine, tx: int, ty: int) -> bool:
     import effects
     stsmt = engine.player_stats.effective_street_smarts
     damage = max(1, stsmt - target.defense)
-    target.take_damage(damage)
+    _deal_damage(engine, damage, target)
     effects.apply_effect(target, engine, "gouge", duration=5, silent=True)
+    # Stabbing XP: damage dealt
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Stabbing", damage, bksmt)
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
     engine.messages.append(
         f"Gouge! {target.name} takes {damage} dmg and is gouged for 5 turns! ({hp_disp})"
@@ -627,7 +719,9 @@ def _execute_at_gouge(engine, tx: int, ty: int) -> bool:
 
 
 def _execute_at_pickpocket(engine, tx: int, ty: int) -> bool:
-    """Pickpocket an adjacent enemy. Dmg = STS/2; player gains $25. 15-turn cooldown."""
+    """Pickpocket an adjacent enemy. Dmg = STS/2; player gains 1-10 + STS cash. 15-turn cooldown."""
+    import random as _rng
+    import effects
     target = next(
         (e for e in engine.dungeon.get_entities_at(tx, ty)
          if e.entity_type == "monster" and e.alive),
@@ -638,15 +732,55 @@ def _execute_at_pickpocket(engine, tx: int, ty: int) -> bool:
         return False
     stsmt = engine.player_stats.effective_street_smarts
     damage = max(1, stsmt // 2 - target.defense)
-    target.take_damage(damage)
-    engine.cash += 25
+    _deal_damage(engine, damage, target)
+    cash_stolen = _rng.randint(1, 10) + stsmt
+    engine.cash += cash_stolen
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
     engine.messages.append(
-        f"Pickpocket! {target.name} takes {damage} dmg. You snag $25! ({hp_disp})"
+        f"Pickpocket! {target.name} takes {damage} dmg. You snag ${cash_stolen}! ({hp_disp})"
     )
+    # Sleight of Hand (Stealing L4): chance to distract the target
+    if target.alive:
+        stealing_skill = engine.skills.get("Stealing")
+        if stealing_skill and stealing_skill.level >= 4:
+            distract_chance = min(stsmt * 2, 60) / 100.0
+            if _rng.random() < distract_chance:
+                effects.apply_effect(target, engine, "distracted", silent=True)
+                engine.messages.append([
+                    ("Sleight of Hand! ", (255, 200, 50)),
+                    (f"{target.name} is distracted.", (200, 200, 200)),
+                ])
+    # Stealing XP: damage dealt + half the cash stolen
+    pickpocket_xp = damage + cash_stolen // 2
+    adjusted_xp = round(pickpocket_xp * engine.player_stats.xp_multiplier)
+    engine.skills.gain_potential_exp(
+        "Stealing", adjusted_xp,
+        engine.player_stats.effective_book_smarts,
+        briskness=engine.player_stats.total_briskness,
+    )
+    engine.messages.append([
+        ("Stealing skill: +", (100, 150, 200)),
+        (str(adjusted_xp), (150, 200, 255)),
+        (" potential XP", (100, 150, 200)),
+    ])
     if not target.alive:
         engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
     engine.ability_cooldowns["pickpocket"] = 15
+    return True
+
+
+def _execute_milk_from_the_store(engine) -> bool:
+    """Milk From The Store: double all stats for 10 turns."""
+    import effects
+    # Don't stack — block if already active
+    if any(getattr(e, 'id', None) == 'milk_from_the_store' for e in engine.player.status_effects):
+        engine.messages.append("Milk From The Store is already active!")
+        return False
+    effects.apply_effect(engine.player, engine, "milk_from_the_store", silent=True)
+    engine.messages.append([
+        ("Milk From The Store! ", (200, 255, 200)),
+        ("All stats doubled for 10 turns!", (255, 255, 200)),
+    ])
     return True
 
 
@@ -665,7 +799,7 @@ def _execute_at_fry_shot(engine, tx: int, ty: int) -> bool:
         return False
     con = engine.player_stats.effective_constitution
     damage = max(1, con + 2 - target.defense)
-    target.take_damage(damage)
+    _deal_damage(engine, damage, target)
     for _ in range(3):
         effects.apply_effect(target, engine, "greasy", duration=20, stacks=1, silent=True)
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
@@ -793,7 +927,7 @@ def _execute_at_throw_bottle(engine, tx: int, ty: int) -> bool:
     strength = engine.player_stats.effective_strength
     damage = 3 * alc_level + strength // 2
     actual = max(1, damage - target.defense)
-    target.take_damage(actual)
+    _deal_damage(engine, actual, target)
     engine.messages.append([
         ("You hurl a bottle at ", (200, 200, 200)),
         (target.name, target.color),
@@ -848,7 +982,7 @@ def _execute_radiation_nova(engine) -> bool:
             for entity in engine.dungeon.get_entities_at(x, y):
                 if entity.entity_type == "monster" and entity.alive:
                     actual = max(1, damage - entity.defense)
-                    entity.take_damage(actual)
+                    _deal_damage(engine, actual, entity)
                     hit_targets.append((entity, actual))
     if not hit_targets:
         engine.messages.append(f"Radiation Nova pulses... but no enemies in range! ({damage} dmg)")
@@ -1016,6 +1150,113 @@ def _execute_white_out(engine) -> bool:
     engine.messages.append([
         ("White Out! ", (240, 240, 255)),
         ("+25 toxicity. +8 Swagger, -25% damage dealt for 50 turns.", (200, 200, 240)),
+    ])
+    return True
+
+
+def _execute_web_trail(engine) -> bool:
+    """Activate Web Trail: for 5 turns, leave cobwebs on tiles you move off of."""
+    import effects
+    effects.apply_effect(engine.player, engine, "web_trail")
+    engine.messages.append([
+        ("Web Trail! ", (180, 180, 255)),
+        ("You'll leave cobwebs behind for 5 turns.", (200, 200, 220)),
+    ])
+    return True
+
+
+def _execute_purge(engine) -> bool:
+    """Purge: remove 20 infection, gain 3-stack melee damage debuff."""
+    if engine.player.infection <= 0:
+        engine.messages.append("You have no infection to purge!")
+        return False
+    from combat import remove_infection
+    import effects
+    remove_infection(engine, engine.player, 20)
+    effects.apply_effect(engine.player, engine, "purge_infection")
+    engine.messages.append([
+        ("Purge! ", (120, 200, 50)),
+        ("-20 infection, but your next 3 melee hits deal half damage.", (180, 220, 120)),
+    ])
+    return True
+
+
+def _execute_zombie_stare(engine) -> bool:
+    """Enter targeting mode for Zombie Stare."""
+    engine._enter_spell_targeting({"type": "zombie_stare"})
+    return False
+
+
+def _execute_at_zombie_stare(engine, tx: int, ty: int) -> bool:
+    """Zombie Stare: stun target for 3 turns, then fear for 10 turns. +5 infection."""
+    from effects import apply_effect
+    from combat import add_infection
+    target = None
+    for ent in engine.dungeon.get_entities_at(tx, ty):
+        if ent.entity_type == "monster" and ent.alive:
+            target = ent
+            break
+    if target is None:
+        engine.messages.append("No target there!")
+        return False
+    apply_effect(target, engine, "stun", duration=3)
+    apply_effect(target, engine, "fear", duration=10,
+                 source_x=engine.player.x, source_y=engine.player.y)
+    add_infection(engine, engine.player, 5)
+    engine.ability_cooldowns["zombie_stare"] = 15
+    engine.messages.append([
+        ("Zombie Stare! ", (100, 180, 50)),
+        (f"{target.name} is paralyzed with fear! (+5 infection)", (160, 220, 100)),
+    ])
+    return True
+
+
+def _execute_zombie_rage(engine) -> bool:
+    """Activate Zombie Rage: +20% melee dmg, +20 energy/tick, +5 infection now. 10 turns."""
+    import effects
+    if any(getattr(e, 'id', '') == 'zombie_rage' for e in engine.player.status_effects):
+        engine.messages.append("Zombie Rage is already active!")
+        return False
+    from combat import add_infection
+    add_infection(engine, engine.player, 5)
+    effects.apply_effect(engine.player, engine, "zombie_rage")
+    engine.ability_cooldowns["zombie_rage"] = 40
+    engine.messages.append([
+        ("ZOMBIE RAGE! ", (180, 50, 50)),
+        ("+20% melee damage, +20 energy/tick for 10 turns. (+5 infection)", (220, 120, 120)),
+    ])
+    return True
+
+
+def _execute_at_summon_spiderling(engine, tx: int, ty: int) -> bool:
+    """Summon a Spider Hatchling on the targeted adjacent tile."""
+    from entity import Entity
+    from ai import get_initial_state
+
+    # Block if tile is a wall or occupied by a blocking entity
+    if engine.dungeon.is_blocked(tx, ty):
+        engine.messages.append("Can't summon there — tile is blocked!")
+        return False
+
+    hatchling = Entity(
+        x=tx, y=ty,
+        char=chr(0xE004),
+        color=(255, 255, 255),
+        name="Spider Hatchling",
+        entity_type="monster",
+        hp=8,
+        power=2,
+        defense=0,
+        ai_type="spider_hatchling",
+        speed=100,
+        is_summon=True,
+    )
+    hatchling.ai_state = get_initial_state("spider_hatchling")
+    engine.dungeon.add_entity(hatchling)
+
+    engine.messages.append([
+        ("Summon Spider! ", (180, 180, 255)),
+        ("A spiderling hatches!", (200, 200, 220)),
     ])
     return True
 
@@ -1291,7 +1532,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "black_eye_slap": AbilityDef(
         ability_id="black_eye_slap",
         name="Bitch Slap",
-        description="Slap an adjacent enemy. Dmg: STR (vs females: 10 + 2×STR). 25-turn cooldown.",
+        description="Slap an adjacent enemy (unarmed only). Dmg: STR (vs females: 2 + 2×STR, ignores defense). 25-turn cooldown.",
         char="S",
         color=(255, 100, 150),
         target_type=TargetType.ADJACENT,
@@ -1319,7 +1560,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "pickpocket": AbilityDef(
         ability_id="pickpocket",
         name="Pickpocket",
-        description="Strike an adjacent enemy. Dmg: STS/2. Snag $25 from the target. 15-turn cooldown.",
+        description="Strike an adjacent enemy. Dmg: STS/2. Snag 1-10 + STS cash. 15-turn cooldown.",
         char="P",
         color=(255, 200, 50),
         target_type=TargetType.ADJACENT,
@@ -1361,12 +1602,12 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "place_fire": AbilityDef(
         ability_id="place_fire",
         name="Fire!",
-        description="Strike your lighter to spawn a fire on an adjacent tile. 1 use per floor.",
+        description="Strike your lighter to spawn a line of 4 fire tiles in a cardinal direction. Fires last 10 turns. 3/floor.",
         char="^",
         color=(255, 80, 0),
         target_type=TargetType.ADJACENT_TILE,
         charge_type=ChargeType.PER_FLOOR,
-        max_charges=1,
+        max_charges=3,
         tags=frozenset({"fire", "hazard", "active"}),
         execute=None,
         is_spell=False,
@@ -1389,7 +1630,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "rad_bomb": AbilityDef(
         ability_id="rad_bomb",
         name="Rad Bomb",
-        description="Place a crystal within 2 tiles. Detonates in 3 turns, dealing 15+BKS/2 damage in a 5x5 area (20+BKS at L4). 3 charges/floor. Costs 25 rad (free charge at 100+ rad).",
+        description="Place a crystal within 2 tiles that detonates after 3 turns, dealing 15+BKS/2 damage in a 5x5 area (20+BKS at L4). 3 charges/floor. Each cast costs 25 radiation and grants 50 Nuclear Research XP. At 100+ rad, the charge is refunded (rad still spent).",
         char="*",
         color=(120, 220, 80),
         target_type=TargetType.SINGLE_ENEMY_LOS,
@@ -1444,12 +1685,12 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "quick_eat": AbilityDef(
         ability_id="quick_eat",
         name="Quick Eat",
-        description="Your next food is eaten instantly — no multi-turn wait.",
+        description="Your next food is eaten instantly — no multi-turn wait. 1 use per floor.",
         char="Q",
         color=(255, 200, 50),
         target_type=TargetType.SELF,
-        charge_type=ChargeType.INFINITE,
-        max_charges=0,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=1,
         tags=frozenset({"food", "buff", "self_cast", "active"}),
         execute=_execute_quick_eat,
         is_spell=False,
@@ -1634,6 +1875,140 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=1,
         tags=frozenset({"meth", "buff", "self_cast", "active"}),
         execute=_execute_crack_hallucinations,
+        is_spell=False,
+    ),
+    # ── Arachnigga ─────────────────────────────────────────────────────────
+    "web_trail": AbilityDef(
+        ability_id="web_trail",
+        name="Web Trail",
+        description="For 5 turns, every tile you move off of gets a cobweb that sticks enemies (and you). 3/floor.",
+        char="w",
+        color=(180, 180, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=3,
+        tags=frozenset({"buff", "self_cast", "active", "web"}),
+        execute=_execute_web_trail,
+        is_spell=False,
+    ),
+    "summon_spiderling": AbilityDef(
+        ability_id="summon_spiderling",
+        name="Summon Spider",
+        description="Summon a Spider Hatchling on an adjacent tile. It guards the spot until an enemy comes near, then chases and bites. 5/floor.",
+        char="s",
+        color=(180, 180, 255),
+        target_type=TargetType.ADJACENT_TILE,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=5,
+        tags=frozenset({"summon", "active", "web"}),
+        execute=None,
+        is_spell=False,
+        max_range=1.5,
+        execute_at=_execute_at_summon_spiderling,
+    ),
+    # ── Infected ───────────────────────────────────────────────────────────
+    "purge": AbilityDef(
+        ability_id="purge",
+        name="Purge",
+        description="Remove 20 infection. Your next 3 melee attacks deal 50% damage. Stacks if reused.",
+        char="P",
+        color=(120, 200, 50),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"self_cast", "active", "infection"}),
+        execute=_execute_purge,
+        is_spell=False,
+    ),
+    "zombie_stare": AbilityDef(
+        ability_id="zombie_stare",
+        name="Zombie Stare",
+        description="Stare down a monster within 3 tiles. Stunned 3 turns, then feared 10 turns. +5 infection. 15t cooldown.",
+        char="Z",
+        color=(100, 180, 50),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"debuff", "active", "infection", "cc"}),
+        execute=_execute_zombie_stare,
+        is_spell=False,
+        max_range=3.0,
+        execute_at=_execute_at_zombie_stare,
+    ),
+    "zombie_rage": AbilityDef(
+        ability_id="zombie_rage",
+        name="Zombie Rage",
+        description="+20% melee damage, +20 energy/tick for 10 turns. +5 infection on use and per melee kill. 40-turn cooldown.",
+        char="Z",
+        color=(180, 50, 50),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"self_cast", "active", "infection", "buff"}),
+        execute=_execute_zombie_rage,
+        is_spell=False,
+    ),
+    # ── Blackkk Magic curses ──────────────────────────────────────────────
+    "curse_of_ham": AbilityDef(
+        ability_id="curse_of_ham",
+        name="Curse of Ham",
+        description="Curse enemies in a cone (range 3, 60°). Cursed monsters attack slower (+50% energy cost) and deal 50% less damage. 3/floor.",
+        char="H",
+        color=(140, 60, 180),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=3,
+        tags=frozenset({"spell", "curse", "cone", "debuff", "active"}),
+        execute=_execute_curse_of_ham,
+        is_spell=True,
+        is_curse=True,
+        max_range=3.0,
+        execute_at=_execute_at_curse_of_ham,
+        get_affected_tiles=lambda engine, tx, ty: engine._get_curse_of_ham_affected_tiles(tx, ty),
+    ),
+    "curse_of_dot": AbilityDef(
+        ability_id="curse_of_dot",
+        name="Curse of DOT",
+        description="Curse a single enemy. Each turn the curse gains a stack and deals 1-5 damage, hitting harder as stacks grow. Spreads on death.",
+        char="D",
+        color=(140, 60, 180),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.FLOOR_ONLY,
+        max_charges=3,
+        tags=frozenset({"spell", "curse", "dot", "debuff", "active"}),
+        execute=_execute_curse_of_dot,
+        is_spell=True,
+        is_curse=True,
+        max_range=8.0,
+        execute_at=_execute_at_curse_of_dot,
+    ),
+    "curse_of_covid": AbilityDef(
+        ability_id="curse_of_covid",
+        name="Curse of COVID",
+        description="Curse a single enemy. Each turn applies 20 rad or tox (capped at 150). 50% chance to gain stacks. 25% chance to spread to nearby enemies.",
+        char="C",
+        color=(140, 60, 180),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.FLOOR_ONLY,
+        max_charges=3,
+        tags=frozenset({"spell", "curse", "dot", "debuff", "active"}),
+        execute=_execute_curse_of_covid,
+        is_spell=True,
+        is_curse=True,
+        max_range=8.0,
+        execute_at=_execute_at_curse_of_covid,
+    ),
+    "milk_from_the_store": AbilityDef(
+        ability_id="milk_from_the_store",
+        name="Milk From The Store",
+        description="Double all stats for 10 turns. 3 charges/floor.",
+        char="M",
+        color=(200, 255, 200),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=3,
+        tags=frozenset({"buff", "self", "active"}),
+        execute=_execute_milk_from_the_store,
         is_spell=False,
     ),
 }

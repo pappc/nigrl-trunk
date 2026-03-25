@@ -7,6 +7,7 @@ All functions take `engine` as their first parameter (replacing `self`).
 import math
 import random
 
+from combat import deal_damage as _deal_damage
 from config import (
     DUNGEON_WIDTH, DUNGEON_HEIGHT, ENERGY_THRESHOLD,
 )
@@ -83,6 +84,7 @@ def _handle_entity_targeting_input(engine, action):
             engine.targeting_ability_index = None
             return False
         target = engine.entity_target_list[engine.entity_target_index]
+        engine.last_targeted_enemy = target
         engine.entity_target_list = []
         engine.menu_state = MenuState.NONE
 
@@ -124,9 +126,9 @@ _WASTE_MESSAGES = [
 
 
 def _enter_targeting(engine, item_index):
-    """Enter targeting mode for a throw action. Cursor starts at player position."""
+    """Enter targeting mode for a throw action. Cursor starts on last/nearest enemy."""
     engine.targeting_item_index = item_index
-    engine.targeting_cursor = [engine.player.x, engine.player.y]
+    engine.targeting_cursor = engine._get_smart_targeting_cursor()
     engine.selected_item_index = None
     engine.menu_state = MenuState.TARGETING
 
@@ -151,6 +153,7 @@ def _handle_targeting_input(engine, action):
 
     if action_type == "confirm_target":
         tx, ty = engine.targeting_cursor
+        engine._record_targeted_enemy_at(tx, ty)
         if engine.targeting_spell is not None:
             if not _is_targeting_in_range(engine, tx, ty):
                 engine.messages.append("Out of range!")
@@ -237,7 +240,7 @@ def _enter_spell_targeting(engine, spell_dict: dict) -> None:
     """Enter cursor targeting mode for a Dosidos spell cast."""
     engine.targeting_spell = dict(spell_dict)
     engine.targeting_item_index = None
-    engine.targeting_cursor = [engine.player.x, engine.player.y]
+    engine.targeting_cursor = engine._get_smart_targeting_cursor()
     engine.menu_state = MenuState.TARGETING
 
 
@@ -301,7 +304,7 @@ def _execute_dosidos_spell_at(engine, tx: int, ty: int) -> bool:
         count = spell.get("count", 1) - 1
         if count > 0:
             spell["count"] = count
-            engine.targeting_cursor = [engine.player.x, engine.player.y]
+            engine.targeting_cursor = engine._get_smart_targeting_cursor()
             engine.messages.append(f"Ray of Frost! {count} shot(s) remaining \u2014 aim again.")
         else:
             engine.menu_state = MenuState.NONE
@@ -316,7 +319,7 @@ def _execute_dosidos_spell_at(engine, tx: int, ty: int) -> bool:
             count = spell.get("count", 1) - 1
             if count > 0:
                 spell["count"] = count
-                engine.targeting_cursor = [engine.player.x, engine.player.y]
+                engine.targeting_cursor = engine._get_smart_targeting_cursor()
                 engine.messages.append(f"Firebolt! {count} shot(s) remaining \u2014 pick next target.")
             else:
                 engine.menu_state = MenuState.NONE
@@ -331,7 +334,7 @@ def _execute_dosidos_spell_at(engine, tx: int, ty: int) -> bool:
             count = spell.get("count", 1) - 1
             if count > 0:
                 spell["count"] = count
-                engine.targeting_cursor = [engine.player.x, engine.player.y]
+                engine.targeting_cursor = engine._get_smart_targeting_cursor()
                 engine.messages.append(f"Magic Missile! {count} shot(s) remaining \u2014 pick next target.")
             else:
                 engine.menu_state = MenuState.NONE
@@ -439,7 +442,7 @@ def _spell_chain_lightning(engine, tx: int, ty: int, total_hits: int) -> bool:
         if target is None:
             break
         last_x, last_y = target.x, target.y
-        target.take_damage(damage)
+        _deal_damage(engine, damage, target)
         hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
         engine.messages.append(f"  Lightning hits {target.name} for {damage} ({hp_disp})")
         if not target.alive:
@@ -471,7 +474,7 @@ def _spell_ray_of_frost(engine, dx: int, dy: int) -> None:
     for x, y in tiles:
         for entity in list(engine.dungeon.get_entities_at(x, y)):
             if entity.entity_type == "monster" and entity.alive:
-                entity.take_damage(damage)
+                _deal_damage(engine, damage, entity)
                 hp_disp = f"{entity.hp}/{entity.max_hp}" if entity.alive else "dead"
                 engine.messages.append(
                     f"Ray of Frost hits {entity.name} for {damage} dmg! ({hp_disp})"
@@ -524,7 +527,7 @@ def _spell_firebolt(engine, tx: int, ty: int) -> bool:
     if hit is None:
         engine.messages.append("Firebolt fizzles \u2014 no target in path!")
         return False
-    hit.take_damage(damage)
+    _deal_damage(engine, damage, hit)
     ignite_eff = effects.apply_effect(hit, engine, "ignite", duration=_player_ignite_duration(engine), stacks=1, silent=True)
     stacks = ignite_eff.stacks if ignite_eff else 1
     hp_disp = f"{hit.hp}/{hit.max_hp}" if hit.alive else "dead"
@@ -551,7 +554,7 @@ def _spell_arcane_missile(engine, tx: int, ty: int) -> bool:
     if target is None:
         engine.messages.append("Arcane Missile: no visible enemy there.")
         return False
-    target.take_damage(damage)
+    _deal_damage(engine, damage, target)
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
     engine.messages.append(f"Arcane Missile! {target.name} takes {damage} dmg! ({hp_disp})")
     if not target.alive:
@@ -584,18 +587,25 @@ def _spell_breath_fire(engine, tx: int, ty: int) -> bool:
         engine.messages.append("Breath Fire: no valid targets!")
         return False
 
+    # Visual: fire ripple from player through cone
+    if engine.sdl_overlay:
+        engine.sdl_overlay.add_tile_flash_ripple(
+            cone_tiles, engine.player.x, engine.player.y,
+            color=(255, 120, 30), duration=0.8, ripple_speed=0.06,
+        )
+
     # Apply damage to all enemies in cone
     hit_targets = set()
     for cx, cy in cone_tiles:
         for entity in engine.dungeon.get_entities_at(cx, cy):
             if entity.entity_type == "monster" and entity.alive and entity not in hit_targets:
-                entity.take_damage(damage)
+                _deal_damage(engine, damage, entity)
                 effects.apply_effect(entity, engine, "ignite", duration=_player_ignite_duration(engine), stacks=3, silent=True)
                 hit_targets.add(entity)
 
     if not hit_targets:
         engine.messages.append("Breath Fire: no enemies in range!")
-        return False
+        return True  # still fired (visual + charge consumed)
 
     engine.messages.append(f"You breathe a cone of fire! {len(hit_targets)} enemy(ies) engulfed.")
     for entity in hit_targets:
@@ -605,40 +615,63 @@ def _spell_breath_fire(engine, tx: int, ty: int) -> bool:
     return True
 
 
-def _get_cone_tiles(engine, cx: int, cy: int, dir_x: float, dir_y: float, range_dist: int = 5):
-    """Get all tiles in a cone (5-range, 90 deg spread) centered on direction.
-    Blocked by walls, passes through enemies."""
+def _get_cone_tiles(engine, cx: int, cy: int, dir_x: float, dir_y: float,
+                    range_dist: int = 5, half_angle_deg: float = 27,
+                    min_spread: int = 1):
+    """Get all tiles in a cone centered on *direction* from (cx, cy).
+
+    Parameters
+    ----------
+    range_dist : how far the cone extends (in tiles).
+    half_angle_deg : half the total cone angle (e.g. 30 → 60° cone).
+    min_spread : minimum perpendicular spread at every distance
+                 (1 = always at least 3 tiles wide; 0 = can be single-tile).
+
+    Uses angle-based inclusion: for every tile within range, check if the
+    angle from (cx,cy) to that tile falls within half_angle_deg of the
+    direction vector.  This guarantees no gaps on diagonals.
+    Blocked by walls, passes through enemies.
+    """
     tiles = []
+    half_rad = math.radians(half_angle_deg)
+    cos_half = math.cos(half_rad)
+    dir_len = math.sqrt(dir_x * dir_x + dir_y * dir_y)
+    if dir_len == 0:
+        return tiles
+    ndx = dir_x / dir_len
+    ndy = dir_y / dir_len
 
-    # Get perpendicular vector for spread
-    perp_x = -dir_y
-    perp_y = dir_x
-
-    # For each distance level (1 to range_dist)
-    for dist in range(1, range_dist + 1):
-        # Get the center point at this distance
-        center_x = cx + dir_x * dist
-        center_y = cy + dir_y * dist
-
-        # Determine spread angle (wider at further distances)
-        # 90 deg spread means 45 deg left/right from center
-        spread = max(1, dist // 2)
-
-        # Get tiles in the spread
-        for spread_offset in range(-spread, spread + 1):
-            tx = int(center_x + perp_x * spread_offset)
-            ty = int(center_y + perp_y * spread_offset)
-
-            # Check bounds
+    for dy in range(-range_dist, range_dist + 1):
+        for dx in range(-range_dist, range_dist + 1):
+            if dx == 0 and dy == 0:
+                continue
+            tx, ty = cx + dx, cy + dy
             if not (0 <= tx < DUNGEON_WIDTH and 0 <= ty < DUNGEON_HEIGHT):
                 continue
-
-            # Check if blocked by wall
+            # Chebyshev distance for range check
+            dist = max(abs(dx), abs(dy))
+            if dist > range_dist:
+                continue
+            # Angle check: dot product of normalized vectors
+            tile_dist = math.sqrt(dx * dx + dy * dy)
+            dot = (dx * ndx + dy * ndy) / tile_dist
+            # Must be in the forward hemisphere
+            if dot <= 0:
+                continue
+            # min_spread: always include tiles within 1 Chebyshev step of center line
+            if dot < cos_half:
+                # Check min_spread fallback: is this tile within min_spread
+                # of the center line at this distance?
+                if min_spread > 0:
+                    # Project onto perpendicular axis
+                    perp = abs(-ndy * dx + ndx * dy)
+                    if perp > min_spread + 0.5:
+                        continue
+                else:
+                    continue
             if engine.dungeon.is_terrain_blocked(tx, ty):
                 continue
-
-            if (tx, ty) not in tiles:
-                tiles.append((tx, ty))
+            tiles.append((tx, ty))
 
     return tiles
 
@@ -662,7 +695,7 @@ def _spell_zap(engine, tx: int, ty: int) -> bool:
         return False
     bksmt = engine.player_stats.effective_book_smarts
     damage = 5 + bksmt // 2
-    target.take_damage(damage)
+    _deal_damage(engine, damage, target)
     effects.apply_effect(target, engine, "shocked", duration=10, stacks=1, silent=True)
     shocked_eff = next(
         (e for e in target.status_effects if getattr(e, 'id', '') == 'shocked'), None
@@ -691,7 +724,7 @@ def _spell_corn_dog(engine, tx: int, ty: int) -> bool:
     if dist > 1:
         engine.messages.append("Corn Dog: must be adjacent to target.")
         return False
-    target.take_damage(5)
+    _deal_damage(engine, 5, target)
     effects.apply_effect(target, engine, "stun", duration=4, silent=True)
     hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
     engine.messages.append(
@@ -740,7 +773,7 @@ def _spell_lesser_cloudkill(engine, tx: int, ty: int) -> bool:
         for entity in engine.dungeon.get_entities_at(x, y):
             if entity.entity_type == "monster" and entity.alive and entity not in hit_entities:
                 hit_entities.append(entity)
-                entity.take_damage(damage)
+                _deal_damage(engine, damage, entity)
                 effects.apply_effect(entity, engine, "lesser_cloudkill", duration=10, silent=True)
                 hit_count += 1
     engine.messages.append(
@@ -832,6 +865,124 @@ def _get_breath_fire_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int,
     return _get_cone_tiles(engine, engine.player.x, engine.player.y, center_dx, center_dy, range_dist=5)
 
 
+def _get_curse_of_ham_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int, int]]:
+    """Get all tiles in the Curse of Ham cone (range 3, 60° spread)."""
+    dx = tx - engine.player.x
+    dy = ty - engine.player.y
+    if dx == 0 and dy == 0:
+        return []
+    dist = math.sqrt(dx * dx + dy * dy)
+    return _get_cone_tiles(
+        engine, engine.player.x, engine.player.y,
+        dx / dist, dy / dist,
+        range_dist=3, half_angle_deg=30, min_spread=0,
+    )
+
+
+def _spell_curse_of_ham(engine, tx: int, ty: int) -> bool:
+    """Apply Curse of Ham to all monsters in a cone (range 3, 60° spread)."""
+    dx = tx - engine.player.x
+    dy = ty - engine.player.y
+    if dx == 0 and dy == 0:
+        engine.messages.append("Curse of Ham: aim away from yourself!")
+        return False
+    dist = math.sqrt(dx * dx + dy * dy)
+    cone_tiles = _get_cone_tiles(
+        engine, engine.player.x, engine.player.y,
+        dx / dist, dy / dist,
+        range_dist=3, half_angle_deg=30, min_spread=0,
+    )
+    if not cone_tiles:
+        engine.messages.append("Curse of Ham: no valid tiles!")
+        return False
+
+    cursed = []
+    for cx, cy in cone_tiles:
+        for entity in engine.dungeon.get_entities_at(cx, cy):
+            if entity.entity_type == "monster" and entity.alive and entity not in cursed:
+                result = effects.apply_effect(entity, engine, "curse_of_ham", silent=True)
+                if result is not None:
+                    cursed.append(entity)
+                    # +10 Blackkk Magic XP per cursed target
+                    adjusted_xp = round(10 * engine.player_stats.xp_multiplier)
+                    engine.skills.gain_potential_exp(
+                        "Blackkk Magic", adjusted_xp,
+                        engine.player_stats.effective_book_smarts,
+                        briskness=engine.player_stats.total_briskness,
+                    )
+
+    if not cursed:
+        engine.messages.append("Curse of Ham: no enemies cursed!")
+        return False
+
+    names = ", ".join(e.name for e in cursed)
+    engine.messages.append([
+        ("Curse of Ham! ", (140, 60, 180)),
+        (f"{names} cursed!", (200, 160, 255)),
+    ])
+    return True
+
+
+def _spell_curse_of_dot(engine, tx: int, ty: int) -> bool:
+    """Apply Curse of DOT to a single monster at the target tile."""
+    target = None
+    for entity in engine.dungeon.get_entities_at(tx, ty):
+        if entity.entity_type == "monster" and entity.alive and not getattr(entity, "is_summon", False):
+            target = entity
+            break
+    if target is None:
+        engine.messages.append("Curse of DOT: no valid target!")
+        return False
+
+    result = effects.apply_effect(target, engine, "curse_dot", stacks=0, silent=True)
+    if result is None:
+        engine.messages.append("Curse of DOT: target is already cursed!")
+        return False
+
+    # +20 Blackkk Magic XP on infliction
+    adjusted_xp = round(20 * engine.player_stats.xp_multiplier)
+    engine.skills.gain_potential_exp(
+        "Blackkk Magic", adjusted_xp,
+        engine.player_stats.effective_book_smarts,
+        briskness=engine.player_stats.total_briskness,
+    )
+    engine.messages.append([
+        ("Curse of DOT! ", (120, 40, 160)),
+        (f"{target.name} is cursed!", (180, 120, 220)),
+    ])
+    return True
+
+
+def _spell_curse_of_covid(engine, tx: int, ty: int) -> bool:
+    """Apply Curse of COVID to a single monster at the target tile."""
+    target = None
+    for entity in engine.dungeon.get_entities_at(tx, ty):
+        if entity.entity_type == "monster" and entity.alive and not getattr(entity, "is_summon", False):
+            target = entity
+            break
+    if target is None:
+        engine.messages.append("Curse of COVID: no valid target!")
+        return False
+
+    result = effects.apply_effect(target, engine, "curse_covid", stacks=0, silent=True)
+    if result is None:
+        engine.messages.append("Curse of COVID: target is already cursed!")
+        return False
+
+    # +20 Blackkk Magic XP on infliction
+    adjusted_xp = round(20 * engine.player_stats.xp_multiplier)
+    engine.skills.gain_potential_exp(
+        "Blackkk Magic", adjusted_xp,
+        engine.player_stats.effective_book_smarts,
+        briskness=engine.player_stats.total_briskness,
+    )
+    engine.messages.append([
+        ("Curse of COVID! ", (80, 180, 60)),
+        (f"{target.name} is cursed!", (140, 220, 100)),
+    ])
+    return True
+
+
 def _get_ray_of_frost_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int, int]]:
     """Get all tiles in the ray of frost line."""
     dx = tx - engine.player.x
@@ -897,15 +1048,53 @@ def _consume_ability_charge(engine) -> str | None:
     if idx is not None and 0 <= idx < len(engine.player_abilities):
         inst = engine.player_abilities[idx]
         ability_id = inst.ability_id
-        inst.consume(engine)
+        consumed = inst.consume(engine)
         defn = ABILITY_REGISTRY.get(ability_id)
         if defn and _pay_rad_cost(engine, defn):
             inst.refund_charge(defn)
+        # Curse charge steal: when a curse charge is consumed, steal 1
+        # charge from each other curse ability that has charges.
+        if consumed and defn and defn.is_curse:
+            _curse_charge_steal(engine, inst, defn)
     engine.targeting_ability_index = None
     # Gatting L1: targeted ability use resets consecutive shot tracker
     engine.gatting_consecutive_target_id = None
     engine.gatting_consecutive_count = 0
     return ability_id
+
+
+def _curse_charge_steal(engine, caster_inst, caster_defn):
+    """Steal 1 charge from each other curse ability and give them to the caster."""
+    stolen = 0
+    donor_names = []
+    for other_inst in engine.player_abilities:
+        if other_inst is caster_inst:
+            continue
+        other_defn = ABILITY_REGISTRY.get(other_inst.ability_id)
+        if other_defn is None or not other_defn.is_curse:
+            continue
+        # Check if the donor has charges to steal
+        has = other_inst.charges_remaining > 0 or other_inst.floor_charges_remaining > 0
+        if not has:
+            continue
+        # Steal 1 charge from the donor
+        if other_inst.floor_charges_remaining > 0:
+            other_inst.floor_charges_remaining -= 1
+        elif other_inst.charges_remaining > 0:
+            other_inst.charges_remaining -= 1
+        # Give 1 charge to the caster
+        if caster_defn.charge_type in (ChargeType.PER_FLOOR, ChargeType.FLOOR_ONLY):
+            caster_inst.floor_charges_remaining += 1
+        elif caster_defn.charge_type in (ChargeType.TOTAL, ChargeType.ONCE):
+            caster_inst.charges_remaining += 1
+        stolen += 1
+        donor_names.append(other_defn.name)
+    if stolen > 0:
+        names = ", ".join(donor_names)
+        engine.messages.append([
+            ("Curse Synergy! ", (160, 80, 220)),
+            (f"+{stolen} charge stolen from {names}", (200, 160, 255)),
+        ])
 
 
 def _action_toggle_abilities(engine, _action):
@@ -1039,6 +1228,15 @@ def _execute_ability(engine, index: int) -> bool:
         engine.messages.append(f"{defn.name}: choose a direction (arrow keys / numpad). [Esc] cancel.")
         return False
 
+    # SINGLE_ENEMY_LOS / LINE_FROM_PLAYER: enter cursor targeting mode
+    if defn.target_type in (TargetType.SINGLE_ENEMY_LOS, TargetType.LINE_FROM_PLAYER):
+        engine.targeting_spell = {"type": "ability_cursor"}
+        engine.targeting_cursor = engine._get_smart_targeting_cursor()
+        engine.menu_state = MenuState.TARGETING
+        range_str = f" (range {int(defn.max_range)})" if defn.max_range else ""
+        engine.messages.append(f"{defn.name}: aim with arrow keys, Enter to fire{range_str}. [Esc] cancel.")
+        return False
+
     result = defn.execute(engine)
     if result:
         inst.consume(engine)
@@ -1051,6 +1249,8 @@ def _execute_ability(engine, index: int) -> bool:
         # Grant Smartsness XP for spell abilities that executed immediately
         if defn.is_spell:
             engine._gain_spell_xp(inst.ability_id)
+        else:
+            engine._graffiti_proc_blue()
     # result == False means targeting mode was entered; charge consumed later in _execute_spell_at.
     return result
 
@@ -1095,6 +1295,8 @@ def _fire_adjacent_ability(engine, tx: int, ty: int) -> bool:
         engine.gatting_consecutive_count = 0
         if defn.is_spell:
             engine._gain_spell_xp(inst.ability_id)
+        else:
+            engine._graffiti_proc_blue()
         return True
     engine.targeting_ability_index = None
     return False
@@ -1104,10 +1306,12 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
     """Handle input while in ADJACENT_TILE_TARGETING state.
     A directional key places the ability on the chosen adjacent tile; Esc cancels."""
     action_type = action.get("type")
+    pending = getattr(engine, 'spray_paint_pending', None)
 
     if action_type == "close_menu":
         engine.menu_state = MenuState.NONE
         engine.targeting_ability_index = None
+        engine.spray_paint_pending = None
         return False
 
     if action_type == "move":
@@ -1119,9 +1323,22 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
         ty = engine.player.y + dy
         # Validate: within bounds and not a wall
         if (tx < 0 or ty < 0 or tx >= engine.dungeon.width or ty >= engine.dungeon.height
-                or engine.dungeon.is_wall(tx, ty)):
-            engine.messages.append("Fire!: can't place fire on a wall.")
+                or engine.dungeon.is_terrain_blocked(tx, ty)):
+            if pending:
+                engine.messages.append("Can't spray on a wall.")
+            else:
+                engine.messages.append("Fire!: can't place fire on a wall.")
             return False
+
+        # Spray paint item targeting
+        if pending:
+            engine.menu_state = MenuState.NONE
+            _apply_spray_paint_tile(engine, tx, ty, pending)
+            engine.spray_paint_pending = None
+            engine.player.energy -= ENERGY_THRESHOLD
+            engine._run_energy_loop()
+            return True
+
         engine.menu_state = MenuState.NONE
         fired = _fire_adjacent_ability(engine, tx, ty)
         if fired and engine.running and engine.player.alive:
@@ -1130,3 +1347,35 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
         return fired
 
     return False
+
+
+def _apply_spray_paint_tile(engine, tx: int, ty: int, pending: dict):
+    """Apply spray paint to a tile and decrement item charges."""
+    spray_type = pending["spray_type"]
+    item_index = pending["item_index"]
+
+    # Apply paint to dungeon tile (overrides any existing spray paint)
+    engine.dungeon.spray_paint[(tx, ty)] = spray_type
+
+    # Decrement charges on the item (Graffiti L1: 50% chance to preserve charge)
+    item = engine.player.inventory[item_index]
+    import random as _rng
+    if engine.skills.get("Graffiti").level >= 1 and _rng.random() < 0.50:
+        engine.messages.append([
+            ("Taggin'! ", (255, 220, 80)),
+            ("Spray charge preserved!", (200, 255, 200)),
+        ])
+    else:
+        item.charges -= 1
+
+    _SPRAY_COLORS = {"red": (255, 40, 40), "blue": (80, 140, 255), "green": (80, 255, 80)}
+    color = _SPRAY_COLORS.get(spray_type, (200, 200, 200))
+    engine.messages.append([
+        ("You spray the tile ", (200, 200, 200)),
+        (spray_type, color),
+        ("!", (200, 200, 200)),
+    ])
+
+    # Graffiti XP
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Graffiti", 20, bksmt)

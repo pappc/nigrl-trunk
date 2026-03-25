@@ -36,6 +36,11 @@ import spells
 import gun_system
 import inventory_mgr
 
+# Spider enemy types — immune to webs
+_SPIDER_ENEMY_TYPES = frozenset({
+    "pipe_spider", "sac_spider", "wolf_spider", "black_widow",
+})
+
 # Colors for segmented log messages
 _C_MSG_NEUTRAL = (200, 200, 100)   # default yellow
 _C_MSG_PICKUP  = (255, 200, 100)   # orange  (matches get_message_color "picked up")
@@ -85,19 +90,41 @@ def _monster_toxicity_multiplier(toxicity: int) -> float:
 class GameEngine:
     """Main game logic and state management."""
 
+    # Display mode presets
+    DISPLAY_MODES = [
+        {"label": "Windowed",              "flags": "windowed",   "width": 1920, "height": 1088},
+        {"label": "Borderless 1080p",      "flags": "borderless", "width": 1920, "height": 1080},
+        {"label": "Borderless 1440p",      "flags": "borderless", "width": 2560, "height": 1440},
+    ]
+
     def __init__(self):
         # --- Render callback (set by main loop for mid-turn rendering) ---
         self.render_callback = None
+        self.tcod_context = None  # set by main loop
+
+        # --- Settings menu state ---
+        self.settings_cursor: int = 0
+        self.current_display_mode: int = 0  # index into DISPLAY_MODES
 
         # --- Event bus ---
         self.event_bus = EventBus()
         self._register_events()
+
+        # --- Floating damage/heal numbers (SDL overlay, set by nigrl.py) ---
+        self.sdl_overlay = None
+        Entity._on_damage_callback = self._on_entity_damaged
+        Entity._on_heal_callback = self._on_entity_healed
 
         # --- Floor management ---
         self.current_floor = 0
         self.total_floors = get_total_floors()
         self.dungeons: dict[int, Dungeon] = {}
         self.special_rooms_spawned: set[str] = set()  # tracks once-per-game special rooms
+
+        # --- Floor events (random modifiers for specific floors) ---
+        # Maps global_floor -> event_id. Rolled once at game start.
+        self.floor_events: dict[int, str] = {}
+        self._roll_floor_events()
 
         # --- Dungeon ---
         self.dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT)
@@ -125,6 +152,11 @@ class GameEngine:
 
         if self.dungeon.rooms:
             x, y = self.dungeon.rooms[0].center()
+            if self.dungeon.is_blocked(x, y):
+                for tx, ty in self.dungeon.rooms[0].floor_tiles(self.dungeon):
+                    if not self.dungeon.is_blocked(tx, ty):
+                        x, y = tx, ty
+                        break
             self.player.x = x
             self.player.y = y
 
@@ -133,7 +165,7 @@ class GameEngine:
 
         self.skills = Skills()
         zone_key, zone_floor, _, _ = self._get_zone_info()
-        self.dungeon.spawn_entities(self.player, floor_num=zone_floor, zone=zone_key, player_skills=self.skills, player_stats=self.player_stats, special_rooms_spawned=self.special_rooms_spawned)
+        self.dungeon.spawn_entities(self.player, floor_num=zone_floor, zone=zone_key, player_skills=self.skills, player_stats=self.player_stats, special_rooms_spawned=self.special_rooms_spawned, floor_event=self.get_floor_event(self.current_floor))
         self.dungeon.compute_fov(self.player.x, self.player.y, self.fov_radius)
 
         # --- Core state ---
@@ -141,6 +173,8 @@ class GameEngine:
         self.kills = 0
         self.running = True
         self.game_over = False
+        self.perk_popup_queue: list[dict] = []  # queued perk popups to show one at a time
+        self._perk_popup_return_state: MenuState = MenuState.NONE  # menu to return to after popup
         self.death_screen_cursor: int = 0  # 0 = Restart, 1 = Quit
         self.destroy_confirm_cursor: int = 0  # 0 = No (default), 1 = Yes
         self.restart_requested: bool = False
@@ -173,6 +207,11 @@ class GameEngine:
         self.hat: Entity | None = None   # hat slot (only one)
         self.equipment_cursor: int = 0  # indexes into flat occupied-slot list (weapon → neck → feet → hat → rings)
 
+        # --- Sublevel state ---
+        self._sublevel_return_floor: int | None = None
+        self._sublevel_return_dungeon = None
+        self._sublevel_return_pos: tuple | None = None
+
         # --- Menu state (single enum replaces bools + strings) ---
         self.menu_state = MenuState.NONE
         self.selected_item_index: int | None = None
@@ -189,6 +228,8 @@ class GameEngine:
         self.targeting_cursor: list[int] = [0, 0]
         self.targeting_spell: dict | None = None
         self.targeting_ability_index: int | None = None  # ability whose charge to consume on fire
+        self.spray_paint_pending: dict | None = None     # {"item_index": int, "spray_type": str}
+        self.last_targeted_enemy = None  # Entity ref: last enemy targeted by any cursor targeting
 
         # --- Entity targeting state (f-key target select) ---
         self.entity_target_list: list = []  # visible monsters within weapon range
@@ -221,9 +262,15 @@ class GameEngine:
         self.gun_jammed: bool = False  # True when gun is jammed; must clear before firing
         self.snipers_mark_target_id: str | None = None  # instance_id of marked target
         self.dead_eye_swagger_gained: int = 0              # Sniping L2: swagger gained this floor
+        self.unfazed_swagger_gained: int = 0               # L Farming L3: swagger gained this floor
 
         # --- Mutation system ---
         self.mutation_log: list[dict] = []
+
+        # --- Look mode state ---
+        self.look_cursor: list[int] = [0, 0]
+        self.look_info_lines: list = []
+        self.look_info_title: str = ""
 
         # --- Dev tools state (only active when DEV_MODE = True) ---
         self.dev_menu_cursor: int = 0           # selected option in dev menu
@@ -231,6 +278,8 @@ class GameEngine:
         self.dev_item_cursor: int = 0           # cursor position in spawn picker
         self.dev_item_scroll: int = 0           # scroll offset for spawn picker
         self.dev_floor_cursor: int = 0          # cursor position in floor teleport picker
+        self.dev_skill_cursor: int = 0          # cursor position in skill level-up picker
+        self.dev_skill_scroll: int = 0          # scroll offset for skill level-up picker
 
         # --- Action dispatch tables ---
         self._gameplay_handlers = {
@@ -253,6 +302,7 @@ class GameEngine:
             "swap_primary_gun": self._action_swap_primary_gun,
             "open_dev_menu": self._action_open_dev_menu,
             "autoexplore": self._action_autoexplore,
+            "look": self._action_look,
         }
 
         self._menu_handlers = {
@@ -270,14 +320,36 @@ class GameEngine:
             MenuState.DEV_MENU: self._handle_dev_menu_input,
             MenuState.DEV_ITEM_SELECT: self._handle_dev_item_select_input,
             MenuState.DEV_FLOOR_SELECT: self._handle_dev_floor_select_input,
+            MenuState.DEV_SKILL_SELECT: self._handle_dev_skill_select_input,
             MenuState.ADJACENT_TILE_TARGETING: self._handle_adjacent_tile_targeting_input,
             MenuState.DEEP_FRYER: self._handle_deep_fryer_input,
             MenuState.GUN_TARGETING: self._handle_gun_targeting_input,
+            MenuState.LOOK_TARGETING: self._handle_look_targeting,
+            MenuState.LOOK_INFO: self._handle_look_info,
+            MenuState.SETTINGS: self._handle_settings_input,
         }
 
     # ------------------------------------------------------------------
     # Zone helpers
     # ------------------------------------------------------------------
+
+    def _roll_floor_events(self):
+        """Roll random floor events for each zone at game start."""
+        from config import ZONE_FLOOR_EVENTS, ZONE_ORDER
+        cumulative = 0
+        for zone in ZONE_ORDER:
+            zone_key = zone["key"]
+            cfg = ZONE_FLOOR_EVENTS.get(zone_key)
+            if cfg and cfg["eligible_floors"] and cfg["event_pool"]:
+                zone_floor = random.choice(cfg["eligible_floors"])
+                event_id = random.choice(cfg["event_pool"])
+                global_floor = cumulative + zone_floor
+                self.floor_events[global_floor] = event_id
+            cumulative += zone["floors"]
+
+    def get_floor_event(self, global_floor: int) -> str | None:
+        """Return the event_id for a floor, or None if no event."""
+        return self.floor_events.get(global_floor)
 
     def _get_zone_info(self):
         """Return (zone_key, zone_floor_num, display_name, zone_type) for current floor."""
@@ -291,10 +363,46 @@ class GameEngine:
         self.event_bus.on("entity_died", self._on_entity_died)
         self.event_bus.on("entity_died", self._on_kill_cash_drop)
         self.event_bus.on("entity_died", self._on_kill_loot_drop)
+        self.event_bus.on("entity_died", self._on_kill_shakedown)
         self.event_bus.on("entity_died", self._on_kill_tox_spillover)
         self.event_bus.on("entity_died", self._on_kill_toxic_harvest)
         self.event_bus.on("entity_died", self._on_kill_acid_meltdown)
         self.event_bus.on("entity_died", self._on_kill_snipers_mark)
+        self.event_bus.on("entity_died", self._on_kill_shake_it_off)
+        self.event_bus.on("entity_died", self._on_kill_curse_dot_spread)
+        self.event_bus.on("entity_died", self._on_death_graffiti_heal)
+        self.event_bus.on("entity_died", self._on_death_graffiti_xp)
+        self.event_bus.on("entity_died", self._on_black_widow_death)
+
+    def _on_black_widow_death(self, entity, killer=None):
+        """When a Black Widow dies, cleanse all venom effects from the player."""
+        if getattr(entity, 'enemy_type', None) != 'black_widow':
+            return
+        venom_ids = {'neuro_venom', 'pipe_venom', 'wolf_spider_venom', 'venom'}
+        before = len(self.player.status_effects)
+        self.player.status_effects = [
+            e for e in self.player.status_effects
+            if getattr(e, 'id', '') not in venom_ids
+        ]
+        cleansed = before - len(self.player.status_effects)
+        if cleansed > 0:
+            self.messages.append([
+                ("The Black Widow's death breaks the venom! ", (100, 255, 100)),
+                (f"{cleansed} venom effect(s) cleansed!", (200, 255, 200)),
+            ])
+
+    def _on_entity_damaged(self, entity, raw_damage, hp_damage):
+        """Callback for floating damage numbers (monsters only)."""
+        if self.sdl_overlay is None or entity == self.player:
+            return
+        amount = hp_damage if hp_damage > 0 else raw_damage
+        self.sdl_overlay.add_floating_text(entity.x, entity.y, str(amount), (255, 80, 80))
+
+    def _on_entity_healed(self, entity, amount):
+        """Callback for floating heal numbers."""
+        if self.sdl_overlay is None:
+            return
+        self.sdl_overlay.add_floating_text(entity.x, entity.y, str(amount), (80, 255, 80))
 
     def _tick_rad_bomb_crystals(self, monsters):
         """Tick all rad bomb crystals. Detonate when countdown reaches 0."""
@@ -325,22 +433,26 @@ class GameEngine:
             if dx <= 2 and dy <= 2:
                 entity.take_damage(damage)
                 if entity == self.player:
+                    self._gain_catchin_fades_xp(damage)
                     self.messages.append(f"You take {damage} radiation blast damage!")
                 else:
                     self.messages.append(f"The {entity.name} takes {damage} radiation blast damage!")
                 if not entity.alive:
-                    self.event_bus.emit("entity_died", entity, killer=self.player)
+                    self.event_bus.emit("entity_died", entity=entity, killer=self.player)
 
     def _on_entity_died(self, entity, killer=None):
         """Universal death handler — removes entity and bookkeeps kills."""
         self.dungeon.remove_entity(entity)
-        if entity.entity_type == "monster":
+        # Clear aggro references pointing at a dying summon
+        if getattr(entity, "is_summon", False):
+            for m in self.dungeon.get_monsters():
+                if getattr(m, "aggro_target", None) is entity:
+                    m.aggro_target = None
+        if entity.entity_type == "monster" and not getattr(entity, "is_summon", False):
             self.kills += 1
-            # Trigger the floor alarm so alarm_chaser enemies (ugly strippers)
-            # start pursuing the player from anywhere on the floor.
+            # Trigger the floor alarm (first_kill_happened flag).
             if not self.dungeon.first_kill_happened:
                 self.dungeon.first_kill_happened = True
-                self.messages.append("The noise draws attention from elsewhere...")
             # Trigger female alarm so fat_gooner enemies start chasing.
             if getattr(entity, "gender", None) == "female" and not self.dungeon.female_kill_happened:
                 self.dungeon.female_kill_happened = True
@@ -351,6 +463,10 @@ class GameEngine:
                 self.player_stats.modify_reputation(faction, -200)
                 other = "scryer" if faction == "aldor" else "aldor"
                 self.player_stats.modify_reputation(other, 100)
+            # Zombie kill: +10 Infected XP
+            if getattr(entity, "enemy_type", None) == "zombie":
+                bksmt = self.player_stats.effective_book_smarts
+                self.skills.gain_potential_exp("Infected", 10, bksmt)
             # Death split: spawn children on death
             if getattr(entity, "death_split_type", None):
                 self._spawn_death_split(entity)
@@ -393,6 +509,30 @@ class GameEngine:
         qty_str = f" x{kwargs.get('quantity', 1)}" if kwargs.get("quantity", 1) > 1 else ""
         strain_suffix = f" ({strain})" if strain else ""
         self.messages.append(f"The {entity.name} dropped {item_name}{qty_str}{strain_suffix}.")
+
+    def _on_kill_shakedown(self, entity, killer=None):
+        """Stealing L3 — Shakedown: chance to drop a bonus consumable on enemy death."""
+        if entity.entity_type != "monster":
+            return
+        if killer is not self.player:
+            return
+        stealing_skill = self.skills.get("Stealing")
+        if not stealing_skill or stealing_skill.level < 3:
+            return
+        stsmt = self.player_stats.effective_street_smarts
+        chance = (10 + stsmt / 3) / 100.0  # (10 + STS/3) percent
+        if random.random() >= chance:
+            return
+        from loot import pick_random_consumable
+        item_id, strain = pick_random_consumable(self.dungeon.zone, self.player_stats)
+        kwargs = create_item_entity(item_id, entity.x, entity.y, strain=strain)
+        self.dungeon.add_entity(Entity(**kwargs))
+        item_name = kwargs.get("name", item_id)
+        strain_suffix = f" ({strain})" if strain else ""
+        self.messages.append([
+            ("Shakedown! ", (255, 200, 50)),
+            (f"The {entity.name} dropped {item_name}{strain_suffix}.", (200, 200, 200)),
+        ])
 
     def _on_kill_tox_spillover(self, entity, killer=None):
         """Tox Spillover Aura: transfer % of dead monster's tox to nearest alive enemy.
@@ -508,6 +648,106 @@ class GameEngine:
                     ])
                 break
 
+    def _on_kill_shake_it_off(self, entity, killer=None):
+        """L Farming L1 perk: Shake It Off — heal 2 HP on kill."""
+        if entity.entity_type != "monster":
+            return
+        if killer is not self.player:
+            return
+        if self.skills.get("L Farming").level < 1:
+            return
+        heal = 2
+        old_hp = self.player.hp
+        self.player.heal(heal)
+        actual = self.player.hp - old_hp
+        if actual > 0:
+            self.messages.append([
+                ("Shake It Off! ", (100, 255, 150)),
+                (f"+{actual} HP", (100, 255, 100)),
+                (f" ({self.player.hp}/{self.player.max_hp})", (150, 150, 150)),
+            ])
+
+    def _on_kill_curse_dot_spread(self, entity, killer=None):
+        """Curse of DOT: on death, spread to nearest enemy within 2 tiles
+        with inherited stack count."""
+        if entity.entity_type != "monster":
+            return
+        import effects as _eff
+        curse = next(
+            (e for e in entity.status_effects if getattr(e, 'id', '') == 'curse_dot'),
+            None,
+        )
+        if curse is None:
+            return
+        stacks = curse.stacks
+        # Find nearest non-summon monster within Chebyshev distance 2
+        best = None
+        best_dist = 999
+        for m in self.dungeon.get_monsters():
+            if not m.alive or m is entity or getattr(m, "is_summon", False):
+                continue
+            # Skip monsters that already have curse_dot
+            if any(getattr(e, 'id', '') == 'curse_dot' for e in m.status_effects):
+                continue
+            dist = max(abs(m.x - entity.x), abs(m.y - entity.y))
+            if dist <= 2 and dist < best_dist:
+                best_dist = dist
+                best = m
+        if best is None:
+            return
+        _eff.apply_effect(best, self, "curse_dot", stacks=stacks, silent=True)
+        # +20 Blackkk Magic XP on spread
+        adjusted_xp = round(20 * self.player_stats.xp_multiplier)
+        self.skills.gain_potential_exp(
+            "Blackkk Magic", adjusted_xp,
+            self.player_stats.effective_book_smarts,
+            briskness=self.player_stats.total_briskness,
+        )
+        self.messages.append([
+            ("Curse of DOT spreads to ", (120, 40, 160)),
+            (f"{best.name}!", (180, 120, 220)),
+            (f" ({stacks} stacks)", (160, 100, 200)),
+        ])
+
+    def _on_death_graffiti_heal(self, entity, killer=None):
+        """Graffiti L2: when any monster dies, heal 5 HP per spray-paint match.
+        Check both the dead monster's tile and the player's tile independently."""
+        if entity.entity_type != "monster" or getattr(entity, "is_summon", False):
+            return
+        if self.skills.get("Graffiti").level < 2:
+            return
+        heals = 0
+        if self.dungeon.spray_paint.get((entity.x, entity.y)):
+            heals += 1
+        if self.dungeon.spray_paint.get((self.player.x, self.player.y)):
+            heals += 1
+        if heals > 0:
+            total = 5 * heals
+            self.player.heal(total)
+            self.messages.append([
+                ("Street Art! ", (255, 180, 80)),
+                (f"+{total} HP", (100, 255, 100)),
+            ])
+
+    def _on_death_graffiti_xp(self, entity, killer=None):
+        """Graffiti XP on kill: +5 if enemy dies on red, +5 if player on green."""
+        if entity.entity_type != "monster" or entity == self.player:
+            return
+        xp = 0
+        # Red: enemy dies on red spray paint
+        if self.dungeon.spray_paint.get((entity.x, entity.y)) == "red":
+            xp += 5
+        # Green: player standing on green spray paint when enemy dies
+        if self.dungeon.spray_paint.get((self.player.x, self.player.y)) == "green":
+            xp += 5
+        if xp > 0:
+            adjusted = round(xp * self.player_stats.xp_multiplier)
+            self.skills.gain_potential_exp(
+                "Graffiti", adjusted,
+                self.player_stats.effective_book_smarts,
+                briskness=self.player_stats.total_briskness
+            )
+
     # ------------------------------------------------------------------
     # Death behaviors (split, creep)
     # ------------------------------------------------------------------
@@ -531,6 +771,42 @@ class GameEngine:
     def handle_chemist_vial(self, monster):
         return combat.handle_chemist_vial(self, monster)
 
+    def _sac_spider_web_shot(self, monster):
+        """Sac Spider ranged attack: shoot web at player's tile, spawn cobweb, apply webbed."""
+        from hazards import create_web
+        px, py = self.player.x, self.player.y
+
+        # Deal damage (normal monster attack)
+        damage = max(1, monster.power - combat._compute_player_defense(self))
+        combat.deal_damage(self, damage, self.player)
+
+        # Spawn cobweb on player's tile (if not already webbed by a cobweb there)
+        has_web = any(
+            getattr(ent, 'hazard_type', None) == 'web'
+            for ent in self.dungeon.get_entities_at(px, py)
+        )
+        if not has_web:
+            web = create_web(px, py)
+            self.dungeon.add_entity(web)
+            # Immediately stick the player
+            if not any(getattr(e, 'id', '') == 'web_stuck' for e in self.player.status_effects):
+                # Only stick if not immune (Arachnigga L1)
+                web_immune = self.skills.get("Arachnigga").level >= 1
+                if not web_immune:
+                    effects.apply_effect(self.player, self, "web_stuck",
+                                         silent=True, web_entity=web)
+
+        # Apply webbed slow debuff
+        effects.apply_effect(self.player, self, "webbed", silent=True)
+
+        self.messages.append([
+            (f"{monster.name} shoots a web at you for {damage} damage! ", (200, 50, 50)),
+            ("You're webbed!", (180, 180, 220)),
+        ])
+
+        if not self.player.alive:
+            self.event_bus.emit("entity_died", entity=self.player, killer=monster)
+
     # ------------------------------------------------------------------
     # FOV helper
     # ------------------------------------------------------------------
@@ -542,6 +818,19 @@ class GameEngine:
             self.messages.append(
                 f"You spot {entity.name} in the distance — it's marked on your map."
             )
+
+    def _update_tile_stat_bonuses(self):
+        """Recalculate tile-based stat/defense bonuses from spray paint at the player's position."""
+        bonuses = self.player_stats.tile_stat_bonuses
+        for k in bonuses:
+            bonuses[k] = 0
+        self.player_stats.tile_defense_bonus = 0
+
+        spray = self.dungeon.spray_paint.get((self.player.x, self.player.y))
+        if spray == "blue":
+            bonuses["street_smarts"] = 5
+        elif spray == "green":
+            self.player_stats.tile_defense_bonus = 4
 
     # ------------------------------------------------------------------
     # Main action dispatch
@@ -571,29 +860,36 @@ class GameEngine:
                 self.running = False
             return False
 
+        # --- Perk popup (blocks all input until dismissed) ---
+        if self.menu_state == MenuState.PERK_POPUP:
+            # Any key dismisses the current popup
+            if self.perk_popup_queue:
+                self.perk_popup_queue.pop(0)
+            if self.perk_popup_queue:
+                pass  # still more popups to show
+            else:
+                self.menu_state = self._perk_popup_return_state
+                self._perk_popup_return_state = MenuState.NONE
+            return False
+
         # --- Skills / Char sheet toggles (block other menus) ---
         if action_type == "toggle_skills":
             return self._action_toggle_skills(action)
 
         if self.menu_state == MenuState.SKILLS:
-            unlocked_skills = self.skills.unlocked()
+            unlocked_skills = sorted(self.skills.unlocked(), key=lambda s: s.name.lower())
             if not unlocked_skills:
                 if action_type in ("close_menu", "toggle_skills"):
                     self.menu_state = MenuState.NONE
                 return False
 
+            # Clamp cursor to sorted list bounds
+            self.skills_cursor = max(0, min(self.skills_cursor, len(unlocked_skills) - 1))
+
             if not self.skills_spend_mode:
                 if action_type == "move":
                     dy = action.get("dy", 0)
-                    # Navigate through unlocked skills only
-                    current_skill_name = SKILL_NAMES[self.skills_cursor] if self.skills_cursor < len(SKILL_NAMES) else unlocked_skills[0].name
-                    unlocked_names = [s.name for s in unlocked_skills]
-                    if current_skill_name in unlocked_names:
-                        current_idx = unlocked_names.index(current_skill_name)
-                    else:
-                        current_idx = 0
-                    new_idx = (current_idx + dy) % len(unlocked_names)
-                    self.skills_cursor = SKILL_NAMES.index(unlocked_names[new_idx])
+                    self.skills_cursor = (self.skills_cursor + dy) % len(unlocked_skills)
                 elif action_type == "confirm_target":
                     self.skills_spend_mode = True
                     self.skills_spend_input = ""
@@ -606,7 +902,7 @@ class GameEngine:
                     self.skills_spend_input = self.skills_spend_input[:-1]
                 elif action_type == "confirm_target":
                     amount = int(self.skills_spend_input or "0")
-                    skill_name = SKILL_NAMES[self.skills_cursor]
+                    skill_name = unlocked_skills[self.skills_cursor].name
                     gained = self.skills.spend_on_skill(skill_name, amount)
                     if gained:
                         skill = self.skills.get(skill_name)
@@ -614,6 +910,10 @@ class GameEngine:
                         for lvl in range(new_level - gained + 1, new_level + 1):
                             self.messages.append(f"{skill_name} reached level {lvl}!")
                             self._apply_perk(skill_name, lvl)
+                        # Show perk popup(s) if any were queued
+                        if self.perk_popup_queue:
+                            self._perk_popup_return_state = MenuState.SKILLS
+                            self.menu_state = MenuState.PERK_POPUP
                     self.skills_spend_mode = False
                     self.skills_spend_input = ""
                 elif action_type == "close_menu":
@@ -794,6 +1094,16 @@ class GameEngine:
             if self.player.meth > 0 and self.turn % 100 == 0:
                 self.player.meth -= 1
 
+            # Infection damage: 25/turn at max infection
+            if self.player.infection >= self.player.max_infection:
+                self.player.take_damage(25)
+                self.messages.append([
+                    ("Infection! ", (120, 200, 50)),
+                    ("You take 25 damage from the infection!", (180, 255, 100)),
+                ])
+                if not self.player.alive:
+                    self.event_bus.emit("entity_died", entity=self.player, killer=None)
+
             # Tick ability cooldowns
             for key in list(self.ability_cooldowns):
                 self.ability_cooldowns[key] -= 1
@@ -820,9 +1130,29 @@ class GameEngine:
                         dmg = getattr(hazard, "hazard_damage_per_turn", 3)
                         entity.take_damage(dmg)
                         if entity == self.player:
+                            self._gain_catchin_fades_xp(dmg)
                             self.messages.append(f"The acid burns you for {dmg} damage!")
                         if not entity.alive:
                             self.event_bus.emit("entity_died", entity=entity, killer=None)
+                        break
+                    elif ht == "web" and entity != self.player:
+                        # All spiders walk through webs unaffected
+                        _etype = getattr(entity, 'enemy_type', '') or ''
+                        if (_etype in _SPIDER_ENEMY_TYPES
+                                or (getattr(entity, 'is_summon', False) and entity.ai_type == "spider_hatchling")):
+                            break
+                        # Apply web_stuck to monsters (player handled in handle_move)
+                        if not any(getattr(e, 'id', '') == 'web_stuck'
+                                   for e in entity.status_effects):
+                            effects.apply_effect(entity, self, "web_stuck",
+                                                 silent=True, web_entity=hazard)
+                            # Arachnigga XP: +10 when an enemy gets webbed
+                            adjusted_xp = round(10 * self.player_stats.xp_multiplier)
+                            self.skills.gain_potential_exp(
+                                "Arachnigga", adjusted_xp,
+                                self.player_stats.effective_book_smarts,
+                                briskness=self.player_stats.total_briskness,
+                            )
                         break
 
             # 4b. Tick timed hazards (decrement duration, remove expired)
@@ -878,8 +1208,7 @@ class GameEngine:
 
     # Dev menu option indices
     _DEV_OPTIONS = [
-        "max_skills",
-        "add_skillpoints",
+        "add_potential_xp",
         "spawn_item",
         "kill_in_view",
         "toggle_invincible",
@@ -889,6 +1218,7 @@ class GameEngine:
         "teleport_stairs",
         "teleport_floor",
         "add_stats",
+        "meth_lab_kit",
     ]
 
     def _action_open_dev_menu(self, _action):
@@ -933,23 +1263,15 @@ class GameEngine:
 
     def _dev_execute(self, option: str):
         """Execute a dev menu action by option key."""
-        if option == "max_skills":
-            from skills import SKILL_NAMES, DEFAULT_EXP_CURVE, MAX_LEVEL
+        if option == "add_potential_xp":
+            from skills import SKILL_NAMES
             for name in SKILL_NAMES:
-                skill = self.skills.get(name)
-                if not skill.is_maxed():
-                    old_level = skill.level
-                    skill.real_exp = 0
-                    skill.potential_exp = 0
-                    skill.level = MAX_LEVEL
-                    # Apply all perks that were skipped
-                    for lvl in range(old_level + 1, MAX_LEVEL + 1):
-                        self._apply_perk(name, lvl)
-            self.messages.append("[DEV] All skills set to level 10.")
-
-        elif option == "add_skillpoints":
-            self.skills.skill_points += 10000
-            self.messages.append("[DEV] +10,000 skill points added.")
+                self.skills.gain_potential_exp(
+                    name, 500000,
+                    self.player_stats.effective_book_smarts,
+                    briskness=self.player_stats.total_briskness,
+                )
+            self.messages.append("[DEV] +500,000 potential XP added to all skills.")
 
         elif option == "spawn_item":
             from items import ITEM_DEFS
@@ -1022,7 +1344,83 @@ class GameEngine:
             self.player.hp = min(self.player.hp, self.player.max_hp)
             self.messages.append("[DEV] +5 to all base stats.")
 
+        elif option == "meth_lab_kit":
+            self._dev_meth_lab_kit()
+
         self.menu_state = MenuState.NONE
+
+    def _dev_meth_lab_kit(self):
+        """Set up a mid-game character for Meth Lab testing."""
+        import random as _rng
+        from skills import SKILL_NAMES, MAX_LEVEL
+        from items import ITEM_DEFS, create_item_entity
+        from loot import pick_random_consumable
+
+        # --- Skills: 1 at level 2, 4 at level 4 ---
+        skill_pool = list(SKILL_NAMES)
+        _rng.shuffle(skill_pool)
+        picked = skill_pool[:5]
+        # First skill → level 2
+        s = self.skills.get(picked[0])
+        old = s.level
+        s.level = max(s.level, 2)
+        for lvl in range(old + 1, s.level + 1):
+            self._apply_perk(picked[0], lvl)
+        # Next 4 skills → level 4
+        for name in picked[1:5]:
+            s = self.skills.get(name)
+            old = s.level
+            s.level = max(s.level, 4)
+            for lvl in range(old + 1, s.level + 1):
+                self._apply_perk(name, lvl)
+
+        # --- 5,000 potential XP spread across random skills ---
+        all_skills = list(SKILL_NAMES)
+        for _ in range(50):  # 50 chunks of 100
+            sk = _rng.choice(all_skills)
+            self.skills.get(sk).potential_exp += 100
+
+        # --- 300 skill points ---
+        self.skills.skill_points += 300
+
+        # --- 15 random consumables ---
+        for _ in range(15):
+            item_id, strain = pick_random_consumable("crack_den")
+            ent = Entity(**create_item_entity(item_id, 0, 0))
+            if strain:
+                ent.strain = strain
+            self.player.inventory.append(ent)
+
+        # --- Equipment: 4 rings, 1 neck, 1 feet, 2 weapons (crack_den only, no guns) ---
+        def _in_crack_den(v):
+            return "crack_den" in v.get("zones", [])
+
+        ring_ids = [k for k, v in ITEM_DEFS.items()
+                    if v.get("equip_slot") == "ring" and _in_crack_den(v)]
+        neck_ids = [k for k, v in ITEM_DEFS.items()
+                    if v.get("equip_slot") == "neck" and _in_crack_den(v)]
+        feet_ids = [k for k, v in ITEM_DEFS.items()
+                    if v.get("equip_slot") == "feet" and _in_crack_den(v)]
+        weapon_ids = [k for k, v in ITEM_DEFS.items()
+                      if v.get("equip_slot") == "weapon" and "gun_class" not in v
+                      and _in_crack_den(v)]
+
+        for item_id in _rng.sample(ring_ids, min(4, len(ring_ids))):
+            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
+        for item_id in _rng.sample(neck_ids, min(1, len(neck_ids))):
+            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
+        for item_id in _rng.sample(feet_ids, min(1, len(feet_ids))):
+            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
+        for item_id in _rng.sample(weapon_ids, min(2, len(weapon_ids))):
+            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
+
+        # --- All crack den tools ---
+        from loot import ZONE_TOOL_TABLES
+        for tool_id, _ in ZONE_TOOL_TABLES.get("crack_den", []):
+            self.player.inventory.append(Entity(**create_item_entity(tool_id, 0, 0)))
+
+        self._sort_inventory()
+        self.messages.append("[DEV] Meth Lab Kit applied! Skills, items, and equipment added.")
 
     def _handle_dev_item_select_input(self, action):
         """Handle input in the dev item spawn picker."""
@@ -1086,6 +1484,43 @@ class GameEngine:
 
         return False
 
+    def _handle_dev_skill_select_input(self, action):
+        """Handle input in the dev skill level-up picker."""
+        from skills import SKILL_NAMES, MAX_LEVEL
+        action_type = action.get("type")
+        n = len(SKILL_NAMES)
+
+        if action_type == "close_menu":
+            self.menu_state = MenuState.DEV_MENU
+            return False
+
+        if action_type == "open_dev_menu":
+            self.menu_state = MenuState.NONE
+            return False
+
+        if action_type == "move":
+            dy = action.get("dy", 0)
+            dx = action.get("dx", 0)
+            if dy != 0 and dx == 0:
+                self.dev_skill_cursor = max(0, min(n - 1, self.dev_skill_cursor + dy))
+            return False
+
+        if action_type == "confirm_target":
+            skill_name = SKILL_NAMES[self.dev_skill_cursor]
+            skill = self.skills.get(skill_name)
+            if skill.level >= MAX_LEVEL:
+                self.messages.append(f"[DEV] {skill_name} is already max level.")
+            else:
+                old_level = skill.level
+                skill.level += 1
+                self._apply_perk(skill_name, skill.level)
+                self.messages.append(
+                    f"[DEV] {skill_name} leveled up: {old_level} → {skill.level}"
+                )
+            return False
+
+        return False
+
     def _dev_teleport_to_floor(self, target_floor: int):
         """Teleport the player to a specific global floor index."""
         if target_floor == self.current_floor:
@@ -1098,12 +1533,13 @@ class GameEngine:
         self.dungeon.remove_entity(self.player)
 
         if target_floor not in self.dungeons:
-            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key)
+            event_id = self.get_floor_event(target_floor)
+            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key, floor_event=event_id)
             if new_dungeon.rooms:
                 x, y = new_dungeon.rooms[0].center()
                 self.player.x = x
                 self.player.y = y
-            new_dungeon.spawn_entities(self.player, floor_num=zone_floor, zone=zone_key, player_skills=self.skills, player_stats=self.player_stats, special_rooms_spawned=self.special_rooms_spawned)
+            new_dungeon.spawn_entities(self.player, floor_num=zone_floor, zone=zone_key, player_skills=self.skills, player_stats=self.player_stats, special_rooms_spawned=self.special_rooms_spawned, floor_event=self.get_floor_event(target_floor))
             self.dungeons[target_floor] = new_dungeon
         else:
             new_dungeon = self.dungeons[target_floor]
@@ -1152,6 +1588,203 @@ class GameEngine:
             self.menu_state = MenuState.NONE
         return False
 
+    # ------------------------------------------------------------------
+    # Look mode
+    # ------------------------------------------------------------------
+
+    def _action_look(self, _action):
+        """Enter Look mode — free cursor targeting for tile inspection."""
+        self.look_cursor = [self.player.x, self.player.y]
+        self.menu_state = MenuState.LOOK_TARGETING
+        return False
+
+    def _handle_look_targeting(self, action):
+        """Handle input while in Look targeting mode."""
+        from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+        action_type = action.get("type")
+
+        if action_type == "close_menu":
+            self.menu_state = MenuState.NONE
+            return False
+
+        if action_type == "move":
+            dx = action.get("dx", 0)
+            dy = action.get("dy", 0)
+            self.look_cursor[0] = max(0, min(DUNGEON_WIDTH - 1, self.look_cursor[0] + dx))
+            self.look_cursor[1] = max(0, min(DUNGEON_HEIGHT - 1, self.look_cursor[1] + dy))
+            return False
+
+        if action_type == "confirm_target":
+            self._build_look_info()
+            self.menu_state = MenuState.LOOK_INFO
+            return False
+
+        return False
+
+    def _handle_look_info(self, action):
+        """Any key dismisses the look info popup, returning to look cursor mode."""
+        self.menu_state = MenuState.LOOK_TARGETING
+        return False
+
+    def _handle_settings_input(self, action):
+        """Handle input for the settings/display menu."""
+        action_type = action.get("type")
+        if action_type == "close_menu":
+            self.menu_state = MenuState.NONE
+            return False
+        if action_type == "move":
+            dy = action.get("dy", 0)
+            if dy != 0:
+                n = len(self.DISPLAY_MODES)
+                self.settings_cursor = (self.settings_cursor + dy) % n
+            return False
+        if action_type in ("confirm_target", "item_use"):
+            self._apply_display_mode(self.settings_cursor)
+            return False
+        return False
+
+    def _apply_display_mode(self, index: int):
+        """Apply a display mode preset by changing the SDL window."""
+        from tcod._internal import lib as _sdl_lib
+        ctx = getattr(self, 'tcod_context', None)
+        if ctx is None:
+            return
+        mode = self.DISPLAY_MODES[index]
+        self.current_display_mode = index
+        try:
+            wp = ctx.sdl_window.p  # raw SDL_Window pointer
+            w, h = mode["width"], mode["height"]
+            if mode["flags"] == "borderless":
+                _sdl_lib.SDL_SetWindowBordered(wp, False)
+                _sdl_lib.SDL_SetWindowSize(wp, w, h)
+                _sdl_lib.SDL_SetWindowPosition(wp, 0, 0)
+            else:
+                _sdl_lib.SDL_SetWindowBordered(wp, True)
+                _sdl_lib.SDL_SetWindowSize(wp, w, h)
+                _sdl_lib.SDL_SetWindowPosition(wp, _sdl_lib.SDL_WINDOWPOS_CENTERED,
+                                                   _sdl_lib.SDL_WINDOWPOS_CENTERED)
+            self.messages.append(f"Display: {mode['label']}")
+        except Exception as e:
+            self.messages.append(f"Display change failed: {e}")
+        self.menu_state = MenuState.NONE
+
+    def _build_look_info(self):
+        """Build description lines for the tile under the look cursor."""
+        from items import generate_examine_lines, build_inventory_display_name
+        from config import TILE_FLOOR
+
+        lx, ly = self.look_cursor
+        lines = []
+
+        C_LABEL  = (180, 180, 220)
+        C_VALUE  = (255, 255, 200)
+        C_GOOD   = (100, 220, 100)
+        C_BAD    = (255, 100, 100)
+        C_INFO   = (200, 200, 200)
+        C_ENEMY  = (255, 140, 140)
+        C_BUFF   = (100, 200, 255)
+        C_DEBUFF = (255, 130, 80)
+
+        is_visible = bool(self.dungeon.visible[ly, lx])
+        is_explored = bool(self.dungeon.explored[ly, lx])
+
+        if not is_explored:
+            self.look_info_title = "Unknown"
+            self.look_info_lines = [[("You haven't explored this area.", C_INFO)]]
+            return
+
+        tile = self.dungeon.tiles[ly][lx]
+        tile_name = "Floor" if tile == TILE_FLOOR else "Wall"
+
+        if not is_visible:
+            self.look_info_title = f"{tile_name} (not visible)"
+            self.look_info_lines = [[("This tile is not in your field of view.", C_INFO)]]
+            return
+
+        entities = self.dungeon.get_entities_at(lx, ly)
+        is_player_tile = (self.player.x == lx and self.player.y == ly)
+
+        if not entities and not is_player_tile:
+            self.look_info_title = tile_name
+            self.look_info_lines = [[("Nothing here.", C_INFO)]]
+            return
+
+        title = tile_name
+
+        if is_player_tile:
+            lines.append([("You", C_GOOD)])
+
+        for e in entities:
+            if e.entity_type == "monster" and e.alive:
+                if lines:
+                    lines.append([])  # blank separator
+                lines.append([(e.name, C_ENEMY)])
+
+                # Wound level
+                hp_pct = e.hp / e.max_hp if e.max_hp > 0 else 0
+                if hp_pct >= 1.0:
+                    wound, wound_color = "Unhurt", C_GOOD
+                elif hp_pct > 0.66:
+                    wound, wound_color = "Light Wounds", C_VALUE
+                elif hp_pct > 0.33:
+                    wound, wound_color = "Medium Wounds", C_DEBUFF
+                elif hp_pct > 0.15:
+                    wound, wound_color = "Heavy Wounds", C_BAD
+                else:
+                    wound, wound_color = "Almost Dead", (255, 50, 50)
+                lines.append([("  Condition: ", C_LABEL), (wound, wound_color)])
+
+                # Status effects
+                if e.status_effects:
+                    parts = [("  Effects: ", C_LABEL)]
+                    for i, eff in enumerate(e.status_effects):
+                        if i > 0:
+                            parts.append((", ", C_INFO))
+                        color = C_BUFF if eff.category == "buff" else C_DEBUFF
+                        parts.append((eff.display_name, color))
+                    lines.append(parts)
+
+                title = e.name
+
+            elif e.entity_type == "item":
+                if lines:
+                    lines.append([])
+                display = build_inventory_display_name(
+                    e.item_id, getattr(e, "strain", None),
+                    getattr(e, "quantity", 1),
+                    prefix=getattr(e, "prefix", None),
+                    charges=getattr(e, "charges", None),
+                    max_charges=getattr(e, "max_charges", None),
+                )
+                lines.append([(display, C_VALUE)])
+                exam_lines = generate_examine_lines(e.item_id, self)
+                lines.extend(exam_lines)
+                if title == tile_name:
+                    title = display
+
+            elif e.entity_type == "cash":
+                if lines:
+                    lines.append([])
+                lines.append([(e.name, (255, 215, 0))])
+
+            elif e.entity_type == "hazard":
+                if lines:
+                    lines.append([])
+                lines.append([(e.name, C_DEBUFF)])
+
+            elif e.entity_type == "staircase":
+                if lines:
+                    lines.append([])
+                lines.append([(e.name, (255, 220, 80))])
+                title = e.name
+
+        # Clean up leading empty separators
+        while lines and lines[0] == []:
+            lines.pop(0)
+
+        self.look_info_title = title
+        self.look_info_lines = lines if lines else [[("Nothing of note.", C_INFO)]]
+
     def _apply_perk(self, skill_name: str, level: int) -> None:
         """Apply the perk for skill_name at the given level (1-10)."""
         from skills import get_perk
@@ -1160,6 +1793,14 @@ class GameEngine:
             return
         name = perk["name"]
         self.messages.append(f"  Perk unlocked: {name}")
+
+        # Queue popup for non-placeholder perks
+        if perk.get("perk_type") != "none":
+            self.perk_popup_queue.append({
+                "skill_name": skill_name,
+                "level": level,
+                "perk": perk,
+            })
 
         if perk["perk_type"] == "stat" and perk.get("effect"):
             ps = self.player_stats
@@ -1213,7 +1854,12 @@ class GameEngine:
 
         if name == "Fire!":
             self.grant_ability("place_fire")
-            self.messages.append("  [Fire!] You can now spark a fire on an adjacent tile once per floor!")
+            ps = self.player_stats
+            ps.constitution += 2
+            ps._base["constitution"] = ps.constitution
+            self.player.max_hp += 20
+            self.player.heal(20)
+            self.messages.append("  [Fire!] +2 Constitution. Spawn a line of fire once per floor!")
 
         if name == "Ignite":
             self.grant_ability("ignite_spell")
@@ -1252,7 +1898,26 @@ class GameEngine:
 
         if name == "Pickpocket":
             self.grant_ability("pickpocket")
-            self.messages.append("  [Pickpocket] You can now strike adjacent enemies and snag $25 from them!")
+            ps = self.player_stats
+            ps.street_smarts += 2
+            ps._base["street_smarts"] = ps.street_smarts
+            self.messages.append("  [Pickpocket] +2 Street Smarts. You can now pickpocket adjacent enemies for cash!")
+
+        if name == "Sleight of Hand":
+            ps = self.player_stats
+            ps.street_smarts += 2
+            ps._base["street_smarts"] = ps.street_smarts
+            self.messages.append("  [Sleight of Hand] +2 Street Smarts. Pickpocket now distracts enemies, causing their next attack to miss!")
+
+        if name == "Milk From The Store":
+            self.grant_ability("milk_from_the_store")
+            ps = self.player_stats
+            for stat in ("constitution", "strength", "street_smarts", "book_smarts", "tolerance", "swagger"):
+                setattr(ps, stat, getattr(ps, stat) + 1)
+                ps._base[stat] = getattr(ps, stat)
+            self.player.max_hp += 10
+            self.player.heal(10)
+            self.messages.append("  [Milk From The Store] +1 all stats. Activate to double all stats for 10 turns! (3/floor)")
 
         if name == "Toxic Harvest":
             self.grant_ability("toxic_harvest")
@@ -1283,6 +1948,48 @@ class GameEngine:
             self.grant_ability("quick_eat")
             self.messages.append("  [Fast Food] +2 Constitution. You learn Quick Eat! Use it to instantly eat your next food.")
 
+        if name == "Rad Bomb":
+            self.grant_ability("rad_bomb")
+            self.messages.append("  [Rad Bomb] You can place radiation crystals that detonate in 3 turns! 3/floor.")
+
+        if name == "Curse of Ham":
+            self.grant_ability("curse_of_ham")
+            self.messages.append("  [Curse of Ham] You learn a dark curse that weakens enemies in a cone! 3/floor.")
+
+        if name == "Curse of DOT":
+            self.grant_ability("curse_of_dot")
+            self.messages.append("  [Curse of DOT] You learn a curse that deals escalating damage over time! 3/floor.")
+
+        if name == "Curse of COVID":
+            self.grant_ability("curse_of_covid")
+            self.messages.append("  [Curse of COVID] You learn a plague curse that irradiates and poisons enemies! 3/floor.")
+
+        if name == "Web Trail":
+            self.grant_ability("web_trail")
+            self.messages.append("  [Web Trail] You are immune to webs and can leave cobwebs in your wake! 3/floor.")
+
+        if name == "Summon Spider":
+            self.grant_ability("summon_spiderling")
+            self.messages.append("  [Summon Spider] Hatch spiderlings on adjacent tiles! They guard and bite. 5/floor.")
+
+        if name == "Purge":
+            self.grant_ability("purge")
+            self.messages.append("  [Purge] Remove 20 infection at the cost of 3 weak melee hits. Unlimited uses.")
+
+        if name == "Zombie Rage":
+            ps = self.player_stats
+            ps.strength += 2
+            ps._base["strength"] = ps.strength
+            self.grant_ability("zombie_rage")
+            self.messages.append("  [Zombie Rage] +2 Strength. Activate for a burst of undead fury! 40t cooldown.")
+
+        if name == "Zombie Stare":
+            ps = self.player_stats
+            ps.strength += 2
+            ps._base["strength"] = ps.strength
+            self.grant_ability("zombie_stare")
+            self.messages.append("  [Zombie Stare] +2 Strength. Stare down enemies to stun and fear them! 15t cooldown.")
+
     def _handle_log_input(self, action):
         """Handle input while the log menu is open. UP/DOWN scroll; anything else closes."""
         action_type = action.get("type")
@@ -1301,12 +2008,7 @@ class GameEngine:
     def _action_toggle_skills(self, _action):
         if self.menu_state == MenuState.NONE:
             self.menu_state = MenuState.SKILLS
-            # Set cursor to first unlocked skill, or 0 if none unlocked
-            unlocked = self.skills.unlocked()
-            if unlocked:
-                self.skills_cursor = SKILL_NAMES.index(unlocked[0].name)
-            else:
-                self.skills_cursor = 0
+            self.skills_cursor = 0
             self.skills_spend_mode = False
             self.skills_spend_input = ""
         elif self.menu_state == MenuState.SKILLS:
@@ -1333,6 +2035,11 @@ class GameEngine:
         return False
 
     def _action_close_menu(self, _action):
+        if self.menu_state == MenuState.NONE:
+            # No menu open — open settings
+            self.menu_state = MenuState.SETTINGS
+            self.settings_cursor = 0
+            return False
         self.menu_state = MenuState.NONE
         self.selected_item_index = None
         return False
@@ -1346,6 +2053,13 @@ class GameEngine:
         for entity in self.dungeon.get_entities_at(self.player.x, self.player.y):
             if entity.entity_type == "staircase":
                 self.cancel_auto_travel()
+                # Sublevel stairs: enter a side-dungeon
+                sublevel = getattr(entity, "sublevel", None)
+                if sublevel:
+                    return self._enter_sublevel(sublevel)
+                # Upstairs in a sublevel: return to the floor we came from
+                if getattr(self, "_sublevel_return_floor", None) is not None and entity.char == "<":
+                    return self._exit_sublevel()
                 return self._descend()
         # Start (or restart) auto-travel to discovered stairs
         stair = self._get_discovered_stairs()
@@ -1357,6 +2071,8 @@ class GameEngine:
 
     def _descend(self):
         """Move player down to the next floor."""
+        if self.sdl_overlay:
+            self.sdl_overlay.clear()
         next_floor = self.current_floor + 1
         if next_floor >= self.total_floors:
             self.messages.append("This is the deepest floor of this zone.")
@@ -1373,17 +2089,29 @@ class GameEngine:
         self.dungeon.remove_entity(self.player)
 
         if next_floor not in self.dungeons:
-            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key)
+            event_id = self.get_floor_event(next_floor)
+            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key, floor_event=event_id)
             if new_dungeon.rooms:
                 x, y = new_dungeon.rooms[0].center()
+                # Find a free tile if center is blocked (e.g. table on it)
+                if new_dungeon.is_blocked(x, y):
+                    for tx, ty in new_dungeon.rooms[0].floor_tiles(new_dungeon):
+                        if not new_dungeon.is_blocked(tx, ty):
+                            x, y = tx, ty
+                            break
                 self.player.x = x
                 self.player.y = y
-            new_dungeon.spawn_entities(self.player, floor_num=zone_floor, zone=zone_key, player_skills=self.skills, player_stats=self.player_stats, special_rooms_spawned=self.special_rooms_spawned)
+            new_dungeon.spawn_entities(self.player, floor_num=zone_floor, zone=zone_key, player_skills=self.skills, player_stats=self.player_stats, special_rooms_spawned=self.special_rooms_spawned, floor_event=self.get_floor_event(next_floor))
             self.dungeons[next_floor] = new_dungeon
         else:
             new_dungeon = self.dungeons[next_floor]
             if new_dungeon.rooms:
                 x, y = new_dungeon.rooms[0].center()
+                if new_dungeon.is_blocked(x, y):
+                    for tx, ty in new_dungeon.rooms[0].floor_tiles(new_dungeon):
+                        if not new_dungeon.is_blocked(tx, ty):
+                            x, y = tx, ty
+                            break
                 self.player.x = x
                 self.player.y = y
             if self.player not in new_dungeon.entities:
@@ -1397,12 +2125,27 @@ class GameEngine:
             self.visited_rooms[next_floor] = {0}
         self.dungeon.female_kill_happened = False
         self._compute_fov()
+        self._update_tile_stat_bonuses()
         self.player.energy = ENERGY_THRESHOLD  # player acts first on new floor
+
+        # Floor event: show title card and chat message
+        event_id = self.get_floor_event(next_floor)
+        if event_id:
+            from config import FLOOR_EVENT_REGISTRY
+            event = FLOOR_EVENT_REGISTRY.get(event_id, {})
+            if self.sdl_overlay:
+                self.sdl_overlay.show_title_card(event.get("name", event_id), duration=3.0)
+            self.messages.append(event.get("message", "Something feels different about this floor..."))
 
         # Reset Sniping L2 "Dead Eye" swagger bonus
         if self.dead_eye_swagger_gained > 0:
             self.player_stats.swagger -= self.dead_eye_swagger_gained
             self.dead_eye_swagger_gained = 0
+
+        # Reset L Farming L3 "Unfazed" swagger bonus
+        if self.unfazed_swagger_gained > 0:
+            self.player_stats.swagger -= self.unfazed_swagger_gained
+            self.unfazed_swagger_gained = 0
 
         # Reset per-floor ability charges
         for inst in self.player_abilities:
@@ -1410,20 +2153,14 @@ class GameEngine:
             if defn:
                 inst.reset_floor(defn)
 
-        # Clear floor-only effects (Green Drank, Five Loco, Protein Powder)
+        # Clear floor-duration effects (Green Drank, Five Loco, Protein Powder, etc.)
         for eff in list(self.player.status_effects):
-            if getattr(eff, 'id', '') in ('green_drank', 'five_loco', 'alco_seltzer_tox_resist', 'protein_powder', 'muffin_buff'):
+            if getattr(eff, 'floor_duration', False):
                 eff.expire(self.player, self)
                 self.player.status_effects.remove(eff)
 
         # Handle hangover from previous floor's alcohol consumption
         from effects import apply_effect
-        # Expire existing hangover first
-        for eff in list(self.player.status_effects):
-            if eff.id == "hangover":
-                eff.expire(self.player, self)
-                self.player.status_effects.remove(eff)
-
         # Apply pending hangover stacks
         if self.pending_hangover_stacks > 0:
             apply_effect(self.player, self, "hangover", stacks=self.pending_hangover_stacks)
@@ -1436,8 +2173,8 @@ class GameEngine:
         # Refill armor at floor start
         self.player.armor = self.player.max_armor
 
-        # Abandoning L3: Anotha Motha — spawn 5 extra items on the new floor (zones only)
-        if zone_type == "zone" and self.skills.get("Abandoning").level >= 3:
+        # Abandoning L2: Anotha Motha — spawn 5 extra items on the new floor (zones only)
+        if zone_type == "zone" and self.skills.get("Abandoning").level >= 2:
             from loot import generate_floor_loot
             extra = generate_floor_loot(zone_key, zone_floor, self.skills, self.player_stats)[:5]
             spawnable = self.dungeon.rooms[1:] if len(self.dungeon.rooms) > 1 else self.dungeon.rooms
@@ -1465,6 +2202,76 @@ class GameEngine:
             self.messages.append(
                 f"You descend deeper... ({display_name} - Floor {zone_floor + 1}/{zone_total})"
             )
+        return True
+
+    def _enter_sublevel(self, sublevel_key: str):
+        """Enter a sublevel dungeon (e.g. Haitian Daycare)."""
+        if self.sdl_overlay:
+            self.sdl_overlay.clear()
+
+        # Remember where we came from
+        self._sublevel_return_floor = self.current_floor
+        self._sublevel_return_dungeon = self.dungeon
+        self._sublevel_return_pos = (self.player.x, self.player.y)
+
+        # Remove player from current floor
+        self.dungeon.remove_entity(self.player)
+
+        # Generate the sublevel
+        sublevel_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=sublevel_key)
+        if sublevel_dungeon.rooms:
+            x, y = sublevel_dungeon.rooms[0].center()
+            self.player.x = x
+            self.player.y = y
+        sublevel_dungeon.spawn_entities(
+            self.player, floor_num=0, zone=sublevel_key,
+            player_skills=self.skills, player_stats=self.player_stats,
+            special_rooms_spawned=self.special_rooms_spawned,
+        )
+
+        self.dungeon = sublevel_dungeon
+        self.dungeon.first_kill_happened = False
+        self.dungeon.female_kill_happened = False
+        self._compute_fov()
+        self._update_tile_stat_bonuses()
+        self.player.energy = ENERGY_THRESHOLD
+
+        # Title card
+        _SUBLEVEL_NAMES = {"haitian_daycare": "Haitian Daycare"}
+        display = _SUBLEVEL_NAMES.get(sublevel_key, sublevel_key)
+        if self.sdl_overlay:
+            self.sdl_overlay.show_title_card(display, duration=3.0)
+        self.messages.append(f"You descend into the {display}...")
+        return True
+
+    def _exit_sublevel(self):
+        """Return from a sublevel to the floor we came from."""
+        if self.sdl_overlay:
+            self.sdl_overlay.clear()
+
+        return_floor = self._sublevel_return_floor
+        return_dungeon = self._sublevel_return_dungeon
+        rx, ry = self._sublevel_return_pos
+
+        # Remove player from sublevel
+        self.dungeon.remove_entity(self.player)
+
+        # Restore position and dungeon
+        self.player.x = rx
+        self.player.y = ry
+        self.dungeon = return_dungeon
+        self.current_floor = return_floor
+        if self.player not in self.dungeon.entities:
+            self.dungeon.entities.insert(0, self.player)
+
+        self._sublevel_return_floor = None
+        self._sublevel_return_dungeon = None
+        self._sublevel_return_pos = None
+
+        self._compute_fov()
+        self._update_tile_stat_bonuses()
+        self.player.energy = ENERGY_THRESHOLD
+        self.messages.append("You ascend back to the floor above.")
         return True
 
     # ------------------------------------------------------------------
@@ -1568,6 +2375,7 @@ class GameEngine:
         self.auto_travel_path = path
         self.auto_traveling = True
         self.autoexploring = True
+        self._autoexplore_last_hp = self.player.hp
         self.messages.append("Autoexploring... (any key to cancel)")
         return False  # no turn consumed; step_auto_travel does the walking
 
@@ -1583,50 +2391,65 @@ class GameEngine:
         px, py = self.player.x, self.player.y
         w, h = dungeon.width, dungeon.height
 
-        # BFS on walkable explored tiles to find the nearest one adjacent to unexplored
+        # Build set of tiles with lootable items (items/cash on explored floor)
+        item_tiles = set()
+        for e in dungeon.entities:
+            if not getattr(e, "alive", True):
+                continue
+            if e.entity_type in ("item", "cash") and dungeon.explored[e.y, e.x]:
+                item_tiles.add((e.x, e.y))
+
+        # BFS on walkable explored tiles — prioritize items over unexplored frontier
         visited = set()
         visited.add((px, py))
         queue = _deque()
         queue.append((px, py, 0))
-        best_target = None
-        best_dist = float('inf')
+        best_item_target = None
+        best_item_dist = float('inf')
+        best_frontier_target = None
+        best_frontier_dist = float('inf')
 
         while queue:
             x, y, dist = queue.popleft()
-            if dist > best_dist:
+            # Early exit if we've found items and passed their distance
+            if dist > best_item_dist and dist > best_frontier_dist:
                 break
 
-            # Check if this explored floor tile borders any unexplored tile
-            is_frontier = False
-            for nx, ny in ((x-1, y), (x+1, y), (x, y-1), (x, y+1)):
-                if 0 <= nx < w and 0 <= ny < h:
-                    if not dungeon.explored[ny, nx]:
-                        is_frontier = True
-                        break
+            # Check for lootable items on this tile
+            if (x, y) in item_tiles and dist < best_item_dist:
+                best_item_target = (x, y)
+                best_item_dist = dist
 
-            if is_frontier:
-                # Also check for items on unexplored tiles we'd like to path through
-                if best_target is None or dist < best_dist:
-                    best_target = (x, y)
-                    best_dist = dist
+            # Check if this explored floor tile borders any unexplored tile
+            if dist < best_frontier_dist:
+                for nx, ny in ((x-1, y), (x+1, y), (x, y-1), (x, y+1)):
+                    if 0 <= nx < w and 0 <= ny < h:
+                        if not dungeon.explored[ny, nx]:
+                            best_frontier_target = (x, y)
+                            best_frontier_dist = dist
+                            break
 
             # Expand to walkable explored neighbors
             for nx, ny in ((x-1, y), (x+1, y), (x, y-1), (x, y+1),
                            (x-1, y-1), (x+1, y-1), (x-1, y+1), (x+1, y+1)):
                 if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
                     if dungeon.tiles[ny][nx] == TILE_FLOOR and dungeon.explored[ny, nx]:
-                        # Don't path through blocking entities (monsters, crates)
-                        blocked_by_entity = any(
-                            e.x == nx and e.y == ny and e.blocks_movement and getattr(e, "alive", True)
+                        # Skip permanent blockers (tables, crates) but allow
+                        # monster-occupied tiles — monsters are temporary obstacles
+                        # and will move by the time the player arrives.
+                        blocked_by_hazard = any(
+                            e.x == nx and e.y == ny and e.blocks_movement
+                            and e.entity_type == "hazard"
                             for e in dungeon.entities
                         )
-                        if not blocked_by_entity:
+                        if not blocked_by_hazard:
                             visited.add((nx, ny))
                             queue.append((nx, ny, dist + 1))
 
+        # Items take priority over frontier exploration
+        best_target = best_item_target or best_frontier_target
+
         if best_target is None:
-            # No frontier tiles found — try to find unexplored reachable tiles
-            # (the above can miss if unexplored tiles are walls we can't know about yet)
             return []
 
         tx, ty = best_target
@@ -1779,6 +2602,30 @@ class GameEngine:
     def handle_move(self, dx, dy):
         """Handle player movement using spatial index."""
         self._player_just_moved = False
+
+        # Web escape check — must break free before moving
+        web_effect = next(
+            (e for e in self.player.status_effects if getattr(e, 'id', '') == 'web_stuck'),
+            None,
+        )
+        if web_effect:
+            import random as _rng
+            web_effect.escape_attempts += 1
+            if _rng.random() < 0.5 or web_effect.escape_attempts >= web_effect.max_attempts:
+                # Escaped!
+                web_effect._break_free(self.player, self.dungeon)
+                self.messages.append([
+                    ("You tear free from the web!", (200, 200, 255)),
+                ])
+                # Turn consumed by escaping — player doesn't move this turn
+                return True
+            # Failed to escape
+            self.messages.append([
+                ("You struggle against the web... ", (180, 180, 180)),
+                (f"({web_effect.escape_attempts}/{web_effect.max_attempts})", (150, 150, 150)),
+            ])
+            return True  # turn consumed
+
         # Check if player is eating food
         eating_effect = next(
             (e for e in self.player.status_effects if getattr(e, 'id', '') == 'eating_food'),
@@ -1829,8 +2676,19 @@ class GameEngine:
                 return True
 
         # Move player through spatial index
+        old_x, old_y = self.player.x, self.player.y
         self._player_just_moved = True
         self.dungeon.move_entity(self.player, new_x, new_y)
+        self._update_tile_stat_bonuses()
+
+        # Web Trail (Arachnigga L1): leave a cobweb on the tile we just left
+        if any(getattr(e, 'id', '') == 'web_trail' for e in self.player.status_effects):
+            # Only spawn if no web already on that tile
+            if not any(getattr(ent, 'hazard_type', None) == 'web'
+                       for ent in self.dungeon.get_entities_at(old_x, old_y)):
+                from hazards import create_web
+                web = create_web(old_x, old_y)
+                self.dungeon.add_entity(web)
 
         # Lunge (Stabbing L5): free auto-crit on enemy directly ahead after moving
         if self.skills.get("Stabbing").level >= 5:
@@ -1857,6 +2715,9 @@ class GameEngine:
             if room_idx not in floor_visited:
                 floor_visited.add(room_idx)
                 self._gain_jaywalking_xp()
+                # Stash Finder (Alcoholism L3): 15% chance to find a random bottle
+                if self.skills.get("Alcoholism").level >= 3 and random.random() < 0.15:
+                    self._stash_finder_proc()
 
         # Child Support debuff: drain $1 per step
         for effect in self.player.status_effects:
@@ -1866,6 +2727,22 @@ class GameEngine:
                     self.messages.append("Child support payment auto-withdrawn. -$1")
                 else:
                     self.messages.append("Child support due but you're broke!")
+                break
+
+        # Web hazard: stick the player if they walked onto a web
+        # Arachnigga L1: immune to webs — walk through without getting stuck or destroying them
+        web_immune = self.skills.get("Arachnigga").level >= 1
+        for ent in self.dungeon.get_entities_at(new_x, new_y):
+            if getattr(ent, "hazard_type", None) == "web":
+                if web_immune:
+                    break
+                # Only apply if not already webbed
+                if not any(getattr(e, 'id', '') == 'web_stuck' for e in self.player.status_effects):
+                    effects.apply_effect(self.player, self, "web_stuck",
+                                         silent=True, web_entity=ent)
+                    self.messages.append([
+                        ("You walk into a web and get stuck!", (180, 180, 220)),
+                    ])
                 break
 
         # Recompute FOV
@@ -2148,6 +3025,36 @@ class GameEngine:
     # Targeting mode
     # ------------------------------------------------------------------
 
+    def _get_smart_targeting_cursor(self) -> list[int]:
+        """Return [x, y] for cursor start: last targeted enemy if alive/visible,
+        else nearest visible enemy, else player position."""
+        last = self.last_targeted_enemy
+        if (last is not None and getattr(last, 'alive', False)
+                and self.dungeon.visible[last.y, last.x]):
+            return [last.x, last.y]
+        # Fallback: nearest visible enemy (no range cap)
+        best = None
+        best_dist = 9999
+        for entity in self.dungeon.get_monsters():
+            if not entity.alive:
+                continue
+            if not self.dungeon.visible[entity.y, entity.x]:
+                continue
+            dist = abs(entity.x - self.player.x) + abs(entity.y - self.player.y)
+            if dist < best_dist:
+                best = entity
+                best_dist = dist
+        if best is not None:
+            return [best.x, best.y]
+        return [self.player.x, self.player.y]
+
+    def _record_targeted_enemy_at(self, tx: int, ty: int) -> None:
+        """Record the alive monster at (tx, ty) as the last targeted enemy."""
+        for e in self.dungeon.get_entities_at(tx, ty):
+            if e.entity_type == "monster" and e.alive:
+                self.last_targeted_enemy = e
+                return
+
     # ------------------------------------------------------------------
     # Entity targeting (f-key: cycle visible monsters within weapon range)
     # ------------------------------------------------------------------
@@ -2313,6 +3220,18 @@ class GameEngine:
 
     def _get_breath_fire_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
         return spells._get_breath_fire_affected_tiles(self, tx, ty)
+
+    def _spell_curse_of_ham(self, tx: int, ty: int) -> bool:
+        return spells._spell_curse_of_ham(self, tx, ty)
+
+    def _spell_curse_of_dot(self, tx: int, ty: int) -> bool:
+        return spells._spell_curse_of_dot(self, tx, ty)
+
+    def _spell_curse_of_covid(self, tx: int, ty: int) -> bool:
+        return spells._spell_curse_of_covid(self, tx, ty)
+
+    def _get_curse_of_ham_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
+        return spells._get_curse_of_ham_affected_tiles(self, tx, ty)
 
     def _get_ray_of_frost_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
         return spells._get_ray_of_frost_affected_tiles(self, tx, ty)
@@ -2518,14 +3437,108 @@ class GameEngine:
     def _gain_jaywalking_xp(self) -> None:
         return xp_progression._gain_jaywalking_xp(self)
 
+    _STASH_FINDER_DRINKS = [
+        "40oz", "fireball_shooter", "malt_liquor", "homemade_hennessy",
+        "steel_reserve", "mana_drink", "five_loco",
+    ]
+
+    def _stash_finder_proc(self):
+        """Alcoholism L3 Stash Finder: add a random alcohol to inventory."""
+        drink = random.choice(self._STASH_FINDER_DRINKS)
+        self._add_item_to_inventory(drink)
+        from items import ITEM_DEFS
+        name = ITEM_DEFS[drink]["name"]
+        self.messages.append([
+            ("Stash Finder! ", (255, 200, 100)),
+            (f"You found a {name} stashed in the room!", (200, 180, 120)),
+        ])
+
     def _gain_abandoning_xp(self) -> None:
         return xp_progression._gain_abandoning_xp(self)
 
     def _gain_melee_xp(self, skill_name: str, damage: int) -> None:
         return xp_progression._gain_melee_xp(self, skill_name, damage)
 
+    def _gain_catchin_fades_xp(self, damage: int) -> None:
+        return xp_progression._gain_catchin_fades_xp(self, damage)
+
     def _gain_spell_xp(self, ability_id: str) -> None:
-        return xp_progression._gain_spell_xp(self, ability_id)
+        xp_progression._gain_spell_xp(self, ability_id)
+        # Blue graffiti XP: +10 when casting a spell while on blue spray paint
+        if self.dungeon.spray_paint.get((self.player.x, self.player.y)) == "blue":
+            adjusted = round(10 * self.player_stats.xp_multiplier)
+            self.skills.gain_potential_exp(
+                "Graffiti", adjusted,
+                self.player_stats.effective_book_smarts,
+                briskness=self.player_stats.total_briskness
+            )
+        self._graffiti_proc_blue()
+
+    def _graffiti_proc_blue(self):
+        """Graffiti L3: 20% chance on ability use to paint player's tile blue."""
+        if self.skills.get("Graffiti").level < 3:
+            return
+        import random as _rng
+        if _rng.random() < 0.20:
+            px, py = self.player.x, self.player.y
+            self.dungeon.spray_paint[(px, py)] = "blue"
+            self.messages.append([
+                ("Graffiti! ", (80, 140, 255)),
+                ("Your tile turns blue!", (130, 180, 255)),
+            ])
+
+    def _graffiti_proc_red(self, defender):
+        """Graffiti L3: 20% chance on melee hit to paint enemy's tile red."""
+        if self.skills.get("Graffiti").level < 3:
+            return
+        import random as _rng
+        if _rng.random() < 0.20:
+            self.dungeon.spray_paint[(defender.x, defender.y)] = "red"
+            self.messages.append([
+                ("Graffiti! ", (255, 40, 40)),
+                (f"{defender.name}'s tile turns red!", (255, 100, 100)),
+            ])
+
+    def _smoking_proc_on_hit(self):
+        """Smoking L2: 10% chance when hit to auto-smoke a random joint from inventory."""
+        if not hasattr(self, 'skills') or self.skills.get("Smoking").level < 2:
+            return
+        import random as _rng
+        if _rng.random() >= 0.10:
+            return
+        # Find joints in inventory
+        joints = [
+            (i, item) for i, item in enumerate(self.player.inventory)
+            if getattr(item, 'item_id', None) == "joint" and getattr(item, 'strain', None)
+        ]
+        if not joints:
+            return
+        idx, joint = _rng.choice(joints)
+        # Roll and apply strain effect
+        from inventory_mgr import calc_tolerance_rolls
+        tlr = self.player_stats.effective_tolerance
+        num_rolls, roll_floor = calc_tolerance_rolls(joint.strain, tlr)
+        rolls = [max(roll_floor + 1, _rng.randint(1, 100)) for _ in range(num_rolls)]
+        roll = max(rolls)
+        self.messages.append([
+            ("Stress Smoke! ", (180, 140, 60)),
+            (f"You reflexively smoke a {joint.name}. (Roll: {roll})", (220, 200, 120)),
+        ])
+        self._apply_strain_effect(self.player, joint.strain, roll, "player")
+        self._gain_smoking_xp(joint.strain)
+
+    def _graffiti_proc_green(self):
+        """Graffiti L3: 20% chance on taking damage to paint player's tile green."""
+        if not hasattr(self, 'skills') or self.skills.get("Graffiti").level < 3:
+            return
+        import random as _rng
+        if _rng.random() < 0.20:
+            px, py = self.player.x, self.player.y
+            self.dungeon.spray_paint[(px, py)] = "green"
+            self.messages.append([
+                ("Graffiti! ", (80, 255, 80)),
+                ("Your tile turns green!", (130, 255, 130)),
+            ])
 
     def _apply_blue_lobster_effect(self, entity, roll, is_player):
         return item_effects._apply_blue_lobster_effect(self, entity, roll, is_player)

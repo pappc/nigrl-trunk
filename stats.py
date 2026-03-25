@@ -72,10 +72,21 @@ class PlayerStats:
             "tolerance":     0,
             "swagger":       0,
         }
+        # Tile-based bonuses from spray paint etc.; updated by engine on player move
+        self.tile_stat_bonuses: dict[str, int] = {
+            "constitution":  0,
+            "strength":      0,
+            "book_smarts":   0,
+            "street_smarts": 0,
+            "tolerance":     0,
+            "swagger":       0,
+        }
         # Temporary armor bonus from effects
         self.temporary_armor_bonus: int = 0
         # Permanent armor bonus from items/effects (survives floor transitions)
         self.permanent_armor_bonus: int = 0
+        # Tile-based defense bonus from spray paint; updated by engine on player move
+        self.tile_defense_bonus: int = 0
         # Dodge chance — integer percentage (0-90); no base stat grants it
         self.dodge_chance: int = 0
         # Spell damage — flat bonus added to all spell formulas
@@ -107,7 +118,7 @@ class PlayerStats:
         # Energy per tick from equipment (hats with "Of Crack" suffix, etc.)
         self.equipment_energy_per_tick: int = 0
         # Faction reputation — raw integer values
-        self.reputation: dict[str, int] = {"aldor": -2000, "scryer": -2000}
+        self.reputation: dict[str, int] = {"aldor": -1000, "scryer": -1000}
         # Callbacks fired when a permanent stat increase occurs (e.g. Protein Powder)
         self._on_stat_increase_callbacks: list = []
 
@@ -205,31 +216,35 @@ class PlayerStats:
         """Shorthand: temporary bonus for a named stat."""
         return self.temporary_stat_bonuses.get(stat, 0)
 
+    def _tslb(self, stat: str) -> int:
+        """Shorthand: tile-based bonus for a named stat (spray paint etc.)."""
+        return self.tile_stat_bonuses.get(stat, 0)
+
     # --- Derived properties ---
 
     @property
     def effective_constitution(self) -> int:
-        return self.constitution + self._rb("constitution") + self._tb("constitution")
+        return self.constitution + self._rb("constitution") + self._tb("constitution") + self._tslb("constitution")
 
     @property
     def effective_strength(self) -> int:
-        return self.strength + self._rb("strength") + self._tb("strength")
+        return self.strength + self._rb("strength") + self._tb("strength") + self._tslb("strength")
 
     @property
     def effective_book_smarts(self) -> int:
-        return self.book_smarts + self._rb("book_smarts") + self._tb("book_smarts")
+        return self.book_smarts + self._rb("book_smarts") + self._tb("book_smarts") + self._tslb("book_smarts")
 
     @property
     def effective_street_smarts(self) -> int:
-        return self.street_smarts + self._rb("street_smarts") + self._tb("street_smarts")
+        return self.street_smarts + self._rb("street_smarts") + self._tb("street_smarts") + self._tslb("street_smarts")
 
     @property
     def effective_tolerance(self) -> int:
-        return self.tolerance + self._rb("tolerance") + self._tb("tolerance")
+        return self.tolerance + self._rb("tolerance") + self._tb("tolerance") + self._tslb("tolerance")
 
     @property
     def effective_swagger(self) -> int:
-        return self.swagger + self._rb("swagger") + self._tb("swagger")
+        return self.swagger + self._rb("swagger") + self._tb("swagger") + self._tslb("swagger")
 
     @property
     def max_hp(self):

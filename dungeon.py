@@ -325,10 +325,11 @@ def build_mst(rooms):
 class Dungeon:
     """Represents a dungeon floor."""
 
-    def __init__(self, width, height, zone="crack_den"):
+    def __init__(self, width, height, zone="crack_den", floor_event=None):
         self.width = width
         self.height = height
         self.zone = zone
+        self.floor_event = floor_event
         self.tiles = [[TILE_WALL for _ in range(width)] for _ in range(height)]
         self.entities = []
         self.rooms = []
@@ -340,16 +341,27 @@ class Dungeon:
         self.newly_revealed_landmarks: list = []
 
         # Set to True the first time any monster dies on this floor.
-        # Used by the alarm_chaser AI (ugly strippers).
         self.first_kill_happened = False
+
+        # Room indices where the player has attacked a monster.
+        # Used by room_combat AI (ugly strippers).
+        self.rooms_with_combat: set[int] = set()
 
         # Set to True the first time a female monster dies on this floor.
         # Used by the female_alarm AI (fat gooners).
         self.female_kill_happened = False
 
         self.room_tile_map: dict[tuple, int] = {}  # (x, y) -> room_index
+        self.spray_paint: dict[tuple, str] = {}    # (x, y) -> spray type ("red", etc.)
 
         from zone_generators import ZONE_GENERATORS
+        # Use event-specific generator if available
+        if floor_event:
+            from zone_generators import EVENT_GENERATORS
+            gen = EVENT_GENERATORS.get(floor_event, {}).get("generate")
+            if gen:
+                gen(self)
+                return
         gen = ZONE_GENERATORS[zone]["generate"]
         gen(self)
 
@@ -519,11 +531,17 @@ class Dungeon:
                     hallway.append((x, y))
         return hallway
 
-    def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None, player_stats=None, special_rooms_spawned=None):
-        """Spawn monsters and items in rooms. Delegates to zone-specific spawner."""
+    def spawn_entities(self, player, floor_num=0, zone="crack_den", player_skills=None, player_stats=None, special_rooms_spawned=None, floor_event=None):
+        """Spawn monsters and items in rooms. Delegates to zone or event-specific spawner."""
+        if floor_event:
+            from zone_generators import EVENT_GENERATORS
+            event_spawner = EVENT_GENERATORS.get(floor_event, {}).get("spawn")
+            if event_spawner:
+                event_spawner(self, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned)
+                return
         from zone_generators import ZONE_GENERATORS
         spawner = ZONE_GENERATORS[zone]["spawn"]
-        spawner(self, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned)
+        spawner(self, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned, floor_event=floor_event)
 
     def is_terrain_blocked(self, x, y):
         """Check if terrain alone blocks a tile (ignores entities)."""

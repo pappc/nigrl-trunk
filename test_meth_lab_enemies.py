@@ -122,7 +122,7 @@ def test_death_split_type_valid():
 def test_covid_26_template():
     tmpl = MONSTER_REGISTRY["covid_26"]
     assert tmpl.ai == AIType.SUICIDE_BOMBER
-    assert tmpl.speed == 140
+    assert tmpl.speed == 100
     assert tmpl.spawn_min == 2
     assert tmpl.spawn_max == 4
 
@@ -209,7 +209,7 @@ def test_buff_purge_no_buffs():
 
 def test_toxic_slug_template():
     tmpl = MONSTER_REGISTRY["toxic_slug"]
-    assert tmpl.ai == AIType.MEANDER
+    assert tmpl.ai == AIType.WANDER_AMBUSH
     assert tmpl.speed == 60
     assert tmpl.leaves_trail == {"duration": 10, "tox": 5}
     assert tmpl.death_creep_radius == 2
@@ -287,7 +287,7 @@ def test_stray_dog_template():
     # Check tox burst
     tox_eff = tmpl.on_hit_effects[0]
     assert tox_eff.kind == EffectKind.TOX_BURST
-    assert tox_eff.amount == 8
+    assert tox_eff.amount == 3
     # Check rabies
     rabies_eff = tmpl.on_hit_effects[1]
     assert rabies_eff.kind == EffectKind.RABIES
@@ -351,7 +351,7 @@ def test_rabies_refresh_doesnt_stack():
 
 def test_sludge_amalgam_template():
     tmpl = MONSTER_REGISTRY["sludge_amalgam"]
-    assert tmpl.ai == AIType.MEANDER
+    assert tmpl.ai == AIType.WANDER_AMBUSH
     assert tmpl.speed == 70
     assert tmpl.defense == 3
     assert tmpl.death_split_type == "mini_sludge"
@@ -381,7 +381,7 @@ def test_death_split_spawns_mini_sludges():
 def test_mini_sludge_template():
     tmpl = MONSTER_REGISTRY["mini_sludge"]
     assert tmpl.speed == 110
-    assert tmpl.ai == AIType.MEANDER
+    assert tmpl.ai == AIType.WANDER_AMBUSH
     assert tmpl.on_hit_effects[0].kind == EffectKind.TOX_BURST
     assert tmpl.on_hit_effects[0].amount == 10
 

@@ -137,8 +137,8 @@ def _gain_alcohol_xp(engine, drink_id: str):
     # Award primary skill (Alcoholism)
     engine.skills.gain_potential_exp("Alcoholism", adjusted, bksmt,
                                      briskness=engine.player_stats.total_briskness)
-    # Award secondary skill (Drinking) at half rate
-    engine.skills.gain_potential_exp("Drinking", adjusted // 2, bksmt,
+    # Award Drinking at equal rate
+    engine.skills.gain_potential_exp("Drinking", adjusted, bksmt,
                                      briskness=engine.player_stats.total_briskness)
 
     # Feedback
@@ -146,6 +146,11 @@ def _gain_alcohol_xp(engine, drink_id: str):
         ("Alcoholism skill: +", (100, 150, 200)),
         (str(adjusted), (150, 200, 255)),
         (" potential XP", (100, 150, 200)),
+    ])
+    engine.messages.append([
+        ("Drinking skill: +", (100, 200, 150)),
+        (str(adjusted), (150, 255, 200)),
+        (" potential XP", (100, 200, 150)),
     ])
 
 
@@ -160,7 +165,7 @@ def _add_hangover_stacks(engine, stacks: int):
                 ("Hangover stack resisted.", (160, 160, 160)),
             ])
         else:
-            _add_hangover_stacks(engine, 1)
+            engine.pending_hangover_stacks += 1
             added += 1
     return added
 
@@ -282,8 +287,8 @@ def _handle_purple_drank(engine, item):
     """Handle Purple Drank: replay last drink effect, add copy of last drink to inventory, award 100 Drinking XP."""
     from items import ITEM_DEFS
 
-    # Award flat 100 Drinking XP
-    adjusted = round(100 * engine.player_stats.xp_multiplier)
+    # Award flat 200 Drinking XP
+    adjusted = round(200 * engine.player_stats.xp_multiplier)
     bksmt = engine.player_stats.effective_book_smarts
     engine.skills.gain_potential_exp("Drinking", adjusted, bksmt,
                                      briskness=engine.player_stats.total_briskness)
@@ -318,8 +323,8 @@ def _handle_purple_drank(engine, item):
 
 def _handle_red_drank(engine, item):
     """Handle Red Drank: apply 200-turn buff that doubles drink durations, makes drinks free, and grants +100 energy."""
-    # Award flat 100 Drinking XP
-    adjusted = round(100 * engine.player_stats.xp_multiplier)
+    # Award flat 200 Drinking XP
+    adjusted = round(200 * engine.player_stats.xp_multiplier)
     bksmt = engine.player_stats.effective_book_smarts
     engine.skills.gain_potential_exp("Drinking", adjusted, bksmt,
                                      briskness=engine.player_stats.total_briskness)
@@ -354,8 +359,8 @@ def _handle_green_drank(engine, item):
     """Handle Green Drank: apply stacking floor-duration buff. Each drink heals 20 HP/armor, removes 20 rad/tox, removes a random debuff per stack."""
     import random as _rng
 
-    # Award flat 100 Drinking XP
-    adjusted = round(100 * engine.player_stats.xp_multiplier)
+    # Award flat 200 Drinking XP
+    adjusted = round(200 * engine.player_stats.xp_multiplier)
     bksmt = engine.player_stats.effective_book_smarts
     engine.skills.gain_potential_exp("Drinking", adjusted, bksmt,
                                      briskness=engine.player_stats.total_briskness)
@@ -454,8 +459,8 @@ def _apply_green_drank_on_drink(engine, stacks):
 
 def _handle_blue_drank(engine, item):
     """Handle Blue Drank: add a doubling stack, award 100 Drinking XP."""
-    # Award flat 100 Drinking XP
-    adjusted = round(100 * engine.player_stats.xp_multiplier)
+    # Award flat 200 Drinking XP
+    adjusted = round(200 * engine.player_stats.xp_multiplier)
     bksmt = engine.player_stats.effective_book_smarts
     engine.skills.gain_potential_exp("Drinking", adjusted, bksmt,
                                      briskness=engine.player_stats.total_briskness)
@@ -516,13 +521,13 @@ def _gain_item_skill_xp(engine, skill_name: str, item_id: str, silent: bool = Fa
 
 
 def _sticky_fingers_check(engine, item_id: str) -> None:
-    """Perk 3 of Stealing -- Sticky Fingers: chance to gain +1 STS on first pickup.
+    """Perk 2 of Stealing -- Sticky Fingers: chance to gain +1 STS on first pickup.
 
     Chance = item_value / 1000, capped at 50%.
-    Only fires if the player has Stealing level >= 3.
+    Only fires if the player has Stealing level >= 2.
     """
     stealing_skill = engine.skills.get("Stealing")
-    if not stealing_skill or stealing_skill.level < 3:
+    if not stealing_skill or stealing_skill.level < 2:
         return
     import random as _random
     from items import get_item_value
@@ -573,16 +578,28 @@ def _gain_abandoning_xp(engine) -> None:
     from items import get_skill_xp
 
     total_xp = 0
+    item_count = 0
     for entity in engine.dungeon.entities:
         if entity.entity_type == "item":
             total_xp += get_skill_xp(entity.item_id, "Abandoning")
+            item_count += 1
         elif entity.entity_type == "cash":
             total_xp += entity.cash_amount
+
+    # Abandoning L3: Left Behind — gain +1 DR per item left on the floor
+    skill = engine.skills.get("Abandoning")
+    if item_count > 0 and skill and skill.level >= 3:
+        import effects
+        effects.apply_effect(engine.player, engine, "left_behind",
+                             stacks=item_count, silent=True)
+        engine.messages.append([
+            ("Left Behind! ", (255, 200, 50)),
+            (f"+{item_count} damage resistance until next floor.", (200, 200, 200)),
+        ])
 
     if total_xp <= 0:
         return
 
-    skill = engine.skills.get("Abandoning")
     was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
 
     adjusted_xp = round(total_xp * engine.player_stats.xp_multiplier)
@@ -675,6 +692,46 @@ def _gain_spell_xp(engine, ability_id: str) -> None:
             f"Arcane Intelligence! +2 spell dmg stacks ({total_stacks} total, "
             f"+{engine.player_stats.total_spell_damage} bonus spell dmg)"
         )
+
+
+def _gain_catchin_fades_xp(engine, damage: int) -> None:
+    """Award L Farming XP when the player takes damage.
+
+    XP = damage * 0.5 (half a point per damage point).
+    Silent — no per-hit message, only unlock notification.
+    """
+    if damage <= 0:
+        return
+    if not hasattr(engine, 'skills'):
+        return
+
+    skill = engine.skills.get("L Farming")
+    was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
+    xp_amount = round(damage * 0.5)
+    if xp_amount < 1:
+        xp_amount = 1
+    adjusted_xp = round(xp_amount * engine.player_stats.xp_multiplier)
+    engine.skills.gain_potential_exp(
+        "L Farming", adjusted_xp,
+        engine.player_stats.effective_book_smarts,
+        briskness=engine.player_stats.total_briskness
+    )
+
+    if was_locked:
+        engine.messages.append([
+            ("[NEW SKILL UNLOCKED] L Farming!", (255, 215, 0)),
+        ])
+
+    # L3 "Unfazed": 25% chance on taking damage to gain +1 Swagger for the floor
+    if skill.level >= 3 and random.random() < 0.25:
+        engine.player_stats.swagger += 1
+        engine.unfazed_swagger_gained += 1
+        engine.messages.append([
+            ("Unfazed! ", (255, 220, 100)),
+            ("+1 Swagger", (200, 200, 200)),
+            (f" ({engine.unfazed_swagger_gained} this floor)", (150, 150, 150)),
+        ])
 
 
 def _gain_ammo_rat_xp(engine, item_id: str) -> None:

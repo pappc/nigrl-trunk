@@ -1,0 +1,820 @@
+================================================================================
+BLACKKK MAGIC — 5 SKILL TREE DESIGNS
+================================================================================
+Design doc for the Blackkk Magic skill tree (currently fully placeholder).
+All 5 designs cover L1-L5. Each takes a meaningfully different mechanical
+approach to the curse/hex paradigm.
+
+XP Source (all designs): Blackkk Magic XP is gained each time one of your
+curses/hexes LANDS on an enemy. Not from melee hits, not from spell casts
+that miss — only on successful application. This rewards stacking curses and
+hunting targets with more debuff slots, not just button-mashing.
+
+Tone anchor: street voodoo — evil eye, jinxes, bad juju, voodoo dolls. Not
+wizard school. Not D&D. The names should feel like something shouted at
+someone who just cut you off in traffic.
+
+================================================================================
+DESIGN A — "THE MARK" (Accumulating Hex Stack)
+================================================================================
+
+CONCEPT SUMMARY:
+You put The Mark on an enemy — a spiritual brand that builds in severity with
+every additional curse you stack on them. The Mark itself does nothing at first,
+but every debuff applied to a Marked target amplifies existing curses and feeds
+back into more powerful hexes. Designed for a deliberate, patient player who
+picks one target to absolutely ruin before moving on.
+
+PLAYSTYLE: Single-target sustained curse escalation. Reward for curse juggling
+on one enemy. Anti-swarm — bad against many weak enemies, excellent against
+elites and bosses.
+
+STAT DEPENDENCY: Book Smarts (hex scaling, XP conversion). Street Smarts
+(curse application through gouge and sneak hits).
+
+--------------------------------------------------------------------------------
+
+L1 — "Put It On 'Em" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "put_it_on_em"}
+  ability_id: "put_it_on_em"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Brand a visible enemy with The Mark (floor_duration=True). Marked enemies
+    glow with a faint purple tint in the render (color override when marked=True
+    on entity). The Mark itself has no direct effect. But every debuff applied
+    to a Marked enemy by the player refreshes The Mark's debuff-amplification
+    tier by +1 (stored as entity.mark_tier, int, max 5). Tier is displayed as
+    The Mark (x) in status panel. Each tier adds +1 flat damage to all incoming
+    attacks against that target (not just the player's — this is important for
+    combos with other enemies).
+  impl notes:
+    entity.is_marked: bool (set True on application)
+    entity.mark_tier: int (0 at application, +1 each time player applies any
+      debuff/curse to a marked entity, capped at 5)
+    engine tracks: check if target has is_marked when any effect is applied via
+      apply_effect(); if so, mark_tier += 1 and recalculate mark bonus.
+    damage bonus: flat +mark_tier added to all damage rolls against this entity
+      (applied in combat.py after base damage calc, before defense).
+    The Mark is removed on floor change. Only one entity can be marked at a time.
+    Reapplying to a new target removes mark from the old one (mark_tier resets).
+  balance: At tier 5, +5 flat damage to all hits. Requires 5 debuff applications
+    to reach. Most enemies die before tier 5 unless boss/elite. Tier 3 (~+3 dmg)
+    is a realistic peak on floor bosses.
+
+L2 — "Juju" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When you apply a debuff/curse to a Marked enemy, there is a chance equal to
+    (mark_tier * 10)% that the debuff lasts 50% longer on that target (rounded
+    up to nearest turn). At tier 1: 10%, tier 3: 30%, tier 5: 50%. Does not
+    stack retroactively — only applies to debuffs applied AFTER Juju is unlocked.
+  impl notes:
+    In apply_effect(), after setting duration: if target.is_marked, roll
+    random() < target.mark_tier * 0.10; if pass, duration = ceil(duration * 1.5).
+    Works with any debuff (stun, slow, fear, dot, bleeding, etc.) — broad
+    synergy that rewards using Put It On 'Em early in a fight.
+
+L3 — "Triple 6 Special" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "triple_6_special"}
+  ability_id: "triple_6_special"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: PER_FLOOR
+  max_charges: 2
+  desc:
+    Concentrate the Mark's energy into a targeted blast. Requires target to have
+    is_marked=True. Deals (6 + mark_tier * 6) damage, ignoring defense entirely
+    (spirit damage bypasses armor). Resets mark_tier to 0 on use but does NOT
+    remove The Mark itself — the brand stays, tier just collapses back to 0 so
+    you can build again. 2 uses per floor.
+  impl notes:
+    Validate: target.is_marked must be True; if not, message "No mark on target."
+    Damage: 6 + entity.mark_tier * 6. Applied via entity.take_damage() with
+      defense_bypass=True flag (or direct entity.hp -= damage after clamping).
+    After firing: entity.mark_tier = 0.
+    Not a spell (is_spell=False) — doesn't interact with Smartsness BKS scaling.
+  balance: At tier 5 (max): 36 damage, no defense. At tier 2 (typical build):
+    18 no-defense. Most floor 1-2 enemies have 20-40 HP; this one-shots or
+    nearly one-shots a marked target even at tier 2. 2/floor limits burst.
+
+L4 — "Voodoo Contagion" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When the Marked target dies while The Mark is active, The Mark's current
+    debuffs (all active status effects on that entity at death) are transferred
+    at half their remaining duration (rounded down, minimum 1 turn) to a random
+    non-marked enemy within 5 tiles. The transferred enemy does NOT receive
+    is_marked. This is pure curse propagation — the mark does not follow, but
+    the suffering does. If no valid adjacent enemy exists within 5 tiles, the
+    effect is wasted.
+  impl notes:
+    In engine event handler for "entity_died": check if entity.is_marked; if so,
+    collect all status_effects on that entity where duration > 0; pick a random
+    non-player living entity within Chebyshev(5); for each effect in collected
+    list, call apply_effect() with duration = max(1, effect.duration // 2).
+    Do not transfer floor_duration effects.
+    Mark itself clears after transfer (entity.is_marked = False on old target).
+  balance: Great cleanup mechanic. In tight rooms with clustered enemies the
+    transferred fear/slow/bleed can chain into solid free damage. Requires
+    killing the Marked target quickly enough that debuffs haven't expired, so
+    it rewards aggressive play on marked targets.
+
+L5 — "The Reaping Mark" (passive upgrade to Put It On 'Em)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Passive upgrade to Put It On 'Em: whenever mark_tier reaches 5, the Marked
+    enemy is immediately inflicted with ALL of the following debuffs simultaneously,
+    at their base parameters (no stacking, just base):
+      - stun (5 turns)
+      - slow (ratio=0.3, 8 turns)
+      - cripple_armor (12 turns)
+    These are applied automatically and silently (message: "The Mark awakens.")
+    without spending any ability charges. This can only trigger once per Mark
+    instance — after triggering, mark_tier resets to 0 and the automatic
+    buff-trigger is flagged as used (entity.mark_awakened = True, cleared on
+    new Mark application).
+  impl notes:
+    In the mark_tier increment logic: if mark_tier hits 5 and not
+    entity.mark_awakened: apply stun(5), slow(0.3, 8), cripple_armor(12);
+    set entity.mark_awakened = True; message "The Mark awakens."
+    mark_tier stays at 5 after awakening (only resets on Triple 6 Special or
+    if enemy dies and Contagion triggers).
+  balance: The combo of stun + cripple + slow on a boss target is genuinely
+    terrifying. Requires 5 debuff stacks to trigger — on a boss that means
+    using Put It On 'Em + 4 other debuff sources (gouge, fear item, dot from
+    bleeding, etc.). Payoff is proportional to setup cost.
+
+================================================================================
+DESIGN B — "WRIT LARGE" (Hex Writing / Curse Tagging)
+================================================================================
+
+CONCEPT SUMMARY:
+You write curses in the air — visible symbols that float over tagged enemies.
+The Writ system uses a queue-based mechanic: you inscribe a WRIT (a floating
+hex charge) onto an enemy, then trigger it with a specific action. Different
+Writs produce different effects. L4 lets you write TWO Writs on the same
+enemy simultaneously. The Writ "detonates" are the payoff — each one is a
+different flavored catastrophe.
+
+PLAYSTYLE: Proactive setup into punishing payoff. Requires planning — put the
+right Writ on the right enemy before the right action. Skilled play rewards
+reading the fight in advance. Good against medium groups.
+
+STAT DEPENDENCY: Street Smarts (Writ accuracy, writ proc chance). Book Smarts
+(Writ damage scaling).
+
+--------------------------------------------------------------------------------
+
+L1 — "Writ of Pain" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "writ_of_pain"}
+  ability_id: "writ_of_pain"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Inscribe the Writ of Pain on a visible enemy (entity.writ = "pain", floor
+    duration). The Writ is dormant until the enemy is next hit by any melee
+    attack (player or enemy-on-enemy). On that melee hit, the Writ detonates:
+    the attacker and all enemies within 1 tile of the target take
+    (4 + BKS/2) damage with no defense (spiritual burst). The Writ then
+    vanishes. Only one Writ can be active per enemy (until L4). Reapplication
+    overwrites the existing Writ.
+  impl notes:
+    entity.writ: str | None — "pain", "slow", "fear", etc.
+    Writ detonation check: in combat.py after a melee hit lands on an entity,
+      check entity.writ; if "pain", resolve AOE_CIRCLE radius=1 for (4 + BKS//2)
+      no-defense damage; then entity.writ = None.
+    "No defense" means bypassing the normal defense subtraction in combat calc.
+    Writ of Pain is always active (INFINITE charges) — the payoff is the setup.
+    Blackkk Magic XP: granted on Writ inscription, NOT on detonation.
+
+L2 — "Writ of Slowing" (passive — expands Writ repertoire)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Adds a second Writ option. When writing a Writ (via Writ of Pain ability),
+    you can now choose between "pain" (L1) and "slow". Writ of Slow detonates
+    when the enemy MOVES (takes any step). On detonation: enemy and all enemies
+    within 2 tiles receive slow (ratio=0.5, 10 turns). You cannot pre-select
+    which Writ to apply via the ability menu UI — instead, a secondary key prompt
+    appears after targeting: "P=Pain, S=Slow". Both use the same INFINITE charges.
+  impl notes:
+    Engine needs a minor UI state: after target is confirmed for writ_of_pain
+    ability, present secondary prompt (could reuse an input loop or a single-key
+    branch in the targeting resolution). Set entity.writ = "pain" or "slow"
+    based on key input.
+    Writ of Slow detonation: check entity.writ == "slow" at end of any monster
+    movement step in ai.py. If entity moved (not just attempted), detonate:
+    AOE_CIRCLE r=2 apply slow(0.5, 10) to all living non-player entities in range.
+    entity.writ = None after.
+
+L3 — "Writ of Dread" (passive — third Writ type + Writ empowerment)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Adds "dread" to the Writ choices. Writ of Dread detonates when the enemy is
+    reduced below 50% HP for the first time. On detonation: applies fear (8 turns,
+    source = player position) to the target and all enemies within 3 tiles. Also
+    passively empowers all existing Writs: damage-based Writs (pain) deal +BKS/3
+    bonus damage. Duration-based Writs (slow, dread) have their effect durations
+    increased by 3 turns.
+  impl notes:
+    Track 50% HP threshold: entity.writ_dread_threshold_crossed: bool (default
+    False, reset on floor change or on entity respawn). In combat.py damage
+    resolution: if entity.writ == "dread" and not entity.writ_dread_threshold_crossed
+    and entity.hp <= entity.max_hp // 2: set flag, detonate — apply fear(8,
+    source_x=player.x, source_y=player.y) to target + AOE r=3.
+    Passive empowerment: stored as a flag on engine (engine.writ_empowered = True
+    once L3 unlocked). In combat.py, when resolving pain writ detonation, add
+    floor(BKS/3) if flag is set. In slow/dread, add 3 to duration.
+
+L4 — "Double Writ" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    You can now inscribe TWO Writs on the same enemy simultaneously. The second
+    Writ slot is entity.writ_2: str | None. When targeting, the first press
+    writes to writ (slot 1); the second press to writ_2. Both detonate
+    independently on their trigger conditions. If the same Writ type is applied
+    twice, the second overwrites the first in that slot.
+    Additionally, when BOTH Writs on the same enemy detonate within the same turn,
+    a bonus effect fires: the Double Tap — applies cripple_armor (10 turns) to
+    the target on top of the two individual detonations.
+  impl notes:
+    entity.writ_2: str | None (new field alongside entity.writ).
+    Writ application: UI prompts slot choice (1 or 2) after type choice, or
+      simpler: writing to an already-written slot overwrites, writing to an
+      empty writ writes to writ, if writ is full writes to writ_2.
+    Double Tap: engine tracks a per-turn detonation counter per entity
+      (entity.writs_detonated_this_turn: int, reset to 0 each turn). If
+      count >= 2 after any detonation in the same turn, apply cripple_armor.
+
+L5 — "The Hex Permanent" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Passive capstone. Any Writ that detonates on an enemy that is ALREADY
+    afflicted with at least 2 other status effects (at time of detonation) is
+    permanently upgraded: its effects are doubled. Pain: damage x2. Slow:
+    ratio halved (from 0.5 to 0.25, near-frozen). Dread: fear lasts 16 turns
+    and is irresistible (cannot be broken by the normal 50% damage break chance).
+    Message on trigger: "[Writ] hexed permanent!"
+    Intent: rewards stacking multiple debuffs BEFORE detonating a Writ.
+    Pairs with gouge (Stabbing L1), throw bottle (Alcoholism L3), cripple_armor
+    from any source, etc.
+  impl notes:
+    In each Writ detonation branch: count non-expired effects on entity at
+    moment of detonation. If len >= 2: apply the upgraded version.
+    For irresistible fear: add a flag to FearEffect __init__: irresistible=False.
+    modify_incoming_damage override: if self.irresistible, skip the 50% break
+    check entirely.
+  balance: Requires 2+ pre-existing debuffs at detonation time. In practice
+    this means dot + slow, or gouge + bleeding — achievable but requires
+    planning. Permanent slow (0.25 ratio) on a boss is nearly as good as a
+    multi-turn stun.
+
+================================================================================
+DESIGN C — "SOUL TAX" (Punishment / Spiritual Economy)
+================================================================================
+
+CONCEPT SUMMARY:
+Soul Tax is about spiritual punishment — you levy a cost on enemies for BEING
+alive, and then escalate that cost with hexes. The core loop: curse an enemy
+with Soul Tax (a drain-over-time), then cast hex amplifiers that make the drain
+compound. Later levels let you redirect that drained spiritual energy back into
+yourself as temporary power. It has an economic flavor — you are literally
+extracting value from enemies' existence.
+
+PLAYSTYLE: Attrition / snowball. Best in prolonged fights. Weak burst, strong
+sustained output. Works well combined with slow/crowd control to keep enemies
+alive longer while they bleed out spiritually. Synergizes heavily with DoT
+stacking from Smoking, Stabbing (bleeding), and chemical effects.
+
+STAT DEPENDENCY: Tolerance (drain rate scales with TOL). Constitution (the
+"reserves" that hold absorbed energy translate to temporary HP).
+
+--------------------------------------------------------------------------------
+
+L1 — "Levy" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "levy"}
+  ability_id: "levy"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Apply the Soul Tax curse to a visible enemy: entity gains soul_tax effect
+    (debuff, 15 turns). Soul Tax ticks once per turn: enemy takes 1 damage
+    (no defense, no message spam — silent drain). This damage generates a
+    "spiritual drain" counter on the player: engine.soul_drain_counter += 1
+    each tick. Counter does nothing at L1 but becomes fuel at L2+.
+    Only one enemy can be Soul Taxed at a time; reapplication moves the curse
+    to the new target (old target's effect expires immediately).
+  impl notes:
+    New SoulTaxEffect in effects.py:
+      id = "soul_tax"
+      category = "debuff"
+      on_reapply: refresh duration (do not stack — only one per game allowed
+        at a time; engine enforces only-one constraint before applying).
+      tick: entity.take_damage(1) bypassing defense; engine.soul_drain_counter += 1.
+    engine.soul_drain_counter: int (persists per floor, resets on floor change).
+    Only-one constraint: before apply_effect("soul_tax", target), engine
+      scans all dungeon entities and removes existing soul_tax effect from any
+      that have it.
+    Blackkk Magic XP: +10 per soul_tax tick (slow steady gain rewards keeping
+      the enemy alive and taxed).
+
+L2 — "Compound Interest" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Soul Tax damage scales with how many OTHER debuffs are on the Soul Taxed
+    enemy. For each additional debuff/status effect on the target (not counting
+    soul_tax itself), Soul Tax deals +1 damage per tick. At 0 other debuffs:
+    1 damage/tick. At 3 other debuffs: 4 damage/tick. At 5 other debuffs:
+    6 damage/tick. This makes any other debuff source (gouge, slow, bleed,
+    fear, dot, burning) directly amplify your curse.
+  impl notes:
+    In SoulTaxEffect.tick(): count len([e for e in entity.status_effects if
+      e.id != "soul_tax" and not e.expired]) as extra_debuffs; deal
+      (1 + extra_debuffs) damage instead of flat 1.
+    The "no defense" rule still applies — pure HP drain regardless of armor.
+
+L3 — "Cash Out" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "cash_out"}
+  ability_id: "cash_out"
+  target_type: SELF
+  charge_type: PER_FLOOR
+  max_charges: 3
+  desc:
+    Convert engine.soul_drain_counter into temporary healing. Consume ALL
+    current soul_drain_counter points: heal for ceil(soul_drain_counter / 3) HP
+    (capped at 30 HP per use). Counter resets to 0 after cash-out.
+    For the next 5 turns after cashing out, player gains +TOL/2 power bonus
+    (spiritual energy converted to physical aggression — temporary CashOutEffect
+    buff stored on player).
+    Message: "Spiritual energy converted. +" [HP] "HP. Power surge (5 turns)."
+  impl notes:
+    New CashOutEffect(Effect): category="buff", duration=5.
+    apply: engine.player.power += engine.player_stats.effective_tolerance // 2
+    expire: engine.player.power -= stored_bonus
+    Cash Out execute: heal = min(30, ceil(engine.soul_drain_counter / 3));
+      engine.player.heal(heal); apply CashOutEffect; engine.soul_drain_counter = 0.
+    Validation: if soul_drain_counter == 0, message "Nothing to cash out."
+    3 uses/floor keeps burst healing spammable but not infinite.
+
+L4 — "Interest Rate Hike" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When the Soul Taxed enemy dies (from any source while soul_tax is active),
+    the Soul Tax JUMPS to a random nearby living enemy within 4 tiles at full
+    duration (15 turns) automatically. No charge cost, no action. Chain length
+    tracked: engine.soul_tax_chain: int (increments on each auto-transfer).
+    For each link in the chain, the auto-transferred Soul Tax deals +1 base
+    damage per tick (compounding: chain 1 = 2 dmg/tick base, chain 2 = 3, etc.,
+    before Compound Interest multiplier). Chain resets on floor change.
+    Message on chain: "Soul Tax transfers! (Chain [n])"
+  impl notes:
+    In "entity_died" event handler: check if dying entity had soul_tax effect.
+    If so, engine.soul_tax_chain += 1; find random living non-player entity
+      within Chebyshev(4); apply_effect("soul_tax", target, duration=15,
+      chain_bonus=engine.soul_tax_chain).
+    SoulTaxEffect needs to accept chain_bonus in __init__ and add it to tick
+    damage (before Compound Interest: base = 1 + chain_bonus + extra_debuffs).
+  balance: Chain 3+ becomes genuinely scary — 4+ base drain on each tick
+    plus Compound Interest with any debuffs. Hard to engineer long chains
+    because enemies die faster the longer the chain runs. Natural cap.
+
+L5 — "You Owe Me" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When Soul Tax expires naturally (not from enemy death, not transferred via
+    Interest Rate Hike — only natural duration lapse), a final reckoning fires:
+    the target instantly takes damage equal to (total_ticks_taxed * 2) where
+    total_ticks_taxed is tracked on the SoulTaxEffect instance. This is the
+    penalty for outlasting the tax period — the spiritual debt comes due.
+    Additionally: the soul_drain_counter refund for that final burst damage
+    is tripled (each point of that burst adds 3 to soul_drain_counter instead
+    of going to engine normally).
+    Message on trigger: "[Enemy] pays the debt."
+  impl notes:
+    SoulTaxEffect: add self.ticks_taxed: int (increments in tick() alongside
+      damage application). Add self.natural_expire: bool = False.
+    Override expire(): if self.natural_expire and entity.alive:
+      burst = self.ticks_taxed * 2; entity.take_damage(burst) bypass defense;
+      engine.soul_drain_counter += burst * 3;
+      engine.messages.append(f"{entity.name} pays the debt.")
+    In tick(): if self.duration hits 1 (last tick before expiry), set
+      self.natural_expire = True.
+    If entity dies before expiry, natural_expire stays False so burst doesn't
+    double-trigger through the death event chain.
+  balance: At 15 ticks taxed with no interruption: 30 bonus damage on expire.
+    Against a slow/feared enemy with 5 compound ticks, full 15 turns = massive.
+    But the player must NOT kill the enemy early, which creates tension — do
+    you cash out the drain now, or wait for the debt to mature?
+
+================================================================================
+DESIGN D — "EVIL EYE" (Reactive Hex / Punishing Aggression)
+================================================================================
+
+CONCEPT SUMMARY:
+The Evil Eye is a reactive curse tradition — you curse enemies for their
+OWN ACTIONS. Attacking you, moving toward you, being near another enemy —
+all become punishable offenses. This design is fundamentally defensive and
+AOE-flavored: the curses trigger automatically from enemy behavior, and the
+hexes amplify how bad those triggers get. It turns combat from "I attack
+enemies" into "enemies attack themselves."
+
+PLAYSTYLE: Defensive positioning, crowd punishment. Best against swarms.
+Weak in one-on-one straight fights. Strongest when cornered or surrounded.
+Synergizes with fear effects (keeping enemies moving toward you so they
+keep triggering curses), and with any AOE damage source.
+
+STAT DEPENDENCY: Swagger (the Eye's "gaze" — higher swagger = wider trigger
+radius and stronger fear component). Constitution (HP thresholds for triggers).
+
+--------------------------------------------------------------------------------
+
+L1 — "Give 'Em The Eye" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "give_em_the_eye"}
+  ability_id: "give_em_the_eye"
+  target_type: SELF
+  charge_type: PER_FLOOR
+  max_charges: 3
+  desc:
+    Activate the Evil Eye aura for 12 turns (EvilEyeEffect, buff on player).
+    While active: any enemy that ATTACKS the player (successfully deals damage)
+    is automatically cursed with the evil_gaze debuff (8 turns). Evil Gaze:
+    whenever the afflicted enemy takes any damage from any source, they take
+    +2 additional spiritual damage (no defense). Essentially the gaze amplifies
+    damage from all sources, turning every hit on the gazer into a punish.
+    3 uses per floor.
+  impl notes:
+    New EvilEyeAuraEffect (buff on player):
+      id = "evil_eye_aura"
+      category = "buff"
+      duration = 12
+      on_player_melee_hit doesn't apply — this is about enemies hitting the player.
+    New check in combat.py player-takes-damage: if player has evil_eye_aura
+      effect, apply_effect("evil_gaze", attacker, duration=8).
+    New EvilGazeEffect (debuff on enemy):
+      id = "evil_gaze"
+      modify_incoming_damage: return damage + 2 (flat +2 to all incoming)
+    Blackkk Magic XP: gained when evil_gaze is applied (per enemy cursed).
+
+L2 — "Double Dog Dare Ya" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Passive upgrade to Evil Eye Aura: any enemy that MOVES TOWARD the player
+    while the aura is active (moves to a tile closer than their previous tile)
+    receives the evil_gaze debuff automatically. This is in addition to the
+    on-hit trigger from L1, not a replacement. Effectively: charging enemies
+    get cursed before they even reach you. The gaze damage bonus from both
+    sources stacks (+4 total if hit after approaching).
+  impl notes:
+    EvilGazeEffect on_reapply: duration = max(existing, new) — don't stack
+    the +2 bonus, it's always flat +2 regardless of how many times applied.
+    (Consider a stacking version for L4 upgrade instead.)
+    Movement trigger check: in ai.py, after any monster movement step, if
+    player has evil_eye_aura: compute old Chebyshev distance vs new; if
+    entity moved closer: apply_effect("evil_gaze", entity, duration=8).
+    Distance delta check: compare (abs(new_x - player.x) + abs(new_y - player.y))
+    before vs after. Chebyshev OK: max(abs(dx), abs(dy)).
+
+L3 — "That's On You" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Passive hex amplifier: when an enemy with evil_gaze ATTACKS (deals melee
+    damage to ANY entity, not just the player — including friendly fire between
+    enemies), the +2 amplifier damage is doubled to +4 for that single hit.
+    Additionally, if the attack misses (does 0 damage), the evil_gaze still
+    triggers a 1-damage spiritual tick — you never get completely clean even
+    on a miss.
+    Message on missed trigger: "[Enemy] flinches under the gaze."
+  impl notes:
+    In EvilGazeEffect: add a flag is_attacking_turn: bool (reset each turn).
+    Before any monster melee attack: check if attacker has evil_gaze;
+      if so set is_attacking_turn = True.
+    In modify_incoming_damage on the DEFENDER entity (not the gazer) — wait,
+      this is backwards. Better: in combat.py, when a gazer entity DEALS damage:
+      if attacker has evil_gaze, add 2 more to the damage they receive (not
+      the defender). "Backfire" mechanic — they hurt themselves spiritually by
+      attacking.
+    Revised impl: when combat.resolve(attacker, defender, damage):
+      if attacker.has_effect("evil_gaze"): attacker.take_damage(2) [bypass def];
+      if damage == 0 and attacker.has_effect("evil_gaze"): attacker.take_damage(1).
+    "That's On You" upgrade: gaze damage when the GAZER attacks = 4 instead of 2.
+
+L4 — "Mal De Ojo" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "mal_de_ojo"}
+  ability_id: "mal_de_ojo"
+  target_type: SELF
+  charge_type: PER_FLOOR
+  max_charges: 1
+  desc:
+    The full Evil Eye. Drop the pretense — release a wave of concentrated
+    evil energy. All enemies currently visible on the map receive evil_gaze
+    immediately (12 turns, the upgraded version from L3 That's On You if
+    unlocked). Additionally: all currently evil_gaze enemies receive stun
+    for 2 turns (the Eye forces them to stop and look). 1 use per floor.
+    Message: "You unleash the Mal De Ojo."
+  impl notes:
+    execute(engine): for entity in engine.dungeon.entities:
+      if entity.alive and entity.entity_type == "monster"
+      and engine.dungeon.visible[entity.y][entity.x]:
+        apply_effect("evil_gaze", entity, duration=12);
+        apply_effect("stun", entity, duration=2).
+    Stun applied after gaze so the first stun tick won't have the gaze
+    amplifier — intentional (prevents instant burst from simultaneous triggers).
+  balance: 1/floor. All visible enemies = potentially 6-10 targets on a busy
+    floor. The stun gives 2 free turns of no incoming damage. Combined with
+    the gaze, the moment stun expires, every enemy attacking you or charging
+    you takes self-damage. Strong but limited.
+
+L5 — "Generational Curse" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    The most terrifying hex. When an enemy with evil_gaze dies (from any
+    source while gazing), the gaze does not simply expire — it TRANSFERS to
+    every living enemy within 3 tiles of the dead enemy, at 5 turns duration.
+    No cap on transfers from a single death. If all 5 enemies around a gazer
+    die, all 5 get cursed. The message: "[Enemy] passes the curse."
+    Additionally, any enemy that receives the Generational Curse spread version
+    cannot have the gaze removed by death propagation more than once (they can
+    still pass it on death, but you don't get XP for the spread kills' XP —
+    the generational gaze is spiritually exhausted after one generation of
+    passing. Prevents infinite chain abuse.)
+  impl notes:
+    EvilGazeEffect: add self.is_generational: bool = False.
+    In "entity_died" event: if entity has evil_gaze and not is_generational:
+      for each living entity within Chebyshev(3): apply_effect("evil_gaze",
+        nearby, duration=5, is_generational=True).
+    EvilGazeEffect.on_apply(): if self.is_generational: skip Blackkk Magic XP
+      (only original gaze applications earn XP).
+    Edge case: if generational curse targets are themselves close to each other,
+      they can all trigger on death but their propagations will have
+      is_generational=True so they don't chain further.
+  balance: The radius is small (3 tiles) and duration short (5 turns). In
+    practice you get 1-2 spread targets per death in most room layouts. The
+    no-double-generation rule prevents exponential spread. But in a packed room
+    the first wave of deaths can curse an entire crowd — scary in the right
+    situation.
+
+================================================================================
+DESIGN E — "JINX JUGGLING" (Multi-Curse / Combo Hex)
+================================================================================
+
+CONCEPT SUMMARY:
+You maintain a small arsenal of specific Jinxes (named curses, each with a
+distinct flavor and mechanical effect). The power comes from STACKING different
+Jinxes on the same target — each Jinx interacts with every other Jinx on the
+same enemy in a specified combo reaction. You're a curse chef: the individual
+ingredients are mild, but the combinations are volatile. Design rewards
+experimenting with curse combinations and learning the combo chart.
+
+PLAYSTYLE: Multi-tool, knowledge-based. Rewards memorizing which Jinxes combo.
+Best against elite/boss enemies where you have time to stack. Usable against
+groups by spreading Jinxes across multiple targets. Most complex of the 5
+designs but highest ceiling.
+
+STAT DEPENDENCY: Book Smarts (combo detonation damage scales with BKS). Street
+Smarts (jinx accuracy — STS% chance a jinx application doesn't consume a charge
+but succeeds anyway, representing "reading" the target).
+
+--------------------------------------------------------------------------------
+
+L1 — "Two-For-One" (activated ability — Jinx: Broke)
+  perk_type: "activated"
+  effect: {"ability": "jinx_broke"}
+  ability_id: "jinx_broke"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Apply Jinx: Broke to a visible enemy. Jinx: Broke is an active debuff
+    (entity.jinxes: set of str, add "broke" to it, 12 turns). Broke effect:
+    the enemy's effective defense stat is halved (round down). Just that.
+    Mild on its own, but combos with every other Jinx. One target can have
+    multiple Jinxes simultaneously (all stored in entity.jinxes set).
+    All Jinxes share a single duration tracker per enemy:
+      entity.jinx_duration: int — applying any Jinx resets to max(existing, 12).
+    When duration expires, ALL Jinxes on that enemy clear at once.
+  impl notes:
+    entity.jinxes: set[str] = set() (new field, default empty set)
+    entity.jinx_duration: int = 0
+    entity.jinx_combo_flags: set[str] = set() — tracks which combos already fired
+      this floor (prevents re-triggering the same combo over and over)
+    JinxEffect (base class, handles shared duration):
+      id = "jinxed"  — one effect entry for all jinxes, displays "Jinxed (n)"
+      tick: entity.jinx_duration -= 1; if <= 0: entity.jinxes.clear()
+    "Broke" effect on entity: entity.defense = max(0, entity.defense // 2)
+      applied on jinx application, reversed on jinx clear or Broke removal.
+    Actually simpler: compute effective defense in combat.py as
+      entity.defense if "broke" not in entity.jinxes else entity.defense // 2.
+    Blackkk Magic XP: on each successful Jinx application.
+
+L2 — "Jinx: Jumpy" (passive — second Jinx type)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Adds Jinx: Jumpy to your Jinx application. When applying a Jinx (via
+    jinx_broke ability), you can choose "Broke" or "Jumpy." Jinx: Jumpy
+    applies the confuse debuff to the target for the duration of the jinx
+    (entity.jinx_duration), refreshing confuse if already present. Jumpy
+    also means the enemy has a 15% chance per turn to flinch (skip turn),
+    separate from the full confuse wander.
+    COMBO — Broke + Jumpy: "Cracked" — immediate 1-turn stun when Jumpy is
+    applied to a Broke target (or Broke applied to a Jumpy target). Stun does
+    not extend; it's a one-time detonation. Message: "Cracked!"
+  impl notes:
+    Jinx application UI: same as Design B's secondary key approach.
+      After targeting confirm, prompt: "B=Broke, J=Jumpy".
+    Jumpy: apply ConfuseEffect(duration=entity.jinx_duration). Also add a
+      flinch_chance field to entity or track via JinxJumpyFlinchEffect —
+      either way, in entity's before_turn, 15% skip check if "jumpy" in jinxes.
+    Combo check in jinx application function: after adding new jinx to entity.jinxes,
+      check for combos. Cracked combo: if "broke" in jinxes and "jumpy" in jinxes
+      and "cracked" not in entity.jinx_combo_flags:
+        apply_effect("stun", entity, duration=1);
+        entity.jinx_combo_flags.add("cracked");
+        message "Cracked!"
+
+L3 — "Jinx: Snakebit" (passive — third Jinx + two new combos)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Adds Jinx: Snakebit. When applied, target takes 2 damage per turn (DoT
+    identical to DotEffect — use existing dot effect for simplicity).
+    Duration tied to jinx_duration.
+    TWO NEW COMBOS:
+      Snakebit + Broke = "Poisoned Armor" — every tick the Snakebit DoT fires,
+        the defense reduction from Broke increases by 1 permanently (until
+        jinxes clear). Max total defense reduction: entity's full base defense
+        (can't go below 0). Tracked as entity.broke_extra: int.
+      Snakebit + Jumpy = "Fraying" — the DoT amount increases by 1 every 3
+        turns while both are active. Starts at 2, reaches 3 at turn 3, 4 at
+        turn 6, etc. Message each time it ticks up: "[Enemy] frays apart."
+      All 3 Jinxes + Combo = "Triple Jinx" bonus: enemy takes +BKS/2 damage
+        from all player attacks (flat additive, stacks with Broke defense
+        reduction, lasts while all 3 jinxes are active).
+  impl notes:
+    Snakebit: entity.jinxes gets "snakebit"; apply DotEffect(duration=12, amount=2)
+      for the tick damage. Duration sync: DotEffect duration = entity.jinx_duration
+      at application time, refreshed alongside jinxes.
+    Poisoned Armor: entity.broke_extra: int = 0; in combat.py defense calc:
+      halve if "broke" then subtract entity.broke_extra; each snakebit tick:
+      if "broke" in entity.jinxes: entity.broke_extra += 1 (capped at entity.base_defense).
+    Fraying: JinxFrayingTracker — in each snakebit tick: check jinx_duration mod 3.
+    Triple Jinx: in combat.py: if all of {"broke","jumpy","snakebit"} subset of
+      entity.jinxes: add floor(BKS/2) to damage after other calcs.
+
+L4 — "Obeah Man" (passive — hex amplifier)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Major passive upgrade. When a Jinxed enemy (any Jinx active) KILLS another
+    entity (enemy-on-enemy kills count), they immediately take 8 + BKS damage
+    (no defense — spiritual guilt). Additionally, if a Jinxed enemy drops to
+    25% HP or below, ALL currently active Jinxes on them duplicate onto a
+    random living enemy within 4 tiles (copies, not transfers — the original
+    target keeps their Jinxes, the nearby enemy gets new copies at 6-turn
+    duration). This "desperation curse spread" fires only once per combat
+    encounter per enemy (entity.obeah_triggered: bool flag).
+  impl notes:
+    "Jinxed enemy kills" check: in entity_died event handler, check if the
+      killer entity (if any) has jinxes set with len > 0. If so:
+      killer.take_damage(8 + engine.player_stats.effective_book_smarts) bypass def.
+    25% HP trigger: in combat.py take_damage: after applying damage, if
+      entity.hp <= entity.max_hp // 4 and entity.jinxes and not entity.obeah_triggered:
+      entity.obeah_triggered = True; find random nearby living entity within
+      Chebyshev(4); for jinx in entity.jinxes: add that jinx to target.jinxes;
+      reset target.jinx_duration to 6; message "Curse spreads!"
+    entity.obeah_triggered: bool = False (reset on floor change/new entity spawn).
+
+L5 — "That's A Hex, Not A Suggestion" (passive — final combo expansion)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Capstone passive. Adds the Jinx: Crossed combo (the "everything fires at
+    once" detonation). When all 3 Jinxes (Broke, Jumpy, Snakebit) are active
+    on the same enemy AND that enemy's HP drops below 30%, the jinxes EXPLODE:
+    triple their current detonation by releasing all pending combo effects
+    simultaneously, each at maximum magnitude, then the enemy takes (BKS * 2)
+    damage (no defense) as the spiritual debt cashes out. The Crossed detonation
+    clears ALL jinxes. Called "Getting Crossed."
+    Message: "[Enemy] got crossed."
+    Also: Passive quality-of-life — all Jinx durations now last 16 turns instead
+    of 12.
+  impl notes:
+    Add engine-side "getting_crossed" check: in combat.py take_damage, after
+    applying damage: if entity.hp <= entity.max_hp * 0.30 and
+    all of {"broke","jumpy","snakebit"} subset entity.jinxes and
+    "crossed" not in entity.jinx_combo_flags:
+      entity.jinx_combo_flags.add("crossed")
+      apply all pending combo effects (stun 3t, fear 8t, cripple_armor 10t)
+      entity.take_damage(BKS * 2) bypass defense
+      entity.jinxes.clear()
+      message "[entity.name] got crossed."
+    Duration upgrade: in the Jinx application function, use 16 if player has
+    L5 perk (check engine.player_skills["Blackkk Magic"].level >= 5).
+  balance: Requires all 3 jinxes AND 30% HP threshold. In practice, Snakebit
+    DoT will tick the enemy down to 30% if you're patient — this rewards the
+    "stack and wait" playstyle. BKS * 2 at BKS 12 = 24 bonus no-defense damage,
+    plus stun + fear + cripple armor all simultaneously. Nearly any enemy dies
+    or is completely helpless at 30% HP when this triggers.
+
+================================================================================
+IMPLEMENTATION NOTES — SHARED ACROSS ALL DESIGNS
+================================================================================
+
+NEW EFFECTS NEEDED (summary):
+  soul_tax         — Design C — DoT 1-6/tick based on other debuffs, drain counter
+  evil_eye_aura    — Design D — buff on player, triggers gaze on attackers
+  evil_gaze        — Design D — +2 (or +4) damage amplifier on gazer
+  evil_gaze_gen    — Design D — generational version (no XP, is_generational flag)
+  cash_out_buff    — Design C — temporary power buff from cashing drain counter
+  jinxed           — Design E — shared duration tracker for all jinx types
+  writ_pain        — Design B — dormant until melee hit, then AOE burst
+  (writ mechanic is entity field-based, not a traditional effect subclass)
+  soul_tax_effect  — Design C — proper Effect subclass with chain_bonus field
+
+NEW ENTITY FIELDS NEEDED (summary):
+  entity.is_marked: bool            — Design A
+  entity.mark_tier: int             — Design A
+  entity.mark_awakened: bool        — Design A
+  entity.writ: str | None           — Design B
+  entity.writ_2: str | None         — Design B (L4)
+  entity.writ_dread_threshold_crossed: bool — Design B
+  entity.writs_detonated_this_turn: int  — Design B
+  entity.obeah_triggered: bool      — Design E
+  entity.jinxes: set[str]           — Design E
+  entity.jinx_duration: int         — Design E
+  entity.jinx_combo_flags: set[str] — Design E
+  entity.broke_extra: int           — Design E
+  entity.soul_tax_ticks: int        — Design C (on effect instance)
+
+NEW ENGINE FIELDS NEEDED (summary):
+  engine.soul_drain_counter: int    — Design C
+  engine.soul_tax_chain: int        — Design C
+  engine.writ_empowered: bool       — Design B L3 flag
+  (Design A: only entity fields needed on engine side, no extra engine state)
+
+BLACKKK MAGIC XP EVENTS (all designs trigger XP on curse LANDING, not on cast):
+  For ABILITY_REGISTRY execute functions: call
+    engine.add_skill_xp("Blackkk Magic", XP_AMOUNT) on successful application.
+  Suggested XP values:
+    Single-target curse (Levy, Put It On 'Em, jinxes): 15 XP per application
+    AOE curse (Mal De Ojo hitting 5+ enemies): 15 per enemy hit
+    Passive curse trigger (evil_gaze from aura, soul_tax jump): 10 XP per trigger
+    Combo detonation (Cracked, Triple Jinx, Getting Crossed): 25 XP bonus
+
+ABILITY REGISTRY IDs INTRODUCED:
+  Design A: "put_it_on_em", "triple_6_special"
+  Design B: "writ_of_pain" (multipurpose for all writ types)
+  Design C: "levy", "cash_out"
+  Design D: "give_em_the_eye", "mal_de_ojo"
+  Design E: "jinx_broke" (all jinx types handled in single ability with secondary
+    prompt, similar to Design B's approach)
+
+================================================================================
+BALANCE OVERVIEW — ALL DESIGNS
+================================================================================
+
+Design A (The Mark): Single-target focus. Strong vs bosses. Triple 6 Special
+  deals up to 36 no-defense damage at max tier — comparable to a full Negromancy
+  Reap (which costs soul shards). Balanced by setup requirement.
+
+Design B (Writ Large): Setup-detonation. Each Writ detonation is ~(4 + BKS/2)
+  damage no-defense at L1. At BKS 12: 10 damage per melee hit that triggers it.
+  Good mid-game payoff. L5 doubling with 2 debuffs turns Writ of Pain into ~20
+  no-defense per trigger — strong but requires juggling.
+
+Design C (Soul Tax): Attrition tree. Not burst-oriented. 1-4 damage/tick over
+  15 turns = 15-60 total drain, comparable to DoT damage from existing effects.
+  Cash Out caps at 30 HP restored per use — roughly equivalent to a mid-tier
+  food heal. Tree shines in long fights.
+
+Design D (Evil Eye): Defensive tree. Evil Gaze +2 bonus is modest per hit but
+  across a swarm of 6-8 enemies all gaining the gaze in one Mal De Ojo cast,
+  the collective backfire damage is significant. Generational spread is the
+  "I win a crowded room" button.
+
+Design E (Jinx Juggling): Highest ceiling. "Getting Crossed" at BKS 12 = 24 no-
+  defense damage + stun 3t + fear 8t + cripple armor 10t at 30% HP. Against a
+  boss this is a death sentence. Hardest to execute — requires patience and
+  multi-step setup.
+
+================================================================================
+END OF BLACKKK MAGIC SKILL DESIGNS
+================================================================================

@@ -157,15 +157,13 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.TAB:
             return {"type": "toggle_firing_mode"}
 
-        # Shift+Q — quit game
-        elif key_sym == tcod.event.KeySym.q and bool(
-            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
-        ):
-            return {"type": "quit"}
-
-        # / — autoexplore
-        elif key_sym == tcod.event.KeySym.SLASH:
+        # / — autoexplore (keyboard slash or numpad /)
+        elif key_sym in (tcod.event.KeySym.SLASH, tcod.event.KeySym.KP_DIVIDE):
             return {"type": "autoexplore"}
+
+        # ; — look mode (inspect tiles)
+        elif key_sym == tcod.event.KeySym.SEMICOLON:
+            return {"type": "look"}
 
         # A — toggle Abilities menu (lowercase only, checked before inventory letter keys)
         elif key_sym == tcod.event.KeySym.a and not bool(

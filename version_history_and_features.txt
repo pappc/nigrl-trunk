@@ -89,7 +89,7 @@ spell targeting fixes
 -tolerance implemented
 -death screen and reset
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-version 0.7 opened 3/9/2026 10:30 am closed 3/20/2026 12:00 am
+version 0.7-0.8 (METH_LAB) opened 3/9/2026 10:30 am closed 3/20/2026 12:00 am
 tons of bug fixes(last patch added a fuck ton of shit with hardly fixing anything) i could list any interesting ones below if they were that atleast
 	- this patch attempts to remove all bugs currentl;y in the game, or at least the game breaking one
 tons of balancing as well, none of that shit was done before this point.
@@ -114,7 +114,22 @@ mutations
 meth lab added so much stuff it burnt me out, but it is currently still a wip, but most of the skeleton is there atm.
 have fun
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+version 0.9 (REFINEMENT) opened 3/20/2026 12:00 am
+ -playtesting and debugging
+ -5 new skills in crack den
+    -catchin fades
+    -graffiti
+    -arachnigga
+    -black magic
+    -infected
+ -3 new random encounters in the crack den
+ -floating damage numbers + SDL layer
+ -skill menu enhancement
+ -look function
+ -spray paint new tool
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
+look function
 -unique room encounters
 -future add ability to make a hotbar to easily select abilities
 -smart targeting
@@ -123,6 +138,7 @@ Future Features:
 -main menu
 	-fullscreen options
 	-handling game restarts
+	-save game/replay/import save
 -interactable crafting stations 
 	- meth machine
 -overhaul of skill system ie skills branch into 2 or more paths as you level up
@@ -135,3 +151,6 @@ meth lab red keycard
 meth lab specific rooms
 heal every floor?
 gun spawns
+add exp gain on using skill that deals damage equal to damage dealt. ie fireball shooter
+gains alch + magic exp
+vaping + cigs

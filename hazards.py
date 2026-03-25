@@ -8,6 +8,7 @@ Custom tile codepoints (injected at startup in nigrl.py):
     0xE000  crate
     0xE001  fire
     0xE002  table
+    0xE003  web
 """
 
 from entity import Entity
@@ -15,6 +16,7 @@ from entity import Entity
 CRATE_CODEPOINT = 0xE000
 FIRE_CODEPOINT  = 0xE001
 TABLE_CODEPOINT = 0xE002
+WEB_CODEPOINT   = 0xE003
 
 
 def create_crate(x: int, y: int) -> Entity:
@@ -106,14 +108,38 @@ def create_rad_bomb_crystal(x: int, y: int, damage: int = 20) -> Entity:
     return crystal
 
 
-def create_fire(x: int, y: int) -> Entity:
-    """A fire tile. Passable; ignites entities that stand on it."""
-    return Entity(
+def create_fire(x: int, y: int, duration: int = 0) -> Entity:
+    """A fire tile. Passable; ignites entities that stand on it.
+
+    Args:
+        duration: If >0, fire expires after this many turns. 0 = permanent.
+    """
+    fire = Entity(
         x=x, y=y,
         char=chr(FIRE_CODEPOINT),
         color=(255, 255, 255),
         name="Fire",
         entity_type="hazard",
         hazard_type="fire",
+        blocks_movement=False,
+    )
+    if duration > 0:
+        fire.hazard_duration = duration
+    return fire
+
+
+def create_web(x: int, y: int) -> Entity:
+    """A cobweb hazard. Passable; sticks entities that walk into it.
+
+    Entities must spend move attempts to escape (50% chance per attempt,
+    auto-escape after 5 failures).  The web is destroyed once escaped.
+    """
+    return Entity(
+        x=x, y=y,
+        char=chr(WEB_CODEPOINT),
+        color=(255, 255, 255),
+        name="Web",
+        entity_type="hazard",
+        hazard_type="web",
         blocks_movement=False,
     )

@@ -1,0 +1,1965 @@
+================================================================================
+BLACKKK MAGIC — 10 NEW SKILL TREE DESIGNS (C through L)
+================================================================================
+Designs A ("The Mark") and B ("Writ Large") are retained from the original doc.
+This file replaces designs C, D, and E with 10 entirely new concepts (C–L).
+
+XP Source (all designs): Blackkk Magic XP is earned when a curse/hex LANDS on
+an enemy. Not on cast. Not on detonation unless the detonation also applies a
+new curse. XP values specified per design.
+
+Tone anchor: street voodoo. Evil eye, jinxes, bad juju, voodoo dolls, spiritual
+hustle, ancestral vengeance. Not wizard school. Not D&D. These names get shouted.
+
+Inspiration lenses baked in:
+  WoW: Affliction dot synergies, Haunt travel-and-return, Drain Soul execute
+       phase, Seed of Corruption detonation chain, Unstable Affliction dispel
+       protection, Soulburn empowerment, Demonic Circle blink, Dark Pact
+       self-damage-for-power.
+  PoE: Hexblast (consume curse stacks), Doom (curses grow stronger over time),
+       Profane Bloom (cursed death explosions), Bane (curse that scales with
+       other curses), Impending Doom (curse EXPIRING triggers blast), Temporal
+       Chains (time distortion), Punishment (retaliation curse), Malediction
+       (damage amp per curse type), self-curse synergy.
+  Novel: mechanics that do not exist in either game or NIGRL yet.
+
+================================================================================
+DESIGN C — "DOOM CLOCK" (Accumulating Curse Power Over Time)
+================================================================================
+
+CONCEPT SUMMARY:
+Lifted from PoE's Doom mechanic and twisted into street voodoo. Every curse you
+put on an enemy gains DOOM — a hidden per-curse power counter that increments
+every turn the curse sits untriggered on the target. Doom makes curses hit harder
+and last longer the longer you WAIT. The skill rewards patience and ANTI-burst
+play: applying the curse and then NOT detonating it, letting it fester until the
+doom value is maxed. This inverts the normal roguelike instinct to "deal all
+damage now." A skilled player learns the doom cap (5 stacks), times a Hexburst
+(unlocked at L3) to consume all doom at once, and watches elites simply crumble.
+
+PLAYSTYLE: Marination. You are the cook, the enemy is the meat. Apply curses,
+then fight normally while doom accumulates, then cash in. Rewards patience and
+pre-planning. Weak against enemies that die in 1-2 turns (no doom time). Dominant
+against mini-bosses and named enemies that survive 5+ turns of setup.
+
+STAT DEPENDENCY: Book Smarts (doom scaling base, Hexburst damage multiplier).
+Street Smarts (curse application proc rate from passive sources).
+
+--------------------------------------------------------------------------------
+
+L1 — "Put the Curse On" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "put_the_curse_on"}
+  ability_id: "put_the_curse_on"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Afflict a visible enemy with the Doom Curse (entity.doom_curse = True,
+    entity.doom_stacks = 0, floor_duration). Each turn the target is alive and
+    the Doom Curse is active, doom_stacks increments by +1 (max 5). Doom stacks
+    do nothing at L1 except display as "Doomed (x)" in the status panel, rendered
+    as a faint number over the enemy. This is a PROMISE — the payoff comes at L3.
+    Reapplying to the same target refreshes the floor_duration but does NOT reset
+    doom_stacks. Reapplying to a new target removes the Doom Curse from the old
+    target (doom is singular — one enemy at a time).
+  impl notes:
+    entity.doom_curse: bool
+    entity.doom_stacks: int (0-5)
+    Each turn in the energy loop, after monster actions: for each dungeon entity
+      with doom_curse == True and alive == True: if doom_stacks < 5: doom_stacks += 1.
+    Blackkk Magic XP: +15 on application.
+    Render note: display doom_stacks in enemy status bar parenthetically.
+    Only one enemy can be Doomed at a time. Engine enforces on apply.
+  balance: At L1 this is pure setup with no payoff — intentional design tension.
+    Encourages investment in higher levels before Doom Click feels good.
+
+L2 — "Let It Marinate" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Each doom stack on a Doomed enemy adds a passive debuff penalty to that enemy:
+    every doom stack reduces their effective defense by 1 (defense cannot go below
+    0). At doom_stacks=5, the enemy has -5 effective defense, making all attacks
+    against them deal +5 damage. This persists for as long as the Doom Curse is
+    active. Works on all damage sources — melee, guns, other spells, environmental
+    fire, other players' faction allies, everything.
+  impl notes:
+    In combat.py damage resolution: after base defense calc, subtract entity.doom_stacks
+    from effective defense before the final max(1, power - defense) calculation.
+    Guard: only if entity.doom_curse == True.
+    This is a DPS increase for the ENTIRE fight once doom stacks, not just Hexburst.
+  balance: At doom_stacks=5: +5 damage to every hit. That's roughly a +40-60%
+    damage increase on floor 1-2 enemies with 2-3 base defense. Strong but
+    requires 5 turns of setup. Enemies that survive 5 turns (elites, bosses)
+    are exactly the ones this needs to be good against.
+
+L3 — "Hexburst" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "hexburst"}
+  ability_id: "hexburst"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Consume ALL doom stacks on the target in one concentrated spiritual explosion.
+    Deals (BKS * doom_stacks) no-defense damage. At BKS=10, doom_stacks=5:
+    50 no-defense damage — enough to one-shot most non-boss enemies. At
+    doom_stacks=1: only BKS damage (terrible — discourages panic-firing).
+    After firing, doom_stacks resets to 0 but doom_curse remains active on the
+    target; stacks begin accumulating again immediately. This is NOT PER_FLOOR —
+    it's INFINITE. The restriction is the doom stack requirement.
+  impl notes:
+    Validate: target.doom_curse must be True. If doom_stacks == 0, refuse:
+      "No doom on target yet."
+    Damage: entity.hp -= player.stats.effective_book_smarts * entity.doom_stacks.
+      Bypass defense entirely (spiritual consume).
+    After: entity.doom_stacks = 0. entity.doom_curse remains True.
+    Blackkk Magic XP: +25 per doom_stack consumed (scales with patience).
+    Not a spell (no spell crit from BKS crit chance system).
+  balance: Minimum meaningful use is doom_stacks=3 (BKS*3 = 30 at BKS=10),
+    which is only reachable 3 turns after application. Forces real commitment.
+    Max burst (BKS=12, stacks=5) = 60 no-defense damage — one-shots almost
+    anything on floors 1-4. But requires 5 full turns of patience.
+
+L4 — "Bad Omen" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Doom stacks no longer just reduce defense — they now carry a per-stack 10%
+    chance that any hit against the Doomed enemy causes them to waste their next
+    action entirely (they "stagger" under the weight of spiritual dread, lose
+    their turn). This is checked ONCE per hit, not per stack, but the probability
+    is (doom_stacks * 10)%. At doom_stacks=3: 30% skip; at doom_stacks=5: 50%
+    skip-turn chance on every hit. The stagger is not a separate effect — it
+    simply sets the entity's energy to 0 after the hit (they re-earn it next
+    cycle). Separate from stun: stagger cannot be cleared by healing, and
+    irresistible entities (bosses with stun immunity) still lose the flat defense
+    from doom stacks but are immune to the skip-turn component.
+  impl notes:
+    In combat.py: after a hit lands on entity with doom_curse == True:
+      roll random() < entity.doom_stacks * 0.10.
+      If pass: entity.energy = 0. Add message "[name] staggers under the doom."
+    Boss/stun-immune flag: if entity has stun_immune field set True in its
+      MonsterTemplate, skip the energy=0 step but still apply doom defense reduction.
+  balance: 50% skip-turn chance at max doom is enormous but requires 5 turns of
+    building AND a hit to proc. In practice enemies rarely stand still for 5 turns
+    so this is a late-fight payoff. The stagger also resets to re-earning energy,
+    not a true stun (enemy can act if they have leftover energy from speed).
+
+L5 — "Ancestral Doom" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When a Doomed enemy dies, Doom SPREADS. All of the doom_stacks from the dead
+    enemy teleport to a random living non-player entity within 8 tiles (doom_curse
+    set True on new target, doom_stacks transferred EXACTLY — not halved, not reset).
+    Additionally, the Hexburst ability now has a secondary power: if you fire
+    Hexburst on a target with doom_stacks >= 4, it also applies a 5-turn fear
+    effect to ALL enemies within 3 tiles of the target (the spiritual explosion
+    radiates existential horror to witnesses). No new ability — this is a passive
+    upgrade to Hexburst's existing execute logic.
+  impl notes:
+    In entity_died handler: if entity.doom_curse and entity.doom_stacks > 0:
+      find random living non-player entity within Chebyshev(8).
+      If found: new_target.doom_curse = True, new_target.doom_stacks = entity.doom_stacks.
+      Message: "The doom moves on."
+    Hexburst execute upgrade: if doom_stacks >= 4 at detonation, after damage:
+      AOE_CIRCLE r=3 around target, apply fear(5) to all living non-player entities.
+    Blackkk Magic XP: +15 on each doom spread (it's still a curse landing).
+  balance: Doom spreading means a single application can chain through an entire
+    floor if enemies die quickly. Capped naturally by enemy count. The Hexburst
+    fear upgrade turns L3's nuke into a room-clearing panic at high doom stacks.
+
+================================================================================
+DESIGN D — "HAUNT" (Spirit Projectile / Return Mechanic)
+================================================================================
+
+CONCEPT SUMMARY:
+Named after WoW's Haunt spell — you fling a spirit at an enemy, it arrives on
+their next turn (delayed travel), empowers your active dots while it haunts them,
+and then RETURNS to you on the enemy's death, healing you. But this is NIGRL, so
+the spirit is your dead uncle's ghost and it absolutely hates the person you're
+sending it after. The return mechanic is the novel hook: the spirit carries
+loot of power back to you when it comes home. The ghost can only be out once.
+If the haunted target dies before the ghost returns, the ghost lingers for 3 turns
+waiting for a new host before dissipating. Deep investment unlocks a second ghost
+(ancestral squad), and the capstone lets you ride the ghost — teleporting to the
+dead body's location as the ghost comes home.
+
+PLAYSTYLE: Mobile mid-range. You always want to be near-but-not-on a haunted
+target. The delayed arrival rewards positioning. The return heal rewards killing
+haunted targets before the ghost's duration expires. High micro-management ceiling.
+
+STAT DEPENDENCY: Street Smarts (ghost travel speed — lower travel turns at high
+STS). Swagger (ghost tanking — ghost absorbs one attack while haunting if player
+Swagger > 10).
+
+--------------------------------------------------------------------------------
+
+L1 — "Go Get 'Em, Unc" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "go_get_em_unc"}
+  ability_id: "go_get_em_unc"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Fling your uncle's ghost at a visible enemy. The ghost does NOT arrive
+    instantly — it travels at 1 tile per turn toward the target (tracked via
+    engine.haunt_ghost). After arriving (turn count = Manhattan distance to
+    target / 1, min 1 turn), the target gains the "haunted" effect (10 turns).
+    While haunted: target takes +2 damage from all sources (spiritual vulnerability).
+    When the haunted target dies OR the effect expires naturally, the ghost returns
+    to the player: player heals ceil(3 + BKS/4) HP. Ghost-in-transit is not
+    "wasted" if the target dies before arrival — ghost auto-re-targets the nearest
+    enemy and haunts them instead (one redirect only). Only one ghost active at
+    a time.
+  impl notes:
+    engine.haunt_ghost: dict or None — {
+      "state": "travelling" | "haunting" | "returning",
+      "x": int, "y": int (current ghost tile, for render),
+      "target_id": entity ID,
+      "travel_turns_remaining": int,
+      "return_target": "player"
+    }
+    Each energy loop tick: advance ghost state machine by 1 step.
+    HauntedEffect in effects.py: duration=10, modify_incoming_damage: +2 flat.
+    On haunted target death: remove HauntedEffect, set ghost state = "returning".
+    On returning: ghost reaches player (Manhattan 0), heal player, ghost = None.
+    Ghost redirect on target-dies-before-arrival: scan nearest living non-player
+      within 8 tiles; if found, set new target, recalculate travel_turns.
+    Render: ghost as 'u' (for uncle) in a pale purple color on ghost.x, ghost.y.
+    Blackkk Magic XP: +15 on haunted application (when ghost arrives and haunts).
+  balance: Min 1 turn delay makes it unreliable on weak enemies that die fast.
+    Best against tanky enemies (mini-bosses, high-HP regulars). The heal
+    on return provides sustained HP regen over a floor = strong in long fights.
+
+L2 — "Old Debts" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    While any enemy is Haunted, all DoT effects (bleeding, soul_tax, ignite, any
+    "damage over time" type effects) on that target tick for +1 additional damage
+    per tick. This bonus applies to the Haunted target only — it does not spread.
+    Flavor: the ghost is in there making everything worse.
+  impl notes:
+    In effects.py tick() method for any Effect with effect_kind == DOT (or a
+    new is_dot: bool = True attribute): if source entity (target) has "haunted"
+    effect in status_effects: add 1 to tick damage.
+    Alternatively: HauntedEffect.tick() scans the host's status_effects for any
+    dot effects and adds 1 to their next tick. Simpler: in each DoT effect's
+    tick(), check if entity has HauntedEffect, add +1 if so.
+    This is a synergy with Smoking (bleed/dot), Stabbing (gouge bleed), and
+    any future DoT sources.
+  balance: +1/tick across 3 DoTs = +3 effective damage/turn against a Haunted
+    target. Over 10 turns of haunt: +30 bonus damage. Not flashy but reliable.
+
+L3 — "Cold Spot" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    The ghost's travel path leaves a spiritual cold spot: the tile the ghost
+    passed through most recently (ghost.x, ghost.y as it moves) becomes a cold
+    spot tile for 3 turns. Any non-player entity that walks onto a cold spot
+    tile has a 35% chance to receive slow (ratio=0.4, 4 turns). Cold spots
+    are tile-based persistent hazards — stored on the dungeon tile layer, not
+    as entities. Also: when the ghost RETURNS to the player, it passes back
+    through the same tiles (return path is straight line player↔dead_target),
+    refreshing cold spots along its return route.
+  impl notes:
+    dungeon.cold_spots: dict of (x,y) → turns_remaining. Updated each energy loop.
+    Ghost movement: each step, add ghost's previous tile to cold_spots with value 3.
+    Each energy loop: decrement all cold_spot values; remove at 0.
+    In ai.py monster movement: after each step, check if new tile in cold_spots;
+      roll 35% for slow application (apply_effect("slow", ratio=0.4, duration=4)).
+    Render: cold spot tiles shown as '.' with a slightly different color (pale blue).
+    Return path: when state = "returning", ghost retraces using stored path list
+      (store tile path at travel time, replay in reverse during return).
+  balance: In narrow corridors the cold spots are nearly guaranteed to slow
+    pursuing enemies. In open rooms they matter less. Strong floor 1-3 corridor
+    design. The return trip refreshing cold spots is the surprise — the ghost
+    defends your retreat line when coming home.
+
+L4 — "Second Uncle" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    You can now have TWO ghosts active simultaneously. The second ghost is your
+    dead uncle's business partner (entity.haunt_ghost_2). Sending a second ghost
+    out while the first is active works identically to the first. Both ghosts'
+    healing-on-return stack (two returns = two heals). Additionally: if both
+    ghosts are haunting the SAME target simultaneously (both arrive and haunt the
+    same entity), that entity is "Double-Haunted" — the +2 damage vulnerability
+    from each ghost stacks to +4, AND the target is afflicted with "spirit-sick"
+    (a 6-turn slow at ratio=0.5).
+  impl notes:
+    engine.haunt_ghost_2: same dict structure as engine.haunt_ghost.
+    In ability execute: if engine.haunt_ghost is None, use ghost; else use ghost_2;
+      else "Both ghosts already active."
+    Double-Haunt detection: each time HauntedEffect is applied, check if target
+      already has HauntedEffect; if so: set entity.double_haunted = True, add +2
+      to the damage vulnerability (so total = +4), apply slow(0.5, 6).
+    entity.double_haunted: bool, reset on HauntedEffect expiry.
+    Both ghosts return independently on target death — two separate heals fire.
+  balance: Double-haunting one target requires two casts on the same target within
+    travel time. Practical mainly against slow or stationary enemies. Two ghosts
+    on two different targets is the typical L4 usage, doubling floor-wide haunt
+    coverage.
+
+L5 — "Spirit Walk" (passive + upgrade)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When a Haunted target dies and the ghost begins its return trip, the player
+    may RIDE the ghost — teleporting instantly to the dead target's tile as the
+    ghost "snaps" home. This teleport is FREE (costs no energy), triggers
+    automatically with a confirmation prompt: "Ride the spirit? [Y/N]". If Y:
+    player teleports to the dead entity's last tile; if N: ghost returns normally.
+    The teleport delivers the player directly into melee range of the kill, which
+    is aggressive positioning — useful for chain-killing clustered enemies.
+    Additionally, the ghost now carries LOOT BACK: on return (whether ridden or
+    not), the ghost pulls a random consumable item from the dead target's loot
+    table (as if the enemy dropped it) and places it on the player's current tile.
+    Minimum 1 item per ghost return.
+  impl notes:
+    When ghost transitions state to "returning": engine sends "haunt_return"
+      event. Engine checks if L5 is unlocked; if so, pauses energy loop and
+      prompts player Y/N via input_handler's single-key read.
+    If Y: player.x = target_last_x, player.y = target_last_y. Ghost dissipates
+      immediately (no return trip needed — player rode it). Heal still fires.
+    If N: ghost returns normally. Heal fires on arrival.
+    Loot carry: on ghost dissipation (either path), call loot.pick_random_consumable
+      (zone) and place on player.x, player.y. Message: "The ghost brought somethin' back."
+    If player rides ghost into a tile occupied by another enemy (should not happen
+      if target is dead), place player on nearest empty adjacent tile.
+  balance: Free teleport to kill location is strong mobility. But it puts you in
+    the middle of a fight, which is risky. Loot-on-return is a consistent minor
+    benefit. The Y/N prompt prevents accidental bad teleports.
+
+================================================================================
+DESIGN E — "IMPENDING DOOM" (Curse Expiry Detonation)
+================================================================================
+
+CONCEPT SUMMARY:
+Straight from PoE's Impending Doom support, but elevated into NIGRL's design.
+The core philosophy: your curses are TIME BOMBS. They deal their damage when
+they EXPIRE, not when they're applied. This completely inverts normal status
+effect design — instead of wanting curses to last forever, you are engineering
+the perfect expiry. The skill rewards knowing exactly when to start the clock.
+Higher levels let you control the detonation timing (force-expire a curse early),
+protect curses from dispel, and chain detonations. The capstone introduces
+"Doomchain" — a sequence of curse expiries that trigger each other in a controlled
+cascade. This is the most mechanically complex design in the set.
+
+PLAYSTYLE: Bomb technician. You are always thinking about duration timers.
+You apply curses, count turns in your head, position for the detonation. Strong
+against rooms you can kite through. Weak against enemies that resist slows (they
+reach you before the bomb goes off). High skill ceiling — novices will proc
+detonations in bad positions; experts will orchestrate perfect chains.
+
+STAT DEPENDENCY: Book Smarts (detonation damage, curse duration scaling).
+Tolerance (blast radius of detonation AOE).
+
+--------------------------------------------------------------------------------
+
+L1 — "Set the Timer" (activated ability + passive modifier)
+  perk_type: "activated"
+  effect: {"ability": "set_the_timer"}
+  ability_id: "set_the_timer"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Apply a "Hexbomb" curse to a visible enemy (entity.hexbomb = True,
+    entity.hexbomb_duration: int, entity.hexbomb_fuse: int).
+    The Hexbomb starts with a fuse of 8 turns. Each turn the fuse counts down.
+    When the fuse hits 0, it DETONATES: deals (4 + BKS) no-defense damage to the
+    target and (2 + BKS/2) no-defense damage to all non-player entities within
+    2 tiles of the target. After detonation, entity.hexbomb = False.
+    The bomb is VISIBLE to the player in the status panel as a countdown: "[name]:
+    Hexbomb (6)" ticking down each turn. This is not just flavor — knowing the
+    timer IS the mechanic.
+  impl notes:
+    entity.hexbomb: bool
+    entity.hexbomb_fuse: int (countdown from 8)
+    Each energy loop tick: for entities with hexbomb == True: hexbomb_fuse -= 1;
+      if hexbomb_fuse <= 0: trigger detonation.
+    Detonation: player_bks = engine.player.stats.effective_book_smarts.
+      Direct hit: entity.hp -= 4 + player_bks (bypass defense).
+      AOE r=2: all living non-player entities within Chebyshev(2):
+        entity.hp -= 2 + player_bks // 2 (bypass defense).
+    Only one Hexbomb active at a time (enforced by engine before application).
+    Blackkk Magic XP: +15 on application. +10 bonus if detonation kills the target.
+    Re-application on same target refreshes fuse to 8 (does not stack — one bomb).
+  balance: At BKS=10: direct hit = 14 no-defense, AOE = 7 each. On floor 1
+    (enemy HP 15-25) this one-shots most enemies on detonation if they haven't
+    been damaged. But requires 8 turns of waiting — in practice they'll take
+    other damage first. Fuse length 8 is tunable.
+
+L2 — "Dead Man's Switch" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    The Hexbomb is now warded. Any effect that would remove or dispel the Hexbomb
+    (including enemy self-heal, negative status removal, or any future "cleanse"
+    mechanics) instead INSTANTLY detonates it — triggering the full explosion
+    immediately at the point of attempted removal. This is the Unstable Affliction
+    principle: you do not want to touch this curse. Additionally, if the Hexbombed
+    target dies BEFORE the fuse runs out (killed by other damage), the Hexbomb
+    detonates for FULL damage on the death tile as if the fuse expired naturally.
+    Flavor: the bomb doesn't care who killed the body.
+  impl notes:
+    For cleanse-on-death: in entity_died handler, check if entity.hexbomb == True;
+      if so, trigger detonation at entity.x, entity.y before clearing the entity.
+    For dispel protection: if any future cleanse mechanic would call
+      remove_effect("hexbomb_effect") on an entity: intercept and detonate instead.
+    This makes Dead Man's Switch a passive upgrade that rewards applying the bomb
+    early and NOT worrying about the enemy dying to other damage.
+  balance: The "detonates on death" behavior is the main balance value here.
+    Previously, if you killed the enemy with melee before the fuse ran out, the
+    bomb was wasted. Now it always goes off. Eliminates the anti-synergy between
+    Hexbomb and just playing normally.
+
+L3 — "Blow It Early" (passive upgrade to Set the Timer)
+  perk_type: "passive"
+  effect: None
+  desc:
+    You can now force-detonate the Hexbomb before the fuse expires. When targeting
+    a Hexbombed enemy with the "Set the Timer" ability (re-using the same ability
+    key), if the target already has a Hexbomb, the ability instead fires a
+    force-detonation. Deals REDUCED damage based on remaining fuse:
+    Damage multiplier = (8 - hexbomb_fuse) / 8 (so at fuse=4, multiplier=0.5).
+    Minimum 1 turn must have elapsed for force-detonate to be available (fuse <= 7).
+    This gives players who read the fight correctly an escape hatch: if the enemy
+    is about to reach you, pop the bomb early at reduced effect rather than not
+    at all.
+  impl notes:
+    In set_the_timer ability execute: before applying new hexbomb, check if target
+      already has hexbomb == True.
+    If yes and hexbomb_fuse < 8: calculate multiplier = (8 - hexbomb_fuse) / 8.
+      Apply direct hit damage * multiplier (rounded down, min 1).
+      Apply AOE damage * multiplier (rounded down, min 1).
+      entity.hexbomb = False.
+      Message: "Detonated early — partial blast."
+    If yes and hexbomb_fuse == 8: message "Bomb just set — wait a turn."
+    Note: force-detonate does NOT grant bonus XP from L1's +10 kill bonus.
+  balance: The multiplier curve means blowing at fuse=6 (2 turns elapsed): 25%
+    damage. At fuse=0 (8 turns elapsed): 100% (same as natural). This is strictly
+    worse than waiting — but sometimes 25% is better than 0%.
+
+L4 — "Doomchain" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When a Hexbomb detonates (naturally, on death, or force-detonated), if any
+    enemy caught in the detonation's AOE (within 2 tiles) has ANY other curse/debuff
+    on them, the detonation CHAINS — those enemies are immediately afflicted with
+    a new Hexbomb with a SHORTER fuse of 4 turns (half the normal 8). The chain
+    Hexbombs function identically to normal Hexbombs: they detonate at fuse=0,
+    deal the same damage, and CAN trigger further chains (each chain reduces fuse
+    by 1, minimum fuse = 1, preventing infinite zero-tick loops). Chain Hexbombs
+    grant Blackkk Magic XP on application.
+  impl notes:
+    entity.hexbomb_chain_fuse: int — chain bombs use 4-turn fuse instead of 8.
+    In detonation logic: after resolving AOE damage, for each entity hit in AOE
+      that has len(status_effects) > 0 (any debuff at all):
+        if entity.hexbomb == False (don't overwrite an existing bomb):
+          entity.hexbomb = True, entity.hexbomb_fuse = max(1, 5 - chain_depth)
+          where chain_depth starts at 1 for the first chain (fuse=4), 2 for
+          second chain (fuse=3), etc.
+    Track chain_depth by passing it through the detonation call.
+    Chain detonations can trigger further chains up to depth=4 (fuse minimum 1).
+    AOE splash of chain bombs is radius=2 (same as original).
+    XP: +15 for each chain Hexbomb application.
+  balance: In a room of 4 enemies all with some debuff (bleed from stabbing, slow
+    from writ, etc.), a single original Hexbomb can cascade into 3 additional
+    bombs. With 4-turn chain fuses, the cascade plays out over 4 more turns.
+    Strong in debuff-heavy builds. In clean rooms with no debuffs, Doomchain does
+    nothing extra. Design intentionally rewards multi-system builds.
+
+L5 — "The Final Countdown" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Capstone. Two upgrades simultaneously:
+    1. CLOCK ACCELERATION: Each turn the Hexbomb ticks down, the target also
+       takes 1 no-defense damage (spiritual dread eating them alive). Flavor:
+       they can FEEL it counting down. Over 8 turns: 8 extra no-defense damage
+       passively, on top of the detonation burst.
+    2. NUCLEAR OPTION: If the Hexbomb detonates while the target is below 25% HP,
+       the detonation radius DOUBLES (from 2 to 4 tiles) and damage is multiplied
+       by 1.5 (rounded down). This is the execute-phase mechanic — finishing a
+       nearly-dead enemy with a Hexbomb turns it into a room-clearing event.
+  impl notes:
+    Clock Acceleration: in the hexbomb fuse countdown loop, after decrementing:
+      entity.hp -= 1 (bypass defense, no message to avoid spam — or log as
+      "The curse gnaws...").
+    Nuclear Option: in detonation logic: if entity.hp <= entity.max_hp * 0.25 at
+      detonation time: aoe_radius = 4 instead of 2; multiply damage values * 1.5.
+    The 1 damage per tick from Clock Acceleration will naturally push enemies
+    toward the 25% threshold, creating a feedback loop: bomb ticks them low,
+    then detonates huge. Intentional design synergy.
+  balance: Clock Acceleration adds reliable passive damage without button presses.
+    Nuclear Option requires the enemy to already be near death — it's a finisher
+    reward, not a carry. The doubled radius at L5 combined with Doomchain at L4
+    can cascade through an entire floor, but only when enemies are already low
+    from other damage.
+
+================================================================================
+DESIGN F — "PUNISHMENT" (Retaliation Curse / Reactive Damage)
+================================================================================
+
+CONCEPT SUMMARY:
+Borrowed from PoE's Punishment curse but reinvented as street karma. You put a
+RETRIBUTION curse on an enemy — every time THEY attack (anyone — player, other
+enemies, even inanimate objects), they take spiritual blowback damage proportional
+to their own power. This is the "yeah go ahead, try it" school of voodoo. Higher
+levels add escalating blowback: the first attack they make after being cursed is
+punished lightly; the second is punished harder; by the third attack they've
+nearly doubled their own self-damage from karma. The capstone mechanic is uniquely
+new: if they deal enough karma-damage to themselves over the fight, they switch
+SIDES for one turn (existential crisis from fighting their own spiritual self).
+
+PLAYSTYLE: Defensive aggressor. You want enemies to attack you or each other.
+Best against high-power enemies (their blowback scales with their power stat).
+Terrible against passive enemies or enemies that only move but don't attack often.
+Synergizes with fear effects that make enemies flee (they stop attacking, curse
+decays) vs players who want to KEEP enemies attacking (don't fear them).
+
+STAT DEPENDENCY: Swagger (blowback damage scales with player's effective Swagger
+— your spiritual presence amplifies the retribution). Street Smarts (curse
+application rate, extra hit chance for activating procs).
+
+--------------------------------------------------------------------------------
+
+L1 — "Catch These Hands" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "catch_these_hands"}
+  ability_id: "catch_these_hands"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Afflict a visible enemy with the Retribution curse (entity.retribution_curse
+    = True, entity.karma_stacks = 0, floor_duration). Whenever the cursed entity
+    deals damage (any source — melee, special attack, ranged, environmental),
+    it immediately takes blowback damage: base blowback = ceil(2 + SWG/4)
+    no-defense damage to itself. Karma is instant and irresistible. The cursed
+    enemy is not stunned or slowed — they just hurt themselves. Multiple attacks
+    in one turn each proc blowback independently. Up to 3 enemies can be
+    retribution-cursed simultaneously (unlike other designs, this one stacks
+    across targets).
+  impl notes:
+    entity.retribution_curse: bool
+    entity.karma_stacks: int (0-based, increments each time blowback fires)
+    In combat.py, after any entity with retribution_curse == True deals damage:
+      blowback = ceil(2 + player.stats.effective_swagger / 4)
+      entity.hp -= blowback (bypass defense, no message overflow — log as
+        "[name] reaps their karma.")
+    Up-to-3 constraint: count entities with retribution_curse == True across
+      dungeon.entities; if >= 3, message "Three karmas out — choose wisely."
+    Blackkk Magic XP: +15 on application.
+  balance: At SWG=8 (starting value): blowback=4/attack. Enemy attacking twice/turn:
+    8 self-damage. High-power enemies that attack frequently obliterate themselves.
+    On weak enemies that deal 2 damage: blowback still = 4. This is intentionally
+    good against all enemy types — the SWG scaling makes it slightly better
+    for SWG builds but baseline is always useful.
+
+L2 — "Interest Accrued" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Karma stacks now matter. Each time the retribution blowback fires on an enemy,
+    karma_stacks increments by 1. Blowback damage now scales with karma_stacks:
+    effective blowback = ceil((2 + SWG/4) * (1 + karma_stacks * 0.15)).
+    At karma_stacks=5: multiplier = 1.75x. At karma_stacks=10: 2.5x. The more
+    they fight, the worse it gets. Karma_stacks are capped at 10 (diminishing
+    returns would break balance beyond). The display "Retribution (x)" in the
+    status panel shows karma_stacks.
+  impl notes:
+    In blowback calculation: blowback = ceil((2 + swg/4) * (1 + entity.karma_stacks * 0.15))
+    After calculating: entity.karma_stacks = min(10, entity.karma_stacks + 1)
+    (increment after calculating so first hit uses karma=0, second uses karma=1,
+    etc. — no compound effect on first hit, prevents first-hit surprise spike).
+  balance: Passive that rewards keeping cursed enemies alive long enough to
+    accumulate karma. An enemy that attacks 6 times (karma=5): blowback at 1.75x.
+    At SWG=12: base blowback=5, at karma=5: 5*1.75=8.75 → 9 per attack.
+    Against a monster attacking twice/turn: 18 self-damage/turn. Strong.
+
+L3 — "You Hit Different" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When a retribution-cursed enemy attacks the PLAYER specifically (not other
+    enemies, not inanimate objects), the blowback is additionally increased by
+    flat (STS/2) damage on top of the normal scaling. Flavor: you personally
+    amplify the retribution when they come for you specifically. This rewards
+    standing in front of cursed enemies rather than hiding.
+    Additionally: the Retribution curse duration is now "until I say so" — it no
+    longer has a fixed floor_duration. It expires only if the player re-applies
+    it elsewhere (hitting the 3-target cap) or when the entity dies. Attacks from
+    the cursed enemy on OTHER targets still generate normal blowback but do not
+    gain the STS bonus.
+  impl notes:
+    In combat.py, when resolving an attack on the player from a retribution-cursed
+    entity: standard blowback + floor(player.stats.effective_street_smarts / 2).
+    Remove floor_duration from RetributionEffect — instead set duration = 9999
+    and rely on entity death + cap-eviction for removal. (Follow the project
+    convention: use floor_duration=True on the Effect class; or a custom
+    on_player_floor_change hook that removes it. Check feedback notes re: floor
+    duration — use floor_duration=True, not duration=9999.)
+    Correction: use floor_duration=True flag per project convention.
+  balance: STS=10 → +5 bonus blowback when cursed enemy attacks player. Stacks
+    with karma scaling. Powerful incentive to face-tank cursed enemies, which
+    is high risk (you're taking their hit too).
+
+L4 — "Boomerang Hex" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When a retribution-cursed enemy is reduced to exactly 0 karma-blowback HP
+    (i.e., the killing blow was a karma blowback hit, not a player melee hit or
+    gun shot), the blowback BOUNCES — spreading the Retribution curse to a random
+    non-player living entity within 4 tiles, transferring all karma_stacks
+    (including the high accumulated value). The new target's curse is fresh
+    (retribution_curse = True) but inherits the old karma_stack count.
+    This creates a chain-kill potential in cramped rooms: curse one, farm karma,
+    they die to blowback, nearest enemy inherits a stack-6 karma curse immediately.
+    The cap of 3 simultaneous curses is expanded to 4 at L4.
+  impl notes:
+    In entity_died handler: check if entity.retribution_curse == True and the
+      death cause was a karma blowback hit (track via a flag: engine.last_hit_was_karma
+      = True when blowback fires; cleared after entity_died processing).
+    If karma-kill: find random non-player living entity within Chebyshev(4).
+    new_target.retribution_curse = True
+    new_target.karma_stacks = entity.karma_stacks (inherit full stack count)
+    The 3-target cap becomes 4 (update the count check from 3 to 4 at L4).
+    engine.last_hit_was_karma: bool (transient flag cleared each processing cycle).
+  balance: Boomerang is free — it costs no action. In a room of 5 enemies, a
+    single cursed enemy with 8 karma stacks dying could instantly curse a second
+    enemy at karma=8. That second enemy also has a high blowback multiplier from
+    L2. Can chain twice in practice. Not infinitely breakable because blowback
+    must be the killing blow (which becomes increasingly likely at high karma).
+
+L5 — "Existential Crisis" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    The capstone. When a retribution-cursed enemy accumulates karma_stacks >= 7
+    (enough blowback attacks to have substantially damaged themselves), they
+    experience a total spiritual break: they switch factions for 1 turn, treating
+    all other enemies as hostile and the player as neutral. They will attack the
+    nearest non-player living entity instead of the player that turn.
+    Mechanically: on the karma_stacks=7 trigger, set entity.ai_override_turns = 1
+    and entity.ai_override_mode = "attack_nearest_enemy" for exactly 1 turn.
+    After 1 turn: ai_override clears, entity returns to normal faction.
+    This can trigger MULTIPLE times (at karma=7, 14, 21) — every 7 stacks.
+    The spiritual fragmentation just keeps happening.
+  impl notes:
+    entity.ai_override_turns: int (0 = no override)
+    entity.ai_override_mode: str | None
+    In karma_stacks increment logic: if new karma_stacks % 7 == 0 (and > 0):
+      entity.ai_override_turns = 1
+      entity.ai_override_mode = "attack_nearest_enemy"
+    In do_ai_turn(): at start, check ai_override_turns > 0; if so:
+      find nearest non-player living entity in dungeon, move toward/attack it.
+      ai_override_turns -= 1.
+    Message: "[name] can't even deal with themselves right now."
+    The % 7 trigger means at karma=7, 14, 21 (if karma reaches that high).
+    Given the 10-cap from L2, only triggers once at karma=7. If the 10-cap is
+    removed at L5 (optional balance tweak), it can trigger twice at 7 and 14.
+  balance: Turning an elite against their allies for 1 turn can completely swing
+    a fight. But karma=7 requires 7 attacks (they attack roughly every other turn
+    typically, so ~14 turns of combat). Against a boss with fast attack speed,
+    this is achievable. The "every 7 stacks" repeat prevents it from feeling like
+    a one-time payoff. If the L2 karma cap is lifted at L5, this becomes more
+    consistently available.
+
+================================================================================
+DESIGN G — "TEMPORAL CHAINS" (Time Distortion Curse)
+================================================================================
+
+CONCEPT SUMMARY:
+Adapted from PoE's Temporal Chains but taken much further — this is full
+time-distortion voodoo. The core mechanic: enemies you curse exist in a slightly
+different temporal frame than you. Their action economy is fractured. Status
+effects on them tick SLOWER (last longer effectively from your perspective), their
+buffs tick FASTER (expire sooner), and their animations trail by half a beat (in
+pure game terms: their energy gain per tick is reduced while yours is boosted by
+a proportional amount). The novel mechanic unique to NIGRL: Temporal Snapshot —
+you can "save" an enemy's current HP/status-effect state and, if things go badly,
+"rewind" them to that state. This is the first rewind mechanic in any traditional
+roguelike.
+
+PLAYSTYLE: Time Wizard. You control the pacing of every fight. Slowing enemies
+buys setup time for the bomb designs. The rewind is your insurance policy —
+a pseudo-undo button that costs a precious charge. High skill expression in
+using Snapshot at exactly the right moment (when an enemy is at low HP with
+good debuffs applied), then rewinding if you nearly die.
+
+STAT DEPENDENCY: Tolerance (temporal distortion intensity — TOL scales how much
+the enemy's energy gain is reduced). Book Smarts (snapshot "fidelity" — higher
+BKS means the snapshot captures more status effects).
+
+--------------------------------------------------------------------------------
+
+L1 — "Time Tax" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "time_tax"}
+  ability_id: "time_tax"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Afflict a visible enemy with the Temporal Chains effect (entity.time_taxed =
+    True, floor_duration). While time-taxed: enemy energy gain per tick is reduced
+    by (10 + TOL*2)%. At TOL=10: 30% energy reduction (equivalent to slow but
+    implemented via the energy system directly, not the slow effect). This is a
+    DIFFERENT implementation than existing slow effects — it modifies energy gain
+    at source rather than capping movement. Additionally: all negative status
+    effects on the time-taxed enemy have their duration extended by 1 turn for
+    every 2 turns spent in Temporal Chains (rounding down). Time-taxed enemies
+    are displayed in a pale gold color (slight visual distinction from slowed).
+  impl notes:
+    entity.time_taxed: bool
+    TimeTaxEffect in effects.py:
+      modify_energy_gain: return energy_gain * (1 - (0.10 + player_tol * 0.02))
+        where player_tol = engine.player.stats.effective_tolerance.
+      Need to pass engine reference into modify_energy_gain() call, or cache
+      the reduction value at application time (recalculate on stat change).
+    Duration extension logic: in TimeTaxEffect.tick(): every 2 ticks (self.tick_count
+      % 2 == 0), scan entity.status_effects for any debuff effects; for each:
+      effect.duration += 1.
+    Blackkk Magic XP: +15 on application.
+  balance: 30% energy reduction at TOL=10 is stronger than the existing slow
+    (which is 30-50% movement-only). This slows EVERYTHING including special
+    attacks. Against fast enemies (speed > 100): very strong. Against slow
+    enemies (speed 60-70): moderate benefit.
+
+L2 — "Temporal Pocket" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Any buff effect on a time-taxed enemy (effects with category = "buff") ticks
+    their duration countdown TWICE as fast — each game tick removes 2 duration
+    from the buff instead of 1. This means enemy buffs last half as long when
+    you have them in Temporal Chains. Combined with the debuff duration extension
+    from L1: your debuffs last longer, their buffs expire faster. This asymmetry
+    is the temporal distortion deepening.
+    Additionally: when the player APPLIES a new debuff to a time-taxed enemy,
+    the initial duration is increased by ceil(TOL/3) turns.
+  impl notes:
+    In TimeTaxEffect — add a passive that fires for the host entity. On each
+    tick of TimeTaxEffect, iterate entity.status_effects: for effects with
+    effect.category == "buff": effect.duration -= 1 (the normal tick already
+    subtracts 1, so this adds an extra -1 for a total of -2/tick).
+    Apply-duration bonus: in apply_effect() for any debuff targeting a time-taxed
+    entity: duration += ceil(player_tol / 3) before committing.
+    This needs engine access in apply_effect(). Add optional kwarg: `time_tax_bonus=True`.
+    Or: check in apply_effect if target.time_taxed, apply bonus automatically.
+  balance: Double-speed buff decay is situational — most enemies don't have buffs.
+    But faction boss enemies with self-buffs (future content), or enemies
+    empowered by other systems: strong against them. The TOL apply-duration bonus
+    (+3 at TOL=10) is a consistent minor benefit.
+
+L3 — "Temporal Snapshot" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "temporal_snapshot"}
+  ability_id: "temporal_snapshot"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: PER_FLOOR
+  max_charges: 2
+  desc:
+    Capture the current state of a visible enemy in a temporal bubble. Stores:
+    entity.snapshot_hp (current HP), entity.snapshot_effects (list of effect IDs
+    currently active), entity.snapshot_exists = True. This is the SAVE POINT.
+    Activating Temporal Snapshot a SECOND TIME on the same entity (when
+    snapshot_exists is True) — or using the ability on ANY entity when a snapshot
+    exists — triggers the REWIND: the target is restored to exactly its snapshot
+    state (HP set to snapshot_hp, status effects reset to snapshot_effects,
+    all intermediate changes erased). The rewind costs 1 additional charge.
+    Net cost of save+rewind = 2 charges per floor. Net cost of save+let-it-expire
+    = 1 charge (save only, no rewind needed).
+  impl notes:
+    entity.snapshot_hp: int | None
+    entity.snapshot_effects: list[str] | None (list of effect IDs to re-apply)
+    entity.snapshot_exists: bool
+    On first activation (snapshot_exists == False): store current state.
+      snapshot_hp = entity.hp. snapshot_effects = [e.id for e in entity.status_effects].
+      snapshot_exists = True. Message: "Timestamped."
+    On second activation (snapshot_exists == True): rewind.
+      entity.hp = entity.snapshot_hp.
+      Clear entity.status_effects; re-apply each ID in snapshot_effects at base
+        duration (or store duration too: snapshot_effects = [(id, duration)]).
+      snapshot_exists = False, snapshot_hp = None, snapshot_effects = None.
+      Message: "Rewound."
+    Charge cost: each activation costs 1 charge (2 total for save+rewind).
+    If snapshot_exists == True on floor change: snapshot_expires (save wasted,
+      no rewind possible).
+    If BKS >= 10: snapshot_effects stores actual (id, remaining_duration) tuples
+      instead of base duration — higher fidelity rewind (L2 BKS dependency).
+  balance: 2 charges per floor means max 1 save-rewind pair per floor. Strategically
+    choosing when to snapshot (low HP + many debuffs applied) vs when to rewind
+    (before they heal or after they get buffed) is deep. Rewinding a near-dead
+    enemy to low-HP + your debuffs still applied is essentially a free kill-reset.
+
+L4 — "Desynchronize" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Time-taxed enemies are now so far out of sync with reality that there is a
+    (TOL * 5)% chance each turn they fail to register their own attack. This is
+    NOT a stun — they "try" to attack but existence doesn't cooperate. They lose
+    their attack action but not their full turn (they can still move). At TOL=8:
+    40% attack-skip. At TOL=10: 50% attack-skip. Does not apply to movement,
+    only to attack/special-attack actions. This is checked once per attempted
+    attack, not per turn.
+  impl notes:
+    In do_ai_turn() when a time-taxed entity attempts to attack (any combat
+    action): roll random() < player.stats.effective_tolerance * 0.05.
+    If pass: skip the attack action specifically. The AI turn continues (entity
+    can still move/wander). Message: "[name] swings at air."
+    "Time-taxed" check: entity.time_taxed == True.
+    This stacks with the energy reduction from L1 — they act less often AND
+    50% of their attacks miss temporally. Combined effect is substantial.
+  balance: 50% attack-skip on an enemy already moving at 70% speed effectively
+    makes them deal ~35% of their normal DPS against the player. This is a
+    strong defensive tool but requires TOL investment to maximize.
+
+L5 — "Time Stop" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "time_stop"}
+  ability_id: "time_stop"
+  target_type: SELF
+  charge_type: PER_FLOOR
+  max_charges: 1
+  desc:
+    For 3 full turns, ALL enemies in the dungeon are frozen in temporal stasis:
+    their energy does not accumulate AT ALL (energy_gain = 0 for those 3 turns).
+    The player acts freely and enemies cannot act. This is not a stun — enemies
+    do not have a "stunned" flag; their energy simply stops accumulating.
+    After 3 turns, all enemies resume with whatever energy they had before the
+    freeze (no energy debt — it's not borrowed time, it's stopped time).
+    Time-taxed enemies in the dungeon during Time Stop remain taxed when Time
+    Stop ends and resume with their reduced energy gain rate.
+    Flavor: "Everything goes quiet."
+  impl notes:
+    engine.time_stop_turns: int (0 = inactive)
+    In _run_energy_loop() during energy distribution: if time_stop_turns > 0:
+      skip energy distribution for ALL non-player entities (player still gains
+      energy). After player acts, decrement time_stop_turns. When reaches 0,
+      resume normal loop.
+    This is implemented at the engine level (most global effect in the game).
+    1 charge per floor — powerful but singular.
+    During Time Stop: player can move, attack, use items, cast abilities. Normal
+      action except there is no enemy response.
+    Message: "Everything goes quiet." / "Time resumes." on expiry.
+    Does not interact with other effects (effects still tick normally during
+    Time Stop — debuffs on enemies still count down, meaning Time Stop can
+    expire your own debuffs on enemies. Design tension: move fast.)
+  balance: 3 free turns per floor is extremely powerful. Balanced by per-floor
+    once limit, and by the debuffs-still-ticking tension (if you applied a 4-turn
+    stun and then use Time Stop, the stun expires during those 3 free turns,
+    wasted). Strategic use: save for when surrounded or when a boss is about to
+    kill you. Most players will panic-use it suboptimally.
+
+================================================================================
+DESIGN H — "VOODOO DOLL" (Sympathetic Link Between Two Enemies)
+================================================================================
+
+CONCEPT SUMMARY:
+The only design that requires TWO targets simultaneously. You link two enemies
+with a sympathetic spiritual connection — what happens to one, happens to the
+other. If the linked enemy takes damage, the doll-bearer takes the same damage.
+If the linked enemy is healed, the doll-bearer takes damage instead (inverse
+healing). If the doll-bearer is stunned, the linked enemy is also stunned. The
+novel mechanic: the link is DIRECTIONAL. You choose which enemy is the "Doll"
+(suffers) and which is the "Needle" (causes the suffering). Higher levels allow
+you to weaponize the link offensively — attacking the Doll to deal double damage
+(both take the hit), or using the link to transfer your OWN status effects to
+the Needle enemy.
+
+PLAYSTYLE: Setup tactician. You need to identify the right two enemies to link
+(high-value Needle with dangerous attacks, tanky Doll to absorb the reflected
+damage efficiently). Very weak in single-enemy encounters. Dominant in group
+combat and boss+adds scenarios (link the boss to an add, kill the add, boss
+takes double damage). High skill ceiling — knowing who to link is everything.
+
+STAT DEPENDENCY: Street Smarts (link range — can link enemies up to STS tiles
+apart). Book Smarts (link damage multiplier, determining how much of the Needle's
+damage transfers to the Doll).
+
+--------------------------------------------------------------------------------
+
+L1 — "Stitch 'Em Together" (activated ability — dual target)
+  perk_type: "activated"
+  effect: {"ability": "stitch_em_together"}
+  ability_id: "stitch_em_together"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    A two-phase ability. Phase 1: target the NEEDLE (first selected enemy —
+    the one who will CAUSE suffering). Phase 2: target the DOLL (second selected
+    enemy — the one who will SUFFER). The link forms (both entities get
+    entity.voodoo_linked = True; entity.voodoo_partner_id = other's ID;
+    entity.voodoo_role = "needle" or "doll"). While linked:
+    Any damage the NEEDLE deals (to anyone) is also dealt to the DOLL at 50%
+    of the original damage value (no defense). Link lasts 12 turns (floor_duration).
+    Max 1 active link at a time. Link radius: partners must be within STS tiles of
+    each other when the link is formed; they can move apart afterward.
+  impl notes:
+    Two-phase targeting: after first target confirmed, engine enters second
+    targeting phase (similar to existing ENTITY_TARGETING cycle). Both targets
+    must be visible and within STS tiles of each other.
+    entity.voodoo_linked: bool
+    entity.voodoo_partner_id: int (entity ID of partner)
+    entity.voodoo_role: str ("needle" | "doll")
+    In combat.py after damage resolution: if attacker.voodoo_linked and
+      attacker.voodoo_role == "needle": find doll by partner_id; doll.hp -= damage * 0.5.
+    On either linked entity death: unlink both (set voodoo_linked = False on both).
+    VoodooLinkEffect: floor_duration=True. On expire: unlink both.
+    Blackkk Magic XP: +15 on link formation.
+  balance: 50% damage echo is strong if the Needle is high-power (boss, elite).
+    A boss dealing 15 damage: doll also takes 7 each hit. Requires correct
+    targeting — if the Doll is high-HP, it absorbs a lot before dying. Ideally
+    link a tankier enemy as the Doll.
+
+L2 — "Tug the Thread" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Status effects now propagate through the link with a 50% chance. When the
+    NEEDLE receives any debuff (stun, slow, fear, cripple_armor, etc.), there is
+    a 50% chance the DOLL receives the same debuff at FULL duration (not halved).
+    Conversely, when the DOLL receives any debuff, there is a 50% chance the
+    NEEDLE receives the same debuff at FULL duration. The propagation is symmetric
+    — both directions work. This creates chaos: stunning the Doll might stun the
+    Needle, which might then propagate back to the Doll (but the check only runs
+    ONCE per original application — no ping-pong infinite loop).
+  impl notes:
+    In apply_effect(), after applying to a voodoo-linked entity: check if linked.
+    Roll 50%. If pass: find partner entity; apply_effect(partner, same_id, same_duration).
+    CRITICAL: set a "propagating" flag before applying to partner to prevent the
+      partner's apply_effect from triggering another propagation (infinite loop guard).
+    engine.voodoo_propagating: bool (flag cleared immediately after partner apply).
+    This flag must be checked at the start of every apply_effect call to skip
+    the propagation check if already propagating.
+  balance: 50% propagation means approximately half the time, debuffing either
+    linked enemy debuffs the other. With L1 already echoing damage, adding debuff
+    propagation makes the link very punishing for both linked enemies.
+
+L3 — "Needle Drop" (activated ability upgrade)
+  perk_type: "activated"
+  effect: {"ability": "needle_drop"}
+  ability_id: "needle_drop"
+  target_type: ADJACENT
+  charge_type: INFINITE
+  desc:
+    A special melee attack that can only be used while a Voodoo Link is active
+    and the player is adjacent to the DOLL specifically. Deals normal melee damage
+    to the Doll, PLUS: the Needle also takes FULL melee damage (not 50% — the
+    full amount, no defense). This is the "Double Stab" — hitting the Doll's
+    voodoo proxy to wound the Needle from a distance. Additionally, if the player
+    is currently affected by any positive buff effects (speed boost, well_fed, etc.),
+    those buffs are transferred to the player's next attack turn and temporarily
+    channeled through the doll: the damage calculation for Needle Drop uses the
+    player's boosted stats.
+  impl notes:
+    Needle Drop validates: entity.voodoo_linked == True on target; target.voodoo_role == "doll".
+    Normal melee damage to Doll (uses normal combat_hit formula with defense).
+    Needle takes: same raw player damage value, no defense applied to Needle.
+    Buff-channeling: collect player's current buff effects; for Needle Drop's
+      damage calculation, temporarily include their stat modifiers. Implementation:
+      read effective_strength and effective_power directly (they already include
+      buff bonuses) — so this is automatic if player buffs modify stats properly.
+    Charge_type INFINITE: Needle Drop replaces regular melee when adjacent to a
+      linked Doll.
+  balance: Full damage to both means attacking the Doll effectively deals 2x
+    damage (once to Doll, once to Needle, both count toward their HP). This is
+    the payoff of the L3 position — you need to be adjacent to the Doll, which
+    may require maneuvering past other enemies.
+
+L4 — "What You Reap" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When the Voodoo Link expires naturally (duration runs out — NOT because an
+    entity died), the spiritual backlash fires: both linked entities take a burst
+    of no-defense damage equal to (BKS + turns_the_link_was_active / 2) rounded
+    down, minimum 5. If the link was maintained for its full 12 turns:
+    (BKS + 6) no-defense burst on BOTH entities simultaneously.
+    This rewards NOT letting the link expire by killing the entities before expiry
+    (no payoff on death), but ALSO rewards intentionally maintaining the link for
+    its full duration even if you could have killed one entity earlier.
+    Design tension: do you wait for the max-duration burst, or kill now?
+  impl notes:
+    VoodooLinkEffect.expire(): check if expiry reason is "duration" (not death).
+      Burst damage = max(5, player_bks + (12 - duration_remaining) // 2).
+      Wait: duration_remaining should be 0 at natural expiry. So burst = BKS + 6.
+    To distinguish death-expiry from natural expiry: add an expire_reason field
+      to VoodooLinkEffect. Set to "death" in the entity_died handler before
+      removing the effect; default = "natural".
+    Apply burst to both entity.voodoo_partner_id-resolved entity and the effect's
+      host entity.
+  balance: At BKS=10: 16 no-defense burst to BOTH entities on natural expiry.
+    Against 2 enemies with 30 HP each after 12 turns of 50% echo damage:
+    they've probably taken significant damage already from the echo. The burst
+    finishes them. But waiting 12 turns is risky — many roguelike players won't
+    survive that long in a fight. High risk, high reward.
+
+L5 — "Me, Myself, and I" (passive — self-link)
+  perk_type: "passive"
+  effect: None
+  desc:
+    The capstone introduces the ability to link the player to an enemy as the
+    NEEDLE (you become the Doll, enemy is the Needle). Activate with the
+    "Stitch 'Em Together" ability, but select the player as the second target
+    (use "self" key — a new secondary input in the two-phase targeting).
+    While self-linked: any damage the enemy Needle deals to you echoes back to
+    them at 75% (up from 50% in L1) — they feel 3/4 of everything they throw
+    at you. Any debuff they apply to you propagates to them at 75% chance
+    (up from 50% in L2). The self-link lasts the full 12 turns or until the
+    Needle dies. No "Doll" entity exists — the player absorbs the Doll role.
+    NOTE: this is a risk. You take full enemy damage (no echo reduction on your
+    incoming). The 75% echo makes it worthwhile if the enemy is highly aggressive.
+  impl notes:
+    In the two-phase targeting for stitch_em_together: add a "SELF" key option
+      as the second target (e.g., press S for self). If chosen:
+      engine.player.voodoo_linked = True
+      engine.player.voodoo_role = "doll"
+      engine.player.voodoo_partner_id = first_target_id
+      first_target.voodoo_linked = True
+      first_target.voodoo_role = "needle"
+      first_target.voodoo_partner_id = player.id
+    The player_entity.voodoo_linked flag is checked in combat.py when player
+      takes damage from the linked entity: echo = damage * 0.75 back to Needle.
+    Debuff propagation: when player gains a debuff from the linked enemy, 75%
+      chance to propagate it to the Needle.
+    Link on player is floor_duration (clears on floor change).
+    Display: "Self-linked" in status bar.
+  balance: This is a deliberate power/risk tradeoff. 75% echo is enormous — a
+    boss hitting for 15 takes 11 echo per hit. But you take the full hit too.
+    In practice: at high Swagger (low incoming damage from defense), you take
+    less but still echo the raw value. This rewards Swagger investment + Blackkk
+    Magic together.
+
+================================================================================
+DESIGN I — "PROFANE BLOOM" (Cursed Death Explosion Chains)
+================================================================================
+
+CONCEPT SUMMARY:
+Straight from PoE's Occultist ascendancy — cursed enemies explode on death,
+spreading curses to survivors. But in NIGRL's version, the explosion mechanic
+has been fundamentally rethought: the explosion's size and damage scales with
+HOW MANY different curses the dying enemy had at time of death, not just whether
+they were cursed. This rewards stacking multiple different curse types on one
+target. The design intentionally synergizes with every other Blackkk Magic build
+(more curses = bigger bloom). The capstone introduces Unholy Ground — tiles
+stained by the bloom become permanently cursed terrain for the floor, applying
+a random curse to any enemy that walks on them.
+
+PLAYSTYLE: Crowd control / chain reaction. You are the arsonist of curses —
+you invest in one enemy, blow them up, and watch the room react. Best with
+builds that can stack many different debuff types quickly. The Unholy Ground
+capstone turns every kill into a persistent environmental hazard.
+
+STAT DEPENDENCY: Tolerance (bloom radius scales with TOL). Street Smarts
+(bloom damage scales with STS — the curse spread accuracy).
+
+--------------------------------------------------------------------------------
+
+L1 — "You Gon' Blow" (passive — death trigger)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Any enemy that dies while afflicted with at least 1 curse/debuff from the
+    player (status effects of category "debuff" where source = player) explodes
+    spiritually. The Profane Bloom: deals (4 + STS/2) no-defense damage to
+    all non-player living entities within a radius of (1 + len(player-sourced
+    debuffs) // 2) tiles of the death location. The bloom damage is fixed and
+    undefensible. Enemies hit by the bloom do NOT receive a curse from the
+    bloom at L1 — just damage. Flavor: the spirit leaving the body takes all
+    its curses with it as shrapnel.
+  impl notes:
+    In entity_died handler: collect entity.status_effects where effect.category
+      == "debuff" and effect.source_entity == player_id.
+    num_player_debuffs = len(collected list).
+    If num_player_debuffs > 0:
+      radius = 1 + num_player_debuffs // 2
+      damage = 4 + player.stats.effective_street_smarts // 2
+      For each living non-player entity within Chebyshev(radius):
+        entity.hp -= damage (bypass defense)
+    Message: "[name] blooms."
+    Blackkk Magic XP: +10 per enemy hit by the bloom.
+  balance: Single-debuff: radius=1, damage=9 at STS=10. Two debuffs: radius=2.
+    Four debuffs: radius=3. At max (6 debuffs): radius=4. The scaling is strong
+    but requires stacking many debuffs on one target, which takes multiple turns.
+    On floor 1-2: radius=1-2 bloom consistently hits clustered enemies.
+
+L2 — "Second-Hand Smoke" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Enemies hit by a Profane Bloom now receive one of the dead enemy's former
+    curses (randomly selected from the list of player-sourced debuffs that were
+    on the dead enemy at death). The transferred curse is applied at HALF its
+    original remaining duration (min 1 turn). This IS the curse-spread mechanic.
+    The transferred curse counts for Blackkk Magic XP (+15 per spread application).
+    If the dead enemy had 3 debuffs, each bloom-hit enemy receives one random one.
+    Multiple enemies hit can receive the same curse type (random roll per enemy,
+    not distributed uniquely).
+  impl notes:
+    In the Profane Bloom loop: before dealing damage to each hit enemy, roll a
+      random debuff from the collected player-sourced debuff list.
+    Apply that debuff to the hit enemy at half duration:
+      apply_effect(hit_enemy, random_debuff.id, duration = max(1, debuff.duration // 2))
+    XP grant: +15 per successful application.
+    The curse spread itself can trigger further blooms if a spread-cursed enemy
+    dies from the bloom damage (L1 damage may kill them, triggering their own bloom
+    since they now have 1 debuff). Chain reactions are possible and intentional.
+  balance: Chain reactions require enemies dying to bloom damage (9 damage). At
+    HP=10 or below: possible. Creates occasional cascade moments where a room
+    of 5 enemies collapses because one died and the chain ran. Not reliable but
+    spectacular when it happens.
+
+L3 — "Full Bloom" (passive upgrade)
+  perk_type: "passive"
+  effect: None
+  desc:
+    The Profane Bloom's damage is now boosted: base damage changes from
+    (4 + STS/2) to (4 + STS/2 + BKS/3). Additionally, the bloom radius now adds
+    1 additional tile for every 3 different CURSE TYPES on the dying enemy
+    (not just total debuffs — types like "slow", "fear", "stun", "bleeding" count
+    separately). Maximum radius is capped at (2 + TOL/2) tiles regardless of
+    curse count (TOL provides the ceiling). At TOL=10: max radius=7. At TOL=6:
+    max radius=5. The Bloom can now also hit the player's own tile if enemies are
+    adjacent to the player (bloom is indiscriminate at this level — player takes
+    50% of the bloom damage if within radius, no defense).
+    Flavor: this is CHAOS. You should feel slightly afraid of your own bloom.
+  impl notes:
+    Count distinct debuff type IDs on the dying entity.
+    radius = 1 + num_player_debuffs // 2 + distinct_types // 3
+    radius = min(radius, 2 + player.stats.effective_tolerance // 2)
+    Damage: 4 + STS//2 + BKS//3
+    Player takes bloom damage (50%) if within radius: player.hp -= damage // 2
+      (bypass defense; log as "Bloom backsplash."). This is the risk of L3.
+  balance: Self-damage makes this dangerous to use in tight corridors. In open
+    rooms (player far from the bloom epicenter): pure upside. In corridors:
+    risk management. TOL cap on radius prevents runaway scaling.
+
+L4 — "Bloom and Doom" (passive — synergy with Design C)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Profane Bloom explosions now interact with the Doom Clock system (Design C,
+    if both trees are somehow in use — but this design is standalone):
+    specifically, any enemy hit by a Profane Bloom that has ANY status effect
+    on them (including freshly-transferred spread curses) is afflicted with
+    entity.bloom_marked = True. While bloom_marked, any further Profane Bloom
+    that hits them within 3 turns deals +50% damage. Bloom Marked expires after
+    3 turns or when that enemy is hit by a second bloom. "Bloom and Doom" is a
+    self-contained synergy within Profane Bloom: the second bloom in any chain
+    reaction hits for 1.5x if the first bloom already marked the target.
+  impl notes:
+    entity.bloom_marked: bool
+    entity.bloom_marked_turns: int (countdown from 3)
+    In the Profane Bloom loop: after damaging a hit enemy, set bloom_marked = True,
+      bloom_marked_turns = 3.
+    Each turn: decrement bloom_marked_turns; clear at 0.
+    In Profane Bloom damage resolution: if target.bloom_marked: damage *= 1.5 (round up).
+    This requires passing bloom-hit context through the loop — the second bloom
+    in a chain (triggered by a cursed enemy dying from the first bloom) will see
+    bloom_marked = True on survivors who were already hit.
+  balance: In chain reactions: the second bloom in the same turn hits for 1.5x.
+    Creates a strong incentive to trigger chain reactions (even partially) before
+    the marked window expires. The 3-turn window means even staggered blooms
+    (enemy A dies, enemy B takes damage, B dies 2 turns later) can qualify.
+
+L5 — "Unholy Ground" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When a Profane Bloom fires, the tile where the DEAD ENEMY stood becomes
+    Unholy Ground. Unholy Ground persists for the rest of the floor. Any non-player
+    living entity that enters an Unholy Ground tile has a 60% chance to receive
+    a random debuff (randomly selected from: slow ratio=0.3 4t, cripple_armor 6t,
+    fear 4t, confused 3t). The ground stores a "curse pool" seeded from the dead
+    enemy's debuffs — the random roll draws from the specific curses that were on
+    the dead enemy at bloom time. If the dead enemy had no specific curse pool
+    (edge case), it draws from the global default list above.
+  impl notes:
+    dungeon.unholy_tiles: dict of (x,y) → curse_pool where curse_pool is a list
+      of (effect_id, params) tuples.
+    On Profane Bloom: add dead_enemy.x, dead_enemy.y to unholy_tiles with
+      curse_pool populated from the dead enemy's player-sourced debuffs at death.
+    Each turn in energy loop: for each monster movement step, check if new tile
+      is in unholy_tiles. Roll 60%. If pass: pick random entry from curse_pool,
+      apply_effect to entity.
+    Render: unholy tiles shown as '.' with a dark purple color override.
+    Unholy tiles persist until floor change (floor_duration via dungeon cleanup).
+    Player walking on unholy tiles: no effect (player is the source of the
+      unholy, not subject to it).
+    XP: +10 per unholy tile proc on an enemy.
+  balance: One dead enemy creates one persistent curse tile. In a dungeon of 8
+    rooms with 3-5 enemies each, a full floor could have 20+ unholy tiles by
+    the time you reach the stairs. Enemies in that zone get slowed/feared/confused
+    constantly. Strong floor-control; weak in isolated 1v1 fights.
+
+================================================================================
+DESIGN J — "SPIRITUAL DEBT" (Self-Curse / Power Through Sacrifice)
+================================================================================
+
+CONCEPT SUMMARY:
+Dark Pact from WoW — but the voodoo version involves a literal spiritual debt
+to your ancestors. You curse YOURSELF to gain power. Each self-curse has an
+immediate downside (you take damage, lose defense, lose speed) but provides a
+STRONGER curse to project outward. The debt mechanic: engine tracks your running
+debt in "spiritual tally marks." Debt builds from self-curses and discharges when
+enemies die to your projected curses. If you die in debt, the penalty on death
+screen is higher (for roguelike flavor, though permadeath makes this symbolic).
+The novel mechanic unique to NIGRL: Absolution — a rare moment of spiritual
+balance where you have exactly 0 debt and your next projected curse is doubled
+in power and range.
+
+PLAYSTYLE: Glass cannon spiritualist. You voluntarily weaken yourself to project
+devastating curses. The debt discharge on enemy death rewards aggressive play —
+keep killing to keep your debt paid. Falling behind on kills = accumulating
+spiritual handicap. Unique risk/reward: the player WANTS to take damage (to
+discharge through debt mechanics), which synergizes with Retribution (Design F)
+and self-Voodoo Doll (Design H L5).
+
+STAT DEPENDENCY: Tolerance (debt capacity — higher TOL allows carrying more
+debt without penalties). Constitution (self-curse damage intake mitigated by
+CON's HP pool).
+
+--------------------------------------------------------------------------------
+
+L1 — "Pay the Price" (activated ability — self-targeted)
+  perk_type: "activated"
+  effect: {"ability": "pay_the_price"}
+  ability_id: "pay_the_price"
+  target_type: SELF
+  charge_type: INFINITE
+  desc:
+    Sacrifice 10% of your current HP (rounded up, minimum 1, cannot kill you —
+    minimum 1 HP remains) to charge a "Spirit Debt" counter
+    (engine.spirit_debt += ceil(player.hp * 0.10)). The sacrifice also immediately
+    grants a one-time buff: the player's next projected curse (any Blackkk Magic
+    curse applied to an enemy within the next 3 turns) deals double damage and/or
+    double duration (depending on the curse type). The buff is consumed on the
+    first projected curse or expires after 3 turns. Display: "Debt Charged" in
+    status with a turn counter. Spirit Debt counter is displayed in the stats panel.
+  impl notes:
+    engine.spirit_debt: int (running tally, persists per run unless discharged)
+    engine.spirit_debt_charged: bool (the "next curse doubled" flag)
+    engine.spirit_debt_charge_turns: int (countdown from 3)
+    On activation: hp_cost = max(1, ceil(player.hp * 0.10))
+      if player.hp - hp_cost <= 0: hp_cost = player.hp - 1 (cannot kill)
+      player.hp -= hp_cost
+      engine.spirit_debt += hp_cost
+      engine.spirit_debt_charged = True
+      engine.spirit_debt_charge_turns = 3
+    In apply_effect() for player-sourced debuffs, if spirit_debt_charged:
+      double duration (or damage where applicable); clear the flag.
+    Each turn: decrement spirit_debt_charge_turns; if 0: clear spirit_debt_charged.
+    Blackkk Magic XP: +10 per activation (you paid).
+  balance: 10% HP cost at HP=100: costs 10 HP to empower next curse. Painful but
+    fast to recover. The doubled curse can save more than 10 HP in prevented
+    damage (a doubled slow lasts twice as long, preventing many hits). Economic
+    positive but requires careful HP management.
+
+L2 — "Debt Service" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Enemies that die while afflicted with any player-sourced curse DISCHARGE some
+    spiritual debt: engine.spirit_debt -= (3 + enemy.max_hp // 10) per kill.
+    Minimum spirit_debt = 0 (cannot go negative). At low debt (< 20): no effect.
+    At high debt (>= 20): player receives a "spiritual overload" debuff:
+    -1 defense and -5% energy gain per 20 points of spirit_debt above the threshold.
+    At debt=40: -2 defense, -10% energy. At debt=60: -3 defense, -15% energy.
+    The debt is a real penalty that accumulates if you use Pay the Price repeatedly
+    without killing cursed enemies. Killing cures the debt.
+  impl notes:
+    In entity_died handler: if entity has any player-sourced debuff:
+      discharge = 3 + entity.max_hp // 10
+      engine.spirit_debt = max(0, engine.spirit_debt - discharge)
+    SpiritualOverloadEffect: recalculate on debt change.
+    In stats.py or combat.py: apply defense penalty = spirit_debt // 20.
+    In energy loop: apply energy gain multiplier = 1.0 - (spirit_debt // 20) * 0.05.
+    Display spirit_debt in stats panel. The overload penalty needs visual feedback.
+  balance: Kill an enemy with 30 max_hp: discharge = 3+3 = 6 debt. If you paid
+    10 HP via Pay the Price twice (debt=20), you need 4 kills to clear. Aggressive
+    play clears debt quickly. Passive play accumulates it dangerously. This
+    mechanic punishes camping (spiritual standstill = growing debt with no kills).
+
+L3 — "Ancestral Favor" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When spirit_debt == 0 (completely in balance — no debt and no recent sacrifice),
+    the player enters Absolution state briefly: the next Blackkk Magic curse cast
+    within 2 turns is TRIPLED in power (3x damage or 3x duration). Absolution
+    can only be reached after clearing all debt — the engine tracks this via a
+    flag (engine.absolution_available = True when spirit_debt transitions to 0
+    from any non-zero value). The Absolution flag clears after 2 turns or when
+    a powered curse is cast.
+    Additional passive: each time debt discharges to exactly 0 (fully paid), the
+    player receives a 5-turn +3 Swagger bonus (temporary spiritual confidence).
+  impl notes:
+    In Debt Service discharge: after calculation, if new spirit_debt == 0:
+      engine.absolution_available = True
+      engine.absolution_turns = 2
+      apply_effect(player, "swagger_boost", magnitude=3, duration=5)
+    In apply_effect() for player-sourced curses, if engine.absolution_available:
+      triple the duration (or damage). Clear absolution_available.
+    Each turn: if absolution_turns > 0: decrement; at 0: clear absolution_available.
+    Message: "The ancestors smile." when Absolution triggers.
+  balance: Absolution requires reaching exactly 0 debt — which means you must
+    have used Pay the Price AND killed enough cursed enemies to clear the debt.
+    This is a tight gameplay loop: sacrifice → curse → kill → Absolution → triple
+    curse → bigger kill → sacrifice again. The Swagger bonus on each debt clearance
+    provides consistent passive Swagger cycling for builds that invest in both.
+
+L4 — "Flesh the Bargain" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Pay the Price no longer has a 3-turn window for the debt-charged buff —
+    the empowered next-curse effect is now permanent until used (no turn expiry).
+    Additionally, the HP cost of Pay the Price is now configurable: press Pay the
+    Price once for 10% HP (standard). Press it again immediately while debt_charged
+    is True to "double down" — pay another 10% HP to stack a SECOND charge
+    (debt_charged_stacks = 2). A second-stack curse is QUADRUPLED (4x) instead
+    of doubled. Each additional stack: +10% HP cost, multiplier compounds (x2 per
+    stack). Maximum 3 stacks (at 30% HP cost, 8x multiplier). Very risky.
+  impl notes:
+    engine.spirit_debt_charged_stacks: int (0, 1, 2, or 3)
+    On Pay the Price activation:
+      If charged_stacks < 3: pay 10% HP again, increment stacks.
+      Multiplier = 2 ^ charged_stacks. (stacks=1: x2, stacks=2: x4, stacks=3: x8)
+    In apply_effect(): multiply effect values by 2^spirit_debt_charged_stacks.
+      Clear stacks after use.
+    Remove the 3-turn expiry from spirit_debt_charged (now only cleared on use).
+    Display: "Debt Charged (x2)" or "(x3)" in status.
+  balance: Paying 30% HP for an 8x curse is enormous but leaves you at 70% HP
+    and deep in debt. A 8x-duration stun might last 40 turns (5 base * 8). An
+    8x Hexbomb would be absurd. Most stacks are 2 (x4) in practice. The HP cost
+    compounds with existing debt penalties at L2, making multi-stack risky.
+
+L5 — "Even Steven" (passive — capstone)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Capstone. The spiritual economy closes into perfect balance: all damage you
+    deal to enemies while in Absolution state (spirit_debt == 0) is converted
+    into healing at 20% of the damage dealt (rounded up, min 1). This is lifesteal
+    on kills — but only while perfectly balanced. As soon as you use Pay the Price
+    again (debt > 0), the lifesteal stops. This creates a powerful incentive to
+    clear debt as fast as possible and operate in the Absolution state.
+    Additionally: at character death, if spirit_debt > 0, the death screen shows
+    the debt as a flavor note ("You died owing X spiritual debt to your ancestors.
+    They are not pleased."). This is cosmetic but reinforces the design.
+  impl notes:
+    In combat.py: after player deals damage, check engine.spirit_debt == 0.
+    If 0: heal_amount = max(1, ceil(damage * 0.20)).
+      player.hp = min(player.max_hp, player.hp + heal_amount).
+      Message: "Balance restored." (or suppress if spammy — maybe only log
+      if heal >= 3).
+    Death screen flavor: in render_death_screen(), check engine.spirit_debt > 0;
+      if so: append "Debt at death: {spirit_debt} spiritual marks."
+    The 20% lifesteal during Absolution is strong. Combined with L3's Swagger
+    bonus and triple-curse burst, the Absolution state is a genuine power phase.
+    The design rewards cycling: pay → curse → kill → clear debt → Absolution
+    phase → pay again.
+  balance: 20% lifesteal during zero-debt is strong but requires active debt
+    management. Pay the Price immediately drops debt out of zero, ending lifesteal.
+    The tension: use Pay the Price to empower your curses (losing lifesteal) vs
+    not paying (keeping lifesteal but using weaker base curses). This is the
+    capstone skill expression.
+
+================================================================================
+DESIGN K — "BANE" (Multi-Curse Amplification)
+================================================================================
+
+CONCEPT SUMMARY:
+PoE's Bane ability — a linked curse that deals more damage per other curse
+applied to the target — translated into NIGRL as a curse that acts as an
+AMPLIFIER FIELD. You apply Bane to an enemy, and Bane passively reads how many
+other debuffs are on the target, using that count to scale its own damage AND
+to boost all other debuff effects simultaneously. The novel mechanical twist:
+Bane also has a LIMIT BREAK mechanic. Each curse type on the Bane target fills
+a spiritual meter. When the meter is full (typically 4-5 different curse types
+simultaneously), Bane spontaneously OVERLOADS — dealing a massive burst and
+refreshing ALL curses to full duration. This is a combo-meter that rewards
+building a diverse debuff loadout, not just spamming one effect type.
+
+PLAYSTYLE: Combo builder. You are assembling a curse cocktail. Every different
+debuff type you can put on the Bane target pushes the meter forward. Optimal
+play coordinates multiple skill trees (Smoking for bleeds, Stabbing for gouge,
+Blackkk Magic for hexes, any food for temp debuffs). The OVERLOAD creates one
+massive turn where all your setup pays off simultaneously.
+
+STAT DEPENDENCY: Book Smarts (Bane damage per stack, overload damage). Street
+Smarts (curse application success from passive sources, filling the meter faster).
+
+--------------------------------------------------------------------------------
+
+L1 — "Bane of Their Existence" (activated ability)
+  perk_type: "activated"
+  effect: {"ability": "bane_of_existence"}
+  ability_id: "bane_of_existence"
+  target_type: SINGLE_ENEMY_LOS
+  charge_type: INFINITE
+  desc:
+    Apply the Bane to a visible enemy (entity.bane_active = True,
+    entity.bane_meter = 0, floor_duration). While Bane is active, it passively
+    ticks each turn, dealing (BKS/4 * num_other_player_debuffs) no-defense
+    damage per tick. If the enemy has 0 other debuffs: Bane deals 0 damage per
+    tick (it's not a standalone DoT — it's a multiplier). At 1 debuff: BKS/4
+    per tick. At 3 debuffs: BKS*3/4 per tick. At BKS=10, 3 debuffs: ~7/tick.
+    Also: each distinct debuff TYPE on the Bane target adds 1 to entity.bane_meter
+    (maximum 5, one per distinct effect type, not per instance).
+  impl notes:
+    entity.bane_active: bool
+    entity.bane_meter: int (0-5, represents distinct curse types present)
+    BaneEffect in effects.py:
+      tick(): count player-sourced debuffs on entity (distinct effect IDs).
+        Update bane_meter = min(5, count).
+        If bane_meter > 0: entity.hp -= floor(player.bks / 4) * bane_meter.
+    floor_duration=True.
+    Only one Bane active at a time.
+    Blackkk Magic XP: +15 on Bane application. +10 per tick that deals damage.
+  balance: Bane alone = 0 damage. Bane + 1 debuff = BKS/4 per turn. At BKS=10:
+    2.5 → 2 damage/turn. Weak alone; scales well. Requires investing in multiple
+    debuff sources to make Bane worthwhile. Intended as a payoff for multi-tree
+    curse builds.
+
+L2 — "In Deep" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Bane is now a BOOSTER as well as a tick damage source. All other player-sourced
+    debuffs on the Bane target deal bonus damage: each of their damage instances
+    (ticks, on-hit procs, etc.) adds +1 flat damage. This is not Bane's tick
+    damage — this is a flat +1 bonus applied to every OTHER debuff's tick/proc.
+    At bane_meter=3 (3 different curse types): the boost applies across 3 curse
+    types, each dealing +1 extra per their tick. Over a 10-tick fight with 3
+    active debuffs: 30 extra damage passively.
+  impl notes:
+    In each debuff Effect.tick() for player-sourced debuffs: check if the host
+    entity has bane_active == True. If so: add +1 to tick damage.
+    This needs a cross-effect communication path. Simplest: in effects.py, each
+    DoT effect's tick() method: if entity.bane_active: damage += 1.
+    This means ALL debuffs with tick damage need this check added. Alternative:
+    in BaneEffect.tick(), iterate other debuffs and queue a +1 bonus for next tick
+    via a shared entity.bane_tick_bonus = bane_meter field that DoT effects read.
+    The latter (entity.bane_tick_bonus) is cleaner and more extensible.
+    entity.bane_tick_bonus: int (updated each turn by BaneEffect.tick()).
+  balance: +1 per debuff tick is modest per instance but stacks across multiple
+    DoTs and Bane's long duration. In an ideal scenario (5 DoTs * 10 ticks each):
+    50 bonus damage over the fight. Significant in practice.
+
+L3 — "All In" (passive — OVERLOAD mechanic)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When entity.bane_meter reaches 5 (all 5 distinct debuff slots filled with
+    different curse types), Bane OVERLOADS. The OVERLOAD triggers automatically:
+    1. Deals (BKS * 5) no-defense burst damage to the Bane target instantly.
+    2. ALL existing player-sourced debuffs on the target have their remaining
+       duration REFRESHED to their original application duration (not base —
+       to whatever duration they had when applied, so empowered durations are
+       also refreshed).
+    3. bane_meter resets to its current actual count after refresh (debuffs
+       are still there so meter re-evaluates immediately — it will re-fill as
+       debuffs expire and if you apply new ones).
+    OVERLOAD can trigger multiple times per fight if bane_meter reaches 5 again.
+    Message: "OVERLOAD. Everything hits at once."
+  impl notes:
+    In BaneEffect.tick(), after updating bane_meter: if bane_meter == 5 and not
+      entity.bane_overloaded_this_turn:
+      entity.bane_overloaded_this_turn = True (flag to prevent double-trigger in
+        same tick if something weird happens)
+      burst = player.stats.effective_book_smarts * 5
+      entity.hp -= burst
+      for each player-sourced debuff on entity: effect.duration = effect.original_duration
+        (need to store original_duration on Effect base class)
+    entity.bane_overloaded_this_turn: bool (reset each turn in energy loop)
+    Effect base class: add original_duration: int, set in apply() to the initial
+      duration value.
+    XP: +50 on OVERLOAD (significant reward for achieving the combo).
+  balance: At BKS=10: OVERLOAD = 50 no-defense damage. Requires 5 distinct debuff
+    types simultaneously — a serious build investment. In multi-skill-tree builds
+    (Stabbing + Smoking + Blackkk Magic + food debuffs + gun debuffs): achievable
+    on bosses in 4-5 turns. Pure Blackkk Magic build: harder; may need to combine
+    with gouge, fear, slow, and one other source.
+
+L4 — "Compound Interest" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    After each OVERLOAD event, Bane's tick damage per debuff increases permanently
+    for the rest of the floor: base formula changes from BKS/4 per debuff to
+    BKS/4 + OVERLOAD_COUNT per debuff. (OVERLOAD_COUNT starts at 0, increments
+    +1 per OVERLOAD on this floor.) This means the second OVERLOAD triggers into
+    a higher-baseline Bane, making subsequent OVERLOADs both easier to chain (more
+    base damage softening the target) and more impactful.
+    Also: after an OVERLOAD, the player's next melee or gun hit against the Bane
+    target deals +BKS bonus damage (the spiritual resonance of the OVERLOAD echoes
+    into physical force). One-time bonus per OVERLOAD, consumed on next hit.
+  impl notes:
+    engine.bane_overload_count: int (reset on floor change)
+    In OVERLOAD trigger: engine.bane_overload_count += 1.
+      engine.bane_overload_echo_ready = True (flag for next hit bonus)
+    In BaneEffect.tick(): damage formula = floor((player.bks / 4) + engine.bane_overload_count) * bane_meter.
+    In combat.py player melee/gun hit: if engine.bane_overload_echo_ready and
+      target.bane_active: damage += player.stats.effective_book_smarts.
+      Clear echo_ready.
+  balance: First OVERLOAD: baseline unchanged. Second: +1/debuff per tick. Third:
+    +2/debuff. In a long boss fight, the Bane damage compounds each cycle.
+    Getting 3 OVERLOADs in one fight (requiring 15 distinct debuff applications
+    total at minimum) is ambitious. The echo hit bonus rewards attacking immediately
+    post-OVERLOAD.
+
+L5 — "Everyone Hates You" (passive — area Bane)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When the Bane target dies, Bane SPREADS — simultaneously afflicting all living
+    non-player entities within (1 + bane_meter) tiles with a fresh Bane (bane_active
+    = True, bane_meter recalculated from their current debuffs). Spread Banes
+    start with bane_meter = whatever that entity's current debuff count is (could
+    be 0 if no debuffs). Spread Banes count toward the bane_meter fill for OVERLOAD.
+    Additionally: when any Bane target (original or spread) triggers an OVERLOAD,
+    the blast radius of the OVERLOAD burst is (1 + player.stats.effective_tolerance)
+    tiles — hitting all entities in range for the full burst damage. The OVERLOAD
+    is now an AOE event.
+  impl notes:
+    In entity_died handler with bane_active == True:
+      spread_radius = 1 + entity.bane_meter
+      For each living non-player entity within Chebyshev(spread_radius):
+        new_entity.bane_active = True
+        new_entity.bane_meter = min(5, count_player_debuffs(new_entity))
+        Apply BaneEffect to new_entity with floor_duration=True.
+        XP: +15 per spread application.
+    OVERLOAD AOE: in OVERLOAD trigger, if engine.bane_overload_count > 0:
+      aoe_radius = 1 + player.stats.effective_tolerance
+      burst_damage = player.bks * 5
+      For each entity within radius: entity.hp -= burst_damage (not just the primary target).
+    First OVERLOAD: no AOE (overload_count == 0 when first triggers).
+    Second+ OVERLOAD: full AOE. This is a late-fight snowball.
+  balance: AOE OVERLOAD is the game-winning play in dense rooms. Requires two
+    OVERLOADs (first is single-target). The spread Bane on death creates a room-
+    wide curse field that can enable chain OVERLOADs if enemies are already debuffed.
+    Power spike is high but requires surviving long enough to reach L5 + stack
+    enough debuffs for two OVERLOADs.
+
+================================================================================
+DESIGN L — "THE NUMBERS GAME" (Curse Geometry / Hex Trap Tiles)
+================================================================================
+
+CONCEPT SUMMARY:
+An entirely novel mechanic with no direct equivalent in any game: Hex Traps.
+You inscribe spiritual sigils onto TILES (not enemies), turning them into curse
+landmines. Enemies that walk onto a hex tile trigger the curse on that tile.
+The geometry matters: some traps activate in a line, some in a cross pattern,
+some only when an enemy is isolated (no adjacent friendlies). The design rewards
+reading enemy movement patterns (from AI type knowledge) and pre-placing traps
+on the paths you know enemies will walk. The capstone introduces the SPIRIT GRID —
+connecting multiple traps in a network so that triggering one POWERS UP all
+connected traps simultaneously.
+
+PLAYSTYLE: Tactician / dungeon layer. You are fighting the dungeon, not just the
+enemies. You place traps between you and enemies, funnel them through corridors,
+and watch the geometry work for you. Weak in open-room fights where enemies can
+approach from any direction. Dominant in corridors and chokepoints. Requires
+pre-fight setup turns (traps are placed proactively). High knowledge reward —
+understanding which AI types will walk predictable paths.
+
+STAT DEPENDENCY: Street Smarts (trap trigger radius — STS-scaling determines
+how far from a trap an enemy needs to step for it to activate). Book Smarts
+(trap damage scaling).
+
+--------------------------------------------------------------------------------
+
+L1 — "Drop a Bag" (activated ability — tile targeting)
+  perk_type: "activated"
+  effect: {"ability": "drop_a_bag"}
+  ability_id: "drop_a_bag"
+  target_type: ADJACENT_TILE
+  charge_type: PER_FLOOR
+  max_charges: 3
+  desc:
+    Place a Hex Trap on an adjacent empty tile (entity_type="hex_trap", rendered
+    as '^' in dark purple). The trap is dormant until a non-player living entity
+    steps onto the trapped tile. On trigger: the entity receives "hex_snare"
+    debuff (2-turn stun equivalent + 4-turn cripple_armor). The trap is consumed
+    on trigger (one-time use). Traps last until triggered or floor change.
+    Maximum 3 placed simultaneously (3 charges per floor, no refresh — once used
+    they're gone). Traps are visible to the player but are they visible to enemies?
+    At L1: yes (enemies with sight radius > 0 path around them if doing pathfinding
+    via A*). At higher levels: traps become invisible to enemies.
+  impl notes:
+    HexTrap entity:
+      entity_type = "hex_trap"
+      char = '^' (ASCII caret, no graphical tile needed — fits tone)
+      color = dark_purple (new DARK_PURPLE constant)
+      blocks_movement = False (entities walk onto it)
+      trap_effect = "hex_snare"
+    In energy loop movement step (ai.py): after each entity step, check if new
+      tile has a HexTrap entity. If so: apply hex_snare debuff; remove HexTrap
+      entity from dungeon.
+    hex_snare: 2-turn stun + 4-turn cripple_armor (combined; implement as a
+      single SnareEffect with both behaviors, or apply two separate effects).
+    PER_FLOOR 3: 3 placements per floor, no regen.
+    Enemies path around visible traps: add hex_trap tiles to the pathfinding
+      cost map (high cost, not impassable, so enemies avoid if possible).
+    Blackkk Magic XP: +15 when a trap triggers.
+  balance: 3 traps/floor is enough to set meaningful chokepoints. In a corridor
+    of 5 enemies: trap at tile 3 catches the leading enemy, snaring them while
+    the player retreats. The 2-turn stun is the hook. Cripple_armor (reduced
+    defense) turns the trap into offensive setup.
+
+L2 — "Hidden in Plain Sight" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Hex Traps are now INVISIBLE to enemies — they no longer appear in pathfinding
+    cost maps as obstacles. Enemies walk directly over them without attempting
+    to path around. They still appear as '^' to the PLAYER (you can see your own
+    traps). This is the core tactical upgrade: traps that enemies avoid are
+    situational obstacles; traps enemies walk into are guaranteed triggers.
+    Additionally: when a trap triggers on an enemy, all other enemies within 3
+    tiles of the trigger point are "alerted" and enter CHASING state (they know
+    where the snared enemy is). This creates a choice: set traps at chokepoints
+    (where alerted enemies will funnel), or set traps in open areas (where the
+    alert scatters them in multiple approaches).
+  impl notes:
+    Remove HexTrap entities from pathfinding cost map (stop adding them to the
+    blocked-cell layer that A* uses). The PLAYER render still shows them.
+    Alert on trigger: in trap_trigger logic, after applying hex_snare, scan
+      all dungeon entities within Chebyshev(3) of trap tile. For each enemy:
+        if entity.ai_state not CHASING: set ai_state = CHASING.
+        Set entity.target_x, target_y = trap.x, trap.y (move toward the trigger).
+    This alert is a double-edged sword: it funnels enemies toward your trap but
+    also toward you if you're near the trap.
+  balance: Invisible traps mean guaranteed triggers in corridors. The alert means
+    triggering one trap will draw nearby enemies — you're creating a fight, not
+    avoiding one. Net result: traps are now tactical commitment, not passive avoidance.
+
+L3 — "Pattern Recognition" (passive — unlocks conditional trap types)
+  perk_type: "passive"
+  effect: None
+  desc:
+    Hex Traps now have 3 variants selectable at placement time (secondary key
+    prompt: H=Hex_Snare default, L=Line_Blast, I=Isolation_Trap):
+    LINE BLAST: triggers not just at the trap tile but in a 5-tile line emanating
+      from the trap toward the PLAYER's current position at trigger time. All
+      entities in the line receive (BKS) no-defense damage + slow (ratio=0.4, 5t).
+    ISOLATION TRAP: triggers only if the stepping entity has NO adjacent allies
+      (no living non-player entities within Chebyshev(1) of the trigger point).
+      Effect: full normal hex_snare PLUS an additional 3-turn fear. Designed for
+      lone enemies that patrol away from their group.
+    Trap variants share the same 3-charge pool — choosing a variant is about
+    spending charges wisely on the right tactical setup.
+  impl notes:
+    HexTrap entity: add trap_type: str ("snare", "line_blast", "isolation").
+    Secondary key selection at placement: after adjacenttile targeting, prompt
+      "H=Snare L=Line I=Isolation."
+    LINE_BLAST trigger: compute direction vector from trap.x/y to player.x/y;
+      extend 5 tiles; for each tile in line: apply damage and slow to any entity.
+    ISOLATION trigger: before applying effect, count entities within Chebyshev(1)
+      of trigger tile. If count == 0 (just the triggering entity): apply snare +
+      3-turn fear. If count > 0: apply nothing (trap fizzles — missed the window).
+    Isolation trap fizzle: consume the trap entity but apply no effect. Message:
+      "Isolation trap fizzled — target wasn't alone."
+  balance: Line Blast is strong in corridors (guaranteed to hit everything behind
+    the trap in the direction you're standing). Isolation Trap is high-risk,
+    high-reward: fizzles if you misread the AI grouping. The three variants mean
+    trap placement becomes a tactical decision per encounter.
+
+L4 — "Dead Giveaway" (passive)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When a Hex Trap triggers, it immediately REFRESHES one random trap charge
+    for the player — effectively reducing trap consumption. Each trigger has a
+    (BKS * 5)% chance to regenerate one charge of the drop_a_bag ability (up to
+    max charges). At BKS=10: 50% refund chance. This means in a trap-heavy
+    encounter, roughly half of triggered traps refund themselves — rewarding
+    players who commit to heavy trap play.
+    Additionally: snared enemies (hex_snare active) take +25% damage from all
+    sources while snared (they're spiritually pinned and vulnerable). This turns
+    the snare into offensive setup as well as CC.
+  impl notes:
+    In trap_trigger logic: after applying hex_snare, roll random() < player.bks * 0.05.
+    If pass: find the drop_a_bag ability instance in engine.player_abilities;
+      if charges < max_charges: charges += 1. Message: "Trap refunds."
+    Snare vulnerability: in combat.py damage resolution, if target has hex_snare
+      effect: multiply damage by 1.25 (round up). For all sources.
+    The +25% vulnerability applies to the snare's 2-turn stun window — a short
+    window to exploit. Coordinates with melee attacks and Profane Bloom damage.
+  balance: 50% refund at BKS=10 means on a 3-enemy-trigger run, expected trap
+    consumption = 1.5 charges instead of 3. Essentially infinite traps in the
+    right encounter. Balanced by the trap placement cost (time and positioning).
+    The snare vulnerability (+25%) is modest but consistent.
+
+L5 — "The Spirit Grid" (passive — trap networking)
+  perk_type: "passive"
+  effect: None
+  desc:
+    When two or more Hex Traps are placed within 4 tiles of each other, they form
+    a Spirit Grid — a visible line connects them (rendered as '·' dots between
+    trap positions, faintly visible to player only). When ONE grid-connected trap
+    triggers, ALL other traps in the same grid POWER UP for 3 turns: their damage
+    doubles, their snare duration doubles (4 turns → 8 turns for the stun portion),
+    and they emit a dim aura pulse (cosmetic). If the powered-up traps trigger
+    during those 3 turns: they fire at doubled strength. After 3 turns, power-up
+    fades back to normal.
+    Multiple traps can form one large grid (if trap A is within 4 of B, and B
+    is within 4 of C: all three are in the same grid even if A and C are 6 apart).
+  impl notes:
+    dungeon.trap_grid: list of sets, each set = a group of connected HexTrap IDs.
+    When placing a new trap: check all existing traps within Chebyshev(4).
+      If any found: merge their grid sets with the new trap.
+    On trap trigger: find the grid containing this trap; for all OTHER traps in
+      same grid: set trap_entity.powered_up = True, trap_entity.power_up_turns = 3.
+    In trap_trigger logic: if trap_entity.powered_up: double damage, double stun
+      duration.
+    Each turn: decrement power_up_turns on powered traps; clear flag at 0.
+    Grid visualization: for each pair of grid-connected traps, draw midpoint cells
+      between them with char='·' in a faint purple. Update on each trap add/remove.
+    Grid update on trap removal: when a trap is triggered or expires, remove it
+      from its grid set, re-evaluate connectivity for remaining traps.
+  balance: In a corridor with 3 grid-connected traps: triggering the entrance trap
+    powers up the two interior traps. The next two enemies to step on powered traps
+    get 8-turn stuns with doubled damage. This creates a "corridor from hell"
+    scenario that can pin 3 enemies for 8 turns. Corridor-specific but dominant
+    in that context. In open rooms: harder to maintain grid connectivity (enemies
+    approach from all angles, consume traps quickly).
+
+================================================================================
+IMPLEMENTATION CROSS-REFERENCE
+================================================================================
+
+NEW ENTITY FIELDS (across all designs C–L):
+
+Design C (Doom Clock):
+  entity.doom_curse: bool
+  entity.doom_stacks: int (0-5)
+
+Design D (Haunt):
+  entity.double_haunted: bool
+  (engine fields — not entity fields)
+
+Design E (Impending Doom):
+  entity.hexbomb: bool
+  entity.hexbomb_fuse: int
+
+Design F (Punishment):
+  entity.retribution_curse: bool
+  entity.karma_stacks: int (0+, soft cap 10)
+  entity.ai_override_turns: int
+  entity.ai_override_mode: str | None
+
+Design G (Temporal Chains):
+  entity.time_taxed: bool
+  entity.snapshot_hp: int | None
+  entity.snapshot_effects: list[tuple[str, int]] | None
+  entity.snapshot_exists: bool
+
+Design H (Voodoo Doll):
+  entity.voodoo_linked: bool
+  entity.voodoo_partner_id: int | None
+  entity.voodoo_role: str | None ("needle" | "doll")
+  entity.double_haunted: bool (shared with D if both in use)
+
+Design I (Profane Bloom):
+  entity.bloom_marked: bool
+  entity.bloom_marked_turns: int
+
+Design J (Spiritual Debt):
+  (mostly engine fields)
+
+Design K (Bane):
+  entity.bane_active: bool
+  entity.bane_meter: int (0-5)
+  entity.bane_tick_bonus: int (set each turn by BaneEffect)
+  entity.bane_overloaded_this_turn: bool
+
+Design L (Numbers Game):
+  entity.trap_type: str (on HexTrap entities)
+  entity.powered_up: bool (on HexTrap entities)
+  entity.power_up_turns: int (on HexTrap entities)
+
+NEW ENGINE FIELDS (across all designs C–L):
+
+Design C:
+  engine.doom_active_entity_id: int | None (track which entity is doomed)
+
+Design D:
+  engine.haunt_ghost: dict | None
+  engine.haunt_ghost_2: dict | None (L4)
+
+Design E:
+  engine.hexbomb_active_entity_id: int | None (only one bomb at a time)
+
+Design F:
+  engine.last_hit_was_karma: bool (transient, cleared each processing cycle)
+  engine.retribution_count: int (current active retribution curses, max 3→4)
+
+Design G:
+  engine.time_stop_turns: int
+
+Design J:
+  engine.spirit_debt: int
+  engine.spirit_debt_charged: bool
+  engine.spirit_debt_charged_stacks: int
+  engine.spirit_debt_charge_turns: int
+  engine.absolution_available: bool
+  engine.absolution_turns: int
+
+Design K:
+  engine.bane_overload_count: int (per floor, reset on floor change)
+  engine.bane_overload_echo_ready: bool
+
+Design L:
+  dungeon.trap_grid: list[set[int]] (sets of HexTrap entity IDs)
+  dungeon.unholy_tiles: dict[tuple[int,int], list[...]] (from Design I L5,
+    if combined — or dungeon.cold_spots for Design D L3)
+
+NEW EFFECTS NEEDED (effects.py additions):
+
+Design C:
+  DoomCurseEffect — floor_duration, tick increments doom_stacks, defense reduction via
+    passive (not an effect hook — implemented in combat.py doom_stacks check)
+
+Design D:
+  HauntedEffect — 10 turns, modify_incoming_damage: +2 flat, double_haunted variant: +4
+
+Design E:
+  HexbombEffect — managed via entity fields, not a traditional Effect subclass;
+    countdown logic in energy loop directly
+
+Design F:
+  RetributionEffect — floor_duration (per project convention), tracks karma_stacks
+    (stored on entity, read by blowback logic in combat.py)
+
+Design G:
+  TimeTaxEffect — modify_energy_gain hook, duration extension on debuffs each 2 ticks,
+    buff acceleration (double tick speed on buff effects on host)
+  SnapShot: not an effect — snapshot stored as entity fields, managed by ability logic
+
+Design H:
+  VoodooLinkEffect — floor_duration, expire_reason field for L4 burst-on-natural-expiry
+
+Design I:
+  ProfaneBloomEffect: not needed — bloom is a death event, not an ongoing effect.
+    bloom_marked is a transient entity field with its own countdown.
+
+Design J:
+  SpiritualOverloadEffect — recalculated debuff applied to player when debt >= 20;
+    stacks in penalty tiers. Or: implement as a passive stat modifier in stats.py
+    reading engine.spirit_debt directly (no Effect subclass needed — just override
+    in effective_* property calculations).
+
+Design K:
+  BaneEffect — floor_duration, tick: calculate bane_meter, apply tick damage,
+    check OVERLOAD threshold. Stores original_duration.
+
+Design L:
+  HexSnareEffect — 2-turn stun component + 4-turn cripple_armor component.
+    Implement as composite: apply stun(2) and cripple_armor(4) together, or
+    a single SnareEffect with both behaviors (stun priority in before_turn hook
+    + defense reduction from cripple_armor hook).
+
+NEW ABILITY IDs (ABILITY_REGISTRY additions):
+
+  put_the_curse_on    — Design C L1 (SINGLE_ENEMY_LOS, INFINITE)
+  hexburst            — Design C L3 (SINGLE_ENEMY_LOS, INFINITE)
+  go_get_em_unc       — Design D L1 (SINGLE_ENEMY_LOS, INFINITE, with travel mechanics)
+  temporal_snapshot   — Design G L3 (SINGLE_ENEMY_LOS, PER_FLOOR 2)
+  time_stop           — Design G L5 (SELF, PER_FLOOR 1)
+  stitch_em_together  — Design H L1 (SINGLE_ENEMY_LOS dual-phase, INFINITE)
+  needle_drop         — Design H L3 (ADJACENT, INFINITE)
+  catch_these_hands   — Design F L1 (SINGLE_ENEMY_LOS, INFINITE)
+  pay_the_price       — Design J L1 (SELF, INFINITE)
+  bane_of_existence   — Design K L1 (SINGLE_ENEMY_LOS, INFINITE)
+  drop_a_bag          — Design L L1 (ADJACENT_TILE, PER_FLOOR 3)
+  set_the_timer       — Design E L1 (SINGLE_ENEMY_LOS, INFINITE)
+
+================================================================================
+BALANCE CALIBRATION NOTES
+================================================================================
+
+Damage reference:
+  Floor 1-2 enemies: 15-30 HP, 0-3 defense
+  Floor 3-4 enemies: 30-60 HP, 2-5 defense
+  Player HP (CON=10): 130 HP
+  Player typical damage per hit: 5-12 + STR scaling
+
+Design C (Doom Clock): Max Hexburst = BKS*5 = 60 at BKS=12. This would one-shot
+  nearly any non-boss enemy on floor 4. The 5-turn setup requirement is the
+  hard limit. On floor 1-2 enemies that die in 1-3 hits: Doom rarely reaches
+  max. Design is boss-focused by construction.
+
+Design D (Haunt): Return heal = 3 + BKS/4 = 6 at BKS=12 per ghost. With two
+  ghosts: 12 HP per kill cycle. At 5 kills/floor: 60 HP recovered. Significant
+  sustained healing. But each ghost takes 1+ turns to travel first.
+
+Design E (Impending Doom): Max Hexbomb = 4+BKS = 16 direct + 7 AOE at BKS=12.
+  With Nuclear Option (below 25%): 24 direct + 10 AOE, radius 4. Strong execute
+  but bomb must count down 8 turns — most enemies die faster than that on early
+  floors, making Dead Man's Switch (L2) critical for value.
+
+Design F (Punishment): At SWG=12, karma=10: blowback = ceil((2+3)*2.5) = 13
+  per attack. Aggressive enemies attacking 2x/turn: 26 self-damage/turn. Dies
+  in 2-3 turns from blowback alone if HP < 50. Extremely strong against fast
+  attackers; weak against slow ones.
+
+Design G (Temporal Chains): 50% attack skip + 30% energy reduction at max stats
+  = ~65% DPS reduction from cursed enemy. This is near-invincibility in 1v1.
+  Requires TOL=10 for max values. Time Stop (1/floor) is the strongest individual
+  ability in any Blackkk Magic design — deliberately limited to 1/floor.
+
+Design H (Voodoo Doll): Double-hitting both enemies via Needle Drop requires
+  adjacency to the Doll. In tight rooms: achievable. Linking boss+add:
+  standard damage to add = also full damage to boss. Game-changing against
+  "boss + escort" enemy patterns in late floors.
+
+Design I (Profane Bloom): Chain reactions require enemies dying to bloom splash
+  (9 damage at STS=10, L1). This kills weak enemies (HP 15-18) reliably on
+  floor 1. On floor 3: bloom splash alone may not kill — need DoT pre-damage.
+  Unholy Ground (L5) is the most persistent room-control tool in any design.
+
+Design J (Spiritual Debt): 20% lifesteal at zero debt (L5) in extended fights
+  (10 hits for 10 avg): 20 HP recovered per 10 hits. vs player HP=130: modest.
+  But in a full floor of 8 enemies (80 hits dealt): 160 HP recovered — more than
+  max HP. Makes the player nearly unkillable in zero-debt state but fragile while
+  in debt. The oscillation between states is the core balance.
+
+Design K (Bane): OVERLOAD at BKS*5 = 60 no-defense at BKS=12. Requires 5 distinct
+  debuff types. A dedicated multi-system build can assemble: slow + fear + stun
+  + bleeding + soul_tax = 5 types. On floor 4 boss with 80 HP: OVERLOAD + refreshed
+  debuffs + L4 echo hit = plausible one-turn death combo. Very powerful if the
+  player has invested widely in multiple skill trees.
+
+Design L (Numbers Game): 3-charge traps PER FLOOR with 50% refund at BKS=10 (L4):
+  expected 6 effective traps per floor. Spirit Grid power-up doubles snare to
+  8-turn stun. An 8-turn stun on a boss-tier enemy is extremely powerful in a
+  system where most CC lasts 2-5 turns. Balanced by trap placement investment
+  and corridor-specificity.
+
+================================================================================
+XP VALUES SUMMARY (for all C–L designs)
+================================================================================
+
+Consistent with existing XP framework:
+  Standard curse application:  +15 XP per successful landing
+  Passive proc/trigger:        +10 XP per proc
+  Combo/chain achievement:     +25-50 XP bonus
+  Kill while cursed:           +10 bonus on top of standard kill XP
+  Notable exceptions:
+    Design C Hexburst:         +25 per doom_stack consumed (patience reward)
+    Design K OVERLOAD:         +50 (max single-event XP — significant combo)
+    Design I bloom spread:     +15 per enemy hit (each counts as new curse)
+
+================================================================================
+END OF DOCUMENT
+================================================================================

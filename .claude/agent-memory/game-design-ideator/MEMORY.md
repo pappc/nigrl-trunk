@@ -153,16 +153,10 @@ Both zones: fitted_cap, durag, knit_beanie, bike_helmet.
 
 ## Gun Skill Trees
 
-5 total trees designed. Full notes in:
-  `.claude/agent-memory/game-design-ideator/gun-trees.md`
-  Design docs: `nigrl-ideas/skill-gun-trees.txt`, `nigrl-ideas/skill-gun-firing-modes.txt`
-
-Three standard trees (XP: gun damage dealt): Gang Violence, Trigger Discipline,
-  Corner Store Hustler.
-Two firing-mode trees: Mag Rat (FAST specialist), Dead Eye (ACCURATE specialist).
-Prerequisite: gun_entity.fire_mode: str ("accurate"|"fast"). Toggle = free action.
-Mixed perk effect dict (stat keys + "ability" key in same dict) is valid — engine
-  must handle it. Munching L1 already does this as precedent.
+5 total trees. Full notes: `gun-trees.md`. Docs: skill-gun-trees.txt, skill-gun-firing-modes.txt
+Standard: Gang Violence, Trigger Discipline, Corner Store Hustler (XP: gun damage dealt).
+Firing-mode: Mag Rat (FAST), Dead Eye (ACCURATE). Toggle = free action.
+Mixed perk effect dicts (stat + ability keys) valid — Munching L1 is the precedent.
 
 ## Stat-Scaling Strains
 
@@ -183,47 +177,36 @@ See individual topic files in `.claude/agent-memory/game-design-ideator/` for de
   spell-compendium-index.md — ability index; nigrl-ideas/spell_compendium.txt + spell_compendium_classics.txt
   meth-lab-drinks.md    — 10 new Meth Lab drinks (2026-03-15); nigrl-ideas/item-meth-lab-drinks.txt
   colored-dranks.md     — 14 colored dranks (2026-03-15); nigrl-ideas/item-colored-dranks.txt
+  elemental-compendium.md — 48 abilities, 9 element schools; nigrl-ideas/spell_compendium_elemental.txt
+  (spell_compendium_weird.txt — 34 abilities, WEIRD/BUSTED/RISKY section)
 
-Key design rules carried across all Meth Lab content:
-  - No persistent per-run engine state in swagger strain designs (use effect hooks + charges)
-  - Tox as offensive resource (strains-v2 paradigm)
-  - AOE gun fire: ceil(num_shots/2) max hits per target (universal rule)
-  spell_compendium_weird.txt       — 34 abilities, Sections W-A through W-L (WEIRD/BUSTED/RISKY)
-  spell_compendium_elemental.txt   — 48 abilities, 9 element schools + cross-element system (2026-03-15)
+Key Meth Lab design rules: no persistent per-run engine state in swagger strains; tox as
+  offensive resource; AOE gun fire ceil(num_shots/2) max hits per target.
 
-## Elemental Compendium — Key Facts
+## Arachnigga Skill (2026-03-22)
+See topic file: `arachnigga-skill.md` — 5 tree proposals, cobweb/venom mechanic.
 
-Design doc: `nigrl-ideas/spell_compendium_elemental.txt`
-48 abilities across 9 schools (4 per school) + 3 cross-element meta-spells.
-Primary stat: Book-Smarts (floor(BKS/4) bonus damage standard).
-Secondary stats: STR (earth/wind/physical), SWG (holy/light), TOL (frost/tank), CON (earth/tank).
+## Blackkk Magic Skill Trees (2026-03-22)
+See topic file: `blackkk-magic-trees.md`; V2 doc: `nigrl-ideas/blackkk-magic-skill-designs-v2.txt`
+10 designs: Doom Clock, Haunt, Impending Doom, Punishment, Temporal Chains, Voodoo Doll,
+  Profane Bloom, Spiritual Debt, Bane, The Numbers Game. XP: land=15, proc=10, combo=25-50.
 
-EXISTING effects used: ignite, chill, shocked, wet, slow, stun, confuse, dot, fear.
-NEW effects introduced (16 total): frozen, arcane_mark, earthbound, shadowed, luminous,
-  poisoned, plagued, windswept, phoenix_coat, faraday_cage, stone_skin, sacred_ground,
-  kinetic_shield, tailwind, catalyst, acid_corroded.
-NEW entity fields: entity.brittle (bool), entity.shadowed (bool).
-NEW engine fields: force_walls dict, toxic_clouds dict, hurricane state, sacred_tile,
-  player_faraday bool, stone_skin_active bool, elements_used set, pending_rockslide dict,
-  weather_report_active bool.
+## Graffiti Skill Tree (2026-03-22)
+See topic file: `graffiti-skill.md`; design doc: `nigrl-ideas/graffiti-skill-designs.txt`
+L1-L5 (Tag→Throw-Up→Burner→Chrome→Bombing Run). Effects: tagged/tagged_chrome, home_ground, etc.
 
-Element combo system: conditions (Wet, Burning, Chill, Shocked, Frozen, Poisoned, Earthbound,
-  Arcane Mark, Luminous, Shadowed, Windswept) interact when secondary element hits a conditioned
-  target. Full combo chart in the design doc.
+## Spray Paint Items (2026-03-23) — `nigrl-ideas/spray-paint-designs.txt`
+5 paints. New field: player_stats.tile_armor_bonus. Full details in doc.
+## Branching Skill Tree (2026-03-23) — `nigrl-ideas/mechanic-branching-skill-trees.txt`
+BTD6-inspired L4 split. Trunk L1-3; MAIN branch (all tiers) + DIP branch (T1 only).
 
-Key combo pairs:
-  Wet + Lightning → SURGE (double dmg, +2 shocked stacks, strips Wet)
-  Wet + Ice       → quick FREEZE (half-duration frozen)
-  Burning + Ice   → QUENCH (strip ignite, +3 cold bonus dmg)
-  Frozen + Phys   → SHATTER (consume brittle, +50% damage)
-  Luminous + Holy → SMITE doubled (see Smite E-H-04)
-  Shadow + Holy   → PURGE (strip shadowed, +8 damage)
-  Poisoned + Fire → BOIL (2x poison tick rate for 3 turns)
-  Windswept + Fire→ INFERNO (+3 ignite stacks — hurricane fans flames)
+## Spider Infestation Event (2026-03-23)
+See topic file: `spider-event.md`. Docs: `nigrl-ideas/spider-enemy-roster.txt`, `black-widow-boss-designs.txt`
 
-Suggested Blackkk Magic tree direction: multi-element arcane caster.
-  L1: element choice (one of 6 low-tier spells)
-  L2: Arcane Bolt + Life Tap (universal)
-  L3: mid-tier element + Elemental Catalyst
-  L4: Kinetic Shield + Faraday Cage + specialism
-  L5: high-tier element capstone + Prism Strike if 4+ elements used
+## Stealing L4 Concepts (2026-03-24) — `nigrl-ideas/skill-stealing-L4-concepts.txt`
+6 proposals. Top pick: Sleight of Hand (passive Pickpocket upgrade — distracted miss on proc).
+Others: Booster Bag (activated item-strip ability), Five-Finger Discount (pickup cash bonus),
+  Fence It (cash back on item USE), Hustle Economy (+3 STS stat perk + 75% XP rate),
+  Smash and Grab (PER_FLOOR room-vacuum + forced enemy aggro).
+New effect needed if Sleight of Hand chosen: "distracted" (consumed-on-melee-attempt, 1 proc).
+New field if Hustle Economy chosen: player_stats.stealing_xp_bonus (float, 0.0 default).

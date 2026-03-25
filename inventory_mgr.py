@@ -167,26 +167,15 @@ def _handle_item_menu_input(engine, action):
         engine.selected_item_index = None
         return False
 
-    # Up/Down — scroll through valid inventory items (those with a use_verb)
+    # Up/Down — move cursor through action list
     if action_type == "move":
         dy = action.get("dy", 0)
         if dy != 0:
-            valid_indices = [
-                i for i, it in enumerate(engine.player.inventory)
-                if it.item_id and get_item_def(it.item_id) and get_item_def(it.item_id).get("use_verb")
-            ]
-            if len(valid_indices) > 1 and engine.selected_item_index in valid_indices:
-                cur_pos = valid_indices.index(engine.selected_item_index)
-                new_idx = valid_indices[(cur_pos + dy) % len(valid_indices)]
-                _open_item_menu(engine, new_idx)
-                # Position cursor on the use_verb row
-                new_verb = get_item_def(engine.player.inventory[new_idx].item_id).get("use_verb")
-                if new_verb in engine.selected_item_actions:
-                    engine.item_menu_cursor = engine.selected_item_actions.index(new_verb)
+            engine.item_menu_cursor = (engine.item_menu_cursor + dy) % len(actions)
         return False
 
-    # Enter — execute action at cursor
-    if action_type == "confirm_target":
+    # Enter or Spacebar — execute action at cursor
+    if action_type in ("confirm_target", "item_use"):
         return _execute_item_action(engine, actions[engine.item_menu_cursor])
 
     # Number keys — still work as direct selection
@@ -194,15 +183,6 @@ def _handle_item_menu_input(engine, action):
         idx = action["index"]
         if 0 <= idx < len(actions):
             return _execute_item_action(engine, actions[idx])
-        return False
-
-    # Spacebar — execute the use verb / "Use on..." / Equip (first actionable verb)
-    if action_type == "item_use":
-        use_verb = defn.get("use_verb")
-        throw_verb = defn.get("throw_verb")
-        for act in actions:
-            if act == use_verb or act == throw_verb or act == "Use on..." or act == "Equip":
-                return _execute_item_action(engine, act)
         return False
 
     # E — examine
@@ -252,7 +232,7 @@ def _execute_item_action(engine, action_name):
     elif action_name == defn.get("use_verb"):
         engine._red_drank_free_action = False
         _use_item(engine, engine.selected_item_index)
-        if engine.menu_state not in (MenuState.TARGETING, MenuState.COMBINE_SELECT):
+        if engine.menu_state not in (MenuState.TARGETING, MenuState.COMBINE_SELECT, MenuState.ADJACENT_TILE_TARGETING):
             engine.selected_item_index = None
             engine.menu_state = MenuState.NONE
         if engine._red_drank_free_action:
@@ -948,6 +928,84 @@ def _use_item(engine, index):
         ])
         return
 
+    elif effect_type == "spray_paint":
+        # Check charges
+        if getattr(item, "charges", 0) <= 0:
+            engine.messages.append([
+                (item.name, item.color), (" is empty!", (200, 100, 100)),
+            ])
+            return
+        from menu_state import MenuState
+        engine.spray_paint_pending = {
+            "item_index": index,
+            "spray_type": effect.get("spray_type", "red"),
+        }
+        engine.menu_state = MenuState.ADJACENT_TILE_TARGETING
+        engine.messages.append([
+            (f"{item.name}: ", item.color),
+            ("choose a direction (arrow keys / numpad). [Esc] cancel.", (200, 200, 200)),
+        ])
+        return
+
+    elif effect_type == "spawn_spider_hatchling":
+        import random as _rand
+        from entity import Entity
+        from ai import get_initial_state
+        px, py = engine.player.x, engine.player.y
+        dungeon = engine.dungeon
+
+        # Find one free adjacent tile
+        dirs = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]
+        _rand.shuffle(dirs)
+        spawn_tile = None
+        for dx, dy in dirs:
+            tx, ty = px + dx, py + dy
+            if not dungeon.is_blocked(tx, ty):
+                spawn_tile = (tx, ty)
+                break
+
+        if spawn_tile is None:
+            engine.messages.append("There's no room to hatch the egg!")
+            return  # item NOT consumed
+
+        sx, sy = spawn_tile
+        spider = Entity(
+            x=sx, y=sy,
+            char=chr(0xE004),
+            color=(255, 255, 255),
+            name="Spider Hatchling",
+            entity_type="monster",
+            hp=10,
+            power=2,
+            defense=0,
+            ai_type="spider_hatchling",
+            speed=100,
+            is_summon=True,
+            summon_lifetime=0,
+        )
+        spider.ai_state = get_initial_state("spider_hatchling")
+        dungeon.add_entity(spider)
+        engine.messages.append([
+            ("A Spider Hatchling emerges from the egg!", (100, 180, 80)),
+        ])
+        # Grant Arachnigga XP for hatching
+        _arachni_xp = round(50 * engine.player_stats.xp_multiplier)
+        _arachni_skill = engine.skills.get("Arachnigga")
+        _arachni_was_locked = _arachni_skill.potential_exp == 0 and _arachni_skill.real_exp == 0 and _arachni_skill.level == 0
+        engine.skills.gain_potential_exp(
+            "Arachnigga", _arachni_xp,
+            engine.player_stats.effective_book_smarts,
+            briskness=engine.player_stats.total_briskness
+        )
+        if _arachni_was_locked:
+            engine.messages.append([
+                (f"[NEW SKILL UNLOCKED] Arachnigga!", (255, 215, 0)),
+            ])
+        engine.messages.append([
+            ("Arachnigga skill: +", (100, 200, 150)),
+            (f"{_arachni_xp} XP", (255, 255, 100)),
+        ])
+
     # Skill XP
     skill_xp = effect.get("skill_xp")
     if skill_xp:
@@ -1034,6 +1092,7 @@ def _use_food(engine, item, food_id):
     # Prepend prefix adjective to displayed food name and inject prefix effects
     item_prefix = getattr(item, "prefix", None)
     greasy_stacks_per_charge = getattr(item, "greasy_stacks_per_charge", 0)
+    is_fried = item_prefix in ("greasy",)
     if item_prefix:
         pdef = get_food_prefix_def(item_prefix)
         adj = pdef["display_adjective"] if pdef else item_prefix.title()
@@ -1063,6 +1122,7 @@ def _use_food(engine, item, food_id):
             food_effects=food_effects,
             well_fed_effect_name=well_fed_effect_name,
             greasy_stacks_per_charge=greasy_stacks_per_charge,
+            is_fried=is_fried,
         )
         eating.expire(engine.player, engine)
         return
@@ -1081,6 +1141,7 @@ def _use_food(engine, item, food_id):
         food_effects=food_effects,
         well_fed_effect_name=well_fed_effect_name,
         greasy_stacks_per_charge=greasy_stacks_per_charge,
+        is_fried=is_fried,
         silent=True
     )
 
@@ -1160,7 +1221,8 @@ def _handle_deep_fryer_input(engine, action):
 def _destroy_item(engine, index):
     item = engine.player.inventory[index]
     qty = getattr(item, "quantity", 1)
-    engine._gain_item_skill_xp("Dismantling", item.item_id)
+    for _ in range(qty):
+        engine._gain_item_skill_xp("Dismantling", item.item_id, silent=(_ > 0))
     engine.destroyed_items.append({"name": item.name, "quantity": qty})
     engine.player.inventory.pop(index)
     engine.messages.append([
@@ -1491,8 +1553,6 @@ def _try_combine(engine, index_a, index_b):
             if item.charges <= 0:
                 engine.player.inventory.remove(item)
                 engine.messages.append("Pack of Cones is empty!")
-            else:
-                item.name = f"Pack of Cones ({item.charges})"
             break
 
     # Try to merge result into an existing stack (skip charged items — each is unique)
@@ -1515,8 +1575,8 @@ def _try_combine(engine, index_a, index_b):
             if result_strain and result_id in ("joint", "kush"):
                 is_grinding = result_id == "kush"
                 engine._gain_rolling_xp(result_strain, is_grinding=is_grinding)
-            # Seeing Double (Rolling level 2): 50% chance to roll an extra joint
-            if result_id == "joint" and engine.skills.get("Rolling").level >= 2:
+            # Seeing Double (Rolling level 3): 50% chance to roll an extra joint
+            if result_id == "joint" and engine.skills.get("Rolling").level >= 3:
                 if random.random() < 0.5:
                     _add_item_to_inventory(engine, "joint", strain=result_strain)
                     engine.messages.append([
@@ -1549,8 +1609,8 @@ def _try_combine(engine, index_a, index_b):
     if result_strain and result_id in ("joint", "kush"):
         is_grinding = result_id == "kush"
         engine._gain_rolling_xp(result_strain, is_grinding=is_grinding)
-    # Seeing Double (Rolling level 2): 50% chance to roll an extra joint
-    if result_id == "joint" and engine.skills.get("Rolling").level >= 2:
+    # Seeing Double (Rolling level 3): 50% chance to roll an extra joint
+    if result_id == "joint" and engine.skills.get("Rolling").level >= 3:
         if random.random() < 0.5:
             _add_item_to_inventory(engine, "joint", strain=result_strain)
             engine.messages.append([

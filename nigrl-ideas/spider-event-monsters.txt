@@ -1,0 +1,790 @@
+NIGRL — "Infested with Spiders" Floor Event: Enemy Designs
+===========================================================
+Date: 2026-03-23
+Zone: Crack Den (zone_floors 1-2, i.e. floors 2-3 of the Crack Den)
+Event ID: spider_infestation (config.py FLOOR_EVENT_REGISTRY)
+
+This document designs 5 hostile spider enemy types for the spider_infestation
+floor event. The event triggers on zone_floor 1 or 2 (config.py
+ZONE_FLOOR_EVENTS eligible_floors=[1,2]).
+
+When the event fires, the floor should feel distinctly different: more web
+hazards scattered across rooms (particularly in corners and doorways), higher
+spider density, and a different threat profile than the usual crack den rabble.
+The spider enemies replace a significant portion of the normal spawn table for
+that floor — not ALL enemies, but enough that the player walks in and
+immediately thinks "oh. oh no."
+
+These spiders are urban pests with street-level personality. Brown recluses in
+the walls. Roach-adjacent infestation vibes. Not magical or demonic — just big,
+fast, and very much not pleased to see you.
+
+Spider event spawn table suggestion (zone_floor 1 or 2 override):
+  pipe_spider:     25
+  sac_spider:      20
+  wolf_spider:     20
+  orb_weaver:      15
+  brood_mother:     8
+  (normal crack den enemies fill remaining ~12% so the floor isn't sterile)
+
+Recommended web density: 8-14 cobweb hazards scattered at the start of the
+floor (placed during spawn phase, preferably in room corners, doorways, and
+along corridors). This is more than the player would normally encounter from
+the Arachnigga skill alone.
+
+Note on the graphical tile: 0xE004 is the lavender Spider Hatchling tile used
+for the allied summon. These hostile spiders use ASCII characters to remain
+visually distinct from the friendly summon. The WEB_CODEPOINT tile (0xE003)
+still renders cobweb hazards normally.
+
+===========================================================================
+SPIDER 1 — PIPE SPIDER
+===========================================================================
+
+Registry key: pipe_spider
+Street concept: The common apartment spider. Every crackhead has seen one in
+the pipes — that big brown one with legs. Usually harmless. Usually.
+These ones aren't.
+
+--- ASCII & Visual ---
+char: 's'   (lowercase, fast and small)
+color: (160, 120, 80)   -- muddy brown, pipe-rust colored
+
+--- Stats ---
+constitution:  (1, 2)
+strength:      (2, 3)
+street_smarts: (0, 0)
+book_smarts:   (1, 1)
+tolerance:     (2, 3)
+swagger:       (1, 2)
+base_hp:        2
+base_damage:   (1, 2)   -- very light hits; damage is from venom accumulation
+defense:        0
+dodge_chance:  15        -- quick, hard to swat
+
+Computed HP range:    base_hp(2) + con(1-2)*5 = 7-12 HP
+Computed power range: base_damage(1-2) + str(2-3) = 3-5 (before zone 0.5x)
+Effective damage:     1-2 per hit after zone multiplier (venom does the real work)
+
+--- Spawn ---
+spawn_min: 1
+spawn_max: 4      -- these come in numbers; a room with 4 is genuinely scary
+spawn_with: []    -- pure numbers; no escorts
+
+--- AI ---
+ai: WANDER_AMBUSH
+sight_radius: 4   -- not great at spotting, but once it sees you it's locked on
+speed: 130        -- noticeably faster than the player (100 baseline)
+
+--- Special Attacks ---
+None. Simple, predictable biter. What makes it dangerous is the venom.
+
+--- On-Hit Effects ---
+  OnHitEffect(
+      name="Pipe Venom",
+      kind=EffectKind.DOT,
+      amount=2,
+      duration=6,
+      chance=0.60,
+  )
+
+Note: Use the existing venom effect ID for Arachnigga XP hooks. The venom
+stacks — three Pipe Spiders biting in quick succession means 6 stacks
+worth of DOT, which is 6 damage/turn. With 4 in a group and a slow player
+in the middle, this gets lethal fast even at low individual power.
+
+--- Behavioral Description ---
+The Pipe Spider is the swarm unit. Individually it's a nuisance — 1-2
+effective damage per hit with a venom proc. Four of them chewing on you
+simultaneously is an emergency. They wander passively until you enter sight,
+then sprint. Their higher speed (130) means they catch up even if you try to
+kite. Because they have no special attacks, no special AI tricks, and low HP,
+a player who is ready for them can clean one up in two hits. A player who
+rounds a corner into four of them and gets three venom stacks per turn learns
+an important lesson about the Crack Den.
+
+--- Tactical Identity ---
+The swarmer / venom accumulator. Forces the player to prioritize targets and
+manage DOT before it spirals. If the player has Munching skill (food buffs)
+or anti-venom items, this fight is manageable. If not, it's a race against
+the clock. Arachnigga players can web one to split the group — fighting 3
+instead of 4 is a meaningful difference. The 15% dodge also makes hitting
+them slightly frustrating, adding to the "trying to swat a spider" feeling.
+
+--- Interesting to Fight Because ---
+The dopamine of swatting them is high — they die in 2-3 hits. But the
+pressure of a group applying venom faster than you can heal creates genuine
+tension. Players with Stabbing+Windfury can clear them efficiently (extra
+hit proc helps), rewarding build investment. Players without burst damage
+options have to think about what order to kill them.
+
+--- Arachnigga Interaction ---
+Each kill grants spider XP. Killing 4 in a room is a meaningful XP spike
+for Arachnigga investment. Web immunity (L1) turns the entire event from
+danger into opportunity — you can lay webs to split the swarm, then pick
+them off safely. Without L1 immunity, the cobweb hazards on this floor can
+trap YOU while they close in, which is the floor event doing its job.
+
+--- cash_drop: (0, 1)   -- spiders don't carry cash, this is flavor ---
+--- death_drop_chance: 0.0 ---
+
+===========================================================================
+SPIDER 2 — SAC SPIDER
+===========================================================================
+
+Registry key: sac_spider
+Street concept: Sac spiders make silk sacs instead of webs — they hide in
+corners in a little sleeping bag of silk. This one has been here long enough
+to silk up half a room before you walked in. It's very territorial about it.
+
+--- ASCII & Visual ---
+char: 'S'   (uppercase — medium threat, more substantial than the pipe spider)
+color: (200, 200, 160)   -- pale yellowish-white, the color of old silk
+
+--- Stats ---
+constitution:  (2, 4)
+strength:      (3, 5)
+street_smarts: (2, 3)    -- not dumb; will use the webs it's already placed
+book_smarts:   (1, 2)
+tolerance:     (2, 3)
+swagger:       (2, 4)
+base_hp:        4
+base_damage:   (2, 3)    -- meaningful damage compared to pipe spider
+defense:        1        -- silk wrapping around its body, minimal armor
+
+Computed HP range:    base_hp(4) + con(2-4)*5 = 14-24 HP
+Computed power range: base_damage(2-3) + str(3-5) = 5-8 (before zone 0.5x)
+Effective damage:     2-4 per hit after zone multiplier
+Crit chance:          6-9% (from street_smarts 2-3)
+
+--- Spawn ---
+spawn_min: 1
+spawn_max: 2
+spawn_with: []   -- the environment does its own work via pre-placed webs
+
+--- AI ---
+ai: ROOM_GUARD    -- territorial; does not chase you into the next room
+sight_radius: 5
+speed: 110        -- slightly faster than player
+
+--- Special Attacks ---
+  SpecialAttack(
+      name="Silk Shot",
+      chance=0.25,
+      damage_mult=0.5,   -- half damage, the point is the web effect
+      on_hit_effect=OnHitEffect(
+          name="Webbed",
+          kind=EffectKind.STUN,   -- currently STUN; see New Effects section below
+          amount=0,
+          duration=3,
+      ),
+  )
+
+Implementation note: Silk Shot should apply the "web_stuck" effect (from
+effects.py WebStuckEffect) rather than a standard STUN, so it uses the same
+50% escape-attempt logic as a floor cobweb. This makes the Sac Spider the
+only enemy that can directly apply the web_stuck status mid-combat, turning
+the fight into exactly the situation the Arachnigga player trained for.
+EffectKind may need a WEB_SHOT entry, OR the special attack can use a STUN
+with duration=2 as a simpler approximation until web_stuck is promotable
+to an OnHitEffect kind. Flag this for the developer to decide.
+
+--- On-Hit Effects ---
+  OnHitEffect(
+      name="Silk Slick",
+      kind=EffectKind.DOT,
+      amount=1,
+      duration=4,
+      chance=0.35,
+  )
+
+Minimal bleed-style DOT. The Sac Spider is not a venom spider — its danger
+is positional and CC-based, not DOT accumulation.
+
+--- Behavioral Description ---
+The Sac Spider is the room controller. It guards its space like a Fat Gooner
+guards his section of the strip club. It doesn't chase you. It doesn't need
+to — it's surrounded by cobweb hazards that were placed at floor gen time,
+and if you step into its room you're probably going to walk through a web on
+your way in. Once you're stuck, it has time for a slow deliberate attack.
+The ROOM_GUARD AI means it won't follow you into a hallway if you run. This
+is intentional — the fight should feel like "invading its space" rather than
+"being hunted."
+
+The Silk Shot has a 25% chance on any given attack. In a 5-attack fight,
+that's ~76% chance to fire at least once. When it hits, the player is web-
+stuck for 3 turns of escape attempts, during which the Sac Spider gets free
+hits. This is a hard lesson if you blunder in without checking sight lines.
+
+--- Tactical Identity ---
+The ambush/punisher. Controls the room. Rewards careful approach: enter from
+a side that dodges the pre-placed webs, attack from range (using items or
+spells) to bait it out of the web-dense area, or use Arachnigga web_snare to
+lock IT down before it locks you down. The room_guard AI actually makes it
+more dangerous, not less — you HAVE to deal with it to clear the room, and
+you can't lure it somewhere safe.
+
+--- Interesting to Fight Because ---
+The asymmetry of CC. This spider can web you; webs are already in the room.
+You have to choose: rush it before it can shoot silk, or try to navigate
+around webs to get a clean angle. Getting webbed AND taking Silk Slick DOT
+while you spend 2-3 turns trying to escape is the intended bad outcome that
+careful play avoids. For Arachnigga players, countering a web with YOUR OWN
+web on the sac spider feels satisfying.
+
+--- cash_drop: (0, 2) ---
+--- death_drop_chance: 0.0 ---
+
+===========================================================================
+SPIDER 3 — WOLF SPIDER
+===========================================================================
+
+Registry key: wolf_spider
+Street concept: The wolf spider doesn't make webs. It HUNTS. Fast, aggressive,
+no patience. It has the energy of a crackhead who just did something that
+wasn't crack. Named after the wolf — it stalks, it runs, it goes for the
+throat.
+
+--- ASCII & Visual ---
+char: 'w'
+color: (120, 80, 50)   -- dark earthy brown, a hunting animal's camouflage
+
+--- Stats ---
+constitution:  (3, 5)
+strength:      (5, 8)    -- legitimate damage dealer
+street_smarts: (3, 5)    -- crit chance 9-15%; it finds weak spots
+book_smarts:   (1, 2)
+tolerance:     (3, 5)
+swagger:       (3, 5)
+base_hp:        5
+base_damage:   (2, 4)    -- base hits hard before stat scaling
+defense:        0
+dodge_chance:  20        -- very hard to hit; dodges like it runs
+
+Computed HP range:    base_hp(5) + con(3-5)*5 = 20-30 HP
+Computed power range: base_damage(2-4) + str(5-8) = 7-12 (before zone 0.5x)
+Effective damage:     3-6 per hit after zone multiplier — comparable to a Thug
+Crit chance:          9-15% from street_smarts
+
+--- Spawn ---
+spawn_min: 1
+spawn_max: 2
+spawn_with: []
+
+--- AI ---
+ai: WANDER_AMBUSH
+sight_radius: 7     -- wider detection range; it FINDS you
+speed: 140          -- fastest enemy on the event floor; 40% faster than player
+
+--- Special Attacks ---
+  SpecialAttack(
+      name="Pounce",
+      chance=0.30,
+      damage_mult=1.5,    -- 50% bonus damage
+      on_hit_effect=None, -- no status; the damage IS the statement
+  )
+
+--- On-Hit Effects ---
+None. The Wolf Spider is a pure damage dealer. No venom, no web. It's a mugging.
+
+--- Behavioral Description ---
+The Wolf Spider is the monster that makes you turn around and run. Speed 140
+means it gains 40 more energy per tick than the player. In practice, it acts
+significantly more often. It hunts with a wide sight radius, closes the gap
+fast, and then hits hard with a Pounce that deals 1.5x damage about 30% of
+the time. No special tricks, no CC. Just pure predator pressure.
+
+The 20% dodge chance means roughly 1 in 5 of your attacks whiffs. Against
+an enemy with 20-30 HP, missing attacks extends the fight by a turn or two.
+Those are extra turns it gets to hit you. The math is mean. This is designed
+to feel like fighting something that's just physically better at this than
+you are.
+
+It's a floor 2-3 enemy. Players at this point have meaningful stats and some
+items. The Wolf Spider is calibrated to threaten, not instakill. A well-geared
+player beats it in 4-5 attacks. A player who walked in wounded, or who has two
+more behind it, is in trouble.
+
+--- Tactical Identity ---
+The pressure/assassin unit. Forces the player to think about spacing and HP
+pools. It can't be kited (too fast). It can't be CC'd reliably (it doesn't
+have an on-hit effect to punish, and stunning it just delays). The correct
+answers are: fight it when healthy, or use something fast (Niglet's speed
+boost items, a speed-boosted weapon hit, Windfury proc) to burst it before
+it gets too many actions.
+
+--- Interesting to Fight Because ---
+Speed differential creates genuine urgency. This spider is the event's
+"oh this is actually threatening" moment. Pipe Spiders are annoying. Sac
+Spiders are tricky. Wolf Spiders are actually dangerous. Getting caught by
+two of them at the same time is a permadeath scenario for underprepared
+players, which is appropriate for a mid-game floor event.
+
+--- Arachnigga Interaction ---
+Web snare on a Wolf Spider is a high-value play — stopping it from acting
+repeatedly changes the fight from desperate to controlled. This is the enemy
+that makes the Arachnigga player feel the investment was worth it. Without
+webs, the player needs high damage output or good healing to survive
+sustained wolf spider pressure.
+
+--- cash_drop: (1, 4)   -- slightly more; it had something in its mandibles ---
+--- death_drop_chance: 0.0 ---
+
+===========================================================================
+SPIDER 4 — ORB WEAVER
+===========================================================================
+
+Registry key: orb_weaver
+Street concept: Big circular web across a whole corner of the room. You've
+seen them on Halloween decorations. This one is large, has been here for
+months, and is not decorative.
+
+--- ASCII & Visual ---
+char: 'O'
+color: (180, 140, 200)   -- faint purple-grey; plump abdomen, slightly lavender
+                          -- color nod to the spider hatchling tile without
+                          -- using the graphical tile (which is player-aligned)
+
+--- Stats ---
+constitution:  (2, 4)
+strength:      (2, 4)
+street_smarts: (1, 2)
+book_smarts:   (2, 4)
+tolerance:     (3, 5)
+swagger:       (1, 3)
+base_hp:        6
+base_damage:   (1, 2)    -- physically weak; relies on web and venom
+defense:        0
+dodge_chance:   5
+
+Computed HP range:    base_hp(6) + con(2-4)*5 = 16-26 HP
+Computed power range: base_damage(1-2) + str(2-4) = 3-6 (before zone 0.5x)
+Effective damage:     1-3 per hit — below average melee
+
+--- Spawn ---
+spawn_min: 1
+spawn_max: 1   -- always solo; the web is its room
+spawn_with: [] -- BUT see note on web hazard seeding below
+
+--- AI ---
+ai: STATIONARY_GUARD   -- does not move; sits in its web and waits
+sight_radius: 6
+speed: 90              -- slower than player; it's built for ambush, not chase
+
+--- Special Attacks ---
+  SpecialAttack(
+      name="Web Wrap",
+      chance=0.40,
+      damage_mult=0.3,   -- barely a tap; this is almost entirely the CC
+      on_hit_effect=OnHitEffect(
+          name="Wrapped",
+          kind=EffectKind.STUN,
+          amount=0,
+          duration=2,
+      ),
+  )
+  SpecialAttack(
+      name="Venom Bite",
+      chance=0.30,
+      damage_mult=1.2,
+      on_hit_effect=OnHitEffect(
+          name="Orb Venom",
+          kind=EffectKind.DOT,
+          amount=3,
+          duration=5,
+          chance=1.0,
+      ),
+  )
+
+Implementation note on special attack ordering: the engine checks special
+attacks in list order, firing the first one that succeeds. Web Wrap (40%)
+is checked first, then Venom Bite (30%). Combined probability of some
+special attack firing: ~58% per turn. This means roughly every other hit,
+it's doing something nasty. If Web Wrap fires, the player is stunned 2 turns.
+Venom Bite applies 3 DOT per turn for 5 turns (15 total uncapped by zone
+mult because venom bypasses the zone damage multiplier — confirm with
+developer whether status DOT is zone-multiplied).
+
+--- On-Hit Effects ---
+  OnHitEffect(
+      name="Silk Tangle",
+      kind=EffectKind.DOT,
+      amount=1,
+      duration=3,
+      chance=0.25,
+  )
+
+Even the basic attack leaves a small amount of silk irritant. 1 DOT for 3t.
+
+--- Behavioral Description ---
+The Orb Weaver sits completely still. It has a territory — a room full of
+pre-placed cobwebs — and it waits there. STATIONARY_GUARD means it moves
+during the IDLE phase toward its spawn room and then... stops. If you enter
+its room, you are in its web. It can't chase you if you run, which is what
+separates it from the Wolf Spider.
+
+What makes it threatening is the combination of Web Wrap stun and Venom Bite.
+A 2-turn stun while standing in its web cluster means you spend those 2 turns
+doing nothing while it attacks you again. If the room was pre-webbed (which
+the event guarantees: Orb Weaver rooms should have 3-5 cobwebs scattered
+around the room at gen time), the player may have walked through a web to
+reach it. Now they're web-stuck, THEN stunned, THEN venomed. This combo is
+the event's "oh you thought the room was safe" moment.
+
+Its low speed (90) and stationary behavior mean it's trivial to fight IF you
+approach carefully, kill it from range, or burn through it fast enough that
+the 58% special-attack rate never fires more than once. But players who walk
+into the room without a plan and start button-mashing get the full combo.
+
+--- Tactical Identity ---
+The trap spider. Rewards patience and preparation. Punishes rushing.
+There is always a clean approach available: use a LOS ability from the
+doorway, throw an item, cast a spell. The Orb Weaver is designed to be
+solvable before you ever enter melee range. Players who solve it that way
+feel clever. Players who walk in without thinking encounter the web/stun/
+venom trifecta.
+
+--- Web Hazard Seeding (Implementation Note) ---
+At floor generation, when an Orb Weaver is spawned, place 3-5 cobweb
+entities (create_web from hazards.py) within a 3-tile radius of its spawn
+point. This recreates the "central web" concept. Use the same logic as
+existing web spawning in engine.py but executed during dungeon spawn_entities
+for the event floor. The Orb Weaver itself is immune to its own webs
+(similar to how spider_hatchling is marked immune in engine.py line 1005 —
+add a check: if entity has enemy_type == "orb_weaver", skip web_stuck
+application).
+
+--- Interesting to Fight Because ---
+It's a puzzle, not a brawl. Do you walk in? Or do you find a clever angle?
+The correct answer changes based on your build. Magic users have an easy time
+(SINGLE_ENEMY_LOS abilities don't require entering the room). Melee builds
+need to commit. This split makes the encounter feel different for different
+player types without being unfair to either.
+
+--- cash_drop: (0, 3) ---
+--- death_drop_chance: 0.15 ---
+--- death_drop_table: ["kush"]  -- silky, you know ---
+
+===========================================================================
+SPIDER 5 — BROOD MOTHER
+===========================================================================
+
+Registry key: brood_mother
+Street concept: A HUGE spider. The kind that lives somewhere for a decade and
+gets fat. Named for what she does when she's dying — she doesn't go alone.
+
+--- ASCII & Visual ---
+char: 'M'   (uppercase — the biggest spider on the floor, rare and dangerous)
+color: (220, 80, 60)   -- deep rust red/orange; intimidating coloration that
+                        -- stands out from the muddy browns of the other spiders.
+                        -- Red = "look at me, I am a problem."
+
+--- Stats ---
+constitution:  (6, 9)
+strength:      (4, 6)
+street_smarts: (2, 4)
+book_smarts:   (2, 3)
+tolerance:     (5, 8)
+swagger:       (4, 6)
+base_hp:        10
+base_damage:   (2, 4)
+defense:        2       -- hard exoskeleton; not trivially deleted
+
+Computed HP range:    base_hp(10) + con(6-9)*5 = 40-55 HP — tankiest spider
+Computed power range: base_damage(2-4) + str(4-6) = 6-10 (before zone 0.5x)
+Effective damage:     3-5 per hit after zone multiplier — steady, dangerous
+Crit chance:          6-12%
+
+--- Spawn ---
+spawn_min: 1
+spawn_max: 1     -- only ever one Brood Mother per spawn event
+spawn_with:
+  SpawnEscort(type="pipe_spider", count=(2, 4))
+
+The Brood Mother always arrives with 2-4 Pipe Spiders. She's not a loner.
+She has her children with her. This escort creates an immediate triage
+decision: kill the small fast ones first to stop venom accumulation, or
+go for the Brood Mother to prevent the DEATH_SPLIT from spawning more?
+
+--- AI ---
+ai: WANDER_AMBUSH
+sight_radius: 8    -- excellent spatial awareness, fills the mother role
+speed: 90          -- slow and deliberate. She doesn't run. She doesn't need to.
+
+--- Special Attacks ---
+  SpecialAttack(
+      name="Venomous Bite",
+      chance=0.35,
+      damage_mult=1.3,
+      on_hit_effect=OnHitEffect(
+          name="Heavy Venom",
+          kind=EffectKind.DOT,
+          amount=4,
+          duration=8,
+          chance=1.0,
+      ),
+  )
+  SpecialAttack(
+      name="Silk Burst",
+      chance=0.20,
+      damage_mult=0.0,    -- no physical damage
+      on_hit_effect=OnHitEffect(
+          name="Mummified",
+          kind=EffectKind.STUN,
+          amount=0,
+          duration=3,
+      ),
+  )
+
+Venomous Bite (35%) applies 4 DOT for 8 turns = 32 total damage from one
+proc. That is a serious threat over time. The player needs to finish her
+before multiple venom procs stack.
+
+Silk Burst (20%) is a 0-damage hit that stuns for 3 turns. This is her
+"you're not going anywhere" move. When the children are still alive and she
+lands this, the player gets 3 free turns of getting hit by pipe spiders plus
+whatever she does on her next action.
+
+--- On-Hit Effects ---
+  OnHitEffect(
+      name="Venom",
+      kind=EffectKind.DOT,
+      amount=2,
+      duration=5,
+      chance=0.50,
+  )
+
+Even basic attacks have a 50% chance to apply 2-DOT venom for 5 turns. The
+venom stack mechanic (VenomEffect in effects.py) means her basic hits stack
+with Venomous Bite procs. Multiple venom sources accumulate.
+
+--- Death Split ---
+death_split_type:  "pipe_spider"
+death_split_count: 3
+
+On death, 3 Pipe Spiders spawn from her corpse. This is the moment.
+You killed the Brood Mother — congratulations, now there are 3 more spiders
+where she was standing, plus the ones that arrived with her escort that might
+still be alive. The room does not get quieter when she dies.
+
+The death split is the most important piece of her design. Players who try to
+kite her until she dies while dealing with the escorts discover that killing
+her spawns a new wave. Players who burst her down fast minimize the escort
+problem. The correct play is to kill her LAST after clearing escorts, so the
+split spiders don't stack with existing ones. Or burst her so fast that the
+split children spawn before the escorts are dead and the player has room to
+handle them.
+
+--- Behavioral Description ---
+The Brood Mother wanders slowly. She is not aggressive until you enter her
+sight — WANDER_AMBUSH means she's not actively hunting until she sees you.
+When she locks on, she advances steadily. Her low speed (90) means she's
+always slightly behind her children, who have already reached you. This
+creates a natural combat flow: children hit first, you're managing venom
+stacks, then she arrives and starts applying her own heavier venom.
+
+Her 2 defense means the player's first hits deal reduced damage. She is meant
+to feel tanky and threatening — not a health-sponge, but genuinely hard to
+take down quickly. Combined with the steady venom application and the stun
+threat, she creates a sustained combat scenario that tests resource management.
+
+--- Tactical Identity ---
+The boss encounter of the event. Each floor should have at most one or two
+Brood Mothers (the spawn weight of 8 vs 25 for pipe spiders reflects this).
+She is the named experience of the event floor — the reason the floor feels
+different. Killing her is an achievement. Seeing her for the first time at a
+bad moment is a potential run-ender.
+
+Her role in the event's ecosystem: she is the target. The event floor forces
+the player to navigate to a threat they can see coming (slow, large 'M' with
+an escort cluster). The question is whether they're in good enough shape when
+they reach her.
+
+--- Interesting to Fight Because ---
+The death split creates a genuine "oh come ON" moment that is actually fair
+once the player understands it. The children on death are smaller than the
+escort, and the player is usually better positioned after winning the fight.
+But the first time it happens, the surprise is real. The second time, the
+player manages it intentionally. This learning loop is good roguelike design.
+
+The Venomous Bite stacking with on-hit venom means the player is always
+racing against a DOT clock. The Stun means she can PAUSE that clock on
+your side while adding to hers. High stakes, meaningful counterplay.
+
+--- Arachnigga Interaction ---
+Killing the Brood Mother gives a substantial Arachnigga XP bonus from:
+  - escort kills (4x Pipe Spider kills en route)
+  - venom applications (multiple procs from her attacks)
+  - death split kills (3 more pipe spiders after)
+A single Brood Mother encounter can be worth 5-8 Arachnigga skill point
+events. This is the event's dedicated Arachnigga farming opportunity.
+
+--- cash_drop: (3, 10) ---
+--- death_drop_chance: 0.35 ---
+--- death_drop_table: ["kush", "benadryl"] ---
+(flavor note: benadryl is a stretch but fits — you definitely need it after this)
+
+===========================================================================
+FLOOR EVENT IMPLEMENTATION NOTES
+===========================================================================
+
+These notes are for the developer implementing the spider_infestation event.
+No code changes required from the game designer — these are handoff notes.
+
+--- How the event should modify the floor ---
+
+1. SPAWN TABLE OVERRIDE:
+   When floor_event == "spider_infestation", replace the normal crack_den
+   spawn table for that floor with the spider event spawn table defined at
+   the top of this document. Approximately 88% spiders, 12% normal enemies.
+   The simplest implementation: in dungeon.py or zone_generators.py, check
+   engine.get_floor_event(global_floor) before selecting the spawn table,
+   and substitute the spider table if "spider_infestation" is active.
+
+2. WEB HAZARD SEEDING:
+   Place 8-14 cobweb entities (hazards.create_web) during spawn_entities
+   for the event floor. Preferred placement:
+   - Room corners (2-4 webs spread across 3+ rooms)
+   - Doorway tiles (1-2 webs in narrow passages between rooms)
+   - Within 3-tile radius of Orb Weaver spawn points (3-5 per orb weaver)
+   Avoid placing webs on the player start tile or directly on stairs.
+
+3. ORB WEAVER WEB IMMUNITY:
+   In engine.py, where web_stuck is applied to entities stepping on webs
+   (around line 1003-1010), add a check:
+       if getattr(entity, 'enemy_type', '') == 'orb_weaver': break
+   This mirrors the existing spider_hatchling immunity check.
+
+4. ENTRY MESSAGE:
+   The FLOOR_EVENT_REGISTRY entry already defines:
+       "message": "The floor appears to be infested by spiders."
+   This should appear when the player enters the floor, ideally with a
+   distinct color (pale yellow/brown to evoke spider silk).
+
+5. VENOM EFFECT AND ARACHNIGGA XP:
+   The venom on-hit effects from Pipe Spider and Brood Mother should use
+   EffectKind.DOT with existing VenomEffect stacking behavior. The
+   Arachnigga XP hook fires when "venom" status is applied (xp_progression.py).
+   Ensure the on-hit DOT from spiders triggers this hook the same way that
+   the spider hatchling's venom application does. If they use EffectKind.DOT
+   instead of a named venom application, the XP hook may not fire — developer
+   should confirm whether to add a "venom" EffectKind or use a separate
+   apply_effect call within the on-hit resolution.
+
+--- SPIDER EVENT SPAWN TABLE (for enemies.py ZONE_SPAWN_TABLES) ---
+
+"crack_den_spider_event": {
+    1: [
+        ("pipe_spider",  25),
+        ("sac_spider",   20),
+        ("wolf_spider",  20),
+        ("orb_weaver",   15),
+        ("brood_mother",  8),
+        ("tweaker",       5),
+        ("crack_addict",  4),
+        ("ugly_stripper", 3),
+    ],
+    2: [
+        ("pipe_spider",  22),
+        ("sac_spider",   18),
+        ("wolf_spider",  22),
+        ("orb_weaver",   15),
+        ("brood_mother", 10),
+        ("tweaker",       4),
+        ("crack_addict",  5),
+        ("ugly_stripper", 4),
+    ],
+}
+
+On floor 3 (zone_floor 2), wolf spiders and brood mothers get slightly
+higher weight. The threat should escalate.
+
+===========================================================================
+BALANCE OVERVIEW
+===========================================================================
+
+HP Totals vs Existing Crack Den Enemies:
+  Tweaker:       15-25 HP  (con 3-5, base_hp 0)
+  Crack Addict:  12-22 HP  (con 2-4, base_hp 2)
+  Baby Momma:    25-45 HP  (con 5-9, base_hp 0)
+  Ugly Stripper: 20-25 HP  (con 4-5, base_hp 0)
+  Thug:          25-30 HP  (con 5-6, base_hp 0)
+
+  Pipe Spider:    7-12 HP  -- dies fast; danger is numbers and venom
+  Sac Spider:    14-24 HP  -- comparable to Crack Addict; feels fair
+  Wolf Spider:   20-30 HP  -- comparable to Thug; appropriate threat level
+  Orb Weaver:    16-26 HP  -- mid-range; stationary so can't chase
+  Brood Mother:  40-55 HP  -- tankier than normal floor enemies; justified
+                              by being the event's boss unit (rare, 8 weight)
+
+Effective Damage vs Existing (post 0.5x zone mult):
+  Tweaker basic:         1-2 (str 3-5, base 0)
+  Ugly Stripper basic:   2-3 (str 5-6, base 0)
+  Thug basic:            2-3 (str 5-5, base 0)
+  High Heel Kick:        4-9 (2-3x mult)
+
+  Pipe Spider basic:     1-2 -- lighter than tweaker; numbers/DOT compensate
+  Sac Spider basic:      2-4 -- right in the normal range
+  Wolf Spider basic:     3-6 -- Thug-level, with higher speed; fair
+  Wolf Spider Pounce:    4-9 -- matches Ugly Stripper special; floor 2-3 appropriate
+  Orb Weaver basic:      1-3 -- below average; CC is the threat
+  Brood Mother basic:    3-5 -- steady mid-range; sustained fight
+
+DOT Threats (on top of above):
+  Pipe Spider venom (60%): 2/turn for 6 turns = 12 potential (stacking)
+  Sac Spider silk (35%): 1/turn for 4 turns = 4 potential
+  Wolf Spider: no DOT (pure physical)
+  Orb Weaver venom bite (30%): 3/turn for 5 turns = 15 potential
+  Brood Mother venom (50%): 2/turn for 5 turns + Venomous Bite (35%): 4/turn for 8t
+  Brood Mother is the heaviest DOT source on the event floor, as intended.
+
+At player base HP of 30 + CON*10 (approx 80-130 HP at this point in game),
+these numbers are meaningful but not instantly fatal. The floor event is
+supposed to be a step up in intensity, not a guaranteed death sentence.
+The lethality comes from groups and stacking, not individual hits.
+
+Arachnigga XP Value:
+  Average kill XP (spiders) should be set equivalent to or slightly above
+  existing enemies. The event is designed to be an Arachnigga skill XP source
+  — a player with even L1 invested will find the floor rewarding rather than
+  just threatening. L1 web immunity turns the pre-placed cobweb hazards from
+  traps into neutral terrain, which is a meaningful quality-of-life unlock
+  that makes the player feel their investment paid off.
+
+===========================================================================
+DESIGN NOTES — HOW THESE 5 WORK TOGETHER AS AN EVENT
+===========================================================================
+
+The five spiders cover five distinct gameplay archetypes that don't overlap:
+
+  PIPE SPIDER:   Swarm unit. Threat through numbers and venom accumulation.
+  SAC SPIDER:    Territorial controller. Threat through room ownership and web CC.
+  WOLF SPIDER:   Speed predator. Threat through raw speed and pressure.
+  ORB WEAVER:    Ambush trap. Threat through combo CC and patience.
+  BROOD MOTHER:  Boss encounter. Threat through tankiness, DOT, and death spawn.
+
+A player clearing the event floor will encounter all five. Each encounter
+demands a different response:
+  - Pipe Spider: burst them fast, manage venom uptime
+  - Sac Spider: approach carefully, deal with its web before engaging
+  - Wolf Spider: stay healthy, don't let it catch you hurt
+  - Orb Weaver: engage from range when possible, don't step in the webs
+  - Brood Mother: kill escorts first, then burst her, manage the death split
+
+No two rooms feel the same. The event floor has real texture.
+
+Cross-event interactions:
+  A Wolf Spider chasing the player through a web-dense area (near an Orb
+  Weaver's room) can accidentally get web-stuck, giving the player breathing
+  room. This emergent interaction isn't designed-in but will happen naturally
+  and should feel fun when it does.
+
+  If a Brood Mother's escort pipe spiders walk through an Orb Weaver's room
+  on their way to the player, some of them may get web-stuck in the Orb
+  Weaver's territory — forcing the player to re-evaluate whether to clean up
+  that room on their way back or risk the stuck spiders breaking free later.
+
+  All spiders are potential Arachnigga XP sources. The event is balanced to
+  provide roughly 1.5-2x normal Arachnigga skill progression on a cleared
+  floor compared to a normal floor. This makes it a skill investment moment
+  rather than just a punishment.

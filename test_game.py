@@ -44,10 +44,18 @@ def test_combat():
 def test_item_pickup():
     """Test item pickup mechanics."""
     engine = GameEngine()
-    # Create an item at player location
+    # Find a walkable, unoccupied adjacent tile so the move always succeeds
+    px, py = engine.player.x, engine.player.y
+    dx, dy = 0, 1  # default: try down
+    for ddx, ddy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+        nx, ny = px + ddx, py + ddy
+        if not engine.dungeon.is_blocked(nx, ny):
+            dx, dy = ddx, ddy
+            break
+    # Create an item at that adjacent tile
     item = Entity(
-        engine.player.x,
-        engine.player.y + 1,
+        px + dx,
+        py + dy,
         "!",
         (0, 200, 0),
         name="test_item",
@@ -56,7 +64,7 @@ def test_item_pickup():
     engine.dungeon.entities.append(item)
 
     # Move to item
-    engine.process_action({"type": "move", "dx": 0, "dy": 1})
+    engine.process_action({"type": "move", "dx": dx, "dy": dy})
     # Item should be removed
     assert item not in engine.dungeon.entities
     print("[OK] Item pickup mechanics")

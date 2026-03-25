@@ -46,9 +46,28 @@ def grant(engine, ability_id: str):
 
 
 def place_monster_visible(engine, dx=3, dy=0, hp=100):
-    """Place a live monster dx/dy tiles from the player and mark it visible."""
+    """Place a live monster near the player on a walkable, visible tile.
+
+    Tries (px+dx, py+dy) first, then scans outward for a clear floor tile
+    so the test doesn't break when the default offset lands on a wall.
+    """
     px, py = engine.player.x, engine.player.y
     mx, my = px + dx, py + dy
+    # If default position is blocked, find a nearby walkable tile in the same direction
+    if engine.dungeon.is_terrain_blocked(mx, my):
+        found = False
+        sign_x = 1 if dx >= 0 else -1
+        sign_y = 1 if dy >= 0 else -1
+        for dist in range(1, 8):
+            for ddx, ddy in [(dist * sign_x, 0), (0, dist * sign_y), (dist * sign_x, dist * sign_y)]:
+                cx, cy = px + ddx, py + ddy
+                if (0 <= cx < engine.dungeon.width and 0 <= cy < engine.dungeon.height
+                        and not engine.dungeon.is_terrain_blocked(cx, cy)):
+                    mx, my = cx, cy
+                    found = True
+                    break
+            if found:
+                break
     m = Entity(mx, my, "T", (255, 0, 0), name="TestMob",
                entity_type="monster", blocks_movement=True, hp=hp, power=0)
     engine.dungeon.entities.append(m)
@@ -200,10 +219,15 @@ def test_out_of_range_blocks_cast_appends_message():
     e = make_engine()
     grant(e, "chain_lightning")  # max_range=10.0
     px, py = e.player.x, e.player.y
-    out_x = px + 15  # definitely out of range
 
-    # Clamp to dungeon bounds
-    out_x = min(out_x, e.dungeon.width - 1)
+    # Pick a cursor that is definitely out of range (Manhattan > 10) even after
+    # clamping to dungeon bounds.  Try right first, fall back to left.
+    out_x = px + 15
+    if out_x >= e.dungeon.width:
+        out_x = px - 15
+    out_x = max(0, min(out_x, e.dungeon.width - 1))
+    assert abs(out_x - px) > 10, "Test setup: could not place cursor out of range"
+
     e.targeting_cursor = [out_x, py]
     e.menu_state = MenuState.TARGETING
 
@@ -222,7 +246,10 @@ def test_out_of_range_does_not_consume_charge():
     e = make_engine()
     grant(e, "chain_lightning")
     px, py = e.player.x, e.player.y
-    out_x = min(px + 15, e.dungeon.width - 1)
+    out_x = px + 15
+    if out_x >= e.dungeon.width:
+        out_x = px - 15
+    out_x = max(0, min(out_x, e.dungeon.width - 1))
     e.targeting_cursor = [out_x, py]
     e.menu_state = MenuState.TARGETING
 

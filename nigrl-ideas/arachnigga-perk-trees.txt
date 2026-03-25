@@ -1,0 +1,403 @@
+NIGRL — Arachnigga Skill: 5 Perk Tree Proposals
+=================================================
+Date: 2026-03-22
+Skill XP Source: Applying web or venom/poison effects to enemies (webbing, poisoning, venom procs)
+Core mechanic: Cobweb tiles — enemies entering are FROZEN (stunned, can't act).
+              Enemies trying to leave: 50% chance they fail and lose their action.
+              Slow debuff applies to any enemy that has been in a web tile.
+Tone: Street/dark humor. Think bootleg pest control, crackhead entomologist, gutter druid.
+
+New effects referenced throughout this doc (to be added to effects.py):
+  webbed        — 50% chance to lose turn-action on any attempt to move, 6t duration
+  venom_dot     — DOT 3 dmg/turn, 4t (like BleedingEffect but flagged as poison)
+  venom_pool    — on-death: spawns a 1-tile venom puddle hazard (like fire, poisons on contact)
+  molt          — flat +3 armor, 10t; player becomes temporarily chitinous
+  silk_rush     — +20 energy/tick, 6t; gained after successfully webbing an enemy
+  spiderling    — allied entity tag: hp=1, MEANDER AI vs nearest enemy, speed=120
+  acid_web      — floor tile variant that deals 3 dmg/turn to any entity standing on it
+
+ASCII chars:
+  Cobweb tile: '#' (rendered over floor glyph in a distinct color, e.g. dark yellow)
+  Venom puddle tile: '~' (green-tinted)
+  Spiderling entity: 's' (small spider ally, color lime green)
+
+===========================================================================================
+TREE A — "The Trapper" (Web Control Specialist)
+===========================================================================================
+Playstyle: Methodical crowd-controller. You own the floor. Enemies never move freely.
+Focus: Cobweb quantity, web permanence, multi-tile control.
+XP emphasis: Webbing enemies. More webs placed = more XP.
+
+--- L1: "Pest Control" ---
+Type: activated (grants ability: lay_web)
+Ability: lay_web — ADJACENT_TILE, PER_FLOOR 3 charges.
+  Place a cobweb tile on any adjacent empty floor tile. The web persists until an enemy
+  is webbed in it (standard web breakage rules apply). Webbed enemies gain the "webbed"
+  effect (50% chance to lose action on any move attempt, 6 turns).
+  Starting point — gets the player into the web-laying game without committing full builds.
+  Tactical decision: where do you pre-place webs? Choke points vs retreating corridors?
+
+--- L2: "Sticky Situation" ---
+Type: passive
+Effect: Webbed enemies are also Slowed (SlowEffect, -30 energy/tick, 8t).
+  Whenever an enemy gains the "webbed" effect, they simultaneously receive the slow debuff.
+  Web + slow = enemies approach 40-50% slower even after escaping the web.
+  Tactical decision: web a fast enemy early vs saving charge for clustered enemies.
+  Synergy: web slows the enemy; slow means they stay in the web longer before their escape
+  attempt, which increases the effective chance the 50% miss triggers again.
+
+--- L3: "Web of Lies" ---
+Type: passive + activated (grants ability: web_snare, INFINITE charges, CD 8 turns)
+  Passive component: Webs no longer break when an enemy escapes them. The cobweb tile
+  persists on the floor for the rest of the floor — enemies re-entering it get webbed again.
+  Ability component: web_snare — SINGLE_ENEMY_LOS, hurl a web strand at a visible enemy.
+  If it hits (always hits), applies "webbed" to the target immediately without a tile placed.
+  Range: 6 tiles. Does 0 damage. Useful when you can't pre-place webs.
+  Big power spike — permanent web tiles turns the map into a spider's parlor.
+
+--- L4: "Thousand Legs" ---
+Type: passive + stat (+2 Street-Smarts)
+Stat bonus: +2 Street-Smarts.
+Passive: Gain the silk_rush effect (+20 energy/tick, 6t) whenever you successfully
+  web an enemy (either via lay_web tile contact or web_snare hit).
+  silk_rush does not stack duration — reapply refreshes to 6t.
+  The speed bonus represents the adrenaline of a trap snapping shut. Now you can
+  capitalize on the webbed window: rush in, strike, and retreat before it wears off.
+  Tactical decision: do you use silk_rush to re-position more webs, or to attack?
+
+--- L5: "Mine Field" ---
+Type: activated (grants ability: web_burst, PER_FLOOR 1 charge)
+Ability: web_burst — SELF, targets all cobweb tiles currently on the floor.
+  Every existing web tile simultaneously detonates: any entity (enemy or neutral) on
+  or adjacent (Chebyshev 1) to a web tile takes STR + Street-Smarts damage (no defense).
+  Web tiles are NOT destroyed — they remain as permanent traps post-burst.
+  This is a nuke button for when you've built up a web grid. Late-floor multiple-enemy
+  encounters become free kills if you've been laying webs throughout.
+  Balance note: PER_FLOOR 1 and requires pre-placed webs — purely reactive/prep tool.
+
+===========================================================================================
+TREE B — "Venom Dealer" (Poison DOT Specialist)
+===========================================================================================
+Playstyle: Patient assassin. Stack venom, watch them melt. The floor is your territory.
+Focus: venom_dot application, stacking, and on-death exploitation.
+XP emphasis: Poisoning enemies. More poison ticks applied = more XP.
+
+--- L1: "Street Venom" ---
+Type: passive
+Effect: All melee attacks with any weapon have a 20% chance to apply venom_dot
+  (3 dmg/turn, 4 turns, poison flag — bypasses standard damage reduction, not armor).
+  Venom_dot re-apply refreshes duration (does not stack damage per application).
+  This hooks into on_player_melee_hit lifecycle. Sets up a passive damage stream
+  that rewards staying in melee. Gives the tree identity immediately at L1.
+  Tactical decision: you want to hit enemies multiple times to fish for procs.
+
+--- L2: "Nasty Bite" ---
+Type: stat + passive (+1 Strength, +2 Street-Smarts)
+Stat: +1 Strength, +2 Street-Smarts.
+Passive: venom_dot now deals 5 dmg/turn (upgraded from 3). Duration unchanged at 4t.
+  The stat bonus synergizes directly — more Street Smarts increases crit chance,
+  which means more hits, which means more venom procs. More Strength means direct
+  damage also scales. A double-dip improvement on the L1 setup.
+
+--- L3: "Necrotic" ---
+Type: passive
+Effect: When an enemy dies while afflicted with venom_dot, their corpse creates a
+  venom_pool tile on their death location. Venom pools behave like fire tiles:
+  any entity stepping on them applies venom_dot. Pools last 15 turns then dissipate.
+  Tactical: kill a poisoned enemy in a doorway = natural venom trap. Groups of
+  enemies chasing through the same tile chain-poison each other.
+  Edge case: player can step on their own venom pools (venom_dot is applied to player
+  too — this is intentional, it's a risk). CON builds can afford it; SWG builds cannot.
+
+--- L4: "Concentrated" ---
+Type: activated (grants ability: venom_strike, INFINITE charges, CD 10 turns)
+Ability: venom_strike — ADJACENT (quick-select), INFINITE charges, 10t cooldown.
+  A focused bite/stab that deals Street-Smarts damage directly and applies a
+  supercharged venom_dot variant: heavy_venom (8 dmg/turn, 6 turns, poison flag).
+  If target already has venom_dot or heavy_venom active, deal an additional +Street-Smarts
+  bonus damage on the initial hit (the venom reacts with existing poison).
+  Tactical: fish for a normal venom proc with L1 passive, then venom_strike for a
+  bonus damage proc. Or use venom_strike first, then rely on passive refreshes.
+
+--- L5: "The Last Spider" ---
+Type: passive + stat (+2 Constitution)
+Stat: +2 Constitution.
+Passive: While any enemy on the floor has venom_dot or heavy_venom active, the
+  player gains a passive +2 armor (does not appear as a buff icon — it's structural).
+  Additionally, when the player deals the killing blow to a poisoned enemy, heal for
+  the venom's remaining tick count * 2 HP (e.g., 3 ticks left on 5 dmg/t = 6 HP heal).
+  "The spider always wins." Gives late-game sustain that rewards keeping enemies
+  poisoned rather than killing them too fast. Pairs with Munching for fat builds.
+
+===========================================================================================
+TREE C — "Eight Legs McGee" (Mobility + Harassment)
+===========================================================================================
+Playstyle: Skitter around the map, web-and-retreat, never let enemies pin you down.
+Focus: Speed, web placement while moving, making webs from movement.
+XP emphasis: Webbing enemies AND dodging/moving while enemies are webbed.
+
+--- L1: "Chitinous" ---
+Type: activated (grants ability: molt, PER_FLOOR 2 charges)
+Ability: molt — SELF, 2/floor.
+  Shed your outer layer. Instantly gain molt effect: +3 armor for 10 turns.
+  Additionally, molt leaves a cobweb tile on the player's CURRENT position when
+  activated (the shed skin acts as a web). If an enemy pursues the player and steps
+  on that tile, they are immediately webbed.
+  Tactical: use molt while fleeing down a corridor — the tile you were standing on
+  becomes a web trap. Incentivizes the "back up into the enemy" combat style.
+
+--- L2: "Silk Spitter" ---
+Type: passive
+Effect: Whenever the player moves 3+ consecutive tiles in a straight line without
+  attacking (using the dash-style movement from Jaywalking or just normal movement),
+  a cobweb tile is deposited on the tile they left. This "web trail" means actively
+  kiting enemies creates traps behind you.
+  Synergy: Stack with Jaywalking (Dash ability) — one dash deposits a cobweb on the
+  origin tile. Stack with molt: each molt deposit + trail deposit = two webs from
+  one movement burst. Rewards the skirmisher who keeps moving.
+  Implementation note: track player's consecutive-move streak; reset on attack/ability use.
+
+--- L3: "Aight Imma Head Out" ---
+Type: stat + passive (+2 Street-Smarts)
+Stat: +2 Street-Smarts.
+Passive: While any enemy on the current floor has the "webbed" effect active, the
+  player gains +15 energy/tick (equivalent to a mild SpeedBoostEffect, but it's
+  structural/passive — not an effect object, just a bonus in modify_energy_gain).
+  Flavor: you FEEL faster when your prey is stuck. The bonus vanishes the instant
+  all webs are cleared. Encourages actively refreshing webs.
+  Tactical decision: do you burn an extra web charge to keep the speed bonus, or save it?
+
+--- L4: "Crawl Space" ---
+Type: passive
+Effect: The player can move through their own cobweb tiles without triggering them
+  and without slowing (webs of your own silk recognize you). Enemies stepping on
+  player-origin webs have their escape-chance halved: 75% chance to lose action
+  instead of 50%. Web tiles the player passes through gain a "reinforced" flag.
+  This removes the main downside of filling the floor with webs (you can still
+  move freely) and makes your traps deadlier. Incentivizes web-dense maps.
+
+--- L5: "Spider Run" ---
+Type: activated (grants ability: spider_run, PER_FLOOR 2 charges)
+Ability: spider_run — SELF, 2/floor.
+  For 8 turns: player movement costs 0 energy (each step is free). During this time,
+  every tile the player steps OFF deposits a cobweb tile (not ON — behind them).
+  When spider_run expires, if the player webbed 3+ enemies during the run, they gain
+  silk_rush (+20 energy/tick, 6t).
+  This is a panic-escape + trap-layer hybrid. Use when surrounded: sprint out, leave
+  a web grid in your wake, enemies all get stuck, silk_rush fires, you're now faster.
+  Balance: 2/floor, 8 turns max, requires actually running through or near enemies.
+
+===========================================================================================
+TREE D — "Spiderling Wrangler" (Summon + Swarm)
+===========================================================================================
+Playstyle: Horde commander. Grow a spider gang. Be the spider mom.
+Focus: Spawning and buffing spiderling allies, turn-based swarm tactics.
+XP emphasis: When spiderlings kill enemies (their kills also grant you web XP).
+
+--- L1: "Lil Homie" ---
+Type: activated (grants ability: call_spider, PER_FLOOR 2 charges)
+Ability: call_spider — ADJACENT_TILE, 2/floor.
+  Summon a Spiderling on an adjacent tile. Spiderling: hp=6, dmg=2-3, speed=120 (faster
+  than base), MEANDER AI targeting nearest enemy, char='s' (lime green).
+  Spiderlings are friendly — no friendly fire. They don't give the player XP on kill but
+  THEIR kills do feed Arachnigga XP as if the player poisoned/webbed.
+  Starts the summon identity. Two spiderlings per floor is modest — just scouts.
+
+--- L2: "Spider Squad" ---
+Type: passive + stat (+1 Constitution, +1 Strength)
+Stat: +1 Constitution, +1 Strength.
+Passive: Spiderling max hp increased to 12. call_spider gains +1 charge per floor
+  (now 3/floor). Additionally, when a spiderling dies, it leaves a cobweb tile on
+  its death location (the little guy's last act of love).
+  The passive death-web incentivizes letting spiderlings engage enemies in chokepoints
+  — they web the area when they fall. Raises the charge count to allow a true squad.
+
+--- L3: "Auntie Venom" ---
+Type: passive
+Effect: Each spiderling the player has alive on the floor grants the player a passive
+  +1 flat damage on ALL attacks (melee, gun, ability). Max bonus: +5 (capped at 5
+  living spiderlings). This is a squad-size damage buff — more spiders = more you.
+  Tactical: do you sacrifice spiderlings to web choke points (L2 passive), or keep
+  them alive for the damage bonus? Classic summon vs control split decision.
+
+--- L4: "Big Momma" ---
+Type: activated (grants ability: egg_sac, PER_FLOOR 1 charge)
+Ability: egg_sac — ADJACENT_TILE, 1/floor.
+  Place an Egg Sac entity on an adjacent tile (char: 'O', brown, hp=1, blocks_movement=False).
+  Egg Sacs are inert — enemies may walk past them. When an enemy ends their turn adjacent
+  to an Egg Sac, it hatches: 2 spiderlings spawn on adjacent open tiles (beyond the call_spider
+  limit — egg hatches are free). Egg Sac is destroyed on hatch.
+  If the enemy attacks the Egg Sac first (it has hp=1), it also hatches (protecting itself).
+  Tactical: place an Egg Sac at a T-junction. First enemy to step near it triggers a
+  free 2-spider spawn. Enemies don't know to avoid it.
+
+--- L5: "Colony" ---
+Type: passive + stat (+2 Constitution)
+Stat: +2 Constitution.
+Passive: All spiderlings are upgraded permanently: hp=20, dmg=4-6, apply venom_dot
+  on hit (20% chance, 2 dmg/turn 3t — baby venom). Spiderlings now pathfind to webbed
+  enemies preferentially (not just nearest). When a spiderling attacks a webbed enemy,
+  they deal double damage (the web holds them — easier to bite).
+  L5 transforms the early scouts into actual threats. The synergy with Tree A (web grid)
+  becomes lethal: web the floor, call spiders, spiders rush webbed targets, double damage.
+  With Auntie Venom active: 5 spiders = +5 damage AND +20-24 dmg of spider attacks/turn.
+
+===========================================================================================
+TREE E — "Acid Freak" (Chemical Web + Venom Corruption)
+===========================================================================================
+Playstyle: Reckless corrosive mess. You don't care if you get hurt — everything dissolves.
+Focus: acid_web tiles, armor-stripping, venom synergizing with chemical effects.
+Risk profile: This tree has deliberate self-harm risks. High floor — high ceiling.
+
+--- L1: "Caustic Threads" ---
+Type: passive
+Effect: All cobweb tiles placed by the player (via lay_web from Tree A or any ability)
+  become acid_web tiles instead. Acid_web tiles deal 3 dmg/turn to any entity standing
+  on them (including the player — risk!). They ALSO apply the webbed effect on contact.
+  If the player doesn't have lay_web from Tree A, this perk grants a stripped-down
+  version: acid_drip (ADJACENT_TILE, PER_FLOOR 2, places acid_web tile only).
+  The acid_web tile is rendered with '~' in a green-acid color.
+  Immediately raises stakes: your webs now hurt enemies AND you. Position carefully.
+
+--- L2: "Corrosive Bite" ---
+Type: passive
+Effect: Venom_dot (from any source — Tree B passive, items, abilities) now also strips
+  1 point of armor per stack application (not per tick — just on apply/reapply).
+  This is a soft armor-strip. Against an enemy with 5 armor, you need 5 venom procs
+  to full strip. Against 0-armor enemies (most floor 1-3 enemies), irrelevant — so the
+  perk scales better in later floors where armored enemies exist.
+  Tactical: open with venom procs to strip armor, then switch to heavy attacks.
+
+--- L3: "Boiling Point" ---
+Type: passive
+Effect: Enemies standing on an acid_web tile when they die explode in a 3x3 acid splash:
+  all entities (enemies AND player) in the splash take 5 + Street-Smarts acid damage
+  (no defense). Each entity splashed also receives venom_dot if they don't already
+  have it. Acid_web tiles created in the blast area persist for 5 turns.
+  Classic risk/reward: kill a webbed enemy on an acid tile = big aoe, but you might be
+  in the blast too. Encourages ranged kills on acid-webbed enemies, or at least not
+  standing in the blast zone.
+
+--- L4: "Exoskeleton" ---
+Type: stat + passive (+2 Constitution, +1 Tolerance)
+Stat: +2 Constitution, +1 Tolerance.
+Passive: The player takes 50% reduced damage from acid_web tiles and venom_dot
+  self-applications. Acid and venom you created recognizes you as kin.
+  Also: whenever the player takes acid_web or venom_dot damage (even the reduced amount),
+  they gain molt (+3 armor, 10t, refreshes on each instance of acid/venom self-damage).
+  This perk completely flips the risk of L1 and L3 — your own acid/venom actually
+  generates free armor for you. Now standing on your own acid webs is desirable.
+
+--- L5: "Full Dissolution" ---
+Type: activated (grants ability: acid_flood, PER_FLOOR 1 charge)
+Ability: acid_flood — SELF, 1/floor.
+  For 5 turns, every tile the player steps ON (not off — opposite of spider_run) becomes
+  an acid_web tile. During acid_flood, the player is immune to acid_web damage entirely.
+  When acid_flood expires, all acid_web tiles the player created this activation
+  simultaneously fire: each acid_web tile explodes as per Boiling Point (3x3 splash,
+  5 + STS dmg, venom_dot, new acid tiles persist 5t), whether or not an enemy died on them.
+  The player takes 50% reduced damage from the post-flood explosion (Exoskeleton still applies).
+  Nuke level: this can dissolve an entire room if you walk through it during the 5-turn window.
+  Balance: 1/floor, 5 turns, requires setup of L1 (acid_web) and ideally L3 for max payoff.
+  The 5-turn walk-through-acid fantasy is deeply street: you just walked through a room
+  dripping acid like nothing happened and then the whole place melted.
+
+===========================================================================================
+IMPLEMENTATION NOTES
+===========================================================================================
+
+New effects.py entries required:
+  webbed          — modifies before_turn: 50% chance to skip movement action, 6t duration.
+                    Reinforced variant (Tree C L4): 75% skip chance.
+  venom_dot       — DOT subclass, 3 or 5 dmg/turn depending on upgrade, poison flag,
+                    duration 4t. Re-apply refreshes (does not stack per application).
+  heavy_venom     — DOT subclass, 8 dmg/turn, 6t, poison flag. From Venom Strike (Tree B L4).
+  molt            — stat-mod effect, +3 armor, 10t. refresh on reapply.
+  silk_rush       — SpeedBoostEffect subclass, +20 energy/tick, 6t. no stack, refresh.
+
+New hazard tile types (hazards.py):
+  create_cobweb(x, y)    — entity_type="hazard", hazard_type="cobweb", char='#' (dark yellow)
+  create_acid_web(x, y)  — entity_type="hazard", hazard_type="acid_web", char='~' (acid green)
+  create_venom_pool(x,y) — entity_type="hazard", hazard_type="venom_pool", char='~' (dark green)
+
+New entity type:
+  spiderling entity (entity_type="ally", ai_type="meander", faction="player")
+  egg_sac entity (entity_type="hazard", hazard_type="egg_sac", hp=1, blocks=False)
+
+Ability IDs needed (abilities.py ABILITY_REGISTRY):
+  lay_web          — ADJACENT_TILE, PER_FLOOR 3
+  web_snare        — SINGLE_ENEMY_LOS, INFINITE (CD 8)
+  web_burst        — SELF, PER_FLOOR 1 (targets all cobweb entities on floor)
+  molt_ability     — SELF, PER_FLOOR 2
+  spider_run       — SELF, PER_FLOOR 2
+  call_spider      — ADJACENT_TILE, PER_FLOOR 2 (upgrades to 3 at L2)
+  egg_sac_ability  — ADJACENT_TILE, PER_FLOOR 1
+  venom_strike     — ADJACENT, INFINITE (CD 10)
+  acid_drip        — ADJACENT_TILE, PER_FLOOR 2 (backup for Tree E L1 if no lay_web)
+  acid_flood       — SELF, PER_FLOOR 1
+
+Engine state fields needed:
+  engine.cobweb_tiles: dict[tuple, entity]  — tracks all cobweb tile entities by position
+  engine.spiderlings: list[Entity]          — tracks live allied spiderlings
+  engine.player_consecutive_moves: int      — Tree C L2 streak counter, resets on attack/ability
+
+XP gain hook:
+  _gain_arachnigga_xp(engine, amount) in xp_progression.py
+  Triggers on: webbed effect applied to enemy, venom_dot applied to enemy,
+               spiderling kill (as if player applied venom).
+
+Skills.py entry:
+  "Arachnigga" added to SKILL_NAMES and SKILL_PERKS.
+  XP source tag: "webbing_and_venom"
+
+===========================================================================================
+BALANCE NOTES
+===========================================================================================
+
+Tree A vs Tree B comparison:
+  Tree A tops out at a floor-nuke (web_burst). High ceiling but requires setup time.
+  Tree B tops out at sustained healing + constant poison. Lower ceiling, more consistent.
+  A player mixing both L1-L2 from each tree gets venom on webbed enemies (excellent).
+
+Spiderling DPS sanity check (Tree D):
+  Base spiderling: 2-3 dmg/turn at speed 120 vs enemy speed 100 = fires ~17% more than player.
+  L5 upgrade to 4-6 dmg with double vs webbed = 8-12 effective.
+  With 3 spiderlings vs a webbed enemy: 24-36 dmg/turn, plus player melee ~10+.
+  This is strong but requires 3+ active spiderlings and a webbed target — clear conditions.
+
+Tree E self-damage exposure:
+  acid_web: 3 dmg/turn. At 130 HP (CON 10), this is ~2.3% max HP per turn.
+  Acid explosion (L3): 5 + STS = roughly 10-15 dmg in splash. One-time, avoidable.
+  acid_flood + post-flood explosion: without Exoskeleton you'd take ~10-20 from your own webs.
+  With Exoskeleton (50% reduction): ~5-10. At 130+ HP that's survivable for a payoff nuke.
+  Recommend: Tree E as a high-risk optional path, not default. Synergizes best with high CON.
+
+Cobweb tile interaction with other systems:
+  Fire tiles + cobweb tile on same space: cobweb burns away (destroyed) after 2 turns.
+    (Prevents Pyromania + Trapper from becoming trivially OP — webs burn.)
+  Acid_web tiles + fire: acid_web burns away after 1 turn (acid is organic in this universe).
+  Venom_pool tiles + fire: burn away immediately (venom is flammable, too bad).
+  Cobweb tiles are NOT affected by the player's own weight (Tree C L4 "Crawl Space").
+
+===========================================================================================
+CROSS-TREE SYNERGIES
+===========================================================================================
+
+Best two-tree combos:
+  A + B: Web traps the enemy, venom_dot ticks while it's stuck. Most natural pairing.
+  A + D: Spiderlings attack webbed enemies (Tree D L5 double-damage). Grid + swarm.
+  B + E: Necrotic venom pools + acid corrosion — enemies die leaving acid AND venom zones.
+  C + A: Silk Spitter + permanent webs (Tree A L3) = movement creates lasting traps.
+  C + D: Spider Run deposits webs while spiderlings rush from behind. True spider fantasy.
+
+Three-tree builds (deep investment):
+  A + B + E: "Chemist Arachnigga" — webs, acid webs, venom. Maximum hazard density.
+  A + C + D: "Tactical Arachnigga" — web grid, mobility, summons. Requires strong CON to last.
+
+Synergy with other NIGRL skills:
+  Stabbing (Gouge stun): Stun + webbed on same target = near-permanent CC on one enemy.
+  Catchin' Fades (Unfazed): extra swagger while enemies are stuck in webs = safe swag grind.
+  Pyromania (Wildfire L5): fire spreading to adjacent ignites cobwebs, destroying them.
+    This is a NEGATIVE interaction — warn players that fire destroys webs.
+  Deep-Frying (Fry Shot): Fry Shot AoE + venom pool tiles = burn + poison zone combo.
+  Jaywalking (Dash): pairs with Tree C L2 Silk Spitter (dash deposits cobweb on origin tile).

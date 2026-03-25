@@ -39,7 +39,7 @@ pip install -r requirements.txt
 - **dungeon.py**: `Dungeon` class with procedural generation (rooms + corridors), FOV computation, tile management, and entity spawning.
 - **render.py**: Multi-panel tcod renderer. Left panel (stats/inventory), center (map/FOV), right (inventory/crafting). All UI menus rendered as overlays.
 - **input_handler.py**: Converts tcod key events to action dicts.
-- **config.py**: Global constants (screen size, dungeon dimensions, spawn rates, UI layout, equipment slots).
+- **config.py**: Global constants (screen size, dungeon dimensions, spawn rates, UI layout, equipment slots). `EQUIPMENT_SLOTS = ["weapon", "sidearm"]`; rings/neck/feet/hat handled separately via `equip_slot` field on items.
 
 ### Extracted Engine Modules
 
@@ -57,16 +57,16 @@ These were extracted from `engine.py` and take `engine` as first parameter:
 - **ai.py**: Behavioral state machine with AIState enum (IDLE, WANDERING, CHASING, FLEEING, ALERTING). Each AI mode declaratively specified. Central functions: `prepare_ai_tick()`, `do_ai_turn()`.
 - **enemies.py**: `MonsterTemplate` dataclass-based registry system. Declarative enemy definitions with validation via `validate_registry()`. Supports variants, special attacks, on-hit effects, spawn tables per zone, and faction enemies (Aldor/Scryer).
 - **items.py**: Item definition dict + crafting recipes. Factory function `create_item_entity()` instantiates items as Entity objects linked via `item_id`.
-- **foods.py**: Food item definitions (`FOOD_DEFS`) separate from `items.py`. Foods require multi-turn eating; effects apply on completion. Effect types: `heal`, `hot` (HoT), `speed_boost`, `hot_cheetos`.
+- **foods.py**: Food item definitions (`FOOD_DEFS`) separate from `items.py`. Foods require multi-turn eating; effects apply on completion. Effect types: `heal`, `hot` (HoT), `speed_boost`, `hot_cheetos`, `radiation`, `remove_radiation`, `toxicity`, `remove_toxicity`, `cornbread_buff`, `grant_ability_charges`, `leftovers_well_fed`.
 - **hazards.py**: Factory functions `create_crate()` and `create_fire()`. Hazards use `entity_type="hazard"` with custom graphical tiles (`0xE000` crate, `0xE001` fire).
-- **abilities.py**: `AbilityDef` (declarative) + `AbilityInstance` (runtime). `ABILITY_REGISTRY` keyed by string id. `TargetType` enum: SELF, SINGLE_ENEMY_LOS, LINE_FROM_PLAYER, AOE_CIRCLE, ADJACENT. `ChargeType` enum: INFINITE, PER_FLOOR, TOTAL, ONCE, FLOOR_ONLY. Abilities granted via `engine.grant_ability()`.
+- **abilities.py**: `AbilityDef` (declarative) + `AbilityInstance` (runtime). `ABILITY_REGISTRY` keyed by string id. `TargetType` enum: SELF, SINGLE_ENEMY_LOS, LINE_FROM_PLAYER, AOE_CIRCLE, ADJACENT, ADJACENT_TILE. `ChargeType` enum: INFINITE, PER_FLOOR, TOTAL, ONCE, FLOOR_ONLY. Abilities granted via `engine.grant_ability()`.
 - **loot.py**: Zone-based loot generation. `generate_floor_loot(zone, floor_num, player_skills)` returns `(item_id, strain_or_None)` tuples.
 - **stats.py**: `PlayerStats` class. Six stats: Constitution, Strength, Book-Smarts, Street-Smarts, Tolerance, Swagger. 45 points distributed across 5 stats (each [6,12]); Swagger starts at 8 independently. Defence formula: `swagger_defence = int((effective_swagger - 8) / 2)`. Also tracks faction reputation, dodge chance, spell damage, tox/rad resistance, briskness, DR.
-- **skills.py**: XP-based progression across 25 skill trees. Skills unlock perks (stat bonuses, passives, activated abilities) at level thresholds. Dual XP tracking: potential_exp (earned passively) converted to real_exp via skill_points.
-- **effects.py**: Central status effect system. Base `Effect` class with lifecycle hooks: `apply()`, `tick()`, `expire()`, `before_turn()`, `modify_movement()`, `modify_energy_gain()`, `modify_incoming_damage()`, `on_player_melee_hit()`. Effects use `@register` class decorator. 40+ concrete effect subclasses.
-- **mutations.py**: Radiation mutation system. Per-tick chance scales with rad level (0.1% per 50 rad). Three tiers: weak (50+ rad), strong (125+ rad), huge (250+ rad). 67% bad / 33% good polarity. Mutations are permanent stat/skill/equipment changes. Rad consumed on mutation.
+- **skills.py**: XP-based progression across 27 skill trees. Skills unlock perks (stat bonuses, passives, activated abilities) at level thresholds. Dual XP tracking: potential_exp (earned passively) converted to real_exp via skill_points.
+- **effects.py**: Central status effect system. Base `Effect` class with lifecycle hooks: `apply()`, `tick()`, `expire()`, `before_turn()`, `modify_movement()`, `modify_energy_gain()`, `modify_incoming_damage()`, `on_player_melee_hit()`. Effects use `@register` class decorator. 80+ concrete effect subclasses.
+- **mutations.py**: Radiation mutation system. Per-tick chance scales with rad level (0.1% per 50 rad). Three tiers: weak (75+ rad), strong (125+ rad), huge (250+ rad). Rad costs on mutation: weak=50, strong=125, huge=200. 67% bad / 33% good polarity. Mutations are permanent stat/skill/equipment changes. Rad consumed on mutation.
 - **zone_generators.py**: Zone generation registry. Delegates to zone-specific `generate()` and `spawn()` callables. Room types: Rect, L, U, T, Hall, Oct, Cross, Diamond, Cavern, Pillar, Circle.
-- **menu_state.py**: `MenuState` enum (NONE, CHAR_SHEET, INVENTORY, SKILLS, EQUIPMENT, ITEM_MENU, COMBINE_SELECT, LOG, GUN_TARGETING, ENTITY_TARGETING, etc.).
+- **menu_state.py**: `MenuState` enum (NONE, SKILLS, CHAR_SHEET, EQUIPMENT, ITEM_MENU, COMBINE_SELECT, LOG, DESTROY_CONFIRM, BESTIARY, TARGETING, ABILITIES, RING_REPLACE, ENTITY_TARGETING, PERKS, DEV_MENU, DEV_ITEM_SELECT, ADJACENT_TILE_TARGETING, EXAMINE, DEATH_SCREEN, DEEP_FRYER, GUN_TARGETING, DEV_FLOOR_SELECT).
 - **event_bus.py**: EventBus for decoupled event publishing.
 
 ### Data-Driven Design
@@ -91,7 +91,7 @@ AI modes are stateless; each turn `do_ai_turn()` evaluates transition conditions
 
 ### Status Effects as Lifecycle Hooks
 
-Status effects are objects (not dicts) with pluggable hooks defined in **effects.py**. Each effect subclass overrides lifecycle methods. Effects are applied via `apply_effect(entity, effect_name, **kwargs)` and registered with the `@register` decorator.
+Status effects are objects (not dicts) with pluggable hooks defined in **effects.py**. Each effect subclass overrides lifecycle methods. Effects are applied via `apply_effect(entity, engine, effect_id, **kwargs)` and registered with the `@register` decorator.
 
 ### Menu System
 
@@ -117,7 +117,8 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 ### Gun System
 - Sidearm slot in `EQUIPMENT_SLOTS`; `Entity` has `current_ammo`/`mag_size` fields.
 - `MenuState.GUN_TARGETING` for cursor-based ranged targeting; TAB toggles accurate/fast mode.
-- Gun class: "small" → sidearm only, "medium"+ → weapon only.
+- Gun class: "small" → sidearm only, "medium" → weapon only, "large" → weapon only.
+- 11 guns across 3 ammo types (light, medium, heavy). AOE types: target, cone, line, circle.
 - Keybinds: F=fire, Shift+R=reload, Shift+F=swap, TAB=toggle mode.
 - AOE rule: all valid targets have equal chance; one target hit at most `ceil(num_shots / 2)` times.
 
@@ -133,7 +134,14 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 ### Item Pickup & Dropping
 - Player walks onto item tile → item auto-picked into inventory.
 - Manual drop via menu (sets item on ground as Entity).
-- Equipable items in weapon/armor/accessory slots modify stats.
+- Equipable items in weapon/sidearm/ring/neck/feet/hat slots modify stats.
+
+### Energy/Turn System
+- Energy-based turn system: all entities accumulate energy each tick at their `speed` rate. When energy >= `ENERGY_THRESHOLD` (100), entity can act.
+- `_run_energy_loop()` in engine.py is the core game clock. Each tick: distribute energy → process monster actions (sorted by energy desc) → tick effects.
+- Player actions cost `ENERGY_THRESHOLD`; loop returns control to player when they have enough energy.
+- Effects can modify energy gain via `modify_energy_gain()` hook. Toxicity slows enemies (up to 50% at 100 tox).
+- FOV uses tcod symmetric shadowcasting (`FOV_SYMMETRIC_SHADOWCAST`), computed once per player move.
 
 ### Permadeath
 - Player dies → `engine.game_over = True` → main loop stops (no respawns or continues).
@@ -141,13 +149,12 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 ## Testing
 
 - **test_game.py**: Core mechanics (initialization, movement, combat, pickup, permadeath).
-- **test_jerome.py**, **test_niglet.py**, **test_thug.py**, **test_baby_momma.py**, **test_jungle_boyz.py**: Individual enemy behavior tests.
 - **test_jerome_eating.py**: Jerome's chicken-eating heal mechanic.
 - **test_food_system.py**: Food eating mechanics and effects.
 - **test_bic_torch.py**, **test_fireball_wizard_bomb.py**, **test_blackkk_magic_xp.py**: Ability/spell system tests.
-- **test_smoking_skill_perks.py**, **test_stealing_xp.py**, **test_ring_replacement.py**, **test_skill_unlock_notifications.py**: Skill and XP system tests.
+- **test_smoking_skill_perks.py**, **test_stealing_xp.py**: Skill and XP system tests.
+- **test_jaywalking_xp.py**: Jaywalking skill XP tests.
 - **test_targeting_framework.py**: Ability targeting tests.
-- **test_stack_display.py**: Item stack display formatting tests.
 - **test_gun_system.py**: Gun creation, equipping, firing, reloading, AOE mechanics.
 - **test_faction_enemies.py**: Meth Lab faction enemies (Scryer/Aldor variants, law enforcement, faction AI).
 - **test_meth_lab_enemies.py**: Toxic enemies (Covid-26, Purger, Toxic Slug, Sludge Amalgam, Chemist).
@@ -182,18 +189,16 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 ### Adding a New Status Effect
 1. Create a subclass of `Effect` in **effects.py** with `@register` decorator.
 2. Override lifecycle hooks as needed (`apply`, `tick`, `expire`, `before_turn`, `modify_incoming_damage`, etc.).
-3. Set `category` (buff/debuff) and `priority`. Apply via `apply_effect(entity, "effect_id")`.
+3. Set `category` (buff/debuff) and `priority`. Apply via `apply_effect(entity, engine, "effect_id")`.
 
 ### Debugging Monster AI
 - Check `ai_type` and `AIState` enum value; set in enemies.py template.
 - Use `prepare_ai_tick()` output (creature_positions, step_map) to verify pathfinding.
 - Add print statements in `do_ai_turn()` to trace state transitions.
 
-## Known Limitations & Future Work
+## Known Limitations
 
-- FOV uses simple distance check; shadowcasting recommended for complex room layouts.
 - Inventory uses item stacking with count-based display.
-- Guns not in loot tables yet — spawn via dev menu for testing.
 
 ## Code Style
 

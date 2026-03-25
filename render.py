@@ -2,6 +2,8 @@
 Rendering system using tcod.
 """
 
+import math
+import time
 import tcod
 from config import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
@@ -10,7 +12,7 @@ from config import (
     MAP_WIDTH, PANEL_WIDTH,
     LEFT_PANEL_WIDTH, MAP_OFFSET_X,
     INVENTORY_KEYS, LOG_HISTORY_SIZE, RING_SLOTS, RING_FINGER_NAMES,
-    DEV_MODE,
+    DEV_MODE, ENERGY_THRESHOLD, PLAYER_BASE_SPEED,
 )
 from items import get_item_def, find_recipe, is_stackable, build_inventory_display_name, get_strain_color, PREFIX_TOOL_ITEMS, generate_examine_lines
 from foods import FOOD_DEFS
@@ -182,11 +184,21 @@ def render_all(console, engine):
         render_dev_item_select(console, engine)
     elif engine.menu_state == MenuState.DEV_FLOOR_SELECT:
         render_dev_floor_select(console, engine)
+    elif engine.menu_state == MenuState.DEV_SKILL_SELECT:
+        render_dev_skill_select(console, engine)
     elif engine.menu_state == MenuState.DEEP_FRYER:
         render_deep_fryer_menu(console, engine)
     elif engine.menu_state == MenuState.GUN_TARGETING:
         render_gun_targeting_mode(console, engine)
-
+    elif engine.menu_state == MenuState.PERK_POPUP:
+        render_perk_popup(console, engine)
+    elif engine.menu_state == MenuState.LOOK_TARGETING:
+        render_look_targeting(console, engine)
+    elif engine.menu_state == MenuState.LOOK_INFO:
+        render_look_targeting(console, engine)
+        render_look_info(console, engine)
+    elif engine.menu_state == MenuState.SETTINGS:
+        render_settings_menu(console, engine)
 
 def _wall_noise(x, y):
     """Return two deterministic offsets for a wall tile — subtle grime variation."""
@@ -210,6 +222,8 @@ def render_dungeon(console, dungeon):
     ewbg = zc["explored_wall_bg"]
     efbg = zc["explored_floor_bg"]
 
+    spray_paint = dungeon.spray_paint
+
     for y in range(dungeon.height):
         for x in range(dungeon.width):
             cx = x + MAP_OFFSET_X
@@ -226,7 +240,15 @@ def render_dungeon(console, dungeon):
                           max(0, min(255, wfb[2] + (n1 + n2) // 2)))
                     console.print(cx, cy, "#", fg=fg, bg=wbg)
                 elif tile == TILE_FLOOR:
-                    console.print(cx, cy, " ", bg=fbg)
+                    sp = spray_paint.get((x, y))
+                    if sp == "red":
+                        console.print(cx, cy, " ", bg=(140, 15, 15))
+                    elif sp == "blue":
+                        console.print(cx, cy, " ", bg=(15, 30, 140))
+                    elif sp == "green":
+                        console.print(cx, cy, " ", bg=(15, 100, 15))
+                    else:
+                        console.print(cx, cy, " ", bg=fbg)
             elif is_explored:
                 if tile == TILE_WALL:
                     n1, n2 = _wall_noise(x, y)
@@ -235,7 +257,15 @@ def render_dungeon(console, dungeon):
                           max(0, min(255, ewfb[2] + (n1 + n2) // 6)))
                     console.print(cx, cy, "#", fg=fg, bg=ewbg)
                 elif tile == TILE_FLOOR:
-                    console.print(cx, cy, " ", bg=efbg)
+                    sp = spray_paint.get((x, y))
+                    if sp == "red":
+                        console.print(cx, cy, " ", bg=(70, 8, 8))
+                    elif sp == "blue":
+                        console.print(cx, cy, " ", bg=(8, 15, 70))
+                    elif sp == "green":
+                        console.print(cx, cy, " ", bg=(8, 50, 8))
+                    else:
+                        console.print(cx, cy, " ", bg=efbg)
             else:
                 console.print(cx, cy, " ", bg=(0, 0, 0))
 
@@ -245,7 +275,7 @@ def get_entity_color(entity):
     if entity.entity_type == "player":
         return (255, 255, 255)  # White
     elif entity.entity_type == "monster":
-        return (220, 50, 50)    # Red
+        return entity.color
     elif entity.entity_type == "item" and entity.item_id:
         strain = getattr(entity, "strain", None)
         if strain:
@@ -279,6 +309,16 @@ def render_entities(console, dungeon):
             continue
         if dungeon.visible[entity.y, entity.x]:
             color = get_entity_color(entity)
+            # Curse pulse: letter oscillates between deep purples (SDL keeps 60fps)
+            if entity.entity_type == "monster" and any(
+                getattr(e, 'is_curse', False) for e in entity.status_effects
+            ):
+                t = (math.sin(time.time() * 3.0) + 1.0) / 2.0
+                color = (
+                    int(90 + 50 * t),           # R: 90–140
+                    0,
+                    int(120 + 80 * (1.0 - t)),  # B: 120–200
+                )
             console.print(entity.x + MAP_OFFSET_X, entity.y + HEADER_HEIGHT, entity.char, fg=color)
         elif entity.always_visible and dungeon.explored[entity.y, entity.x]:
             # Landmark: dimmed color so player can see it from anywhere on explored map
@@ -358,7 +398,7 @@ def render_skills_menu(console, engine):
     C_SP     = (255, 200, 100)  # skill points colour
     C_POT    = (160, 200, 255)  # potential exp colour
 
-    unlocked_skills = engine.skills.unlocked()
+    unlocked_skills = sorted(engine.skills.unlocked(), key=lambda s: s.name.lower())
     num_skills = len(unlocked_skills)
 
     # Handle empty case
@@ -377,11 +417,14 @@ def render_skills_menu(console, engine):
                       msg, fg=C_LABEL, bg=BG)
         return
 
-    # borders(2) + title(1) + sp(1) + div(1) + header(1) + div(1) + skills(n) + gap(1) + footer(1)
+    # Layout constants
     # Columns: Skill=2, Lv=18, Pot=23, Real=32, Next=41, Perk=51
     PERK_COL = 51
+    DESC_ROWS = 3  # lines for next-perk description preview
     panel_w = 72
-    panel_h = num_skills + 9
+    # borders(2) + title(1) + sp(1) + div(1) + header(1) + div(1) + skills(n)
+    # + desc_div(1) + desc_label(1) + desc(DESC_ROWS) + footer(1) + border_bottom(implicit in _draw_panel)
+    panel_h = num_skills + 9 + DESC_ROWS + 2
     panel_x = (SCREEN_WIDTH  - panel_w) // 2
     panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
 
@@ -416,10 +459,14 @@ def render_skills_menu(console, engine):
 
     perk_max_len = panel_w - PERK_COL - 2  # chars available before right border
 
+    # Track the selected skill's next perk for the description box
+    selected_next_perk = None
+    selected_skill_name = ""
+
     # Skill rows (only unlocked skills)
     for i, skill in enumerate(unlocked_skills):
         row = panel_y + 6 + i
-        is_selected = (skill.name == engine.skills.all()[engine.skills_cursor].name if engine.skills_cursor < len(engine.skills.all()) else False)
+        is_selected = (i == engine.skills_cursor)
         row_bg = C_CURSOR if is_selected else BG
         cursor_char = "►" if is_selected else " "
 
@@ -429,6 +476,8 @@ def render_skills_menu(console, engine):
             perk_str = "---"
             c_real   = C_MAXED
             c_perk   = C_MAXED
+            if is_selected:
+                selected_skill_name = skill.name
         else:
             real_str  = str(int(skill.real_exp))
             next_str  = str(skill.xp_needed())
@@ -437,6 +486,9 @@ def render_skills_menu(console, engine):
             perk = get_perk(skill.name, next_level)
             perk_str  = (perk["name"] if perk else "???")[:perk_max_len]
             c_perk    = C_HINT
+            if is_selected:
+                selected_next_perk = perk
+                selected_skill_name = skill.name
 
         pot_str = str(int(skill.potential_exp))
 
@@ -453,12 +505,46 @@ def render_skills_menu(console, engine):
         console.print(panel_x + 41,       row, next_str,         fg=C_LABEL, bg=row_bg)
         console.print(panel_x + PERK_COL, row, perk_str,         fg=c_perk,  bg=row_bg)
 
+    # --- Next Perk Description Preview ---
+    desc_div_y = panel_y + 6 + num_skills
+    _draw_title_border(console, panel_x + 1, panel_w - 2, desc_div_y,
+                       "Next Perk", BG)
+
+    C_DESC     = (200, 200, 170)
+    C_NODESC   = (80,  80,  80)
+    C_PERKNAME = (255, 215, 0)
+    desc_inner_w = panel_w - 4
+
+    if selected_next_perk and selected_next_perk.get("perk_type") != "none":
+        perk_label = selected_next_perk["name"]
+        ptype = selected_next_perk.get("perk_type", "")
+        TYPE_TAGS = {"stat": "[STAT]", "passive": "[PASSIVE]", "activated": "[ABILITY]", "grant_item": "[ITEM]"}
+        tag = TYPE_TAGS.get(ptype, "")
+        header_line = f"{perk_label}  {tag}" if tag else perk_label
+        console.print(panel_x + 2, desc_div_y + 1, header_line[:desc_inner_w],
+                      fg=C_PERKNAME, bg=BG)
+
+        desc = selected_next_perk.get("desc", "")
+        if desc:
+            wrapped = _wrap_text(desc, desc_inner_w)
+            for j, line in enumerate(wrapped[:DESC_ROWS]):
+                console.print(panel_x + 2, desc_div_y + 2 + j, line, fg=C_DESC, bg=BG)
+        else:
+            console.print(panel_x + 2, desc_div_y + 2, "No description.", fg=C_NODESC, bg=BG)
+    else:
+        if selected_next_perk and selected_next_perk.get("perk_type") == "none":
+            console.print(panel_x + 2, desc_div_y + 1, "???", fg=C_NODESC, bg=BG)
+        else:
+            msg = "Skill maxed." if selected_skill_name else "No skill selected."
+            console.print(panel_x + 2, desc_div_y + 1, msg, fg=C_NODESC, bg=BG)
+
     # Footer
     footer_y = panel_y + panel_h - 2
     if engine.skills_spend_mode:
-        skill_name = engine.skills.all()[engine.skills_cursor].name
+        sel_skill  = unlocked_skills[engine.skills_cursor] if engine.skills_cursor < len(unlocked_skills) else unlocked_skills[0]
+        skill_name = sel_skill.name
         max_spend  = min(int(engine.skills.skill_points),
-                         int(engine.skills.all()[engine.skills_cursor].potential_exp))
+                         int(sel_skill.potential_exp))
         prompt = f"Spend on {skill_name} (max {max_spend}): {engine.skills_spend_input}_"
         console.print(panel_x + 2, footer_y, prompt, fg=C_SP, bg=BG)
     else:
@@ -563,6 +649,25 @@ def render_stats_panel(console, engine):
         console.print(lx + filled_meth, row, "░" * empty_meth, fg=C_METH_EMPTY, bg=BG)
         row += 1
 
+    # ── Infection (visible when > 0) ─────────────────────────────────
+    C_INF_BAR   = (120, 200, 50)
+    C_INF_CRIT  = (200, 255, 50)
+    C_INF_EMPTY = (30, 30, 30)
+    if p.infection > 0:
+        max_inf = getattr(p, 'max_infection', 100)
+        inf_ratio = p.infection / max(1, max_inf)
+        inf_color = C_INF_CRIT if p.infection >= max_inf else C_INF_BAR
+        inf_label = "Infection"
+        inf_value = f"{p.infection}/{max_inf}"
+        console.print(lx, row, f"{inf_label} {inf_value}", fg=C_LABEL, bg=BG)
+        console.print(lx + len(inf_label) + 1, row, inf_value, fg=inf_color, bg=BG)
+        row += 1
+        filled_inf = round(bar_w * inf_ratio)
+        empty_inf  = bar_w - filled_inf
+        console.print(lx, row, "█" * filled_inf, fg=inf_color, bg=BG)
+        console.print(lx + filled_inf, row, "░" * empty_inf, fg=C_INF_EMPTY, bg=BG)
+        row += 1
+
     row += 1                      # 1 row gap before status section
 
     # ── Status effects ───────────────────────────────────────────────
@@ -570,7 +675,9 @@ def render_stats_panel(console, engine):
                        fg_border=C_SECTION_DIV)
     row += 1
 
-    cash_section_y = map_h - 3  # reserve bottom 2 rows for cash display
+    # Reserve bottom rows: 2 for cash + 2 for tox/rad when in meth lab
+    tox_rad_rows = 2 if engine.entered_meth_lab else 0
+    cash_section_y = map_h - 3 - tox_rad_rows
 
     status_effects = engine.player.status_effects
     if not status_effects:
@@ -637,11 +744,22 @@ def render_stats_panel(console, engine):
         if gun_defn and gun_defn.get("subcategory") == "gun":
             gun_row = cash_section_y - 2
             if gun_row > row:
-                mode_tag = engine.gun_firing_mode.upper()
+                mode_tag = "ACC" if engine.gun_firing_mode == "accurate" else engine.gun_firing_mode.upper()
                 ammo_str = f"{primary_gun.current_ammo}/{primary_gun.mag_size}"
                 gun_line = f"Ammo: {ammo_str} [{mode_tag}]"
                 max_w = pw - lx - 1
                 console.print(lx, gun_row, gun_line[:max_w], fg=(200, 180, 100), bg=BG)
+
+    # ── Toxicity / Radiation (Meth Lab only) ──────────────────────────
+    if engine.entered_meth_lab:
+        C_TOX = (0, 255, 100)
+        C_RAD = (100, 255, 50)
+        tox_y = cash_section_y
+        tox_str = f"Tox: {engine.player.toxicity}"
+        rad_str = f"Rad: {engine.player.radiation}"
+        console.print(lx, tox_y, tox_str, fg=C_TOX, bg=BG)
+        console.print(lx, tox_y + 1, rad_str, fg=C_RAD, bg=BG)
+        cash_section_y += 2
 
     # ── Cash ─────────────────────────────────────────────────────────
     _draw_title_border(console, 1, pw - 2, cash_section_y, "CASH", BG,
@@ -734,9 +852,10 @@ def render_inventory_panel(console, engine):
             item_prefix = getattr(item, "prefix", None)
             item_charges = getattr(item, "charges", None)
             item_max_charges = getattr(item, "max_charges", None)
-            has_charges = (item_prefix is not None
-                          and item_charges is not None
-                          and item_max_charges is not None)
+            has_charges = (item_charges is not None
+                          and item_max_charges is not None
+                          and (item_prefix is not None
+                               or get_item_def(item.item_id).get("tool_charges")))
 
             full_name = build_inventory_display_name(
                 item.item_id, getattr(item, "strain", None), qty,
@@ -829,16 +948,10 @@ def render_item_menu(console, engine):
     actions = engine.selected_item_actions
     cursor = engine.item_menu_cursor
 
-    # Build keyhint per action
-    item = engine.player.inventory[engine.selected_item_index]
-    defn = get_item_def(item.item_id)
-    use_verb = defn.get("use_verb")
-    throw_verb = defn.get("throw_verb")
+    # Build keyhint per action — unique shortcuts + Spc for cursor selection
     key_hints = {}
     for act in actions:
-        if act == use_verb or act == throw_verb or act == "Use on..." or act == "Equip":
-            key_hints[act] = "Spc"
-        elif act == "Examine":
+        if act == "Examine":
             key_hints[act] = "e"
         elif act == "Drop":
             key_hints[act] = "d"
@@ -875,7 +988,7 @@ def render_item_menu(console, engine):
             console.print(popup_x + popup_w - len(hint) - 2, row_y, hint, fg=C_KEY, bg=bg)
 
     # Hint
-    console.print(popup_x + 2, popup_y + popup_h - 1, "[Esc] Cancel", fg=C_HINT, bg=BG)
+    console.print(popup_x + 2, popup_y + popup_h - 1, "Spc/Enter  Esc", fg=C_HINT, bg=BG)
 
 
 def render_combine_select(console, engine):
@@ -1010,7 +1123,7 @@ def render_char_sheet(console, engine):
     ps = engine.player_stats
     panel_w = 50
     # Dynamic height based on content
-    derived_count = 5  # base derived stats
+    derived_count = 8  # base derived stats (5 original + speed + move cost + attack cost)
     if ps.total_briskness != 0:
         derived_count += 1
     if ps.total_spell_damage > 0:
@@ -1070,12 +1183,44 @@ def render_char_sheet(console, engine):
     p = engine.player
     unarmed_bonus = ps.effective_strength - 5
     unarmed_str = f"+{unarmed_bonus}" if unarmed_bonus >= 0 else str(unarmed_bonus)
+    # Compute effective energy/tick matching engine._run_energy_loop logic
+    base_speed = PLAYER_BASE_SPEED
+    eff_speed = float(p.speed)
+    for effect in p.status_effects:
+        if hasattr(effect, "modify_energy_gain"):
+            eff_speed = effect.modify_energy_gain(eff_speed, p)
+    eff_speed = max(eff_speed, 10.0)
+    eff_speed += ps.equipment_energy_per_tick
+    if engine.skills.get("Meth-Head").level >= 3:
+        eff_speed += (p.meth // 25) * 10
+    eff_speed = int(eff_speed)
+
+    speed_str = f"{eff_speed}"
+    if eff_speed != base_speed:
+        speed_str += f" ({base_speed})"
+
+    move_base = ENERGY_THRESHOLD
+    move_eff = move_base - engine.move_cost_reduction
+    move_str = f"{move_eff}"
+    if move_eff != move_base:
+        move_str += f" ({move_base})"
+
+    atk_base = ENERGY_THRESHOLD
+    atk_eff = atk_base  # player attack cost is always ENERGY_THRESHOLD currently
+    atk_str = f"{atk_eff}"
+
     derived = [
         ("Max HP",        f"{p.max_hp}",              f"Base 30 + CON*10"),
         ("Armor",         f"{p.armor}/{p.max_armor}", f"From equipment/effects, refills per floor"),
         ("Unarmed Bonus", f"{unarmed_str} dmg",       f"STR-5 (weapons scale differently)"),
         ("Crit Chance",   f"{ps.crit_chance:.0%}",    f"SS*3% per point, crits deal x2 dmg"),
         ("Dodge Chance",  f"{ps.dodge_chance}%",      f"Chance to dodge melee attacks (0–90%)"),
+        ("Speed",         speed_str,                   f"Energy gained per tick",
+         C_BUFF if eff_speed > base_speed else (C_DEBUFF if eff_speed < base_speed else None)),
+        ("Move Cost",     move_str,                    f"Energy spent to move",
+         C_BUFF if move_eff < move_base else (C_DEBUFF if move_eff > move_base else None)),
+        ("Attack Cost",   atk_str,                     f"Energy spent to attack",
+         C_BUFF if atk_eff < atk_base else (C_DEBUFF if atk_eff > atk_base else None)),
     ]
     if ps.total_briskness != 0:
         sign = "+" if ps.total_briskness > 0 else ""
@@ -1093,10 +1238,12 @@ def render_char_sheet(console, engine):
         rad_res = engine.player_stats.total_rad_resistance
         derived.append(("Radiation", f"{rad}", "Radiation level"))
         derived.append(("Rad Resist", f"{rad_res}%", "Reduces radiation gained"))
-    for i, (label, val, note) in enumerate(derived):
+    for i, entry in enumerate(derived):
+        label, val, note = entry[0], entry[1], entry[2]
+        val_color = entry[3] if len(entry) > 3 and entry[3] else C_DERIVED
         row = div_row + 2 + i
         console.print(panel_x + 2,  row, label, fg=C_LABEL,  bg=BG)
-        console.print(panel_x + 18, row, val,   fg=C_DERIVED, bg=BG)
+        console.print(panel_x + 18, row, val,   fg=val_color, bg=BG)
         console.print(panel_x + 28, row, note[:panel_w - 30], fg=C_DESC, bg=BG)
 
     # Reputation section
@@ -1411,6 +1558,23 @@ def render_targeting_mode(console, engine):
     else:
         cursor_bg = (30, 60, 180)    # blue: valid target position
 
+    # Highlight invalid (out-of-range / out-of-sight) tiles with light red
+    C_INVALID_BG = (80, 25, 25)
+    dw, dh = engine.dungeon.width, engine.dungeon.height
+    for ty in range(dh):
+        for tx in range(dw):
+            if not engine.dungeon.visible[ty, tx]:
+                continue  # not visible — already dark, skip
+            if engine._is_targeting_in_range(tx, ty):
+                continue  # valid target tile
+            sx = tx + MAP_OFFSET_X
+            sy = ty + HEADER_HEIGHT
+            if 0 <= sx < SCREEN_WIDTH and 0 <= sy < SCREEN_HEIGHT:
+                tile = console.rgb[sx, sy]
+                ch = chr(tile['ch']) if tile['ch'] else ' '
+                ch_color = tuple(tile['fg'][:3]) if tile['fg'] is not None else (255, 255, 255)
+                console.print(sx, sy, ch, fg=ch_color, bg=C_INVALID_BG)
+
     # Highlight spell affected tiles (if applicable)
     if engine.targeting_spell is not None:
         affected_tiles = engine.get_targeting_affected_tiles(cx, cy)
@@ -1550,6 +1714,25 @@ def render_gun_targeting_mode(console, engine):
             cursor_bg = (30, 60, 180)
     else:
         aoe_type = gun_defn.get("aoe_type", "target")
+
+    # Highlight invalid (out-of-range / out-of-sight / self) tiles with light red
+    effective_range = ga.get("range", 4) if ga is not None else gun_range
+    C_INVALID_BG = (80, 25, 25)
+    dw, dh = engine.dungeon.width, engine.dungeon.height
+    for ty_ in range(dh):
+        for tx_ in range(dw):
+            if not engine.dungeon.visible[ty_, tx_]:
+                continue
+            d = max(abs(tx_ - engine.player.x), abs(ty_ - engine.player.y))
+            if 0 < d <= effective_range:
+                continue  # valid target tile
+            sx_ = tx_ + MAP_OFFSET_X
+            sy_ = ty_ + HEADER_HEIGHT
+            if 0 <= sx_ < SCREEN_WIDTH and 0 <= sy_ < SCREEN_HEIGHT:
+                tile_ = console.rgb[sx_, sy_]
+                ch_ = chr(tile_['ch']) if tile_['ch'] else ' '
+                ch_color_ = tuple(tile_['fg'][:3]) if tile_['fg'] is not None else (255, 255, 255)
+                console.print(sx_, sy_, ch_, fg=ch_color_, bg=C_INVALID_BG)
 
     aoe_targets = 0
     if is_visible and in_range:
@@ -1762,25 +1945,44 @@ def render_entity_targeting_mode(console, engine):
 def render_adjacent_tile_targeting_mode(console, engine):
     """Highlight non-wall adjacent tiles and show a direction-prompt popup."""
     px, py = engine.player.x, engine.player.y
+    pending = getattr(engine, 'spray_paint_pending', None)
 
-    C_VALID_BG = (80, 40, 0)   # dim orange — valid adjacent tiles
+    _SPRAY_TILE_BG = {"blue": (15, 30, 100), "green": (15, 80, 15), "red": (100, 15, 15)}
+    if pending:
+        C_VALID_BG = _SPRAY_TILE_BG.get(pending.get("spray_type"), (100, 15, 15))
+    else:
+        C_VALID_BG = (80, 40, 0)     # dim orange — valid adjacent tiles
 
+    C_INVALID_BG = (80, 25, 25)
     for dy in range(-1, 2):
         for dx in range(-1, 2):
             if dx == 0 and dy == 0:
                 continue
             tx, ty = px + dx, py + dy
-            if (0 <= tx < engine.dungeon.width and 0 <= ty < engine.dungeon.height
-                    and not engine.dungeon.is_wall(tx, ty)):
-                console.print(tx + MAP_OFFSET_X, ty + HEADER_HEIGHT, " ", bg=C_VALID_BG)
+            if 0 <= tx < engine.dungeon.width and 0 <= ty < engine.dungeon.height:
+                if not engine.dungeon.is_terrain_blocked(tx, ty):
+                    console.print(tx + MAP_OFFSET_X, ty + HEADER_HEIGHT, " ", bg=C_VALID_BG)
+                else:
+                    console.print(tx + MAP_OFFSET_X, ty + HEADER_HEIGHT, " ", bg=C_INVALID_BG)
 
     BG       = (20, 15, 30)
-    C_BORDER = (255, 100, 0)
-    C_TITLE  = (255, 160, 40)
     C_HINT   = (200, 200, 200)
 
-    line0 = "Fire! — Choose direction"
-    line1 = "[Arrow/Numpad] Place fire"
+    _SPRAY_UI = {
+        "blue":  ((40, 100, 255), (80, 140, 255)),
+        "green": ((40, 200, 40),  (80, 255, 80)),
+        "red":   ((255, 40, 40),  (255, 80, 80)),
+    }
+    if pending:
+        st = pending.get("spray_type", "red")
+        C_BORDER, C_TITLE = _SPRAY_UI.get(st, _SPRAY_UI["red"])
+        line0 = "Spray Paint — Choose direction"
+        line1 = "[Arrow/Numpad] Spray tile"
+    else:
+        C_BORDER = (255, 100, 0)
+        C_TITLE  = (255, 160, 40)
+        line0 = "Fire! — Choose direction"
+        line1 = "[Arrow/Numpad] Place fire"
     line2 = "[Esc] Cancel"
     popup_w = max(len(line0), len(line1), len(line2)) + 4
     popup_h = 5
@@ -1908,6 +2110,12 @@ def render_abilities_menu(console, engine):
             else:
                 charge_str = inst.charge_display(defn)
                 console.print(panel_x + 20, row, charge_str[:11], fg=C_AVAIL, bg=row_bg)
+
+            # "per floor" tag anchored to right edge for floor-refresh abilities
+            if defn.charge_type.value in ("per_floor", "floor_only"):
+                tag = "per floor"
+                tag_x = panel_x + panel_w - 2 - len(tag)
+                console.print(tag_x, row, tag, fg=C_HINT, bg=row_bg)
 
     # Divider before description
     desc_div_y = panel_y + 5 + n_rows
@@ -2116,6 +2324,230 @@ def render_perks_menu(console, engine):
                   panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
 
 
+def render_look_targeting(console, engine):
+    """Render the Look mode cursor on the map with a small tooltip."""
+    from config import TILE_FLOOR
+
+    cx, cy = engine.look_cursor
+    map_cx = cx + MAP_OFFSET_X
+    map_cy = cy + HEADER_HEIGHT
+
+    is_visible = bool(engine.dungeon.visible[cy, cx])
+    is_explored = bool(engine.dungeon.explored[cy, cx])
+
+    # Color-code the cursor
+    if not is_explored:
+        cursor_bg = (80, 80, 80)
+    elif not is_visible:
+        cursor_bg = (60, 60, 100)
+    else:
+        cursor_bg = (30, 120, 60)
+
+    console.print(map_cx, map_cy, "X", fg=(255, 255, 255), bg=cursor_bg)
+
+    # Build one-line summary for tooltip
+    summary = ""
+    if is_visible:
+        if engine.player.x == cx and engine.player.y == cy:
+            summary = "You"
+        entities = engine.dungeon.get_entities_at(cx, cy)
+        for e in entities:
+            if e.entity_type == "monster" and e.alive:
+                summary = e.name
+                break
+            elif not summary:
+                if e.entity_type in ("item", "staircase", "cash", "hazard"):
+                    summary = e.name
+        if not summary:
+            tile = engine.dungeon.tiles[cy][cx]
+            summary = "Floor" if tile == TILE_FLOOR else "Wall"
+    elif is_explored:
+        tile = engine.dungeon.tiles[cy][cx]
+        summary = f"{'Floor' if tile == TILE_FLOOR else 'Wall'} (not visible)"
+    else:
+        summary = "Unexplored"
+
+    # Draw tooltip popup near cursor
+    BG = (20, 15, 30)
+    C_HINT = (140, 140, 170)
+    C_SUMMARY = (220, 235, 255)
+
+    hint = "[Enter] Inspect  [Esc] Exit"
+    popup_w = max(len(summary) + 4, len(hint) + 4)
+    popup_h = 4
+
+    map_h = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT
+    popup_x = max(MAP_OFFSET_X, min(map_cx - 1, MAP_OFFSET_X + MAP_WIDTH - popup_w - 1))
+    popup_y = map_cy + 2
+    if popup_y + popup_h >= HEADER_HEIGHT + map_h:
+        popup_y = map_cy - popup_h - 1
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+    console.print(popup_x + 2, popup_y + 1, summary, fg=C_SUMMARY, bg=BG)
+    console.print(popup_x + 2, popup_y + 2, hint, fg=C_HINT, bg=BG)
+
+
+def render_look_info(console, engine):
+    """Render the Look info popup — centered panel with tile/entity details."""
+    BG      = (20, 18, 30)
+    C_TITLE = (255, 255, 180)
+    C_DIV   = (80,  80, 120)
+    C_HINT  = (100, 100, 130)
+
+    title = engine.look_info_title
+    lines = engine.look_info_lines
+
+    # Calculate width from content, capped at 44
+    max_line_w = len(title)
+    for line_parts in lines:
+        line_len = sum(len(t) for t, *_ in line_parts)
+        if line_len > max_line_w:
+            max_line_w = line_len
+    popup_w = min(44, max(20, max_line_w + 6))
+
+    # Clamp line count so popup fits on screen
+    map_h = SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT
+    max_content_lines = max(4, map_h - 7)
+    visible_lines = lines[:max_content_lines]
+
+    # Height: border(1) + title(1) + div(1) + content(n) + hint(1) + border(1)
+    popup_h = len(visible_lines) + 5
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (map_h - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    # Title
+    title_disp = title[:popup_w - 4]
+    console.print(popup_x + (popup_w - len(title_disp)) // 2, popup_y + 1,
+                  title_disp, fg=C_TITLE, bg=BG)
+
+    # Divider
+    for px in range(1, popup_w - 1):
+        console.print(popup_x + px, popup_y + 2, "─", fg=C_DIV, bg=BG)
+
+    # Content lines
+    for i, line_parts in enumerate(visible_lines):
+        cx = popup_x + 2
+        cy = popup_y + 3 + i
+        for part in line_parts:
+            if isinstance(part, tuple) and len(part) >= 2:
+                text, color = part[0], part[1]
+            else:
+                text = str(part)
+                color = (200, 200, 200)
+            clipped = text[:popup_w - (cx - popup_x) - 1]
+            console.print(cx, cy, clipped, fg=color, bg=BG)
+            cx += len(clipped)
+
+    # Hint
+    hint = "[Any key] Back"
+    console.print(popup_x + (popup_w - len(hint)) // 2,
+                  popup_y + popup_h - 2, hint, fg=C_HINT, bg=BG)
+
+
+def render_perk_popup(console, engine):
+    """Render a perk unlock popup — shown when the player levels up a skill."""
+    if not engine.perk_popup_queue:
+        return
+
+    info = engine.perk_popup_queue[0]
+    perk = info["perk"]
+    skill_name = info["skill_name"]
+    level = info["level"]
+    perk_name = perk["name"]
+    perk_type = perk.get("perk_type", "none")
+    desc = perk.get("desc", "")
+
+    BG        = (12, 12, 24)
+    C_BORDER  = (180, 150, 50)
+    C_SKILL   = (180, 180, 255)
+    C_LEVEL   = (255, 255, 180)
+    C_NAME    = (255, 215, 0)
+    C_DESC    = (200, 200, 170)
+    C_HINT    = (100, 100, 130)
+
+    # Perk type badge colors
+    TYPE_COLORS = {
+        "stat":      ((80, 220, 160), "[STAT]"),
+        "passive":   ((120, 180, 255), "[PASSIVE]"),
+        "activated": ((255, 160, 80),  "[ABILITY]"),
+        "grant_item":((200, 160, 255), "[ITEM]"),
+    }
+    badge_color, badge_text = TYPE_COLORS.get(perk_type, ((160, 160, 160), f"[{perk_type.upper()}]"))
+
+    panel_w = 48
+    inner_w = panel_w - 4  # 2 border + 2 padding
+    desc_lines = _wrap_text(desc, inner_w) if desc else []
+    # Clamp desc to reasonable height
+    max_desc_lines = 6
+    desc_lines = desc_lines[:max_desc_lines]
+
+    # Layout: border(1) + blank(1) + "PERK UNLOCKED"(1) + blank(1) + skill+level(1)
+    #       + perk_name(1) + badge(1) + div(1) + desc(n) + blank(1) + hint(1) + border(1)
+    panel_h = 11 + len(desc_lines)
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    # Draw background
+    for dy in range(panel_h):
+        for dx in range(panel_w):
+            console.print(panel_x + dx, panel_y + dy, " ", bg=BG)
+
+    # Draw gold border
+    # Top/bottom
+    for dx in range(panel_w):
+        console.print(panel_x + dx, panel_y, "═", fg=C_BORDER, bg=BG)
+        console.print(panel_x + dx, panel_y + panel_h - 1, "═", fg=C_BORDER, bg=BG)
+    # Left/right
+    for dy in range(1, panel_h - 1):
+        console.print(panel_x, panel_y + dy, "║", fg=C_BORDER, bg=BG)
+        console.print(panel_x + panel_w - 1, panel_y + dy, "║", fg=C_BORDER, bg=BG)
+    # Corners
+    console.print(panel_x, panel_y, "╔", fg=C_BORDER, bg=BG)
+    console.print(panel_x + panel_w - 1, panel_y, "╗", fg=C_BORDER, bg=BG)
+    console.print(panel_x, panel_y + panel_h - 1, "╚", fg=C_BORDER, bg=BG)
+    console.print(panel_x + panel_w - 1, panel_y + panel_h - 1, "╝", fg=C_BORDER, bg=BG)
+
+    y = panel_y + 2
+    # Title
+    title = "PERK UNLOCKED"
+    console.print(panel_x + (panel_w - len(title)) // 2, y, title, fg=C_NAME, bg=BG)
+    y += 2
+
+    # Skill name + level
+    skill_line = f"{skill_name}  Lv {level}"
+    console.print(panel_x + (panel_w - len(skill_line)) // 2, y, skill_line, fg=C_SKILL, bg=BG)
+    y += 1
+
+    # Perk name
+    console.print(panel_x + (panel_w - len(perk_name)) // 2, y, perk_name, fg=C_NAME, bg=BG)
+    y += 1
+
+    # Badge
+    console.print(panel_x + (panel_w - len(badge_text)) // 2, y, badge_text, fg=badge_color, bg=BG)
+    y += 1
+
+    # Divider
+    for dx in range(1, panel_w - 1):
+        console.print(panel_x + dx, y, "─", fg=C_BORDER, bg=BG)
+    y += 1
+
+    # Description
+    for line in desc_lines:
+        console.print(panel_x + 2, y, line, fg=C_DESC, bg=BG)
+        y += 1
+
+    # Hint at bottom
+    remaining = len(engine.perk_popup_queue) - 1
+    if remaining > 0:
+        hint = f"[Any key] Next ({remaining} more)"
+    else:
+        hint = "[Any key] Continue"
+    console.print(panel_x + (panel_w - len(hint)) // 2,
+                  panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
+
+
 def render_dev_menu(console, engine):
     """Render the dev tools overlay menu."""
     if not DEV_MODE:
@@ -2132,8 +2564,7 @@ def render_dev_menu(console, engine):
     C_OFF    = (160, 160, 160)
 
     options = [
-        ("Max All Skills (Lv 10)",        "max_skills"),
-        ("Add 10,000 Skill Points",        "add_skillpoints"),
+        ("+500k Potential XP (All Skills)", "add_potential_xp"),
         ("Spawn Item...",                  "spawn_item"),
         ("Kill All Monsters in View",      "kill_in_view"),
         ("Invincibility",                  "toggle_invincible"),
@@ -2143,6 +2574,7 @@ def render_dev_menu(console, engine):
         ("Teleport to Stairs",             "teleport_stairs"),
         ("Teleport to Floor...",           "teleport_floor"),
         ("Add +5 to All Stats",            "add_stats"),
+        ("Meth Lab Kit",                   "meth_lab_kit"),
     ]
 
     panel_w = 42
@@ -2164,7 +2596,7 @@ def render_dev_menu(console, engine):
         for px in range(1, panel_w - 1):
             console.print(panel_x + px, row_y, " ", bg=row_bg)
 
-        num = str((i + 1) % 10)
+        num = str((i + 1) % 10) if i < 10 else "-"
         console.print(panel_x + 2, row_y, f"[{num}]", fg=C_KEY, bg=row_bg)
 
         # Special label for toggle option
@@ -2297,6 +2729,67 @@ def render_dev_floor_select(console, engine):
                   hint, fg=C_HINT, bg=BG)
 
 
+def render_dev_skill_select(console, engine):
+    """Render the dev skill level-up picker."""
+    if not DEV_MODE:
+        return
+
+    from skills import SKILL_NAMES, MAX_LEVEL
+
+    BG       = (10, 10, 30)
+    C_TITLE  = (255, 80, 80)
+    C_DIV    = (100, 40, 40)
+    C_SKILL  = (220, 220, 220)
+    C_CURSOR = (40, 40, 80)
+    C_HINT   = (100, 100, 130)
+    C_LVL    = (120, 200, 120)
+    C_MAXED  = (255, 200, 50)
+
+    skills = SKILL_NAMES
+    n = len(skills)
+    rows = min(n, 24)
+    panel_w = 50
+    panel_h = rows + 6
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    # Keep cursor in view
+    if engine.dev_skill_cursor < engine.dev_skill_scroll:
+        engine.dev_skill_scroll = engine.dev_skill_cursor
+    elif engine.dev_skill_cursor >= engine.dev_skill_scroll + rows:
+        engine.dev_skill_scroll = engine.dev_skill_cursor - rows + 1
+
+    _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+
+    title = "[ LEVEL UP SKILL ]"
+    console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+
+    for row in range(rows):
+        idx = engine.dev_skill_scroll + row
+        if idx >= n:
+            break
+        skill_name = skills[idx]
+        skill = engine.skills.get(skill_name)
+        lvl = skill.level
+        row_y = panel_y + 3 + row
+        row_bg = C_CURSOR if idx == engine.dev_skill_cursor else BG
+        for px in range(1, panel_w - 1):
+            console.print(panel_x + px, row_y, " ", bg=row_bg)
+        is_max = lvl >= MAX_LEVEL
+        lvl_fg = C_MAXED if is_max else C_LVL
+        lvl_str = "MAX" if is_max else f"Lv {lvl}"
+        console.print(panel_x + 2, row_y, skill_name[:30], fg=C_SKILL, bg=row_bg)
+        console.print(panel_x + 34, row_y, lvl_str, fg=lvl_fg, bg=row_bg)
+
+    scroll_info = f" {engine.dev_skill_scroll + 1}-{min(engine.dev_skill_scroll + rows, n)}/{n} "
+    hint = f"[↑↓]{scroll_info}[Enter] +1 Level  [Esc] Back"
+    console.print(panel_x + (panel_w - len(hint)) // 2, panel_y + panel_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
 def render_deep_fryer_menu(console, engine):
     """Render the deep-fryer food selection popup."""
     BG       = (22, 18, 28)
@@ -2388,12 +2881,35 @@ def render_ui(console, engine):
     for dy in range(1, UI_HEIGHT - 1):
         console.print(SCREEN_WIDTH - 1, ui_y + dy, "║", fg=C_FRAME, bg=BG)
 
-    # ── Bottom border (double-line) ─────────────────────────────────
+    # ── Bottom border (double-line) with keybind hints ──────────────
     for x in range(SCREEN_WIDTH):
         console.print(x, bottom_y, "═", fg=C_FRAME, bg=BG)
     console.print(0, bottom_y, "╚", fg=C_FRAME, bg=BG)
     console.print(stats_x, bottom_y, "╧", fg=C_FRAME, bg=BG)
     console.print(SCREEN_WIDTH - 1, bottom_y, "╝", fg=C_FRAME, bg=BG)
+
+    # Keybind hints embedded in bottom border
+    C_KEY_HINT = (120, 120, 160)
+    C_KEY_LABEL = (80, 80, 110)
+    hints = [
+        ("S", "Skills"),
+        ("A", "Abilities"),
+        ("E", "Equip"),
+        ("C", "Char"),
+        ("F", "Fire"),
+        (";", "Look"),
+        ("^L", "Log"),
+        ("^B", "Bestiary"),
+        ("^P", "Perks"),
+    ]
+    hx = 2
+    for key, label in hints:
+        if hx + len(key) + len(label) + 2 > stats_x - 1:
+            break
+        console.print(hx, bottom_y, key, fg=C_KEY_HINT, bg=BG)
+        hx += len(key)
+        console.print(hx, bottom_y, f":{label}", fg=C_KEY_LABEL, bg=BG)
+        hx += len(label) + 1 + 2  # colon + label + 2 space gap
 
     # Log hint (left of separator, on the top border)
     hint_text = "[Shift+L] Log"
@@ -2507,3 +3023,48 @@ def render_ui(console, engine):
                 SCREEN_WIDTH // 2 - len(label) // 2, y,
                 label, fg=fg, bg=(20, 0, 0),
             )
+
+
+def render_settings_menu(console, engine):
+    """Render the settings/display mode menu as a centered popup."""
+    from engine import GameEngine
+    modes = GameEngine.DISPLAY_MODES
+    cursor = engine.settings_cursor
+    current = engine.current_display_mode
+
+    BG       = (20, 15, 30)
+    C_BORDER = (160, 160, 210)
+    C_TITLE  = (220, 235, 255)
+    C_HINT   = (140, 140, 170)
+    C_ITEM   = (200, 200, 220)
+    C_ACTIVE = (100, 255, 100)
+    C_CURSOR = (50, 40, 80)
+
+    n = len(modes)
+    popup_w = 36
+    popup_h = n + 6  # border(2) + title(1) + blank(1) + items(n) + hint(1) + blank border
+    popup_x = SCREEN_WIDTH // 2 - popup_w // 2
+    popup_y = SCREEN_HEIGHT // 2 - popup_h // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ DISPLAY SETTINGS ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    for i, mode in enumerate(modes):
+        row_y = popup_y + 3 + i
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        label = mode["label"]
+        if i == current:
+            label += "  *"
+            fg = C_ACTIVE
+        else:
+            fg = C_ITEM
+        console.print(popup_x + 3, row_y, label, fg=fg, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Apply  [Esc] Close"
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)

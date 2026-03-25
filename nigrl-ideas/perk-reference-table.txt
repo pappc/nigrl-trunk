@@ -1,0 +1,265 @@
+NIGRL - Complete Perk Reference (Actual Code Behavior)
+======================================================
+
+### Smoking
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | +2 TOL, +2 CON | +2 Tolerance, +2 Constitution |
+| 2 | Stress Smoke | 10% chance when hit to auto-smoke a random joint from inventory |
+| 3 | Phat Cloud | On smoking a joint, deals 10 + (tolerance // 2) damage to nearest visible enemy |
+| 4 | Roach Fiend | 30% chance joint is not consumed when smoked |
+| 5 | Contact High | Strain effects from joints spread to all enemies within 3 tiles |
+
+### Rolling
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | +2 SWG, +2 TOL | +2 Swagger, +2 Tolerance |
+| 2 | Spectral Paper | +2 Tolerance. 20% chance rolling doesn't consume papers |
+| 3 | Seeing Double | 50% chance to roll an extra joint when rolling |
+| 4 | Snickelfritz | 25% chance to gain a bonus Snickelfritz joint (very negative strain) |
+| 5 | Rollin' Cloud | Rolling a joint triggers Phat Cloud on nearest visible enemy |
+
+### Pyromania
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Fire! | +2 Constitution. Grants place_fire ability (line of 4, 10t, 3/floor) |
+| 2 | +3 CON | +3 Constitution |
+| 3 | Ignite | Grants ignite_spell ability (targeted ranged ignite) |
+| 4 | Neva Burn Out | Immune to fire/burn damage |
+| 5 | Wildfire | Ignited enemies have 20%/turn chance to spread fire to adjacent enemies with fewer stacks |
+
+### Blackkk Magic
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Curse of Ham | Cone curse (range 3, 60deg). Cursed monsters attack slower and deal 50% less damage. 3/floor |
+| 2 | Curse of DOT | Single target curse. Gains stacks each turn, deals 1-5 dmg (higher at more stacks). Spreads on death. 3/floor |
+| 3 | Curse of COVID | Single target curse. Each turn applies 20 rad or tox (capped 150). 50% to stack, 25% to spread. 3/floor |
+
+### Smartsness
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | +2 BKS | +2 Book Smarts |
+| 2 | Force Be With You | Grants force_push ability (push adjacent enemy backwards) |
+| 3 | Arcane Intelligence | On spell cast: 25% chance to gain 2 stacks of arcane_intelligence effect (+1 spell damage/stack, 20t) |
+
+### Stabbing
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Gouge | Grants gouge ability (adjacent, dmg = effective_street_smarts, stuns 5t, stun breaks on damage to target) |
+| 2 | +2 STS | +2 Street Smarts |
+| 3 | Windfury | On stab attack, min(30, street_smarts)% chance for an extra hit |
+| 4 | +4 STS, +4 STR | +4 Street Smarts, +4 Strength |
+| 5 | Lunge | Moving into tile with enemy directly ahead auto-crits for free |
+
+### Beating
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | +3 STR | +3 Strength |
+| 2 | Bash | Grants bash ability (stun adjacent enemy 1 turn) |
+| 3 | Crit+ | engine.crit_multiplier += 1 |
+
+### Smacking
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Bitch Slap | Grants black_eye_slap ability (adjacent, doubled damage vs females) |
+| 2 | +3 STR, +3 CON | +3 Strength, +3 Constitution |
+| 3 | Black Eye | Unarmed attacks: 10% chance to apply black_eye (2t stun then 10t dazed wander) |
+
+### Stealing
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | +3 STS | +3 Street Smarts |
+| 2 | Pickpocket | Grants pickpocket ability (steal cash/item from adjacent enemy) |
+| 3 | Sticky Fingers | On first item pickup per floor, chance to gain +1 STS. Chance = min(50%, item_value / 1000) |
+
+### Jaywalking
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Air Jordans | Movement costs -5 energy |
+| 2 | Dash | Grants dash ability (move 3 tiles instantly in a direction) |
+| 3 | Airer Jordans | +10 speed |
+
+### Deep-Frying
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Fry Shot | Grants fry_shot ability (hurl hot oil, area burn) |
+| 2 | Extra Greasy | Fried food gives 2 greasy stacks instead of 1 (+dodge per stack) |
+| 3 | Double Batch | 20% chance food is not consumed when eaten |
+
+### Drinking
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Liquid Bandage | Any drink heals +10% max HP on use |
+| 2 | One More Sip | 20% chance drink is not consumed |
+| 3 | Slow Metabolism | Grants slow_metabolism ability (double duration of active drink buffs, 2/floor) |
+
+### Alcoholism
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Throw Bottle | Grants throw_bottle ability (hurl bottle at enemy for damage with chance to stun) |
+| 2 | +4 TOL | +4 Tolerance |
+| 3 | Stash Finder | 15% chance when entering a new room to find a random bottle in your inventory |
+
+### Munching
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Fast Food | +2 Constitution; grants quick_eat ability (next food eaten instantly) |
+| 2 | +2 CON | +2 Constitution |
+| 3 | Better Later | Food effects last 50% longer; 25% chance to generate "Leftovers" on food completion |
+
+### Dismantling
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | +2 BKS, +2 CON | +2 Book Smarts, +2 Constitution |
+| 2 | Chop Shop | Destroying item grants +5 armor and +$20 cash |
+| 3 | Nigga Armor | Destroying item grants a stack of nigga_armor effect |
+
+### Abandoning
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | +1 All Stats | +1 to all 6 stats |
+| 2 | +1 All Stats | +1 to all 6 stats again |
+| 3 | Anotha Motha | Spawns 5 extra item drops when descending to next floor |
+
+### Meth-Head
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Sped | 20% on melee hit: gain sped effect (5t, half melee energy cost). Costs 10 meth. Can't proc while active |
+| 2 | Crack Hallucinations | Grants crack_hallucinations ability (1/floor, next consumable grants meth = item value + XP) |
+| 3 | Tweaker | +10 speed per 25 meth (max +100 at 250 meth) |
+
+### Chemical Warfare
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Toxic Harvest | Grants toxic_harvest ability (1/floor, kills grant +5 tox 10t) |
+| 2 | Toxic Resilience | +5 Tolerance, +3 Constitution, -30% toxicity resistance |
+| 3 | Acid Meltdown | Grants acid_meltdown ability (costs 25 tox, halve move cost 20t, kills create 3x3 acid pools) |
+
+### White Power
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Bleached | +4 Swagger, +20% toxicity resistance |
+| 2 | White Out | Grants white_out ability (3/floor, gain 25 tox, +8 Swagger/-25% damage dealt for 50t) |
+| 3 | Pure | +4 Swagger; double XP from toxicity resisted |
+
+### Mutation
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Mutagen | +1 to all 6 stats; immediately force-mutates player |
+| 2 | Unstable | 20% on melee hit: gain unstable buff (20t, +5 rad, +2 melee dmg, hits irradiate enemies) |
+| 3 | Favorable Odds | +50% good mutation multiplier |
+
+### Nuclear Research
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Irradiated Intellect | +3 Book Smarts; rad gained increased by book_smarts% of amount |
+| 2 | Rad Bomb | Grants rad_bomb ability (place crystal range 2, detonates 3t, 5x5, 15+BKS/2 dmg, 3/floor, costs 25 rad). Passive: can't mutate below 150 rad |
+| 3 | Nutrient Producer | Grants nutrient_producer tool item (combine with consumable -> RadBar) |
+| 4 | Isotope Junkie | Using any consumable grants +5 radiation (pierces resistance); Rad Bomb upgraded to 20+BKS dmg |
+
+### Glow Up
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Radiant | +30% radiation resistance, +2 Tolerance, +2 Strength |
+| 2 | Emission | Grants emission ability (set all visible enemies' rad to yours, 1/floor) |
+| 3 | Fallout | +2 Strength; 20% chance on dealing damage to irradiate target (+100 rad) |
+
+### Gatting
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Locked In | Fast mode: consecutive shots on same target deal +1 stacking dmg, resets on target switch/melee/ability |
+| 2 | Doin' It Sideways | Fast mode: -10% accuracy (min 5%), -10 energy cost per shot (min 10) |
+| 3 | Gun Crit | Guns can crit; chance scales with Street Smarts |
+
+### Sniping
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Sniper's Mark | Grants snipers_mark ability (mark enemy +10% dmg taken, 1/floor, refund on marked target death) |
+| 2 | Dead Eye | Killing enemy with accurate gun shot grants +1 Swagger for rest of floor |
+| 3 | Mega Crit | +2 Street Smarts; unlocks gun crits; accurate mode crits can mega crit for 4x damage |
+
+### Ammo Rat
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Scrounger | 50% chance to gain +1 bonus round when picking up ammo |
+| 2 | Ammo Nerd | +2 Book Smarts, +2 Street Smarts; 2x XP from picking up ammo |
+| 3 | Rat Race | Dismantling any item yields ammo (5 light, 3 medium, 1 heavy); 20% on ammo pickup: +10 speed 20t (stacks) |
+
+### L Farming
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Shake It Off | +2 Constitution. Heal 2 HP on every kill |
+| 2 | Built Different | +4 Swagger, +2 Constitution |
+| 3 | Unfazed | 25% chance when taking damage to gain +1 Swagger for rest of floor. Stacks |
+| 4 | Armor Up | 35% chance when hit while you have armor to block the hit, reducing damage to 1 |
+
+### Arachnigga
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Web Trail | Immune to webs. Activate: for 5 turns, every tile you move off gets a cobweb. 3/floor |
+| 2 | Summon Spider | Summon a Spider Hatchling on adjacent tile. Guards until enemies approach, then chases and bites. 5/floor |
+
+### Graffiti
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Taggin' | +1 Swagger, +2 Street Smarts. 50% chance spraying doesn't consume a charge |
+| 2 | Street Art | When any enemy dies on a painted tile, heal 5 HP. If you're also on a painted tile, heal 5 more |
+| 3 | Living Canvas | 20% on melee hit: enemy tile turns red. 20% when hit: your tile turns green. 20% on ability use: your tile turns blue |
+
+### Infected
+| Lvl | Perk | Actual Effect |
+|-----|------|---------------|
+| 1 | Purge | Unlimited. Remove 20 infection. Next 3 melee attacks deal 50% damage. Stacks |
+| 2 | Zombie Rage | +2 Strength. Activate: +20% melee dmg, +20 energy/tick for 10t. +5 infection on use and per melee kill. 40t cooldown |
+| 3 | Zombie Stare | +2 Strength. Target enemy within 3 tiles: stunned 3t, feared 10t. +5 infection. 15t cooldown |
+
+### No perks yet
+Drive-By
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+NEW SKILLS
+Catchin' Fades perks 1-4
+Arachnigga:
+spray webs, cc enemies, set trap with small spiders(chase , hit do venom poison die shortly, detonate web tiles
+
+black magic first three tiers are a new debuff: each curse starts each floor with 3 charges, whenever one is used, that curse steals a charge from all other curses
+1st one short cone(3 length, 60degrees; curse of ham: monster attack cost icnreased by 50%, deals 50% less damage
+2nd one spreads on death; curse of dot: deals 1-5 damage, higher chance for 5 damage per stack of the debuff, chance to gain a nother stack 50% per turn with the debuff, spreads to nearest enemy within 3 tiles upon death
+3rd one spreads over time curse of covid: monsters gain 20 radiation or toxicity at random 50% chance to proc, 25% chance to spread to an enemy within 3 tiles. cannot apply toxicity/rad if monster is over 150 of either with the buff
+4th ability detonates
+5th buffs all curses
+
+Infection
+Graffiti; new items spray paint with effects:
+red spray paint:
+    target floor tile turns red. enemies take 25% more damage on that tile while they are on it.
+green spray paint:
+
+handle multiple spray paints, newest first
+handle acid on floor + spray painted floor
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

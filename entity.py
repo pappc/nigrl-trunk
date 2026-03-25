@@ -9,6 +9,9 @@ from config import BASE_HP, BASE_POWER, BASE_DEFENSE
 class Entity:
     """Represents any actor or object in the game."""
 
+    _on_damage_callback = None   # set by engine at init
+    _on_heal_callback = None     # set by engine at init
+
     def __init__(
         self,
         x,
@@ -149,12 +152,15 @@ class Entity:
         self.leaves_trail        = leaves_trail
         self.is_summon           = is_summon
         self.summon_lifetime     = summon_lifetime
+        self.aggro_target        = None  # entity ref: summon that provoked this monster
         self.toxicity: int  = 0  # meth lab zone: damage-taken multiplier via power scaling
         self.meth: int = 0         # current meth resource (spent on strong abilities)
         self.max_meth: int = 250   # max meth capacity
         self.tox_resistance: int = 0  # % reduction to toxicity gain; 100 = immune, negative = extra gain
         self.radiation: int = 0  # radiation level; effects TBD by zone mechanics
         self.rad_resistance: int = 0  # % reduction to radiation gain; 100 = immune, negative = extra gain
+        self.infection: int = 0      # infection level; at 100 = 25 damage/turn
+        self.max_infection: int = 100  # infection cap
 
     def move(self, dx, dy):
         """Move entity by delta x, y."""
@@ -178,6 +184,9 @@ class Entity:
             hp_damage = damage
 
         self.hp -= hp_damage
+        # Floating damage number callback
+        if Entity._on_damage_callback and damage > 0:
+            Entity._on_damage_callback(self, damage, hp_damage)
         # Any damage provokes passive monsters (fire, DoT, etc.)
         if hp_damage > 0 and hasattr(self, "provoked") and not self.provoked:
             self.provoked = True
@@ -188,7 +197,11 @@ class Entity:
 
     def heal(self, amount):
         """Heal HP up to max."""
+        old_hp = self.hp
         self.hp = min(self.hp + amount, self.max_hp)
+        actual = self.hp - old_hp
+        if actual > 0 and Entity._on_heal_callback:
+            Entity._on_heal_callback(self, actual)
 
     def attack(self, target):
         """Calculate damage to target. Returns damage dealt."""

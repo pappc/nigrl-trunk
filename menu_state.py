@@ -28,3 +28,8 @@ class MenuState(Enum):
     DEEP_FRYER = "deep_fryer"
     GUN_TARGETING = "gun_targeting"
     DEV_FLOOR_SELECT = "dev_floor_select"
+    DEV_SKILL_SELECT = "dev_skill_select"
+    PERK_POPUP = "perk_popup"
+    LOOK_TARGETING = "look_targeting"
+    LOOK_INFO = "look_info"
+    SETTINGS = "settings"

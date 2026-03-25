@@ -118,15 +118,22 @@ def calc_tolerance_rolls(strain: str, tolerance: int) -> tuple[int, int]:
 
 
 FOOD_MUNCHING_XP = {
-    "chicken": 50,           # Simple healing food
-    "instant_ramen": 60,     # Speed boost (value 30 × 2)
-    "hot_cheetos": 110,      # Complex buff (stats + melee effect + expire effect)
-    "cornbread": 50,         # Moderate: stat buff + spell charges
-    "corn_dog": 40,          # Quick eat, melee charges
-    "lightskin_beans": 70,   # Long eat, powerful AoE spell
+    "chicken": 60,           # Simple healing food
+    "instant_ramen": 70,     # Speed boost
+    "hot_cheetos": 80,       # Complex buff (stats + melee effect + expire effect)
+    "cornbread": 60,         # Moderate: stat buff + spell charges
+    "corn_dog": 60,          # Quick eat, melee charges
+    "lightskin_beans": 80,   # Long eat, powerful AoE spell
     "leftovers": 25,         # Proc'd from Better Later perk
     "protein_powder": 80,    # Floor-duration stat doubling buff
     "muffin": 80,            # Floor-duration charge preservation buff
+    "jell_o": 100,           # Meth Lab: mirror entity charges
+    "meatball_sub": 100,     # Meth Lab: fire meatball charges
+    "heinz_baked_beans": 100, # Meth Lab: gas attack charges
+    "altoid": 25,            # Meth Lab: remove toxicity
+    "asbestos": 25,          # Meth Lab: add toxicity
+    "rad_away": 25,          # Meth Lab: remove radiation
+    "radbar": 25,            # Meth Lab: add radiation
 }
 
 # Deep-Frying skill XP values per food
@@ -135,6 +142,13 @@ ITEM_DEEP_FRYING_XP = {
     "chicken": 50,           # value 25 × 2
     "instant_ramen": 60,     # value 30 × 2
     "hot_cheetos": 80,       # value 40 × 2
+    "cornbread": 50,         # value 25 × 2
+    "corn_dog": 40,          # value 20 × 2
+    "lightskin_beans": 70,   # value 35 × 2
+    "leftovers": 10,         # value 5 × 2
+    "protein_powder": 80,    # value 40 × 2
+    "muffin": 80,            # value 40 × 2
+    "jell_o": 60,            # value 30 × 2
 }
 
 
@@ -965,6 +979,7 @@ ITEM_DEFS = {
     **_HATS,
     "knife": {
         "name": "Knife",
+        "plural": "Knives",
         "char": "/",
         "color": (200, 200, 220),
         "category": "equipment",       # tool | equipment | material | consumable
@@ -1594,7 +1609,7 @@ ITEM_DEFS = {
         "use_effect": None,
     },
     "pack_of_cones": {
-        "name": "Pack of Cones (20)",
+        "name": "Pack of Cones",
         "char": "~",
         "color": (240, 230, 200),
         "category": "tool",
@@ -1622,6 +1637,65 @@ ITEM_DEFS = {
         "primary_skill": "Rolling",
         "use_verb": None,
         "use_effect": None,
+    },
+    "red_spray_paint": {
+        "name": "Red Spray Paint",
+        "char": "!",
+        "color": (255, 40, 40),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "tool_charges": 10,
+        "use_verb": "Spray",
+        "use_effect": {"type": "spray_paint", "spray_type": "red"},
+    },
+    "blue_spray_paint": {
+        "name": "Blue Spray Paint",
+        "char": "!",
+        "color": (40, 100, 255),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "tool_charges": 10,
+        "use_verb": "Spray",
+        "use_effect": {"type": "spray_paint", "spray_type": "blue"},
+    },
+    "green_spray_paint": {
+        "name": "Green Spray Paint",
+        "char": "!",
+        "color": (40, 200, 40),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "tool_charges": 10,
+        "use_verb": "Spray",
+        "use_effect": {"type": "spray_paint", "spray_type": "green"},
+    },
+    "voodoo_doll": {
+        "name": "Voodoo Doll",
+        "char": "d",
+        "color": (140, 60, 180),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 20,
+        "use_verb": "Use",
+        "use_effect": {
+            "type": "message",
+            "text": "You stick a pin in the {name}... dark energy flows through you.",
+            "skill_xp": {"Blackkk Magic": 100},
+        },
     },
     "bic_torch": {
         "name": "BIC Torch",
@@ -1694,7 +1768,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 40,
+        "value": 50,
         "skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1709,7 +1783,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 40,
+        "value": 50,
         "skill": "Smartsness",
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1724,7 +1798,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 40,
+        "value": 50,
         "skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1739,7 +1813,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 40,
+        "value": 50,
         "skill": "Smartsness",
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1754,7 +1828,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 40,
+        "value": 50,
         "skill": "Smoking",
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1769,7 +1843,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 40,
+        "value": 50,
         "skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1784,7 +1858,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 50,
+        "value": 75,
         "skill": "Meth-Head",
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1800,7 +1874,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 60,
+        "value": 75,
         "skill": "Smartsness",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
@@ -1815,7 +1889,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 60,
+        "value": 75,
         "skill": "Chemical Warfare",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
@@ -1830,7 +1904,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 60,
+        "value": 75,
         "skill": "Mutation",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
@@ -1845,7 +1919,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 60,
+        "value": 75,
         "skill": "White Power",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
@@ -1860,7 +1934,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 60,
+        "value": 75,
         "skill": "Glow Up",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
@@ -1875,7 +1949,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 60,
+        "value": 75,
         "skill": "Ammo Rat",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
@@ -1890,7 +1964,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 60,
+        "value": 75,
         "skill": "White Power",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
@@ -2094,7 +2168,7 @@ ITEM_DEFS = {
         "name": "Leftovers",
         "char": "f",
         "color": (180, 140, 100),
-        "category": "food",
+        "category": "consumable",
         "subcategory": None,
         "equip_slot": None,
         "power_bonus": 0,
@@ -2111,7 +2185,7 @@ ITEM_DEFS = {
         "name": "Muffin",
         "char": "f",
         "color": (255, 220, 130),
-        "category": "food",
+        "category": "consumable",
         "subcategory": None,
         "equip_slot": None,
         "power_bonus": 0,
@@ -2128,7 +2202,7 @@ ITEM_DEFS = {
         "name": "Protein Powder",
         "char": "f",
         "color": (220, 180, 255),
-        "category": "food",
+        "category": "consumable",
         "subcategory": None,
         "equip_slot": None,
         "power_bonus": 0,
@@ -2140,6 +2214,108 @@ ITEM_DEFS = {
         "zones": ["crack_den"],
         "use_verb": "Eat",
         "use_effect": {"type": "food", "food_id": "protein_powder"},
+    },
+    "jell_o": {
+        "name": "Jell-O",
+        "char": "f",
+        "color": (255, 100, 120),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "jell_o"},
+    },
+    "meatball_sub": {
+        "name": "Meatball Sub",
+        "char": "f",
+        "color": (180, 80, 40),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "meatball_sub"},
+    },
+    "heinz_baked_beans": {
+        "name": "Heinz Baked Beans",
+        "char": "f",
+        "color": (180, 100, 50),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "heinz_baked_beans"},
+    },
+    "altoid": {
+        "name": "Altoid",
+        "char": "f",
+        "color": (200, 240, 240),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 15,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "altoid"},
+    },
+    "asbestos": {
+        "name": "Asbestos",
+        "char": "f",
+        "color": (180, 180, 160),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 15,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "asbestos"},
+    },
+    "rad_away": {
+        "name": "Rad Away",
+        "char": "f",
+        "color": (100, 200, 255),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 15,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "rad_away"},
     },
     "radbar": {
         "name": "RadBar",
@@ -2157,6 +2333,23 @@ ITEM_DEFS = {
         "zones": ["meth_lab"],
         "use_verb": "Eat",
         "use_effect": {"type": "food", "food_id": "radbar"},
+    },
+    "mature_spider_egg": {
+        "name": "Mature Spider Egg",
+        "char": "o",
+        "color": (100, 180, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 40,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": [],
+        "use_verb": "Hatch",
+        "use_effect": {"type": "spawn_spider_hatchling"},
     },
     "big_niggas_key": {
         "name": "Big Nigga's Key",
@@ -2346,6 +2539,7 @@ ITEM_DEFS = {
         "gun_class": "small",              # small = sidearm slot
         "aoe_type": "cone",
         "cone_angle": 90,
+        "projectiles": 5,
         "firing_modes": {
             "accurate": {"hit": 60, "energy": 110},
             "fast":     {"hit": 50, "energy": 90},
@@ -2464,6 +2658,7 @@ ITEM_DEFS = {
         "gun_class": "medium",              # medium = weapon slot only
         "aoe_type": "cone",
         "cone_angle": 90,
+        "projectiles": 5,
         "firing_modes": {
             "accurate": {"hit": 80, "energy": 100},
             "fast":     {"hit": 60, "energy": 80},
@@ -2690,11 +2885,31 @@ def build_item_name(item_id, strain=None):
     return base_name
 
 
-def _pluralize(name):
-    """Add 's' to an item name for plural display, handling edge cases."""
-    # Already plural
-    if name.endswith(("s", "S")):
+def _pluralize(name, item_id=None):
+    """Pluralize an item name for inventory display.
+
+    Checks for an explicit 'plural' override in ITEM_DEFS first,
+    then applies standard English pluralization rules.
+    """
+    if item_id is not None:
+        defn = ITEM_DEFS.get(item_id)
+        if defn and "plural" in defn:
+            return defn["plural"]
+
+    if name.endswith(("s", "S", ")")):
         return name
+
+    lower = name.lower()
+
+    if lower.endswith(("ch", "sh", "x", "z")):
+        return name + "es"
+
+    if lower.endswith("y") and len(lower) > 1 and lower[-2] not in "aeiou":
+        return name[:-1] + "ies"
+
+    if lower.endswith("fe"):
+        return name[:-2] + "ves"
+
     return name + "s"
 
 
@@ -2704,7 +2919,7 @@ def build_inventory_display_name(item_id, strain, quantity, prefix=None, charges
     weed_nug: "1g nug OG Kush" / "3g nugs OG Kush"
     kush:     "1g OG Kush"     / "3g OG Kush"
     prefixed food: "Greasy Chicken (2/2)"
-    others:   "1 Knife" / "3 Knifes"
+    others:   "1 Knife" / "3 Knives"
     """
     qty = quantity or 1
     strain_part = f" {strain}" if strain else ""
@@ -2716,16 +2931,21 @@ def build_inventory_display_name(item_id, strain, quantity, prefix=None, charges
     if item_id == "kush":
         return f"{qty}g{strain_part}"
 
-    base = build_item_name(item_id, strain)
+    defn = ITEM_DEFS.get(item_id)
+    base_name = defn["name"] if defn else "Unknown"
 
     if prefix is not None and charges is not None and max_charges is not None:
         pdef = get_food_prefix_def(prefix)
         adj = pdef["display_adjective"] if pdef else prefix.title()
-        return f"{adj} {base} ({charges}/{max_charges})"
+        return f"{adj} {base_name}{strain_part} ({charges}/{max_charges})"
+
+    # Tools with limited charges (e.g. Pack of Cones)
+    if defn and defn.get("tool_charges") and charges is not None and max_charges is not None:
+        return f"{base_name} ({charges}/{max_charges})"
 
     if qty > 1:
-        return f"{qty} {_pluralize(base)}"
-    return f"1 {base}"
+        return f"{qty} {_pluralize(base_name, item_id)}{strain_part}"
+    return f"1 {base_name}{strain_part}"
 
 
 def get_item_def(item_id):
@@ -2833,6 +3053,11 @@ def find_env_interaction(item_id, env_feature):
     """Look up an environment interaction by item_id and feature name.
     Returns interaction dict or None."""
     return ENV_INTERACTIONS.get((item_id, env_feature))
+
+
+_ON_HIT_EFFECT_DESCS = {
+    "glass_shards": "{stacks} stack, {duration} turns. 1 dmg/stack/turn.",
+}
 
 
 def generate_examine_lines(item_id, engine=None):
@@ -2963,8 +3188,18 @@ def generate_examine_lines(item_id, engine=None):
         # Special weapon properties
         if defn.get("on_hit_effect"):
             eff = defn["on_hit_effect"]
-            eff_name = eff.get("type", "").replace("_", " ").title()
-            lines.append([("On Hit: ", C_LABEL), (f"{eff_name}", C_GOOD)])
+            eff_type = eff.get("type", "")
+            eff_name = eff_type.replace("_", " ").title()
+            # Add a description of what the effect does
+            eff_desc = _ON_HIT_EFFECT_DESCS.get(eff_type)
+            if eff_desc:
+                dur = eff.get("duration", "")
+                stacks = eff.get("stacks", 1)
+                desc = eff_desc.format(duration=dur, stacks=stacks)
+                lines.append([("On Hit: ", C_LABEL), (f"{eff_name}", C_GOOD)])
+                lines.append([("  ", C_LABEL), (desc, C_INFO)])
+            else:
+                lines.append([("On Hit: ", C_LABEL), (f"{eff_name}", C_GOOD)])
         if defn.get("on_hit_stun_chance"):
             chance = int(defn["on_hit_stun_chance"] * 100)
             dur = defn.get("stun_duration", 1)
@@ -3041,6 +3276,38 @@ def generate_examine_lines(item_id, engine=None):
         for stat, val in sb.items():
             stat_display = stat.replace("_", " ").title()
             lines.append([(f"{stat_display}: ", C_LABEL), (f"+{val}", C_GOOD)])
+
+    # --- HAT EQUIPMENT ---
+    elif subcategory == "hat":
+        armor = defn.get("armor_bonus", 0)
+        if armor:
+            lines.append([("Armor: ", C_LABEL), (f"+{armor}", C_GOOD)])
+        tox_r = defn.get("tox_resistance", 0)
+        if tox_r:
+            sign = "+" if tox_r > 0 else ""
+            color = C_GOOD if tox_r > 0 else C_BAD
+            lines.append([("Tox Resist: ", C_LABEL), (f"{sign}{tox_r}%", color)])
+        rad_r = defn.get("rad_resistance", 0)
+        if rad_r:
+            sign = "+" if rad_r > 0 else ""
+            color = C_GOOD if rad_r > 0 else C_BAD
+            lines.append([("Rad Resist: ", C_LABEL), (f"{sign}{rad_r}%", color)])
+        sb = defn.get("stat_bonus", {})
+        for stat, val in sb.items():
+            stat_display = stat.replace("_", " ").title()
+            sign = "+" if val > 0 else ""
+            color = C_GOOD if val > 0 else C_BAD
+            lines.append([(f"{stat_display}: ", C_LABEL), (f"{sign}{val}", color)])
+        ept = defn.get("energy_per_tick", 0)
+        if ept:
+            sign = "+" if ept > 0 else ""
+            color = C_GOOD if ept > 0 else C_BAD
+            lines.append([("Energy/Tick: ", C_LABEL), (f"{sign}{ept}", color)])
+        brisk = defn.get("briskness", 0)
+        if brisk:
+            sign = "+" if brisk > 0 else ""
+            color = C_GOOD if brisk > 0 else C_BAD
+            lines.append([("Briskness: ", C_LABEL), (f"{sign}{brisk}", color)])
 
     # --- FEET EQUIPMENT (jordans) ---
     elif subcategory == "feet":
@@ -3233,6 +3500,18 @@ def generate_examine_lines(item_id, engine=None):
                             lines.append([("Lasts until floor change.", C_GOOD)])
                             lines.append([("50% chance to not consume", C_GOOD)])
                             lines.append([("a charge on ability use.", C_GOOD)])
+                        elif ft == "remove_toxicity":
+                            amt = eff.get("amount", 0)
+                            lines.append([("Removes: ", C_LABEL), (f"{amt} Toxicity", C_GOOD)])
+                        elif ft == "toxicity":
+                            amt = eff.get("amount", 0)
+                            lines.append([("Adds: ", C_LABEL), (f"{amt} Toxicity", C_BAD)])
+                        elif ft == "remove_radiation":
+                            amt = eff.get("amount", 0)
+                            lines.append([("Removes: ", C_LABEL), (f"{amt} Radiation", C_GOOD)])
+                        elif ft == "radiation":
+                            amt = eff.get("amount", 0)
+                            lines.append([("Adds: ", C_LABEL), (f"{amt} Radiation", C_BAD)])
 
             elif etype == "torch_burn":
                 lines.append([("Burns an item when used on it.", C_INFO)])

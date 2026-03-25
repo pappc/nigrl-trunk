@@ -22,15 +22,15 @@ from foods import FOOD_DEFS
 
 ZONE_LOOT_CONFIG = {
     "crack_den": {
-        "consumable": {"per_floor": (8, 12)},
+        "consumable": {"per_floor": (8, 10), "per_floor_last": (12, 13), "total_floors": 4},
         "tool":       {"per_floor": (0, 2)},
         "equipment":  {"per_floor": (1, 3)},
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab": {
-        "consumable": {"per_floor": (16, 20)},
+        "consumable": {"per_floor": (12, 14)},
         "tool":       {"per_floor": (0, 2)},
-        "equipment":  {"per_floor": (2, 4)},
+        "equipment":  {"per_floor": (1, 4)},
     },
     "casino_botanical": {  # TODO: tune budgets for casino + botanical garden zone
         "consumable": {"per_floor": (4, 8)},
@@ -54,11 +54,11 @@ ZONE_LOOT_CONFIG = {
 ZONE_STRAIN_WEIGHTS = {
     "crack_den": {
         "OG Kush":       10,
-        "Columbian Gold":  8,
+        "Columbian Gold":  5,
         "Agent Orange":    5,
-        "Jungle Boyz":     3,
-        "Blue Lobster":    2,
-        "Dosidos":         3,
+        "Jungle Boyz":     5,
+        "Blue Lobster":    3,
+        "Dosidos":         5,
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab": {
@@ -90,18 +90,18 @@ ZONE_STRAIN_WEIGHTS = {
 # Skill weighting multiplies base_weight by (skill_level + 1) for consumables
 # and materials. Tools and equipment are always picked uniformly.
 # ---------------------------------------------------------------------------
-
+1
 ZONE_CONSUMABLE_TABLES = {
     "crack_den": [
-        ("weed_product", 1.5),
-        ("drinks", 1),
-        ("food", 1),
+        ("weed_product", 1.2, ["Smoking", "Rolling"]),
+        ("drinks", 1, ["Alcoholism", "Drinking"]),
+        ("food", 1, ["Munching", "Deep-Frying"]),
     ],
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab": [
         ("weed_product", 1, ["Smoking", "Rolling"]),
         ("blue_meth", 0.5, "Meth-Head"),
-        ("food", 1, "Munching"),
+        ("food", 1.5, "Munching"),
         ("meth_lab_drink", 1, ["Alcoholism", "Drinking"]),
     ],
     "casino_botanical": [],   # TODO
@@ -110,43 +110,43 @@ ZONE_CONSUMABLE_TABLES = {
 
 # Secondary drinks table — rolled when drinks is selected
 DRINKS_SUBTABLE = [
-    ("40oz", 1),
-    ("fireball_shooter", 1),
-    ("malt_liquor", 1),
-    ("wizard_mind_bomb", 1),
-    ("homemade_hennessy", 1),
-    ("steel_reserve", 1),
-    ("speedball", 1),
-    ("purple_drank", 0.5),
-    ("blue_drank", 0.5),
-    ("red_drank", 0.5),
-    ("green_drank", 0.5),
+    ("40oz", 4),
+    ("fireball_shooter", 4),
+    ("malt_liquor", 4),
+    ("wizard_mind_bomb", 4),
+    ("homemade_hennessy", 4),
+    ("steel_reserve", 4),
+    ("speedball", 4),
+    ("purple_drank", 1),
+    ("blue_drank", 1),
+    ("red_drank", 1),
+    ("green_drank", 1),
 ]
 
 # Secondary weed product table — rolled when weed_product is selected
 WEED_PRODUCT_SUBTABLE = [
-    ("joint",    2),
-    ("weed_nug", 1),
+    ("joint",    3),
+    ("weed_nug", 2),
     ("kush",     1),
 ]
 
 # Secondary meth lab drink table — rolled when meth_lab_drink is selected
 METH_LAB_DRINK_SUBTABLE = [
     # Meth lab unique drinks
-    ("mana_drink", 2),
-    ("virulent_vodka", 2),
-    ("five_loco", 2),
-    ("white_gonster", 2),
-    ("alco_seltzer", 2),
-    ("dead_shot_daiquiri", 2),
-    ("platinum_reserve", 2),
+    ("mana_drink", 5),
+    ("virulent_vodka", 5),
+    ("five_loco", 5),
+    ("white_gonster", 5),
+    ("alco_seltzer", 5),
+    ("dead_shot_daiquiri", 5),
+    ("platinum_reserve", 5),
     # Crack den drinks
-    ("40oz", 10),
+    ("40oz", 5),
     ("fireball_shooter", 2),
-    ("malt_liquor", 10),
+    ("malt_liquor", 5),
     ("wizard_mind_bomb", 2),
     ("homemade_hennessy", 2),
-    ("steel_reserve", 10),
+    ("steel_reserve", 5),
     ("speedball", 2),
     # Dranks
     ("purple_drank", 1),
@@ -161,21 +161,29 @@ ZONE_TOOL_TABLES = {
         ("fry_daddy",      1),
         ("bic_torch",      1),
         ("pack_of_cones",  1),
+        ("spray_paint",    1),
     ],
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
-    "meth_lab":         [("grinder", 1), ("fry_daddy", 1), ("xl_bic_torch", 1), ("pack_of_cones", 1)],
+    "meth_lab":         [("grinder", 1), ("fry_daddy", 1), ("xl_bic_torch", 1), ("pack_of_cones", 1), ("spray_paint", 1)],
     "casino_botanical": [],   # TODO
     "the_underprison":  [],   # TODO
 }
 
+# When "spray_paint" is rolled from the tool table, pick a color from this list (equal weight).
+SPRAY_PAINT_COLORS = [
+    "red_spray_paint",
+    "blue_spray_paint",
+    "green_spray_paint",
+]
+
 ZONE_FOOD_TABLES = {
     "crack_den": [
-        ("chicken", 1),
-        ("instant_ramen", 1),
-        ("hot_cheetos", 1),
-        ("cornbread", 1),
-        ("corn_dog", 1),
-        ("lightskin_beans", 1),
+        ("chicken", 3),
+        ("instant_ramen", 3),
+        ("hot_cheetos", 3),
+        ("cornbread", 3),
+        ("corn_dog", 3),
+        ("lightskin_beans", 3),
         ("protein_powder", 1),
         ("muffin", 1),
     ],
@@ -233,6 +241,9 @@ ZONE_EQUIPMENT_CONFIG = {
 # ---------------------------------------------------------------------------
 
 _STRAIN_ITEMS = frozenset(("joint", "kush", "weed_nug"))
+
+# Meth lab strains appear twice as often as their base weight
+_METH_LAB_STRAIN_MULT = 2
 
 # Meth lab strains linked to player stats for dynamic weighting
 _STRAIN_STAT_MAP = {
@@ -297,6 +308,11 @@ def _pick_strain(zone, player_stats=None):
                         vals[i] *= 0.5
         # len == 1: all stats equal, no scaling
 
+        # Flat zone multiplier: meth lab strains appear more often
+        for i, strain in enumerate(keys):
+            if strain in _STRAIN_STAT_MAP:
+                vals[i] *= _METH_LAB_STRAIN_MULT
+
     return random.choices(keys, weights=vals, k=1)[0]
 
 
@@ -324,7 +340,7 @@ def _weighted_pick(table, player_skills, use_skill_weighting=True):
     (item_id, base_weight, skill_key) where skill_key is a string or list
     of strings. For lists, the highest skill level is used.
 
-    effective_weight = base_weight * (skill_level + 1)
+    effective_weight = base_weight * (skill_level / 2 + 1)
 
     Falls back to ITEM_DEFS/FOOD_DEFS "skill" key if no inline skill_key.
     """
@@ -342,7 +358,7 @@ def _weighted_pick(table, player_skills, use_skill_weighting=True):
         # Inline skill from table entry takes priority
         if inline_skill is not None:
             level = _get_skill_level(player_skills, inline_skill)
-            weights.append(base_w * (level + 1))
+            weights.append(base_w * (level / 2 + 1))
             continue
 
         defn = ITEM_DEFS.get(item_id) or FOOD_DEFS.get(item_id, {})
@@ -351,7 +367,7 @@ def _weighted_pick(table, player_skills, use_skill_weighting=True):
         skill = defn.get("skill")
         if skill is not None:
             level = _get_skill_level(player_skills, skill)
-            weights.append(base_w * (level + 1))
+            weights.append(base_w * (level / 2 + 1))
             continue
 
         # Legacy: primary_skill / secondary_skill / tertiary_skill
@@ -380,9 +396,36 @@ def _weighted_pick(table, player_skills, use_skill_weighting=True):
             weight = base_w * (1.0 + primary_level * 1.0 + secondary_level * 0.5 + tertiary_level * 0.33)
             weights.append(weight)
         else:
-            weights.append(base_w * (primary_level + 1))
+            weights.append(base_w * (primary_level / 2 + 1))
 
     return random.choices(item_ids, weights=weights, k=1)[0]
+
+
+def _resolve_weapon(zone, player_skills=None):
+    """Pick one weapon item_id for the given zone, or None on failure."""
+    config = ZONE_EQUIPMENT_CONFIG[zone]
+    weapon_type_table = config.get("weapon_type_weights")
+    if weapon_type_table and player_skills:
+        wt_types = []
+        wt_wts = []
+        for wtype, base_w, skill_key in weapon_type_table:
+            level = _get_skill_level(player_skills, skill_key) if skill_key else 0
+            wt_types.append(wtype)
+            wt_wts.append(base_w * (level / 2 + 1))
+        chosen_type = random.choices(wt_types, weights=wt_wts, k=1)[0]
+        candidates = [
+            iid for iid, defn in ITEM_DEFS.items()
+            if defn.get("subcategory") == "weapon"
+            and defn.get("weapon_type") == chosen_type
+            and zone in defn.get("zones", [])
+        ]
+    else:
+        candidates = [
+            iid for iid, defn in ITEM_DEFS.items()
+            if defn.get("subcategory") == "weapon"
+            and zone in defn.get("zones", [])
+        ]
+    return random.choice(candidates) if candidates else None
 
 
 def _resolve_equipment(zone, player_skills=None):
@@ -401,7 +444,7 @@ def _resolve_equipment(zone, player_skills=None):
             for wtype, base_w, skill_key in weapon_type_table:
                 level = _get_skill_level(player_skills, skill_key) if skill_key else 0
                 wt_types.append(wtype)
-                wt_wts.append(base_w * (level + 1))
+                wt_wts.append(base_w * (level / 2 + 1))
             chosen_type = random.choices(wt_types, weights=wt_wts, k=1)[0]
             candidates = [
                 iid for iid, defn in ITEM_DEFS.items()
@@ -489,11 +532,31 @@ def pick_random_consumable(zone: str, player_stats=None) -> tuple:
     return (item_id, strain)
 
 
+def _get_scaled_budget(category_config, floor_num):
+    """Return (lo, hi) budget for a category, interpolating if floor scaling is configured.
+
+    If the category has 'per_floor_last' and 'total_floors', linearly interpolate
+    between per_floor (floor 0) and per_floor_last (final floor).
+    Otherwise, return per_floor as-is.
+    """
+    lo, hi = category_config["per_floor"]
+    if "per_floor_last" not in category_config:
+        return (lo, hi)
+    last_lo, last_hi = category_config["per_floor_last"]
+    total = category_config["total_floors"]
+    if total <= 1:
+        return (lo, hi)
+    t = min(floor_num, total - 1) / (total - 1)
+    scaled_lo = round(lo + t * (last_lo - lo))
+    scaled_hi = round(hi + t * (last_hi - hi))
+    return (scaled_lo, scaled_hi)
+
+
 def generate_floor_loot(zone, floor_num, player_skills=None, player_stats=None):
     """Generate a flat list of (item_id, strain_or_None) for one floor.
 
     zone         : zone key, e.g. "crack_den"
-    floor_num    : 0-based floor index (reserved for future floor-scaling)
+    floor_num    : 0-based floor index (scales loot on deeper floors)
     player_skills: Skills object or None
     player_stats : PlayerStats object or None (used for dynamic strain weighting)
     """
@@ -502,7 +565,7 @@ def generate_floor_loot(zone, floor_num, player_skills=None, player_stats=None):
 
     # Consumables — skill-weighted
     if "consumable" in config:
-        lo, hi = config["consumable"]["per_floor"]
+        lo, hi = _get_scaled_budget(config["consumable"], floor_num)
         table  = ZONE_CONSUMABLE_TABLES.get(zone, [])
         if table:
             for _ in range(random.randint(lo, hi)):
@@ -533,6 +596,8 @@ def generate_floor_loot(zone, floor_num, player_skills=None, player_stats=None):
         if table:
             for _ in range(random.randint(lo, hi)):
                 item_id = _weighted_pick(table, player_skills, use_skill_weighting=False)
+                if item_id == "spray_paint":
+                    item_id = random.choice(SPRAY_PAINT_COLORS)
                 result.append((item_id, None))
 
     # Equipment — type/tier weighted, no skill weighting
@@ -542,5 +607,16 @@ def generate_floor_loot(zone, floor_num, player_skills=None, player_stats=None):
             item_id = _resolve_equipment(zone, player_skills)
             if item_id:
                 result.append((item_id, None))
+
+    # Guaranteed weapon on floor 0 or 1 (chosen randomly)
+    if floor_num in (0, 1):
+        guaranteed_floor = getattr(generate_floor_loot, '_guaranteed_weapon_floor', None)
+        if guaranteed_floor is None:
+            guaranteed_floor = random.choice([0, 1])
+            generate_floor_loot._guaranteed_weapon_floor = guaranteed_floor
+        if floor_num == guaranteed_floor:
+            weapon_id = _resolve_weapon(zone, player_skills)
+            if weapon_id:
+                result.append((weapon_id, None))
 
     return result

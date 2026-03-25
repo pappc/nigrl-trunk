@@ -61,7 +61,7 @@ FOOD_DEFS = {
         "effects": [
             {
                 "type": "heal",
-                "amount": [30, 50],
+                "amount": 50,
             },
             {
                 "type": "hot",
@@ -81,6 +81,7 @@ FOOD_DEFS = {
 
 
         "effects": [
+            {"type": "heal", "amount": 50},
             {
                 "type": "speed_boost",
                 "amount": 50,
@@ -98,6 +99,7 @@ FOOD_DEFS = {
         "zones": ["crack_den", "meth_lab"],
 
         "effects": [
+            {"type": "heal", "amount": 50},
             {
                 "type": "hot_cheetos",
                 "duration": 30,
@@ -115,6 +117,7 @@ FOOD_DEFS = {
 
 
         "effects": [
+            {"type": "heal", "amount": 50},
             {"type": "cornbread_buff", "duration": 30},
             {"type": "grant_ability_charges", "ability_id": "zap", "charges": 10},
         ],
@@ -129,7 +132,7 @@ FOOD_DEFS = {
         "zones": ["crack_den", "meth_lab"],
 
         "effects": [
-            {"type": "heal", "amount": 15},
+            {"type": "heal", "amount": 50},
             {"type": "grant_ability_charges", "ability_id": "corn_dog", "charges": 3},
         ],
     },
@@ -259,7 +262,7 @@ FOOD_DEFS = {
 
 
         "effects": [
-            {"type": "heal", "amount": 15},
+            {"type": "heal", "amount": 50},
             {"type": "grant_ability_charges", "ability_id": "lesser_cloudkill", "charges": 5},
         ],
     },
@@ -289,6 +292,7 @@ FOOD_DEFS = {
 
 
         "effects": [
+            {"type": "heal", "amount": 50},
             {"type": "protein_powder"},
         ],
     },

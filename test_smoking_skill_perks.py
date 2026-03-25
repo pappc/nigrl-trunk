@@ -207,7 +207,7 @@ def test_phat_cloud_kills_enemy_and_emits_death_event():
 
 
 # ---------------------------------------------------------------------------
-# +2 TOL, +2 CON (Level 2)
+# +2 TOL, +2 CON (Level 1)
 # ---------------------------------------------------------------------------
 
 def test_stat_up_increases_tolerance_and_constitution():
@@ -218,7 +218,7 @@ def test_stat_up_increases_tolerance_and_constitution():
     old_tol = ps.tolerance
     old_con = ps.constitution
 
-    engine._apply_perk("Smoking", 2)
+    engine._apply_perk("Smoking", 1)
 
     assert ps.tolerance == old_tol + 2, (
         f"Expected tolerance {old_tol + 2}, got {ps.tolerance}"
@@ -233,7 +233,7 @@ def test_stat_up_updates_base_dict():
     engine = make_engine()
     ps = engine.player_stats
 
-    engine._apply_perk("Smoking", 2)
+    engine._apply_perk("Smoking", 1)
 
     assert ps._base["tolerance"] == ps.tolerance, (
         "_base['tolerance'] should match raw tolerance after stat perk"
@@ -251,7 +251,7 @@ def test_stat_up_increases_max_hp_and_heals():
     old_hp = engine.player.hp
     old_max_hp = engine.player.max_hp
 
-    engine._apply_perk("Smoking", 2)
+    engine._apply_perk("Smoking", 1)
 
     assert engine.player.max_hp == old_max_hp + 20, (
         f"Expected max_hp {old_max_hp + 20}, got {engine.player.max_hp}"
@@ -267,7 +267,7 @@ def test_stat_up_heal_does_not_exceed_new_max_hp():
     # Player at full HP
     engine.player.hp = engine.player.max_hp
 
-    engine._apply_perk("Smoking", 2)
+    engine._apply_perk("Smoking", 1)
 
     assert engine.player.hp <= engine.player.max_hp, (
         "HP should not exceed max_hp after stat perk heal"
@@ -280,8 +280,8 @@ def test_stat_up_no_double_apply_on_repeated_calls():
     ps = engine.player_stats
 
     old_tol = ps.tolerance
-    engine._apply_perk("Smoking", 2)
-    engine._apply_perk("Smoking", 2)
+    engine._apply_perk("Smoking", 1)
+    engine._apply_perk("Smoking", 1)
 
     assert ps.tolerance == old_tol + 4, (
         "Two calls to _apply_perk should stack; this is a caller-side guard issue"

@@ -32,10 +32,10 @@ def check_mega_crit(engine) -> bool:
 
 def _player_toxicity_multiplier(toxicity: int) -> float:
     """Damage-taken 'more' multiplier for the player.
-    100 tox = 2x, 1000 tox ≈ 5x. Formula: 1 + (tox/100)^0.6"""
+    200 tox = 2x, 1000 tox ≈ 3.4x. Formula: 1 + (tox/200)^0.6"""
     if toxicity <= 0:
         return 1.0
-    return 1.0 + (toxicity / 100) ** 0.6
+    return 1.0 + (toxicity / 200) ** 0.6
 
 
 def _monster_toxicity_multiplier(toxicity: int) -> float:
@@ -131,7 +131,11 @@ def handle_suicide_explosion(engine, monster):
     damage = random.randint(10, 15)
     # Unblockable — no defense subtraction
     damage = _apply_toxicity(engine, damage, engine.player)
+    damage = _armor_up_check(engine, damage)
     engine.player.take_damage(damage)
+    engine._gain_catchin_fades_xp(damage)
+    engine._graffiti_proc_green()
+    engine._smoking_proc_on_hit()
     tox = random.randint(20, 30)
     add_toxicity(engine, engine.player, tox)
     engine.messages.append(
@@ -222,11 +226,19 @@ def _compute_str_bonus(engine, weapon_item):
 
 
 def _compute_player_attack_power(engine):
-    """Compute the player's total attack power including equipment and STR."""
+    """Compute the player's total attack power including equipment and STR.
+
+    If the weapon slot holds a gun (subcategory "gun"), melee does a flat
+    gun-butt strike (3 damage + gun's melee_bonus if any) with no STR scaling.
+    """
     weapon = engine.equipment["weapon"]
     weapon_defn = get_item_def(weapon.item_id) if weapon else None
 
-    if weapon and weapon_defn.get("base_damage") is not None:
+    # Gun in weapon slot: flat gun-butt damage, no STR scaling
+    is_gun = weapon_defn and weapon_defn.get("subcategory") == "gun"
+    if is_gun:
+        atk_power = 3 + weapon_defn.get("melee_bonus", 0)
+    elif weapon and weapon_defn and isinstance(weapon_defn.get("base_damage"), int):
         atk_power = weapon_defn["base_damage"]
     else:
         atk_power = engine.player.power
@@ -256,7 +268,8 @@ def _compute_player_attack_power(engine):
         if defn:
             atk_power += defn.get("power_bonus", 0)
 
-    atk_power += _compute_str_bonus(engine, weapon)
+    if not is_gun:
+        atk_power += _compute_str_bonus(engine, weapon)
     return atk_power
 
 
@@ -287,6 +300,7 @@ def _compute_player_defense(engine):
             defense += defn.get("defense_bonus", 0)
     defense += engine.player_stats.swagger_defence
     defense += getattr(engine.player_stats, 'permanent_dr', 0)
+    defense += getattr(engine.player_stats, 'tile_defense_bonus', 0)
     return defense
 
 
@@ -332,6 +346,26 @@ def _apply_damage_modifiers(engine, damage: int, defender) -> int:
     return damage
 
 
+def _armor_up_check(engine, damage: int) -> int:
+    """L Farming L4 'Armor Up': 35% chance to reduce damage to 1 if player has armor."""
+    from skills import Skill
+    skill = getattr(engine, 'skills', None)
+    if skill is None:
+        return damage
+    cf = skill.get("L Farming")
+    if not isinstance(cf, Skill) or cf.level < 4:
+        return damage
+    if engine.player.armor <= 0:
+        return damage
+    if random.random() < 0.35:
+        engine.messages.append([
+            ("Armor Up! ", (150, 200, 255)),
+            ("Damage blocked to 1!", (200, 220, 255)),
+        ])
+        return 1
+    return damage
+
+
 def _apply_toxicity(engine, damage: int, defender) -> int:
     """Apply toxicity 'more' multiplier to incoming damage (multiplicative after all other mods)."""
     tox = getattr(defender, 'toxicity', 0)
@@ -342,6 +376,29 @@ def _apply_toxicity(engine, damage: int, defender) -> int:
     else:
         mult = _monster_toxicity_multiplier(tox)
     return max(1, int(damage * mult))
+
+
+def apply_tile_amps(engine, damage: int, defender) -> int:
+    """Apply all tile-based damage amplifications to the defender.
+
+    Checks the tile the defender is standing on and applies any active amps.
+    Add new tile amp types (spray paint colours, etc.) as branches here.
+    """
+    spray = engine.dungeon.spray_paint.get((defender.x, defender.y))
+    if spray == "red":
+        damage = max(1, int(damage * 1.25))
+    return damage
+
+
+def deal_damage(engine, damage: int, target) -> bool:
+    """Apply tile amps then deal damage to a target.  Returns True if killed.
+
+    Use this for all direct damage (melee, guns, spells/abilities).
+    DoTs and debuff ticks should call target.take_damage() directly
+    so tile amps do not apply to them.
+    """
+    damage = apply_tile_amps(engine, damage, target)
+    return target.take_damage(damage)
 
 
 def add_toxicity(engine, entity, amount: int, from_player: bool = False,
@@ -400,12 +457,14 @@ def remove_toxicity(engine, entity, amount: int):
         engine.skills.gain_potential_exp("White Power", removed * 2, bksmt)
 
 
-def add_radiation(engine, entity, amount: int, pierce_resistance: bool = False):
+def add_radiation(engine, entity, amount: int, pierce_resistance: bool = False,
+                  from_player: bool = False):
     """Add radiation to an entity, reduced by its rad resistance.
 
     Formula: actual = amount * (1 - resistance/100).
     At 100% resistance, gain is 0.  Negative resistance increases gain.
     pierce_resistance: if True, ignore resistance entirely (full amount applied, XP still granted).
+    from_player: set True when the player is the source (curses, spells, consumables).
     """
     if amount <= 0:
         return
@@ -439,6 +498,10 @@ def add_radiation(engine, entity, amount: int, pierce_resistance: bool = False):
             if getattr(eff, 'id', '') == 'force_sensitive':
                 eff.on_rad_gained(entity, engine, gain)
                 break
+    # Nuclear Research XP: half of radiation spread to enemies by the player
+    if from_player and entity is not engine.player and gain > 0:
+        bksmt = engine.player_stats.effective_book_smarts
+        engine.skills.gain_potential_exp("Nuclear Research", max(1, gain // 2), bksmt)
     # Glow Up XP: 1 per point of radiation resisted
     if entity is engine.player and resisted > 0:
         bksmt = engine.player_stats.effective_book_smarts
@@ -458,6 +521,30 @@ def remove_radiation(engine, entity, amount: int):
     if entity is engine.player and removed > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("Glow Up", removed * 2, bksmt)
+
+
+def add_infection(engine, entity, amount: int):
+    """Add infection to an entity, capped at max_infection.
+
+    Infected XP: 2.5 per point of infection gained (player only).
+    """
+    if amount <= 0:
+        return
+    max_inf = getattr(entity, 'max_infection', 100)
+    old = entity.infection
+    entity.infection = min(old + amount, max_inf)
+    gained = entity.infection - old
+    if entity is engine.player and gained > 0:
+        bksmt = engine.player_stats.effective_book_smarts
+        xp = round(gained * 2.5)
+        engine.skills.gain_potential_exp("Infected", xp, bksmt)
+
+
+def remove_infection(engine, entity, amount: int):
+    """Remove infection from an entity. Clamps at 0."""
+    if amount <= 0 or entity.infection <= 0:
+        return
+    entity.infection = max(0, entity.infection - amount)
 
 
 def _player_meets_weapon_req(engine) -> bool:
@@ -499,8 +586,18 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             engine.messages.append("Agent Orange — you can't deal melee damage!")
         return
 
+    # Venom miss chance: effects with miss_chance cause attacks to whiff
+    if attacker == engine.player:
+        total_miss = sum(getattr(e, 'miss_chance', 0.0) for e in attacker.status_effects)
+        if total_miss > 0 and random.random() < total_miss:
+            engine.messages.append("Your attack misses! (venom)")
+            return
+
     # Weapon stat requirement check: if player doesn't meet requirements, deal no damage
-    if attacker == engine.player and not _player_meets_weapon_req(engine):
+    # Gun-butt attacks always work (no stat requirement to pistol whip someone)
+    _weapon_defn_check = get_item_def(engine.equipment.get("weapon").item_id) if engine.equipment.get("weapon") else None
+    _is_gun_weapon = _weapon_defn_check and _weapon_defn_check.get("subcategory") == "gun"
+    if attacker == engine.player and not _is_gun_weapon and not _player_meets_weapon_req(engine):
         weapon = engine.equipment.get("weapon")
         defn = get_item_def(weapon.item_id)
         wname = defn.get("name", weapon.name)
@@ -521,6 +618,9 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         ])
         return
 
+    weapon = engine.equipment.get("weapon") if attacker == engine.player else None
+    wdefn = get_item_def(weapon.item_id) if weapon else None
+    is_gun_butt = bool(wdefn and wdefn.get("subcategory") == "gun")
     is_crit = force_crit
 
     if attacker == engine.player:
@@ -559,18 +659,22 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         mult = engine.player_stats.outgoing_damage_mult
         if mult != 1.0:
             damage = int(damage * mult)
+        # Purge Infection debuff: -50% melee damage
+        if any(getattr(e, 'id', '') == 'purge_infection' for e in attacker.status_effects):
+            damage = max(MIN_DAMAGE, damage // 2)
     damage = _apply_damage_modifiers(engine, damage, defender)
     damage = _apply_toxicity(engine, damage, defender)
 
     # Execute bonus (e.g. Lethal Shiv): bonus damage when target is below HP threshold
-    if attacker == engine.player and weapon and weapon.item_id:
+    # Does not apply to gun-butt attacks
+    if attacker == engine.player and weapon and weapon.item_id and not is_gun_butt:
         wdefn_exec = get_item_def(weapon.item_id)
         execute = wdefn_exec.get("execute") if wdefn_exec else None
         if execute and defender.max_hp > 0:
             if defender.hp / defender.max_hp <= execute["threshold"]:
                 damage = int(damage * execute["multiplier"])
 
-    defender.take_damage(damage)
+    deal_damage(engine, damage, defender)
 
     # On-hit effects: notify player's active buffs/debuffs
     if attacker == engine.player:
@@ -578,6 +682,7 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         engine.gatting_consecutive_target_id = None
         engine.gatting_consecutive_count = 0
         engine._check_glow_up_proc(defender)
+        engine._graffiti_proc_red(defender)
         for eff in list(engine.player.status_effects):
             eff.on_player_melee_hit(engine, defender, damage)
 
@@ -603,7 +708,8 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             ])
 
     # Weapon on-hit effects (e.g. Glass Shards, Meth-Head XP)
-    if attacker == engine.player:
+    # Skipped for gun-butt attacks — gun on-hit effects only apply to shots
+    if attacker == engine.player and not is_gun_butt:
         weapon = engine.equipment.get("weapon")
         if weapon:
             wdefn = get_item_def(weapon.item_id)
@@ -726,14 +832,7 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
                     cx, cy = ox, oy
                     for _ in range(kb["tiles"]):
                         nx, ny = cx + dx, cy + dy
-                        if engine.dungeon.is_terrain_blocked(nx, ny):
-                            break
-                        blocker = next(
-                            (e for e in engine.dungeon.get_entities_at(nx, ny)
-                             if e.entity_type == "monster" and e.alive),
-                            None,
-                        )
-                        if blocker:
+                        if engine.dungeon.is_blocked(nx, ny):
                             break
                         engine.dungeon.move_entity(defender, nx, ny)
                         cx, cy = nx, ny
@@ -794,6 +893,12 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         if acid_armor_effect and random.random() < acid_armor_effect.break_chance:
             engine._acid_armor_break_equipment()
 
+    # Mark the room where combat happened (for room_combat AI like strippers)
+    if attacker == engine.player:
+        room_idx = engine.dungeon.get_room_index_at(defender.x, defender.y)
+        if room_idx is not None:
+            engine.dungeon.rooms_with_combat.add(room_idx)
+
     # Passive monsters become provoked when hit
     if hasattr(defender, "provoked") and not defender.provoked:
         defender.provoked = True
@@ -804,7 +909,8 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             ])
 
     crit_str = " CRITICAL!" if is_crit else ""
-    msg = f"{attacker.name} deals {damage} damage to {defender.name}{crit_str}"
+    gun_str = " (gun butt)" if is_gun_butt else ""
+    msg = f"{attacker.name} deals {damage} damage to {defender.name}{crit_str}{gun_str}"
 
     if not defender.alive:
         msg += f" ({defender.name} dies)"
@@ -862,6 +968,18 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
 
 def handle_monster_attack(engine, monster):
     """Resolve a monster attacking the player."""
+    # Distracted: monster's attack misses entirely, effect consumed
+    distracted = next(
+        (e for e in monster.status_effects if getattr(e, 'id', None) == 'distracted'),
+        None,
+    )
+    if distracted:
+        monster.status_effects.remove(distracted)
+        engine.messages.append(
+            f"{monster.name} is distracted and misses!"
+        )
+        return
+
     # Agent Orange: monster cannot deal melee damage
     if any(getattr(e, 'id', None) == 'agent_orange' for e in monster.status_effects):
         return
@@ -904,7 +1022,13 @@ def handle_monster_attack(engine, monster):
                 damage = max(MIN_DAMAGE, damage // 2)
             if any(getattr(e, 'id', None) == 'disarmed' for e in monster.status_effects):
                 damage = max(MIN_DAMAGE, damage // 2)
-            player.take_damage(damage)
+            if any(getattr(e, 'is_curse', False) and getattr(e, 'id', '') == 'curse_of_ham' for e in monster.status_effects):
+                damage = max(MIN_DAMAGE, damage // 2)
+            damage = _armor_up_check(engine, damage)
+            deal_damage(engine, damage, player)
+            engine._gain_catchin_fades_xp(damage)
+            engine._graffiti_proc_green()
+            engine._smoking_proc_on_hit()
             crit_str = " CRITICAL!" if is_monster_crit else ""
             engine.messages.append(
                 f"{monster.name} hits you with {sa['name']} for {damage} damage!{crit_str}"
@@ -922,7 +1046,7 @@ def handle_monster_attack(engine, monster):
                 dx = 0 if monster.x == player.x else (1 if player.x > monster.x else -1)
                 dy = 0 if monster.y == player.y else (1 if player.y > monster.y else -1)
                 nx, ny = player.x + dx, player.y + dy
-                if engine.dungeon.is_terrain_blocked(nx, ny):
+                if engine.dungeon.is_blocked(nx, ny):
                     engine.messages.append("You brace yourself against the knockback!")
                 else:
                     player.x, player.y = nx, ny
@@ -955,7 +1079,13 @@ def handle_monster_attack(engine, monster):
         damage = max(MIN_DAMAGE, damage // 2)
     if any(getattr(e, 'id', None) == 'disarmed' for e in monster.status_effects):
         damage = max(MIN_DAMAGE, damage // 2)
-    player.take_damage(damage)
+    if any(getattr(e, 'is_curse', False) and getattr(e, 'id', '') == 'curse_of_ham' for e in monster.status_effects):
+        damage = max(MIN_DAMAGE, damage // 2)
+    damage = _armor_up_check(engine, damage)
+    deal_damage(engine, damage, player)
+    engine._gain_catchin_fades_xp(damage)
+    engine._graffiti_proc_green()
+    engine._smoking_proc_on_hit()
     crit_str = " CRITICAL!" if is_monster_crit else ""
     engine.messages.append(f"{monster.name} hits you for {damage} damage!{crit_str}")
 
@@ -998,6 +1128,34 @@ def _apply_monster_hit_effect(engine, effect, monster=None):
     if effect_id == "tox_burst":
         add_toxicity(engine, engine.player, amount)
         return
+    if effect_id == "infection":
+        add_infection(engine, engine.player, amount)
+        engine.messages.append([
+            ("Infected! ", (120, 200, 50)),
+            (f"+{amount} infection!", (180, 255, 100)),
+        ])
+        return
+    if effect_id == "stat_drain":
+        _DRAIN_STATS = ["constitution", "strength", "book_smarts", "street_smarts", "tolerance", "swagger"]
+        _DRAIN_LABELS = {
+            "constitution": "Constitution", "strength": "Strength",
+            "book_smarts": "Book-Smarts", "street_smarts": "Street-Smarts",
+            "tolerance": "Tolerance", "swagger": "Swagger",
+        }
+        stat = random.choice(_DRAIN_STATS)
+        ps = engine.player_stats
+        current = getattr(ps, stat)
+        if current > 1:  # floor at 1
+            setattr(ps, stat, current - 1)
+            ps._base[stat] = getattr(ps, stat)
+            if stat == "constitution":
+                engine.player.max_hp = max(10, engine.player.max_hp - 5)
+                engine.player.hp = min(engine.player.hp, engine.player.max_hp)
+            engine.messages.append([
+                ("Cursed! ", (140, 50, 180)),
+                (f"{_DRAIN_LABELS[stat]} permanently -1!", (180, 100, 220)),
+            ])
+        return
     if effect_id == "deport":
         _deport_player(engine, effect["duration"])
         return
@@ -1029,10 +1187,18 @@ def _apply_monster_hit_effect(engine, effect, monster=None):
         return
 
     # Map specific named effects to their custom effect IDs
-    if effect.get("name") == "Bleeding":
-        effect_id = "bleeding"
+    _NAMED_EFFECT_MAP = {
+        "Bleeding": "bleeding",
+        "pipe_venom": "pipe_venom",
+        "wolf_spider_venom": "wolf_spider_venom",
+        "neuro_venom": "neuro_venom",
+    }
+    mapped = _NAMED_EFFECT_MAP.get(effect.get("name"))
+    if mapped:
+        effect_id = mapped
     duration = effect["duration"]
-    kwargs = dict(duration=duration, amount=amount)
+    # Effects in _NAMED_EFFECT_MAP hardcode their own duration; don't pass it
+    kwargs = dict(amount=amount) if mapped else dict(duration=duration, amount=amount)
     # Fear needs the source position so the player flees away from it
     if effect_id == "fear" and monster is not None:
         kwargs["source_x"] = monster.x
@@ -1070,13 +1236,25 @@ def handle_monster_ranged_attack(engine, monster):
     # Roll damage
     dmg_min, dmg_max = ra["damage"]
     damage = random.randint(dmg_min, dmg_max)
-    def_defense = _compute_player_defense(engine)
-    damage = max(MIN_DAMAGE, damage - def_defense)
-    damage = _apply_damage_modifiers(engine, damage, player)
-    damage = _apply_toxicity(engine, damage, player)
+    if not ra.get("pierces_defense"):
+        def_defense = _compute_player_defense(engine)
+        damage = max(MIN_DAMAGE, damage - def_defense)
+        damage = _apply_damage_modifiers(engine, damage, player)
+        damage = _apply_toxicity(engine, damage, player)
+        damage = _armor_up_check(engine, damage)
 
+    attack_name = ra.get("name", "shoots")
     player.take_damage(damage)
-    engine.messages.append(f"{monster.name} shoots you for {damage} damage!")
+    engine._gain_catchin_fades_xp(damage)
+    engine._graffiti_proc_green()
+    engine._smoking_proc_on_hit()
+    engine.messages.append(f"{monster.name} {attack_name} you for {damage} damage!")
+
+    # Ranged on-hit effect (e.g. hex slow)
+    ranged_on_hit = ra.get("on_hit_effect")
+    if ranged_on_hit and random.random() < ranged_on_hit.get("chance", 0):
+        effect_id = ranged_on_hit["effect_id"]
+        effects.apply_effect(engine.player, engine, effect_id, **ranged_on_hit.get("kwargs", {}))
 
     # Knockback
     knockback = ra.get("knockback", 0)
@@ -1085,7 +1263,7 @@ def handle_monster_ranged_attack(engine, monster):
         dx = 0 if monster.x == player.x else (1 if player.x > monster.x else -1)
         dy = 0 if monster.y == player.y else (1 if player.y > monster.y else -1)
         nx, ny = player.x + dx, player.y + dy
-        if not engine.dungeon.is_terrain_blocked(nx, ny):
+        if not engine.dungeon.is_blocked(nx, ny):
             player.x, player.y = nx, ny
             engine.messages.append("You're knocked back!")
 

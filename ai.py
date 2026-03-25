@@ -95,11 +95,18 @@ def build_creature_positions(monsters):
 def _tile_free(x, y, dungeon, creature_positions=None, self_pos=None):
     """
     True when a tile is passable terrain AND not occupied by another
-    creature.  *self_pos* is the checking monster's own tile — excluded
+    creature or movement-blocking entity (e.g. table).
+    *self_pos* is the checking monster's own tile — excluded
     so a monster doesn't consider itself an obstacle.
     """
     if dungeon.is_terrain_blocked(x, y):
         return False
+    # Check for movement-blocking non-creature entities (tables, crates, etc.)
+    getter = getattr(dungeon, 'get_entities_at', None)
+    if getter is not None:
+        for e in getter(x, y):
+            if e.blocks_movement and e.entity_type == "hazard":
+                return False
     if creature_positions is not None:
         if (x, y) in creature_positions and (x, y) != self_pos:
             return False
@@ -138,6 +145,12 @@ def build_step_map(player, dungeon, max_depth=25):
     frontier = deque([(goal, 0)])
     came_from = {goal: None}
 
+    # Pre-compute blocked hazard positions (tables, etc.) so BFS avoids them
+    _blocked_hazards = set()
+    for e in dungeon.entities:
+        if e.blocks_movement and getattr(e, 'entity_type', '') == 'hazard':
+            _blocked_hazards.add((e.x, e.y))
+
     while frontier:
         (cx, cy), depth = frontier.popleft()
         if depth >= max_depth:
@@ -146,9 +159,12 @@ def build_step_map(player, dungeon, max_depth=25):
             nx, ny = cx + ddx, cy + ddy
             if (nx, ny) in came_from:
                 continue
-            if not dungeon.is_terrain_blocked(nx, ny):
-                came_from[(nx, ny)] = (cx, cy)
-                frontier.append(((nx, ny), depth + 1))
+            if dungeon.is_terrain_blocked(nx, ny):
+                continue
+            if (nx, ny) in _blocked_hazards:
+                continue
+            came_from[(nx, ny)] = (cx, cy)
+            frontier.append(((nx, ny), depth + 1))
 
     # For each reachable tile, the step toward the player is the
     # direction toward its parent in the BFS tree.
@@ -323,25 +339,46 @@ def wander_in_room(monster, player, dungeon, engine, creature_positions=None,
 
 def flee(monster, player, dungeon, engine, creature_positions=None,
          step_map=None):
-    """Step away from the player. Used by cowardly enemies like the niglet
-    after they've landed a hit.
+    """Step away from the player. Tries the direct opposite direction first,
+    then falls back to alternative directions sorted by distance from player.
     Returns "move" or "idle"."""
     mx, my = monster.x, monster.y
     px, py = player.x, player.y
+    self_pos = (mx, my)
 
-    # Move in the opposite direction of the player
+    # Primary flee direction
     dx = 0 if px == mx else (-1 if px > mx else 1)
     dy = 0 if py == my else (-1 if py > my else 1)
     dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
 
-    if dx == 0 and dy == 0:
-        return "idle"
+    if dx != 0 or dy != 0:
+        nx, ny = mx + dx, my + dy
+        if _tile_free(nx, ny, dungeon, creature_positions, self_pos):
+            monster.move(dx, dy)
+            return "move"
 
-    nx, ny = monster.x + dx, monster.y + dy
+    # Primary blocked — try all 8 neighbors, preferring those farthest from player
+    candidates = []
+    for cdx in (-1, 0, 1):
+        for cdy in (-1, 0, 1):
+            if cdx == 0 and cdy == 0:
+                continue
+            nx, ny = mx + cdx, my + cdy
+            if _tile_free(nx, ny, dungeon, creature_positions, self_pos):
+                dist = max(abs(nx - px), abs(ny - py))
+                candidates.append((dist, cdx, cdy))
 
-    if _tile_free(nx, ny, dungeon, creature_positions, (monster.x, monster.y)):
-        monster.move(dx, dy)
-        return "move"
+    if candidates:
+        # Pick the direction that maximizes distance from player
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        _, best_dx, best_dy = candidates[0]
+        best_dx, best_dy = _apply_modify_movement(best_dx, best_dy, monster, player, dungeon)
+        if best_dx != 0 or best_dy != 0:
+            nx, ny = mx + best_dx, my + best_dy
+            if _tile_free(nx, ny, dungeon, creature_positions, self_pos):
+                monster.move(best_dx, best_dy)
+                return "move"
+
     return "idle"
 
 
@@ -397,8 +434,18 @@ def idle(monster, player, dungeon, engine, creature_positions=None,
 
 def cartel_idle(monster, player, dungeon, engine, creature_positions=None,
                 step_map=None):
-    """Cartel unit idle — stand still, do nothing.  Returns "idle"."""
-    return "idle"
+    """Cartel unit idle — occasionally wander. 25% chance, can't move twice in a row."""
+    if getattr(monster, '_idle_moved_last', False):
+        monster._idle_moved_last = False
+        return "idle"
+    if random.random() > 0.25:
+        return "idle"
+    dx, dy = _step_random(monster, dungeon, creature_positions)
+    if dx == 0 and dy == 0:
+        return "idle"
+    monster.move(dx, dy)
+    monster._idle_moved_last = True
+    return "move"
 
 
 def suicide_chase(monster, player, dungeon, engine, creature_positions=None,
@@ -438,6 +485,26 @@ def throw_vial(monster, player, dungeon, engine, creature_positions=None,
 
     # Out of range or no LOS — wander
     return wander(monster, player, dungeon, engine, creature_positions, step_map)
+
+
+def sac_spider_attack(monster, player, dungeon, engine, creature_positions=None,
+                      step_map=None):
+    """Sac Spider: shoots web at range 3 if player not webbed; melee chase if webbed."""
+    mx, my = monster.x, monster.y
+    px, py = player.x, player.y
+    dist = max(abs(mx - px), abs(my - py))
+
+    player_webbed = any(
+        getattr(e, 'id', '') == 'webbed' for e in player.status_effects
+    )
+
+    # If player is NOT webbed and within range 3 with LOS → shoot web
+    if not player_webbed and dist <= 3 and _has_los(dungeon, mx, my, px, py):
+        engine._sac_spider_web_shot(monster)
+        return "attack"
+
+    # Player is webbed (or out of range) → chase for melee
+    return chase(monster, player, dungeon, engine, creature_positions, step_map)
 
 
 def spawner_idle(monster, player, dungeon, engine, creature_positions=None,
@@ -480,19 +547,23 @@ def falcon_run_to_ally(monster, player, dungeon, engine, creature_positions=None
         monster.ai_state = AIState.CHASING
         return chase(monster, player, dungeon, engine, creature_positions, step_map)
 
-    # Greedy step toward ally
+    # Step toward ally — try all 8 directions, pick the one closest to target
     mx, my = monster.x, monster.y
     ax, ay = best_ally.x, best_ally.y
-    dx = 0 if ax == mx else (1 if ax > mx else -1)
-    dy = 0 if ay == my else (1 if ay > my else -1)
-
-    for adx, ady in [(dx, dy), (dx, 0), (0, dy)]:
-        if adx == 0 and ady == 0:
-            continue
-        nx, ny = mx + adx, my + ady
-        if _tile_free(nx, ny, dungeon, creature_positions, (mx, my)):
-            monster.move(adx, ady)
-            return "move"
+    candidates = []
+    for adx in (-1, 0, 1):
+        for ady in (-1, 0, 1):
+            if adx == 0 and ady == 0:
+                continue
+            nx, ny = mx + adx, my + ady
+            if _tile_free(nx, ny, dungeon, creature_positions, (mx, my)):
+                dist = max(abs(ax - nx), abs(ay - ny))
+                candidates.append((dist, adx, ady))
+    if candidates:
+        candidates.sort()
+        _, adx, ady = candidates[0]
+        monster.move(adx, ady)
+        return "move"
     return "idle"
 
 
@@ -507,7 +578,8 @@ def _falcon_alert_area(falcon, dungeon, engine):
             continue
         if getattr(entity, "faction", None) != faction:
             continue
-        if max(abs(falcon.x - entity.x), abs(falcon.y - entity.y)) <= 4:
+        if (max(abs(falcon.x - entity.x), abs(falcon.y - entity.y)) <= 4
+                and _has_los(dungeon, falcon.x, falcon.y, entity.x, entity.y)):
             entity.ai_state = AIState.CHASING
             entity.provoked = True
             alerted += 1
@@ -576,6 +648,27 @@ def kite_at_range(monster, player, dungeon, engine, creature_positions=None,
         return flee(monster, player, dungeon, engine, creature_positions, step_map)
 
     # Too far or no LOS: step toward
+    return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+
+def occultist_attack(monster, player, dungeon, engine, creature_positions=None,
+                     step_map=None):
+    """Occultist AI: if player within range and LOS, cast hex. Otherwise chase."""
+    mx, my = monster.x, monster.y
+    px, py = player.x, player.y
+    ra = monster.ranged_attack
+    if ra is None:
+        return chase(monster, player, dungeon, engine, creature_positions, step_map)
+
+    dist = max(abs(mx - px), abs(my - py))
+    atk_range = ra["range"]
+
+    # Within range with LOS: always attack (prioritize over moving)
+    if dist <= atk_range and _has_los(dungeon, mx, my, px, py):
+        engine.handle_monster_ranged_attack(monster)
+        return "attack"
+
+    # Out of range: chase
     return chase(monster, player, dungeon, engine, creature_positions, step_map)
 
 
@@ -661,6 +754,15 @@ def floor_alarm_triggered(monster, player, dungeon):
     return getattr(dungeon, "first_kill_happened", False)
 
 
+def combat_in_monster_room(monster, player, dungeon):
+    """True when the player has attacked a monster in the same room this monster
+    is currently standing in (not spawn room — current position)."""
+    room_idx = dungeon.get_room_index_at(monster.x, monster.y)
+    if room_idx is None:
+        return False
+    return room_idx in getattr(dungeon, "rooms_with_combat", set())
+
+
 def female_killed_on_floor(monster, player, dungeon):
     """True once any female monster on this floor has been killed.
     The engine sets dungeon.female_kill_happened = True in that event."""
@@ -687,14 +789,14 @@ def is_far_away(monster, player, dungeon):
 
 
 def faction_is_hostile(monster, player, dungeon):
-    """True if the player's reputation with this monster's faction is below Neutral (< 2000)."""
+    """True if the player's reputation with this monster's faction is Unfriendly or worse (< -2000)."""
     faction = getattr(monster, "faction", None)
     if not faction:
         return True
     stats = getattr(player, "stats", None)
     if stats is None:
         return True
-    return stats.reputation.get(faction, -2000) < 2000
+    return stats.reputation.get(faction, -1000) < -2000
 
 
 def room_ally_attacked(monster, player, dungeon):
@@ -728,6 +830,45 @@ def faction_room_ally_attacked(monster, player, dungeon):
         if getattr(entity, "provoked", False) and (entity.x, entity.y) in room_tiles:
             return True
     return False
+
+
+def room_spider_alerted(monster, player, dungeon):
+    """True if any pipe_spider in this monster's spawn room is already CHASING."""
+    room_tiles = getattr(monster, "spawn_room_tiles", None)
+    if room_tiles is None:
+        return False
+    for entity in dungeon.entities:
+        if entity is monster or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "enemy_type", None) != "pipe_spider":
+            continue
+        if (entity.x, entity.y) in room_tiles and getattr(entity, "ai_state", None) == AIState.CHASING:
+            return True
+    return False
+
+
+def room_zombie_alerted(monster, player, dungeon):
+    """True if any zombie in this monster's spawn room is already CHASING."""
+    room_tiles = getattr(monster, "spawn_room_tiles", None)
+    if room_tiles is None:
+        return False
+    for entity in dungeon.entities:
+        if entity is monster or entity.entity_type != "monster":
+            continue
+        if not getattr(entity, "alive", True):
+            continue
+        if getattr(entity, "enemy_type", None) != "zombie":
+            continue
+        if (entity.x, entity.y) in room_tiles and getattr(entity, "ai_state", None) == AIState.CHASING:
+            return True
+    return False
+
+
+def cartel_should_deaggro(monster, player, dungeon):
+    """True when the faction is friendly and no same-faction ally was attacked — stand down."""
+    return not cartel_should_aggro(monster, player, dungeon)
 
 
 def cartel_should_aggro(monster, player, dungeon):
@@ -860,6 +1001,20 @@ BEHAVIORS = {
         },
     },
 
+    # ── Room combat ───────────────────────────────────────────────────────
+    # Wanders passively until the player attacks a monster in the same room
+    # this monster is currently in, then permanently chases.
+    "room_combat": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(combat_in_monster_room, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander,
+            AIState.CHASING:   chase,
+        },
+    },
+
     # ── Female alarm (Fat Gooner) ─────────────────────────────────────────
     # Wanders passively until a female monster anywhere on the floor is killed.
     # Then permanently rages and chases the player.
@@ -948,7 +1103,8 @@ BEHAVIORS = {
     "cartel_unit": {
         "initial_state": AIState.IDLE,
         "transitions": {
-            AIState.IDLE: [(cartel_should_aggro, AIState.CHASING)],
+            AIState.IDLE:    [(cartel_should_aggro, AIState.CHASING)],
+            AIState.CHASING: [(cartel_should_deaggro, AIState.IDLE)],
         },
         "actions": {
             AIState.IDLE:    cartel_idle,
@@ -962,7 +1118,9 @@ BEHAVIORS = {
         "initial_state": AIState.IDLE,
         "transitions": {
             AIState.IDLE:     [(cartel_should_aggro, AIState.ALERTING)],
-            AIState.ALERTING: [(falcon_adjacent_to_ally, AIState.CHASING)],
+            AIState.ALERTING: [(cartel_should_deaggro, AIState.IDLE),
+                               (falcon_adjacent_to_ally, AIState.CHASING)],
+            AIState.CHASING:  [(cartel_should_deaggro, AIState.IDLE)],
         },
         "actions": {
             AIState.IDLE:     cartel_idle,
@@ -976,7 +1134,8 @@ BEHAVIORS = {
     "cartel_ranged": {
         "initial_state": AIState.IDLE,
         "transitions": {
-            AIState.IDLE: [(cartel_should_aggro, AIState.CHASING)],
+            AIState.IDLE:    [(cartel_should_aggro, AIState.CHASING)],
+            AIState.CHASING: [(cartel_should_deaggro, AIState.IDLE)],
         },
         "actions": {
             AIState.IDLE:    cartel_idle,
@@ -1051,6 +1210,114 @@ BEHAVIORS = {
         "transitions":   {},
         "actions": {
             AIState.CHASING: chase,
+        },
+    },
+    # ── Spider Hatchling (stationary summon) ─────────────────────────────
+    # Stationary; attacks adjacent enemies. Custom turn logic in do_ai_turn.
+    "spider_hatchling": {
+        "initial_state": AIState.IDLE,
+        "transitions":   {},
+        "actions": {
+            AIState.IDLE: idle,
+        },
+    },
+
+    # ── Sac Spider ───────────────────────────────────────────────────────
+    # Room guard; shoots web at range when player not webbed, melee when webbed.
+    "sac_spider": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [
+                (player_in_monster_room, AIState.CHASING),
+                (room_ally_attacked, AIState.CHASING),
+            ],
+            AIState.CHASING: [(player_lost, AIState.WANDERING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander_in_room,
+            AIState.CHASING:   sac_spider_attack,
+        },
+    },
+
+    # ── Zombie Pack ────────────────────────────────────────────────────
+    # Wanders until player in sight (10 tiles, LOS required); chases.
+    # When one zombie in the room aggros, all zombies in that room aggro.
+    "zombie_pack": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [
+                (player_in_sight, AIState.CHASING),
+                (room_ally_attacked, AIState.CHASING),
+                (room_zombie_alerted, AIState.CHASING),
+            ],
+            AIState.CHASING: [(player_lost, AIState.WANDERING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander,
+            AIState.CHASING:   chase,
+        },
+    },
+
+    # ── Black Widow (mini-boss) ────────────────────────────────────────
+    # Room guard; once aggro'd, chases permanently (never reverts).
+    "black_widow": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [
+                (player_in_monster_room, AIState.CHASING),
+                (room_ally_attacked, AIState.CHASING),
+                (was_provoked, AIState.CHASING),
+            ],
+        },
+        "actions": {
+            AIState.WANDERING: wander_in_room,
+            AIState.CHASING:   chase,
+        },
+    },
+
+    # ── Wolf Spider ──────────────────────────────────────────────────────
+    # Fast predator. Wanders until player in sight, then chases hard.
+    "wolf_spider": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(player_in_sight, AIState.CHASING)],
+            AIState.CHASING:   [(player_lost,     AIState.WANDERING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander,
+            AIState.CHASING:   chase,
+        },
+    },
+
+    # ── Pipe Spider Pack ────────────────────────────────────────────────
+    # Slow wander; chases when player in sight (4 tiles), any room ally is
+    # hit, or any other pipe_spider in the room is already chasing.
+    "pipe_spider_pack": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [
+                (player_in_sight, AIState.CHASING),
+                (room_ally_attacked, AIState.CHASING),
+                (room_spider_alerted, AIState.CHASING),
+            ],
+            AIState.CHASING: [(player_lost, AIState.WANDERING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander,
+            AIState.CHASING:   chase,
+        },
+    },
+
+    # ── Occultist Ranged ──────────────────────────────────────────────
+    # Room aggro; within range: always hex (prioritize attack over move).
+    "occultist_ranged": {
+        "initial_state": AIState.WANDERING,
+        "transitions": {
+            AIState.WANDERING: [(player_in_monster_room, AIState.CHASING)],
+        },
+        "actions": {
+            AIState.WANDERING: wander_in_room,
+            AIState.CHASING:   occultist_attack,
         },
     },
 }
@@ -1190,6 +1457,76 @@ def _do_meatball_turn(meatball, player, dungeon, engine, creature_positions):
     return "idle"
 
 
+def _do_spider_hatchling_turn(spider, player, dungeon, engine, creature_positions):
+    """Spider Hatchling summon: stationary until an enemy enters 1-tile radius,
+    then chases that enemy.
+
+    Deals 2 flat damage (ignores defense) and applies 1 venom stack.
+    Sets aggro_target on the bitten monster so it retaliates.
+    """
+    import random as _rand
+
+    sx, sy = spider.x, spider.y
+    chase = getattr(spider, "_chase_target", None)
+
+    # Priority: if something hit us, chase that instead
+    attacked_by = getattr(spider, "_attacked_by", None)
+    if attacked_by is not None and getattr(attacked_by, "alive", False):
+        chase = attacked_by
+        spider._chase_target = chase
+    spider._attacked_by = None
+
+    # Clear dead/invalid chase target
+    if chase is not None and not getattr(chase, "alive", False):
+        spider._chase_target = None
+        chase = None
+
+    # If no chase target, scan for adjacent enemies to lock onto
+    if chase is None:
+        adjacent_enemies = []
+        for m in dungeon.get_monsters():
+            if not m.alive or m is spider or getattr(m, "is_summon", False):
+                continue
+            if max(abs(m.x - sx), abs(m.y - sy)) <= 1:
+                adjacent_enemies.append(m)
+        if not adjacent_enemies:
+            return "idle"  # stationary — no enemies nearby
+        chase = _rand.choice(adjacent_enemies)
+        spider._chase_target = chase
+
+    # Check if adjacent to chase target
+    dist = max(abs(sx - chase.x), abs(sy - chase.y))
+    if dist <= 1:
+        # Attack the chase target
+        damage = 2
+        chase.take_damage(damage)
+        engine.messages.append(
+            f"Spider Hatchling bites {chase.name} for {damage} damage!"
+        )
+        effects.apply_effect(chase, engine, "venom", duration=10, stacks=1)
+        chase.aggro_target = spider
+        if not chase.alive:
+            engine.event_bus.emit("entity_died", entity=chase, killer=player)
+            spider._chase_target = None
+        return "attack"
+
+    # Not adjacent — chase the target
+    dx = 0 if chase.x == sx else (1 if chase.x > sx else -1)
+    dy = 0 if chase.y == sy else (1 if chase.y > sy else -1)
+    for try_dx, try_dy in [(dx, dy), (dx, 0), (0, dy)]:
+        if try_dx == 0 and try_dy == 0:
+            continue
+        nx, ny = sx + try_dx, sy + try_dy
+        if not dungeon.is_blocked(nx, ny):
+            old_pos = (sx, sy)
+            spider.move(try_dx, try_dy)
+            if creature_positions is not None:
+                creature_positions.discard(old_pos)
+                creature_positions.add((spider.x, spider.y))
+            return "move"
+    return "idle"  # blocked, can't reach target
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1223,6 +1560,53 @@ def do_ai_turn(monster, player, dungeon, engine,
     # the behavior state machine.
     if getattr(monster, "is_summon", False) and monster.ai_type == "meatball":
         return _do_meatball_turn(monster, player, dungeon, engine, creature_positions)
+
+    # ── Spider Hatchling summon AI ─────────────────────────────────────
+    if getattr(monster, "is_summon", False) and monster.ai_type == "spider_hatchling":
+        return _do_spider_hatchling_turn(monster, player, dungeon, engine, creature_positions)
+
+    # ── Universal aggro intercept ──────────────────────────────────────
+    # Monsters hit by a summon (e.g. spider hatchling) target it instead
+    # of the player until the aggro target dies.
+    aggro = getattr(monster, "aggro_target", None)
+    if aggro is not None:
+        if not getattr(aggro, "alive", False):
+            # Aggro target died — clear and resume normal AI
+            monster.aggro_target = None
+        else:
+            mx, my = monster.x, monster.y
+            dist = max(abs(mx - aggro.x), abs(my - aggro.y))
+            if dist <= 1:
+                # Adjacent — attack the aggro target
+                damage = max(1, monster.power)
+                aggro.take_damage(damage)
+                # Let summons know who hit them so they can retaliate
+                if getattr(aggro, "is_summon", False):
+                    aggro._attacked_by = monster
+                engine.messages.append(
+                    f"{monster.name} attacks {aggro.name} for {damage} damage!"
+                )
+                if not aggro.alive:
+                    engine.event_bus.emit("entity_died", entity=aggro, killer=monster)
+                    monster.aggro_target = None
+                return "attack"
+            else:
+                # Step toward aggro target (greedy pathfinding)
+                tx, ty = aggro.x, aggro.y
+                dx = 0 if tx == mx else (1 if tx > mx else -1)
+                dy = 0 if ty == my else (1 if ty > my else -1)
+                for try_dx, try_dy in [(dx, dy), (dx, 0), (0, dy)]:
+                    if try_dx == 0 and try_dy == 0:
+                        continue
+                    nx, ny = mx + try_dx, my + try_dy
+                    if not dungeon.is_blocked(nx, ny):
+                        old_pos = (mx, my)
+                        monster.move(try_dx, try_dy)
+                        if creature_positions is not None:
+                            creature_positions.discard(old_pos)
+                            creature_positions.add((monster.x, monster.y))
+                        return "move"
+                return "idle"  # blocked, can't reach target
 
     # ── Jerome's self-healing (boss mechanic) ────────────────────────────
     # When Jerome drops to 40 HP or below, he eats fried chicken to heal
