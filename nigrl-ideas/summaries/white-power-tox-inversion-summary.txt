@@ -1,0 +1,75 @@
+SUMMARY — White Power Tox Inversion Branching Tree Variations
+==============================================================
+Source doc: nigrl-ideas/white-power-tox-inversion-trees.txt
+
+CORE MECHANIC: TOX INVERSION
+  Normal formula: incoming_mult = 1.0 + (tox/100)^0.6  (tox = BAD)
+  Inverted formula: incoming_mult = 1.0 - coeff*(tox/100)^0.6  (tox = GOOD)
+  AND: outgoing damage multiplied by same formula (tox = LESS damage dealt)
+  Default coefficient: 0.5. Raises in later tree perks (max 0.75 in V9).
+  At 100 tox (coeff 0.5): 25% incoming reduction, 25% outgoing penalty.
+  At 100 tox (coeff 0.75): 75% incoming reduction, 75% outgoing penalty.
+  Implementation: player_stats.tox_inversion_active (bool) + wp_inversion_coefficient (float).
+
+NEW PLAYERSTATS FIELDS:
+  tox_inversion_active, wp_no_outgoing_penalty, wp_inversion_coefficient (float, default 0.5),
+  wp_inversion_outgoing_coefficient (float), wp_grinding_stone_active, wp_paper_wall_used,
+  wp_iron_will_first_hit
+
+NEW ENGINE STATE:
+  wp_fortress_stacks (per-floor, clears on move), wp_crust_stacks (per-turn decay),
+  wp_scab_charged (per-hit), wp_martyr_stacks (run-persistent), wp_oath_pool (run-persistent),
+  wp_inversion_prevented_dmg (per-floor), wp_tincan_hits_remaining (per-floor),
+  wp_room_first_hit (per-room), wp_kiln_regen_bonus, wp_last_armor_value
+
+SHAPE DISTRIBUTION:
+  Y-split (L3):     V1 — The Reactor (tox battery; turtle vs. burn branches)
+  Diamond:          V2 — The Shell Game (armor cycling; two armor philosophies)
+  Triple Fork:      V3 — The Fortress (long trunk + 3 capstones: tower, scab, riot)
+  W-shape:          V4 — The Pilgrim (outgoing penalty REMOVED at L5 Monolith!)
+  Inverted Y:       V5 — The Immune System (armor vs. debuff immunity; tox resistance → coefficient)
+  Ladder/Zigzag:    V6 — The Graveyard Shift (Temp HP factory; kill sustain vs. surrounded sustain)
+  Trident:          V7 — The Parish (solo Martyr path with Immolation 1/run nuke; A/B: Sanctuary)
+  Double Diamond:   V8 — The Calcifier (DR → thorns; double-diamond DR amplification)
+  Asymmetric Y:     V9 — The Covenant (quick Pact capstone vs. long Oath→Testament→The Word)
+  Long Trunk Y:     V10 — The Monument II (deepest ramp; two capstones: Stone Wall or Grinding Stone)
+
+KEY CAPSTONE SUMMARY:
+  V1 Critical Mass: 80+ tox doubles inversion to 1.0* coeff; 1/floor reactor burst
+  V1 Meltdown Protocol: consume all tox as Temp HP + DR burst; loss→heal conversion
+  V2 Iron Coffin: armor can never drop below swagger_defence; dodge at low armor
+  V2 Riot Wall: 2/floor negate next hit + Temp HP equal to that hit
+  V3 Ivory Tower: Fortress Stacks persist after movement; outgoing penalty halved when fortified
+  V3 Scab House: 5-stack scab charges (cross-floor); Crust stacks doubled
+  V3 Riot Gear: 1/floor 5t 50% reduction + AOE on Fortress Stack exhale
+  V4 Tombstone: death save fires twice; doubling inversion below 30% HP
+  V4 Mausoleum: ONCE/run 3-turn stun self → full HP/armor/Temp HP restore + 50 bonus Temp HP
+  V5 Pure Immunity: tox resistance inverts to add to coefficient (cap 0.9); 2/floor immune window
+  V6 Resting Place: Temp HP cap 60; overflow Temp HP → bonus DR; 1/floor instant full-restore Temp HP
+  V7 Immolation: ONCE/run spend all Martyr Stacks as AOE nuke + massive Temp HP; -5 perm max HP cost
+  V7 Sanctuary: 2/floor 10t stun/fear/knockback immune + hits only hit Temp HP/armor
+  V8 Petrified: coeff 0.7 incoming / 0.3 outgoing (asymmetric); DR adds directly to thorns damage
+  V9 Pact: coeff 0.65; 2/floor 10t immune + 50% extra reduction; +10 tox after
+  V9 The Word: coeff 0.75; Oath Pool triggers +5 thorns; 1/floor Gospel: pool → temp SWG spike
+  V10 Petrified Wall: coeff 0.6; 1/floor Stone Wall 10t 0.5x extra reduction
+  V10 Grinding Stone: outgoing penalty REMOVED; +STR; on-hit 3 tox to enemies (enemy tox = WORSE for them)
+
+NEW ABILITY IDs (all variations):
+  reactor_pulse, meltdown_wp, riot_shield_up, full_lockdown, mausoleum_rest,
+  immune_window, graveyard_surge, immolation_wp, sanctuary_wp,
+  the_pact, gospel_wp, stone_wall
+
+TOP RECOMMENDATIONS:
+  1. V10 (Monument II) — deepest ramp; Grinding Stone is the most elegant design
+     (removes the penalty via specific capstone vs. just ignoring it)
+  2. V4 (Pilgrim) — W-shape reveals Monolith (no outgoing penalty) as the major mid-game payoff;
+     W-shape means every perk feels earned
+  3. V9 (Covenant) — Asymmetric Y creates the sharpest commitment question:
+     quick Pact (3 perks) vs. long The Word (5 perks + highest coefficient)
+
+SYNERGY NOTES:
+  - Chemical Warfare: primary tox-generation partner; CW makes the tox, WP uses it defensively
+  - Grinding Stone (V10) + Stabbing: full damage output + incoming reduction = best hybrid
+  - V5 Pure Immunity: tox resistance items become offensive stats (raise inversion coefficient)
+  - V7 Martyr path: self-harm for DR; pairs with Meth-Head's regen or food heals
+  - V9 Oath Pool: run-persistent; pays off more the longer the run goes

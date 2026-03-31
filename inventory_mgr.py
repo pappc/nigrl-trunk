@@ -23,6 +23,16 @@ from items import (
     calc_tolerance_rolls,
 )
 
+# Kool-Aid stat mapping: drink_id -> (stat_internal_name, display_name)
+_KOOL_AID_STATS = {
+    "red_kool_aid":    ("strength",      "Strength"),
+    "blue_kool_aid":   ("book_smarts",   "Book-Smarts"),
+    "purple_kool_aid": ("street_smarts", "Street-Smarts"),
+    "green_kool_aid":  ("tolerance",     "Tolerance"),
+    "orange_kool_aid": ("constitution",  "Constitution"),
+    "yellow_kool_aid": ("swagger",       "Swagger"),
+}
+
 # Colors for segmented log messages
 _C_MSG_NEUTRAL = (200, 200, 100)   # default yellow
 _C_MSG_PICKUP  = (255, 200, 100)   # orange  (matches get_message_color "picked up")
@@ -203,6 +213,36 @@ def _handle_item_menu_input(engine, action):
             return _execute_item_action(engine, "Destroy")
         return False
 
+    # Shift+Number — bind item to hotbar slot
+    if action_type == "hotbar_bind_slot":
+        from config import HOTBAR_KEYS
+        slot = action.get("index", -1)
+        if 0 <= slot < len(engine.hotbar):
+            item_key = f"item:{item.item_id}"
+            key_label = HOTBAR_KEYS[slot] if slot < len(HOTBAR_KEYS) else str(slot)
+            name = defn.get("name", item.item_id) if defn else item.item_id
+
+            if engine.hotbar[slot] == item_key:
+                # Already in this slot — unbind
+                engine.hotbar[slot] = None
+                engine.messages.append([
+                    ("Unbound ", (200, 100, 100)),
+                    (name, (200, 200, 200)),
+                    (f" from [{key_label}].", (200, 100, 100)),
+                ])
+            else:
+                # Clear any existing binding for this item
+                for i in range(len(engine.hotbar)):
+                    if engine.hotbar[i] == item_key:
+                        engine.hotbar[i] = None
+                engine.hotbar[slot] = item_key
+                engine.messages.append([
+                    ("Bound ", (100, 255, 100)),
+                    (name, (200, 200, 200)),
+                    (f" to [{key_label}].", (100, 255, 100)),
+                ])
+        return False
+
     return False
 
 
@@ -231,10 +271,13 @@ def _execute_item_action(engine, action_name):
 
     elif action_name == defn.get("use_verb"):
         engine._red_drank_free_action = False
+        prev_menu = engine.menu_state
         _use_item(engine, engine.selected_item_index)
-        if engine.menu_state not in (MenuState.TARGETING, MenuState.COMBINE_SELECT, MenuState.ADJACENT_TILE_TARGETING):
-            engine.selected_item_index = None
-            engine.menu_state = MenuState.NONE
+        if engine.menu_state != prev_menu:
+            # _use_item transitioned to a submenu (targeting, midas, etc.) — no turn cost yet
+            return False
+        engine.selected_item_index = None
+        engine.menu_state = MenuState.NONE
         if engine._red_drank_free_action:
             engine._red_drank_free_action = False
             return False
@@ -243,6 +286,70 @@ def _execute_item_action(engine, action_name):
     elif action_name == defn.get("throw_verb"):
         engine._enter_targeting(engine.selected_item_index)
         return False
+
+    elif action_name == "Fire" and item.item_id == "graffiti_gun":
+        loaded_id = getattr(item, 'loaded_spray_id', None)
+        if loaded_id is None:
+            engine.messages.append("Load a spray can first!")
+            return False
+        loaded_charges = getattr(item, 'loaded_spray_charges', 0)
+        if loaded_charges <= 0:
+            engine.messages.append("Loaded spray can is empty!")
+            item.loaded_spray_id = None
+            item.loaded_spray_charges = None
+            item.loaded_spray_max_charges = None
+            gun_defn = get_item_def("graffiti_gun")
+            item.char = gun_defn["char"]
+            item.color = tuple(gun_defn["color"])
+            return False
+        _enter_graffiti_gun_targeting(engine, engine.selected_item_index)
+        return False
+
+    elif action_name == "Load" and item.item_id == "graffiti_gun":
+        if getattr(item, 'loaded_spray_id', None) is not None:
+            engine.messages.append("Unload the current spray can first!")
+            return False
+        _SPRAY_IDS = ("red_spray_paint", "blue_spray_paint", "green_spray_paint")
+        has_spray = any(
+            it.item_id in _SPRAY_IDS
+            for it in engine.player.inventory
+            if it is not item
+        )
+        if not has_spray:
+            engine.messages.append("No spray cans in inventory!")
+            return False
+        engine.graffiti_gun_loading = True
+        engine.menu_state = MenuState.COMBINE_SELECT
+        _init_combine_cursor(engine)
+        return False
+
+    elif action_name == "Unload" and item.item_id == "graffiti_gun":
+        loaded_id = getattr(item, 'loaded_spray_id', None)
+        if loaded_id is None:
+            engine.messages.append("Nothing loaded!")
+            return False
+        from entity import Entity
+        kwargs = create_item_entity(loaded_id, 0, 0)
+        new_can = Entity(**kwargs)
+        new_can.charges = item.loaded_spray_charges
+        new_can.max_charges = item.loaded_spray_max_charges
+        engine.player.inventory.append(new_can)
+        spray_defn = get_item_def(loaded_id)
+        engine.messages.append([
+            ("Unloaded ", (200, 200, 200)),
+            (spray_defn["name"], tuple(spray_defn["color"])),
+            (f" ({new_can.charges}/{new_can.max_charges})", (200, 200, 200)),
+        ])
+        item.loaded_spray_id = None
+        item.loaded_spray_charges = None
+        item.loaded_spray_max_charges = None
+        gun_defn = get_item_def("graffiti_gun")
+        item.char = gun_defn["char"]
+        item.color = tuple(gun_defn["color"])
+        _sort_inventory(engine)
+        engine.menu_state = MenuState.NONE
+        engine.selected_item_index = None
+        return True
 
     elif action_name == "Examine":
         engine.menu_state = MenuState.EXAMINE
@@ -257,6 +364,24 @@ def _execute_item_action(engine, action_name):
 
 
 # ------------------------------------------------------------------
+# Graffiti Gun targeting
+# ------------------------------------------------------------------
+
+def _enter_graffiti_gun_targeting(engine, item_index):
+    """Enter TARGETING mode for graffiti gun fire."""
+    from menu_state import MenuState
+    engine.targeting_spell = {
+        "type": "graffiti_gun_fire",
+        "item_index": item_index,
+    }
+    engine.targeting_item_index = None
+    engine.targeting_ability_index = None
+    engine.targeting_cursor = [engine.player.x, engine.player.y]
+    engine.selected_item_index = None
+    engine.menu_state = MenuState.TARGETING
+
+
+# ------------------------------------------------------------------
 # Equipment
 # ------------------------------------------------------------------
 
@@ -264,6 +389,9 @@ def _equip_item(engine, index) -> bool:
     from menu_state import MenuState
     item = engine.player.inventory[index]
     defn = get_item_def(item.item_id)
+    # Reset 9 Ring warning if equipping a different item
+    if "nine_ring" not in defn.get("tags", []):
+        engine._nine_ring_warned = False
     slot = defn["equip_slot"]
     if slot is None:
         return False
@@ -273,6 +401,13 @@ def _equip_item(engine, index) -> bool:
         engine.messages.append(
             f"Need {str_req} STR to equip {item.name}! "
             f"(you have {engine.player_stats.effective_strength})"
+        )
+        return False
+    bks_req = defn.get("bks_req")
+    if bks_req is not None and engine.player_stats.effective_book_smarts < bks_req:
+        engine.messages.append(
+            f"Need {bks_req} BKS to equip {item.name}! "
+            f"(you have {engine.player_stats.effective_book_smarts})"
         )
         return False
 
@@ -308,6 +443,11 @@ def _equip_item(engine, index) -> bool:
         if granted:
             engine.grant_ability(granted)
 
+        # Spec weapon: reset spec energy bar to 0 on equip
+        if new_defn and "spec_weapon" in new_defn.get("tags", []):
+            engine.spec_energy = 0.0
+            engine._spec_energy_counter = 0
+
         # Auto-set primary gun if this is a gun
         if defn.get("subcategory") == "gun":
             engine.primary_gun = "weapon"
@@ -338,22 +478,69 @@ def _equip_item(engine, index) -> bool:
         engine.primary_gun = "sidearm"
     elif slot == "neck":
         new_neck = engine.player.inventory[index]
-        if engine.neck is not None:
-            swapped = engine.neck
-            engine.player.inventory.append(swapped)
+        old_neck = engine.neck
+        if old_neck is not None:
+            # Revoke abilities from old neck item
+            old_defn = get_item_def(old_neck.item_id)
+            for aid in (old_defn.get("grants_abilities") or []) if old_defn else []:
+                engine.revoke_ability(aid)
+            # Reset soul count on amulet unequip
+            if old_defn and "amulet_ee" in old_defn.get("tags", []):
+                old_neck.soul_count = 0
+                engine.player.status_effects = [
+                    e for e in engine.player.status_effects
+                    if getattr(e, 'id', '') != 'soul_count'
+                ]
+            engine.player.inventory.append(old_neck)
             _sort_inventory(engine)
-            engine.messages.append([("Unequipped ", _C_MSG_NEUTRAL), (swapped.name, swapped.color)])
+            engine.messages.append([("Unequipped ", _C_MSG_NEUTRAL), (old_neck.name, old_neck.color)])
         engine.player.inventory.remove(new_neck)
         engine.neck = new_neck
+
+        # Grant abilities from new neck item
+        new_defn = get_item_def(new_neck.item_id)
+        for aid in (new_defn.get("grants_abilities") or []) if new_defn else []:
+            engine.grant_ability(aid)
+        # Apply soul count effect for amulet display
+        if new_defn and "amulet_ee" in new_defn.get("tags", []):
+            import effects as _eff
+            _eff.apply_effect(engine.player, engine, "soul_count", silent=True)
+
+        # Grant armor on equip — but only the net gain from this floor's best chain
+        new_armor_bonus = new_defn.get("armor_bonus", 0) if new_defn else 0
+        old_armor_bonus = 0
+        if old_neck:
+            old_defn_arm = get_item_def(old_neck.item_id)
+            old_armor_bonus = old_defn_arm.get("armor_bonus", 0) if old_defn_arm else 0
+        # Track highest chain armor equipped this floor to prevent exploit
+        best_this_floor = getattr(engine, '_best_chain_armor_this_floor', 0)
+        if new_armor_bonus > best_this_floor:
+            # Grant the difference between new chain and previous best
+            grant = new_armor_bonus - best_this_floor
+            engine.player.armor = min(engine.player.armor + grant,
+                                      engine._compute_player_max_armor())
+            engine._best_chain_armor_this_floor = new_armor_bonus
+            if grant > 0:
+                engine.messages.append([
+                    (f"+{grant} armor!", (180, 200, 255)),
+                ])
     elif slot == "feet":
         new_feet = engine.player.inventory[index]
         if engine.feet is not None:
             swapped = engine.feet
+            old_defn = get_item_def(swapped.item_id)
+            revoked = old_defn.get("grants_ability") if old_defn else None
+            if revoked:
+                engine.revoke_ability(revoked)
             engine.player.inventory.append(swapped)
             _sort_inventory(engine)
             engine.messages.append([("Unequipped ", _C_MSG_NEUTRAL), (swapped.name, swapped.color)])
         engine.player.inventory.remove(new_feet)
         engine.feet = new_feet
+        new_defn = get_item_def(new_feet.item_id)
+        granted = new_defn.get("grants_ability") if new_defn else None
+        if granted:
+            engine.grant_ability(granted)
     elif slot == "hat":
         new_hat = engine.player.inventory[index]
         if engine.hat is not None:
@@ -364,6 +551,24 @@ def _equip_item(engine, index) -> bool:
         engine.player.inventory.remove(new_hat)
         engine.hat = new_hat
     elif slot == "ring":
+        # Block equipping new rings while The 9 Ring is worn
+        if _has_nine_ring_equipped(engine):
+            engine.messages.append([
+                ("The 9 Ring ", (255, 220, 50)),
+                ("prevents equipping other rings.", _C_MSG_NEUTRAL),
+            ])
+            return False
+        # Warn before equipping The 9 Ring (requires second attempt to confirm)
+        ring_defn = get_item_def(item.item_id)
+        if ring_defn and "nine_ring" in ring_defn.get("tags", []):
+            if not getattr(engine, '_nine_ring_warned', False):
+                engine._nine_ring_warned = True
+                engine.messages.append([
+                    ("WARNING: ", (255, 50, 50)),
+                    ("The 9 Ring cannot be removed once equipped. Equip again to confirm.", (255, 100, 100)),
+                ])
+                return False
+            engine._nine_ring_warned = False
         empty = next((i for i, r in enumerate(engine.rings) if r is None), None)
         if empty is None:
             # All ring slots are full; open menu to select which ring to replace
@@ -371,7 +576,12 @@ def _equip_item(engine, index) -> bool:
             engine.ring_replace_cursor = 0
             engine.menu_state = MenuState.RING_REPLACE
             return False
-        engine.rings[empty] = engine.player.inventory.pop(index)
+        new_ring = engine.player.inventory.pop(index)
+        engine.rings[empty] = new_ring
+        # Apply nine_ring effect when The 9 Ring is equipped
+        new_defn = get_item_def(new_ring.item_id)
+        if new_defn and "nine_ring" in new_defn.get("tags", []):
+            effects.apply_effect(engine.player, engine, "nine_ring", silent=True)
     else:
         return False
 
@@ -446,10 +656,21 @@ def _handle_equipment_input(engine, action):
             elif slot_id == "neck":
                 engine.neck = None
             elif slot_id == "feet":
+                old_defn = get_item_def(item.item_id)
+                revoked = old_defn.get("grants_ability") if old_defn else None
+                if revoked:
+                    engine.revoke_ability(revoked)
                 engine.feet = None
             elif slot_id == "hat":
                 engine.hat = None
             else:
+                # Block unequipping any ring while The 9 Ring is worn
+                if _has_nine_ring_equipped(engine):
+                    engine.messages.append([
+                        ("The 9 Ring ", (255, 220, 50)),
+                        ("prevents removing rings.", _C_MSG_NEUTRAL),
+                    ])
+                    return False
                 _, ring_idx = slot_id
                 engine.rings[ring_idx] = None
             engine.player.inventory.append(item)
@@ -462,6 +683,20 @@ def _handle_equipment_input(engine, action):
         _refresh_ring_stat_bonuses(engine)
         return did_unequip
 
+    return False
+
+
+# ------------------------------------------------------------------
+# Nine Ring helpers
+# ------------------------------------------------------------------
+
+def _has_nine_ring_equipped(engine) -> bool:
+    """Return True if The 9 Ring is in any ring slot."""
+    for ring in engine.rings:
+        if ring is not None:
+            defn = get_item_def(ring.item_id)
+            if defn and "nine_ring" in defn.get("tags", []):
+                return True
     return False
 
 
@@ -563,6 +798,35 @@ def _refresh_ring_stat_bonuses(engine):
                 ept += defn.get("energy_per_tick", 0)
     engine.player_stats.equipment_energy_per_tick = ept
 
+    # Update equipment spell damage (e.g. Rune Scraper: STR/2 to spell damage)
+    eq_spell_dmg = 0
+    weapon = engine.equipment.get("weapon")
+    if weapon:
+        wdefn = get_item_def(weapon.item_id)
+        if wdefn and "rune_scraper" in wdefn.get("tags", []):
+            eq_spell_dmg += engine.player_stats.effective_strength // 2
+    engine.player_stats.equipment_spell_damage = eq_spell_dmg
+
+    # Update FOV penalty from equipment
+    from config import FOV_RADIUS
+    fov_penalty = 0
+    for slot_item in [engine.neck, engine.feet, engine.hat]:
+        if slot_item is not None:
+            defn = get_item_def(slot_item.item_id)
+            if defn:
+                fov_penalty += defn.get("fov_penalty", 0)
+    for ring in engine.rings:
+        if ring is not None:
+            defn = get_item_def(ring.item_id)
+            if defn:
+                fov_penalty += defn.get("fov_penalty", 0)
+    has_eagle_eye = any(getattr(e, 'id', '') == 'eagle_eye' for e in engine.player.status_effects)
+    if has_eagle_eye:
+        engine.fov_radius = 99
+    else:
+        engine.fov_radius = max(1, FOV_RADIUS - fov_penalty)
+    engine._compute_fov()
+
 
 def _sync_player_max_hp(engine):
     """Sync entity max_hp from player_stats.max_hp after constitution changes.
@@ -571,6 +835,56 @@ def _sync_player_max_hp(engine):
     engine.player.max_hp = new_max
     if engine.player.hp > new_max:
         engine.player.hp = new_max
+
+
+# ------------------------------------------------------------------
+# Ring of Sustenance
+# ------------------------------------------------------------------
+
+def _has_sustenance_ring(engine) -> bool:
+    for ring in engine.rings:
+        if ring is not None:
+            defn = get_item_def(ring.item_id)
+            if defn and "sustenance_ring" in defn.get("tags", []):
+                return True
+    return False
+
+
+def _sustenance_ring_proc(engine, category: str):
+    """Ring of Sustenance: 15% chance to spawn a random item of the consumed category."""
+    import random as _rng
+    if not _has_sustenance_ring(engine):
+        return
+    if _rng.random() >= 0.15:
+        return
+    from loot import DRINKS_SUBTABLE, METH_LAB_DRINK_SUBTABLE, _weighted_pick
+    from loot import ZONE_FOOD_TABLES, WEED_PRODUCT_SUBTABLE, pick_strain
+    zone_info = engine._get_zone_info()
+    zone = zone_info[0] if zone_info else "crack_den"
+    item_id = None
+    if category == "drink":
+        if zone == "meth_lab":
+            item_id = _weighted_pick(METH_LAB_DRINK_SUBTABLE, None, use_skill_weighting=False)
+        else:
+            item_id = _weighted_pick(DRINKS_SUBTABLE, None, use_skill_weighting=False)
+    elif category == "food":
+        food_table = ZONE_FOOD_TABLES.get(zone, [])
+        if food_table:
+            item_id = _weighted_pick(food_table, None, use_skill_weighting=False)
+    elif category == "joint":
+        item_id = _weighted_pick(WEED_PRODUCT_SUBTABLE, None, use_skill_weighting=False)
+    if item_id:
+        strain = None
+        from loot import _STRAIN_ITEMS
+        if item_id in _STRAIN_ITEMS:
+            strain = pick_strain(zone)
+        _add_item_to_inventory(engine, item_id, strain=strain)
+        from items import ITEM_DEFS
+        name = ITEM_DEFS.get(item_id, {}).get("name", item_id)
+        engine.messages.append([
+            ("Ring of Sustenance! ", (240, 160, 40)),
+            (f"A {name} materializes in your pack!", (255, 240, 150)),
+        ])
 
 
 # ------------------------------------------------------------------
@@ -598,11 +912,14 @@ def _sort_inventory(engine):
 def _add_item_to_inventory(engine, item_id, strain=None, quantity=1):
     """Create an item and add it to player inventory, stacking if possible."""
     for _ in range(quantity):
-        # Try to stack with existing item (skip charged items — each is unique)
+        # Try to stack with existing item (charged items stack only if charges match)
         if is_stackable(item_id):
             for existing in engine.player.inventory:
-                if (existing.item_id == item_id and existing.strain == strain
-                        and getattr(existing, "charges", None) is None):
+                if existing.item_id != item_id or existing.strain != strain:
+                    continue
+                if getattr(existing, "prefix", None) != None:
+                    continue  # prefixed foods stack via pickup, not _add_item
+                if getattr(existing, "charges", None) is None:
                     existing.quantity += 1
                     return
         # Create new item
@@ -638,6 +955,7 @@ def _acid_armor_break_equipment(engine):
             idx = int(slot.split("_")[1])
             engine.rings[idx] = None
         engine.messages.append(f"Acid Armor breaks your {item.name}!")
+        _refresh_ring_stat_bonuses(engine)
     else:
         engine.messages.append("Acid Armor attacks, but you have no equipped items!")
 
@@ -723,9 +1041,9 @@ def _use_item(engine, index):
                     engine._gain_smoking_xp(item.strain)
                 break
 
-        # Phat Cloud (Smoking level 3): deal 10 + tolerance//2 dmg to nearest visible enemy
+        # Phat Cloud (Smoking level 2): deal 10 + tolerance//2 dmg to nearest visible enemy
         smoking_level = engine.skills.get("Smoking").level
-        if smoking_level >= 3:
+        if smoking_level >= 2:
             _trigger_phat_cloud(engine)
 
         # Roach Fiend (Smoking level 4): 30% chance joint is not consumed
@@ -750,8 +1068,11 @@ def _use_item(engine, index):
         drink_id = effect.get("drink_id")
         # Red Drank: set duration multiplier while handling drink
         has_red = any(getattr(e, 'id', '') == 'red_drank' for e in engine.player.status_effects)
+        has_green = any(getattr(e, 'id', '') == 'green_drank' for e in engine.player.status_effects)
         if has_red:
             engine._drink_duration_multiplier = 2
+        # Green Drank: suppress hangover from this drink
+        saved_hangover_green = engine.pending_hangover_stacks if has_green else None
         if engine.blue_drank_stacks > 0:
             multiplier = 2 ** engine.blue_drank_stacks
             engine.blue_drank_stacks = 0
@@ -765,6 +1086,8 @@ def _use_item(engine, index):
             ])
         else:
             engine._handle_alcohol(item, drink_id)
+        if saved_hangover_green is not None:
+            engine.pending_hangover_stacks = saved_hangover_green
         if has_red:
             engine._drink_duration_multiplier = 1
             engine.player.energy += 100
@@ -778,6 +1101,9 @@ def _use_item(engine, index):
         if green:
             from xp_progression import _apply_green_drank_on_drink
             _apply_green_drank_on_drink(engine, green.stacks)
+        # Throw Bottle: +1 charge per alcoholic drink (only if ability unlocked)
+        if any(a.ability_id == "throw_bottle" for a in engine.player_abilities):
+            engine.grant_ability_charges("throw_bottle", 1)
         # Drinking perk 2: 20% chance not consumed
         drink_level = engine.skills.get("Drinking").level
         if drink_level >= 2 and random.random() < 0.20:
@@ -799,6 +1125,22 @@ def _use_item(engine, index):
             engine._handle_green_drank(item)
         elif drink_id == "blue_drank":
             engine._handle_blue_drank(item)
+        elif drink_id == "sparkling_water":
+            old_tox = getattr(engine.player, 'toxicity', 0)
+            old_rad = getattr(engine.player, 'radiation', 0)
+            engine.player.toxicity = 0
+            engine.player.radiation = 0
+            engine.messages.append([
+                ("Refreshing! ", (200, 230, 255)),
+                (f"Cleared {old_tox} toxicity and {old_rad} radiation.", (150, 255, 200)),
+            ])
+        elif drink_id in _KOOL_AID_STATS:
+            stat_name, display_name = _KOOL_AID_STATS[drink_id]
+            engine.player_stats.modify_base_stat(stat_name, 1)
+            engine.messages.append([
+                ("OH YEAH! ", (255, 255, 100)),
+                (f"Permanent +1 {display_name}!", (200, 255, 200)),
+            ])
         elif drink_id == "purple_drank":
             if engine.blue_drank_stacks > 0:
                 multiplier = 2 ** engine.blue_drank_stacks
@@ -811,6 +1153,9 @@ def _use_item(engine, index):
                 ])
             else:
                 engine._handle_purple_drank(item)
+        # Throw Bottle: +1 charge per soft drink (only if ability unlocked)
+        if any(a.ability_id == "throw_bottle" for a in engine.player_abilities):
+            engine.grant_ability_charges("throw_bottle", 1)
         if has_red and drink_id != "red_drank":
             engine._drink_duration_multiplier = 1
             engine.player.energy += 100
@@ -913,6 +1258,42 @@ def _use_item(engine, index):
             briskness=engine.player_stats.total_briskness,
         )
 
+    elif effect_type == "remove_toxicity":
+        amount = effect.get("amount", 50)
+        from combat import remove_toxicity
+        remove_toxicity(engine, engine.player, amount)
+        engine.messages.append([
+            ("You use the ", _C_MSG_USE), (item.name, item.color),
+            (f". -{amount} toxicity.", (100, 255, 200)),
+        ])
+
+    elif effect_type == "add_toxicity":
+        amount = effect.get("amount", 50)
+        from combat import add_toxicity
+        add_toxicity(engine, engine.player, amount)
+        engine.messages.append([
+            ("You use the ", _C_MSG_USE), (item.name, item.color),
+            (f". +{amount} toxicity.", (0, 200, 0)),
+        ])
+
+    elif effect_type == "remove_radiation":
+        amount = effect.get("amount", 50)
+        from combat import remove_radiation
+        remove_radiation(engine, engine.player, amount)
+        engine.messages.append([
+            ("You use the ", _C_MSG_USE), (item.name, item.color),
+            (f". -{amount} radiation.", (100, 200, 255)),
+        ])
+
+    elif effect_type == "add_radiation":
+        amount = effect.get("amount", 50)
+        from combat import add_radiation
+        add_radiation(engine, engine.player, amount)
+        engine.messages.append([
+            ("You use the ", _C_MSG_USE), (item.name, item.color),
+            (f". +{amount} radiation.", (100, 220, 50)),
+        ])
+
     elif effect_type == "food":
         food_id = effect.get("food_id")
         _use_food(engine, item, food_id)
@@ -948,63 +1329,41 @@ def _use_item(engine, index):
         return
 
     elif effect_type == "spawn_spider_hatchling":
-        import random as _rand
-        from entity import Entity
-        from ai import get_initial_state
-        px, py = engine.player.x, engine.player.y
-        dungeon = engine.dungeon
-
-        # Find one free adjacent tile
-        dirs = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]
-        _rand.shuffle(dirs)
-        spawn_tile = None
-        for dx, dy in dirs:
-            tx, ty = px + dx, py + dy
-            if not dungeon.is_blocked(tx, ty):
-                spawn_tile = (tx, ty)
-                break
-
-        if spawn_tile is None:
-            engine.messages.append("There's no room to hatch the egg!")
-            return  # item NOT consumed
-
-        sx, sy = spawn_tile
-        spider = Entity(
-            x=sx, y=sy,
-            char=chr(0xE004),
-            color=(255, 255, 255),
-            name="Spider Hatchling",
-            entity_type="monster",
-            hp=10,
-            power=2,
-            defense=0,
-            ai_type="spider_hatchling",
-            speed=100,
-            is_summon=True,
-            summon_lifetime=0,
-        )
-        spider.ai_state = get_initial_state("spider_hatchling")
-        dungeon.add_entity(spider)
+        # Enter adjacent tile targeting — player picks where to hatch
+        from menu_state import MenuState
+        engine.spider_egg_pending = {"item_index": index}
+        engine.menu_state = MenuState.ADJACENT_TILE_TARGETING
         engine.messages.append([
-            ("A Spider Hatchling emerges from the egg!", (100, 180, 80)),
+            ("Mature Spider Egg: ", (100, 180, 80)),
+            ("choose a direction (arrow keys / numpad). [Esc] cancel.", (200, 200, 200)),
         ])
-        # Grant Arachnigga XP for hatching
-        _arachni_xp = round(50 * engine.player_stats.xp_multiplier)
-        _arachni_skill = engine.skills.get("Arachnigga")
-        _arachni_was_locked = _arachni_skill.potential_exp == 0 and _arachni_skill.real_exp == 0 and _arachni_skill.level == 0
-        engine.skills.gain_potential_exp(
-            "Arachnigga", _arachni_xp,
-            engine.player_stats.effective_book_smarts,
-            briskness=engine.player_stats.total_briskness
+        return
+
+    elif effect_type == "voodoo_detonate":
+        from item_effects import _voodoo_detonate
+        _voodoo_detonate(engine)
+
+    elif effect_type == "midas_brew":
+        from menu_state import MenuState
+        # Check if player has anything equipped
+        has_equipped = (
+            engine.equipment["weapon"] is not None
+            or engine.equipment.get("sidearm") is not None
+            or engine.neck is not None
+            or engine.feet is not None
+            or engine.hat is not None
+            or any(r is not None for r in engine.rings)
         )
-        if _arachni_was_locked:
+        if not has_equipped:
             engine.messages.append([
-                (f"[NEW SKILL UNLOCKED] Arachnigga!", (255, 215, 0)),
+                ("You have nothing equipped to transmute!", (180, 180, 180)),
             ])
-        engine.messages.append([
-            ("Arachnigga skill: +", (100, 200, 150)),
-            (f"{_arachni_xp} XP", (255, 255, 100)),
-        ])
+            return
+        # Store the drink item reference so we can consume it on confirm
+        engine._midas_brew_item = item
+        engine.midas_cursor = 0
+        engine.menu_state = MenuState.MIDAS_BREW
+        return  # don't consume yet — handled by menu confirm
 
     # Skill XP
     skill_xp = effect.get("skill_xp")
@@ -1049,6 +1408,42 @@ def _use_item(engine, index):
                     (f" (+{adjusted_xp} Meth-Head XP)", (200, 160, 255)),
                 ])
 
+    # Fireball Shooter buff: on consumable use, nearest visible enemy gains 1 ignite stack
+    has_fireball_buff = any(getattr(e, 'id', '') == 'fireball_shooter_buff'
+                           for e in engine.player.status_effects)
+    if has_fireball_buff:
+        best, best_dist = None, float("inf")
+        for mon in engine.dungeon.get_monsters():
+            if not mon.alive or not engine.dungeon.visible[mon.y, mon.x]:
+                continue
+            d = engine._dist_sq(engine.player.x, engine.player.y, mon.x, mon.y)
+            if d < best_dist:
+                best_dist, best = d, mon
+        if best is not None:
+            effects.apply_effect(best, engine, "ignite", stacks=1, silent=True)
+            engine.messages.append([
+                ("Fireball Breath! ", (255, 120, 30)),
+                (f"{best.name} catches fire!", (255, 180, 80)),
+            ])
+
+    # Blue Lagoon buff: on consumable use, nearest visible enemy gains 1 chill stack
+    has_lagoon_buff = any(getattr(e, 'id', '') == 'blue_lagoon_buff'
+                         for e in engine.player.status_effects)
+    if has_lagoon_buff:
+        best, best_dist = None, float("inf")
+        for mon in engine.dungeon.get_monsters():
+            if not mon.alive or not engine.dungeon.visible[mon.y, mon.x]:
+                continue
+            d = engine._dist_sq(engine.player.x, engine.player.y, mon.x, mon.y)
+            if d < best_dist:
+                best_dist, best = d, mon
+        if best is not None:
+            effects.apply_effect(best, engine, "chill", stacks=1, silent=True)
+            engine.messages.append([
+                ("Frozen Breath! ", (100, 200, 255)),
+                (f"{best.name} is chilled!", (150, 220, 255)),
+            ])
+
     # Nuclear Research L4 "Isotope Junkie": using a consumable grants +5 radiation (pierces resistance)
     if engine.skills.get("Nuclear Research").level >= 4:
         from combat import add_radiation
@@ -1074,6 +1469,14 @@ def _use_item(engine, index):
                     if x is item:
                         engine.player.inventory.pop(i)
                         break
+
+        # Ring of Sustenance: 15% chance to spawn a random consumable of same category
+        if effect_type in ("alcohol", "soft_drink"):
+            _sustenance_ring_proc(engine, "drink")
+        elif effect_type == "meth":
+            pass  # meth is not a drink/food/joint
+        elif effect_type in ("strain_roll",):
+            _sustenance_ring_proc(engine, "joint")
 
 
 def _use_food(engine, item, food_id):
@@ -1144,6 +1547,137 @@ def _use_food(engine, item, food_id):
         is_fried=is_fried,
         silent=True
     )
+
+
+# ------------------------------------------------------------------
+# Midas' Brew
+# ------------------------------------------------------------------
+
+def _midas_occupied_slots(engine):
+    """Build flat ordered list of equipped items: (slot_id, item)."""
+    slots = []
+    if engine.equipment["weapon"] is not None:
+        slots.append(("weapon", engine.equipment["weapon"]))
+    if engine.equipment.get("sidearm") is not None:
+        slots.append(("sidearm", engine.equipment["sidearm"]))
+    if engine.neck is not None:
+        slots.append(("neck", engine.neck))
+    if engine.feet is not None:
+        slots.append(("feet", engine.feet))
+    if engine.hat is not None:
+        slots.append(("hat", engine.hat))
+    for i, r in enumerate(engine.rings):
+        if r is not None:
+            slots.append((("ring", i), r))
+    return slots
+
+
+def _handle_midas_brew_input(engine, action):
+    from menu_state import MenuState
+    action_type = action.get("type")
+
+    occupied = _midas_occupied_slots(engine)
+    n = len(occupied)
+
+    # Cursor navigation
+    if action_type == "move":
+        dy = action.get("dy", 0)
+        engine.midas_cursor = max(0, min(n, engine.midas_cursor + dy))
+        return False
+
+    # Cancel (Esc / close_menu)
+    if action_type == "close_menu":
+        engine.messages.append([
+            ("You decide not to drink the Midas' Brew.", (180, 180, 140)),
+        ])
+        engine._midas_brew_item = None
+        engine.menu_state = MenuState.NONE
+        return False
+
+    # Confirm selection
+    if action_type == "confirm_target":
+        # Cancel row (last row)
+        if engine.midas_cursor >= n:
+            engine.messages.append([
+                ("You decide not to drink the Midas' Brew.", (180, 180, 140)),
+            ])
+            engine._midas_brew_item = None
+            engine.menu_state = MenuState.NONE
+            return False
+
+        slot_id, item = occupied[engine.midas_cursor]
+        defn = get_item_def(item.item_id)
+        value = defn.get("value", 0) if defn else 0
+        gold = value * 5
+
+        # Remove the item from the equipment slot
+        if slot_id == "weapon":
+            engine.equipment["weapon"] = None
+            old_defn = get_item_def(item.item_id)
+            revoked = old_defn.get("grants_ability") if old_defn else None
+            if revoked:
+                engine.revoke_ability(revoked)
+            if engine.primary_gun == "weapon":
+                if engine.equipment.get("sidearm") and get_item_def(engine.equipment["sidearm"].item_id).get("subcategory") == "gun":
+                    engine.primary_gun = "sidearm"
+                else:
+                    engine.primary_gun = None
+        elif slot_id == "sidearm":
+            engine.equipment["sidearm"] = None
+            old_defn = get_item_def(item.item_id)
+            revoked = old_defn.get("grants_ability") if old_defn else None
+            if revoked:
+                engine.revoke_ability(revoked)
+            if engine.primary_gun == "sidearm":
+                if engine.equipment.get("weapon") and get_item_def(engine.equipment["weapon"].item_id).get("subcategory") == "gun":
+                    engine.primary_gun = "weapon"
+                else:
+                    engine.primary_gun = None
+        elif slot_id == "neck":
+            engine.neck = None
+        elif slot_id == "feet":
+            old_defn = get_item_def(item.item_id)
+            revoked = old_defn.get("grants_ability") if old_defn else None
+            if revoked:
+                engine.revoke_ability(revoked)
+            engine.feet = None
+        elif slot_id == "hat":
+            engine.hat = None
+        else:
+            _, ring_idx = slot_id
+            engine.rings[ring_idx] = None
+
+        _refresh_ring_stat_bonuses(engine)
+
+        # Award gold
+        engine.cash += gold
+
+        # Consume the brew from inventory
+        brew = engine._midas_brew_item
+        if brew is not None:
+            brew.quantity -= 1
+            if brew.quantity <= 0:
+                for i, x in enumerate(engine.player.inventory):
+                    if x is brew:
+                        engine.player.inventory.pop(i)
+                        break
+
+        # Apply hangover (same as alcohol)
+        from xp_progression import _add_hangover_stacks
+        _add_hangover_stacks(engine, 1)
+
+        engine.messages.append([
+            ("Midas' Brew! ", (212, 175, 55)),
+            (f"{item.name}", item.color),
+            (f" transmuted into ", (200, 200, 180)),
+            (f"${gold} gold!", (255, 255, 100)),
+        ])
+
+        engine._midas_brew_item = None
+        engine.menu_state = MenuState.NONE
+        return True
+
+    return False
 
 
 # ------------------------------------------------------------------
@@ -1230,8 +1764,13 @@ def _destroy_item(engine, index):
         (item.name, item.color),
         (".", (200, 80, 80)),
     ])
-    # Dismantling L2: Chop Shop — bonus armor and cash on destroy
+    # Dismantling L1: Scrapper's Eye — heal 10% of item value (min 3) on destroy
     dm_level = engine.skills.get("Dismantling").level
+    if dm_level >= 1:
+        from items import get_item_value
+        heal_amount = max(3, round(get_item_value(item.item_id) * 0.10))
+        engine.player.heal(heal_amount)
+        engine.messages.append(f"  [Scrapper's Eye] +{heal_amount} HP from salvage!")
     if dm_level >= 2:
         gained = min(5, engine.player.max_armor - engine.player.armor)
         engine.player.armor += gained
@@ -1244,6 +1783,24 @@ def _destroy_item(engine, index):
         na = next((e for e in engine.player.status_effects if getattr(e, "id", "") == "nigga_armor"), None)
         count = len(na.timers) if na else 1
         engine.messages.append(f"  [Nigga Armor] x{count} (-{count} incoming dmg, 30t)")
+    # Dismantling L4: Salvage Insight — 10% chance for +1 random stat permanently
+    if dm_level >= 4:
+        import random as _rng
+        if _rng.random() < 0.10:
+            _SALVAGE_STATS = ("constitution", "strength", "book_smarts", "street_smarts", "tolerance", "swagger")
+            stat = _rng.choice(_SALVAGE_STATS)
+            ps = engine.player_stats
+            setattr(ps, stat, getattr(ps, stat) + 1)
+            ps._base[stat] = getattr(ps, stat)
+            if stat == "constitution":
+                engine.player.max_hp += 10
+                engine.player.heal(10)
+            label = stat.replace("_", " ").title()
+            engine.messages.append([
+                ("Salvage Insight! ", (255, 215, 0)),
+                (f"+1 {label}", (200, 230, 255)),
+                (f" (now {getattr(ps, stat)})", (150, 150, 150)),
+            ])
     # Ammo Rat L3: Rat Race — dismantling yields ammo (5 light, 3 medium, 1 heavy)
     if engine.skills.get("Ammo Rat").level >= 3:
         _add_item_to_inventory(engine, "light_rounds", quantity=5)
@@ -1301,6 +1858,14 @@ def _replace_ring_at_slot(engine, slot_index: int):
     if engine.pending_ring_item_index is None:
         return
 
+    # Block replacement while The 9 Ring is worn
+    if _has_nine_ring_equipped(engine):
+        engine.messages.append([
+            ("The 9 Ring ", (255, 220, 50)),
+            ("prevents removing rings.", _C_MSG_NEUTRAL),
+        ])
+        return
+
     # Get the new ring from inventory
     new_ring = engine.player.inventory[engine.pending_ring_item_index]
 
@@ -1324,10 +1889,17 @@ def _replace_ring_at_slot(engine, slot_index: int):
 # Crafting / Combine
 # ------------------------------------------------------------------
 
+_SPRAY_CAN_IDS = frozenset(("red_spray_paint", "blue_spray_paint", "green_spray_paint", "orange_spray_paint", "silver_spray_paint"))
+
+
 def _is_valid_combine_target(engine, inv_idx):
     """Return True if the item at inv_idx is a valid combine target for selected_item."""
     if inv_idx == engine.selected_item_index:
         return False
+    # Graffiti gun loading: only spray cans are valid
+    if getattr(engine, 'graffiti_gun_loading', False):
+        cand = engine.player.inventory[inv_idx]
+        return cand.item_id in _SPRAY_CAN_IDS
     src = engine.player.inventory[engine.selected_item_index]
     cand = engine.player.inventory[inv_idx]
     if find_recipe(src.item_id, cand.item_id):
@@ -1367,6 +1939,7 @@ def _handle_combine_input(engine, action):
     action_type = action.get("type")
 
     if action_type == "close_menu":
+        engine.graffiti_gun_loading = False
         engine.menu_state = MenuState.NONE
         engine.selected_item_index = None
         engine.combine_target_cursor = None
@@ -1411,6 +1984,28 @@ def _handle_combine_input(engine, action):
 def _try_combine(engine, index_a, index_b):
     item_a = engine.player.inventory[index_a]
     item_b = engine.player.inventory[index_b]
+
+    # Graffiti gun loading path
+    if getattr(engine, 'graffiti_gun_loading', False):
+        engine.graffiti_gun_loading = False
+        if item_a.item_id == "graffiti_gun":
+            gun_item, spray_item, spray_index = item_a, item_b, index_b
+        else:
+            gun_item, spray_item, spray_index = item_b, item_a, index_a
+        gun_item.loaded_spray_id = spray_item.item_id
+        gun_item.loaded_spray_charges = getattr(spray_item, 'charges', 0)
+        gun_item.loaded_spray_max_charges = getattr(spray_item, 'max_charges', 0)
+        spray_defn = get_item_def(spray_item.item_id)
+        gun_item.char = "!"
+        gun_item.color = tuple(spray_defn["color"])
+        engine.player.inventory.pop(spray_index)
+        engine.messages.append([
+            ("Loaded ", (200, 200, 200)),
+            (spray_defn["name"], tuple(spray_defn["color"])),
+            (f" ({gun_item.loaded_spray_charges}/{gun_item.loaded_spray_max_charges})", (200, 200, 200)),
+        ])
+        _sort_inventory(engine)
+        return True
 
     # Torch burn path: any torch item + any item → destroy item, gain Pyromania XP
     _TORCH_ITEMS = frozenset(("bic_torch", "xl_bic_torch"))
@@ -1489,8 +2084,8 @@ def _try_combine(engine, index_a, index_b):
         # Gain deep-frying XP when a food is fried (greasy prefix from fry_daddy)
         if tool_item.item_id == "fry_daddy":
             engine._gain_deep_frying_xp(food_item.item_id)
-        # Deep-Frying L3: Double Batch — 20% chance to keep the food item
-        if tool_item.item_id == "fry_daddy" and engine.skills.get("Deep-Frying").level >= 3:
+        # Munching L4: Double Batch — 20% chance to keep the food item
+        if tool_item.item_id == "fry_daddy" and engine.skills.get("Munching").level >= 4:
             if random.random() < 0.20:
                 refund_kwargs = create_item_entity(food_item.item_id, engine.player.x, engine.player.y)
                 refund = Entity(**refund_kwargs)

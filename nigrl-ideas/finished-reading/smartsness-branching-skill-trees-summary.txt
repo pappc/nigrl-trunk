@@ -1,0 +1,88 @@
+SMARTSNESS — Branching Skill Tree Variations Summary
+=====================================================
+Source: nigrl-ideas/smartsness-branching-skill-trees.txt
+10 complete L1-L3 variations; all 30 perks are brand new.
+
+VARIATION OVERVIEW
+------------------
+V1  Big Brain         — Pure BKS stacking. +3 BKS L1 with floor-depth bonus.
+                        L2: BKS/5 bonus crit. L3: 30% energy cost cut + BKS-to-HP.
+                        Identity: universal caster chassis. No abilities, all passives.
+
+V2  Mind Jacker       — Confusion/control tree.
+                        L1: Scramble (4/floor SINGLE_LOS, randomize movement 6t).
+                        L2: Borrowed Muscle (passive, +BKS/4 melee after hitting Scrambled).
+                        L3: Puppetmaster (2/floor, control enemy for 3 turns; +2t if Scrambled).
+
+V3  Warchief          — Pre-fight buff bursts.
+                        L1: Get Right (3/floor SELF, +3 STR +3 STS for 15t).
+                        L2: Hardened (+2 CON +2 SWG, first-hit-per-floor 10 Temp HP).
+                        L3: Feed the Beast (melee kills stack Frenzy: +2dmg +3spd per stack,
+                            cap 5; free attack at 5 stacks, decay 2t after last kill).
+
+V4  Blind Eye         — Vision and ambush exploitation.
+                        L1: Third Eye (+2 BKS, +2 FOV radius, 1-tile wall-pierce scout).
+                        L2: Blind Spot (3/floor, Blinded 8t: sight radius 1, no ranged attacks).
+                        L3: Unseeing Eye (passive: +40% damage vs. IDLE/WANDERING enemies).
+
+V5  The Grift         — Item economy loop.
+                        L1: Quick Appraisal (+2 BKS +2 STS, auto-ID items, +10% cash).
+                        L2: Liquidate (15t cooldown, destroy lowest-value item: 120% cash OR
+                            random consumable up to half value).
+                        L3: Sunk Cost (+1 random stat per Liquidate; 20% chance item
+                            triggers use_effect before destruction).
+
+V6  Reactive Shield   — Damage-to-power conversion.
+                        L1: Smart Armor (+2 SWG +2 CON, +5 armor per floor).
+                        L2: Rebound (passive: hits >10 dmg reflect BKS/3 to attacker).
+                        L3: Feedback Loop (Rebound stacks up to 8: +1 melee/spell dmg each;
+                            at 8 next attack is max-roll guaranteed, resets to 0).
+
+V7  Hex Caster        — Debuff-then-damage synergy.
+                        L1: Dulling Word (4/floor LOS, Dulled 12t: -20% target outgoing dmg).
+                        L2: Lead Feet (20t cooldown LOS, -30 speed 10t; stacks with Dulled).
+                        L3: Hex Amplifier (passive: +BKS/4 dmg per hit vs. any-debuffed enemy;
+                            works with debuffs from ALL trees).
+
+V8  Displacement Theory — Pure mobility.
+                        L1: Force Push (15t cooldown ADJACENT, push 4 tiles, 6 collision dmg).
+                        L2: Blink (3/floor, teleport to any open tile in radius 5, +5 Temp HP).
+                        L3: Spatial Transfer (1/floor LOS range 8, swap positions with enemy,
+                            1t stun on target; no boss).
+
+V9  Curse Eater       — Anti-fragile / debuff-as-resource.
+                        L1: Metabolize (passive: heal BKS/2 HP when any negative effect expires).
+                        L2: Spite Reflex (passive: first stun per floor instantly consumed,
+                            replaced by +3 STR +3 SWG for 15t).
+                        L3: Curse Conduit (passive: while debuffed, +debuff_count * BKS/3
+                            bonus damage on all attacks; 3 debuffs @ BKS 12 = +12 dmg).
+
+V10 Street Smarts Major — Melee-hybrid scout. No activated abilities.
+                        L1: Read the Room (+2 STS +2 BKS, first-sight enemy delays 1 AI tick).
+                        L2: Fast Talker (+3 STS, 15% ability energy reduction, Stealing XP link).
+                        L3: Situational Awareness (floor-entry 1-turn full-sight flash;
+                            +STS/5% permanent dodge bonus).
+
+KEY NEW SYSTEMS
+---------------
+New effects: ScrambledEffect, PuppetmasterEffect, FrenzyEffect, DulledEffect,
+             BlindedEffect, LeadFeetEffect, FeedbackEffect, SpiteEffect (8 total)
+New abilities: scramble, puppetmaster, get_right, blind_spot, liquidate,
+               force_push, blink, spatial_transfer, dulling_word, lead_feet (10 total)
+New engine flags: floor_bks_bonus, puppet_entity_id, hardened_proc_used,
+                  frenzy_stacks, feed_beast_free_atk_used, smart_armor_bonus,
+                  feedback_stacks, feedback_burst_used, spatial_transfer_used,
+                  spite_reflex_used_floor, read_the_room_seen_this_floor,
+                  situational_awareness_flash (12 flags)
+New PlayerStats: smartsness_metabolize, smartsness_curse_conduit,
+                 smartsness_hex_amplifier, smartsness_rebound,
+                 smartsness_read_the_room (5 bool flags)
+
+RECOMMENDED PICKS
+-----------------
+For BKS caster builds:      V1 (pure power) or V7 (debuff synergy)
+For control/utility builds: V2 (confusion) or V8 (displacement)
+For melee builds:           V3 (buffs) or V10 (STS scout)
+For defensive builds:       V6 (Rebound) or V9 (Curse Eater)
+For economy/scavenger:      V5 (The Grift)
+For ambush/stealth:         V4 (Blind Eye)

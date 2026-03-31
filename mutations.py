@@ -211,6 +211,11 @@ def check_mutation(engine):
         return
 
     chance = (rad // 50) * BASE_CHANCE_PER_50
+    # Yellowcake buff: 10x mutation chance
+    has_yellowcake = any(getattr(e, 'id', '') == 'yellowcake_buff'
+                         for e in engine.player.status_effects)
+    if has_yellowcake:
+        chance *= 10
     if random.random() >= chance:
         return
 
@@ -219,6 +224,11 @@ def check_mutation(engine):
         tier for tier, threshold in RAD_THRESHOLDS.items()
         if rad >= threshold
     ]
+    # Yellowcake buff: block weak-tier mutations (only strong/huge)
+    if has_yellowcake:
+        eligible_tiers = [t for t in eligible_tiers if t != "weak"]
+        if not eligible_tiers:
+            return  # not enough rad for strong/huge — no mutation
     tier = random.choice(eligible_tiers)
 
     # Pick polarity — modified by good_mutation_base_bonus and good_mutation_multiplier
@@ -407,6 +417,29 @@ def check_monster_mutation(engine, monster):
     if not monster.alive:
         engine.messages.append(f"The {monster.name} dies from radiation mutation!")
         engine.event_bus.emit("entity_died", monster, killer=engine.player)
+
+
+def force_monster_mutation(engine, monster):
+    """Force a single mutation on a monster (guaranteed, no chance roll).
+    Consumes MONSTER_RAD_COST radiation. Returns True if the monster died."""
+    monster.radiation = max(0, getattr(monster, 'radiation', 0) - MONSTER_RAD_COST)
+
+    polarity = "bad" if random.random() < MONSTER_BAD_CHANCE else "good"
+    table = MONSTER_MUTATIONS_BAD if polarity == "bad" else MONSTER_MUTATIONS_GOOD
+    desc, apply_fn = _pick_weighted(table)
+    suffix = apply_fn(monster, engine) or ""
+
+    color = _COLOR_BAD if polarity == "bad" else _COLOR_GOOD
+    engine.messages.append([
+        (f"{monster.name} mutates: ", color),
+        (f"{desc}!{suffix}", color),
+    ])
+
+    if not monster.alive:
+        engine.messages.append(f"The {monster.name} dies from forced mutation!")
+        engine.event_bus.emit("entity_died", monster, killer=engine.player)
+        return True
+    return False
 
 
 def force_mutation(engine):

@@ -1,0 +1,142 @@
+================================================================================
+SUMMARY: ability-granting-batch2-single.txt
+12 Unique Equippable Items — Single Ability Grants (Batch 2)
+================================================================================
+
+SLOT DISTRIBUTION
+  Weapon (stabbing):  1. The Hoodoo Needle
+  Weapon (slashing):  2. Last Rites Cleaver  [FIRST slashing unique weapon]
+  Neck:               3. Parole Officer's Notepad  |  5. Dead Letters Chain
+  Ring:               4. The Thin Blue Line Ring  |  7. The Lotto Scratchers
+  Feet:               8. Stash House Sneakers
+  Hat:                6. Gas Station Shades  |  10. Coroner's Badge
+  Weapon (beating):   11. The Rat King's Scepter
+  Gun (sidearm):      12. The Warrant  [FIRST gun unique]
+
+--------------------------------------------------------------------------------
+ITEM ROSTER
+--------------------------------------------------------------------------------
+
+1. THE HOODOO NEEDLE [Weapon/stabbing, base_dmg=5, str_scaling /3]
+   Grants: Hoodoo Pin (SINGLE_ENEMY_LOS, range 6, cooldown 20)
+   Effect: "hoodoo_proxy" (dur=12, floor_duration). While active: every hit player TAKES
+   echoes as equal damage on the pinned enemy (mirror damage, ignores defense).
+   Tradeoff: you must tank hits to deal mirror damage. Weak raw stats.
+   New state: engine.hoodoo_proxy_target_id (str|None).
+   New effect: HoodooProxyEffect; mirror trigger in engine.py player-damage path.
+
+2. LAST RITES CLEAVER [Weapon/slashing, base_dmg=9, str_scaling /1 above 8]
+   Grants: Last Rites (SINGLE_ENEMY_LOS, range 5, cooldown 18 clean / 30 on miss)
+   Effect: Leap to target, deal 2.5x damage. TARGET SURVIVES: take self_harm=dmg//2,
+   apply -2 STR for 4t, cooldown 30. TARGET DIES: clean kill, cooldown 18.
+   Tradeoff: enormous damage but catastrophic punishment for not finishing the kill.
+   Uses existing stat_mod effect. No new effects needed.
+
+3. PAROLE OFFICER'S NOTEPAD [Neck, +10 armor, +1 BKS]
+   Grants: Mandatory Check-In (SINGLE_ENEMY_LOS, PER_FLOOR 1 charge)
+   Effect: Mark one enemy as parolee; it enters passive_until_hit behavior. Compliance
+   check: if parolee comes within 2 tiles it's stunned 1 turn. On parolee death: +$25.
+   New state: engine.parolee_id. New effect: ParoleeEffect (saves/restores ai_type).
+   Cash payout in kill handler.
+
+4. THE THIN BLUE LINE RING [Ring, +2 defense, +1 SWG]
+   Grants: Officer Down (SELF, cooldown 22)
+   Effect: AOE confuse all enemies within 3 tiles (4 turns). Summon "Phantom Cop" entity
+   (speed=130, hp=20, power=8, is_summon=False, ai_type="meander") for 8 turns — will
+   attack nearest entity including player if no enemies in range.
+   Tradeoff: indiscriminate phantom cop; may turn on you.
+   Reuses existing ConfuseEffect. Phantom cop spawned inline.
+
+5. DEAD LETTERS CHAIN [Neck, +5 armor, +1 TOL]
+   Grants: Return to Sender (SINGLE_ENEMY_LOS, cooldown 15, costs 8 HP)
+   Effect: Copy ALL player's active debuffs (whitelist: dot/bleeding/ignite/slow/confuse/
+   child_support/mogged/rabies/stat_mod) onto the target with remaining duration.
+   Tradeoff: only valuable when YOU are suffering debuffs. 8 HP cost always applies.
+   No new effects needed — uses whitelist of existing effect ids.
+
+6. GAS STATION SHADES [Hat, +2 STS]
+   Grants: Read the Room (SELF, cooldown 25)
+   Effect: "read_the_room_active" (dur=8). ALL attacks guaranteed crit for 8 turns.
+   While active: -3 FOV tiles. FOV restored on expire.
+   Tradeoff: massive DPS window but fighting nearly blind (5-7 tile vision).
+   New effect: ReadTheRoomEffect (modify engine._read_the_room_fov_penalty, fov recompute).
+   Integration: combat.py + gun_system.py force is_crit=True if effect active.
+
+7. THE LOTTO SCRATCHERS [Ring, +1 TOL]
+   Grants: Lucky Numbers (SELF, PER_FLOOR 3 charges)
+   Weighted RNG table (100 pts): JACKPOT 15% (full heal +$30), SMALL WIN 35% (heal 10%
+   + HoT 10t), SCRATCH FEVER 25% (+3 random stat 10t), LOSING TICKET 15% (-2 STR/STS 8t),
+   ALREADY A WINNER 10% (cash drop + dot 3/turn 5t).
+   Tradeoff: pure RNG; worst case 3 LOSING TICKETs in a row. No cooldown, charges limited.
+   Uses existing StatModEffect, DotEffect, HotEffect.
+
+8. STASH HOUSE SNEAKERS [Feet, +10 energy/tick, +1 STS]
+   Grants: Ghost Stash (SELF, INFINITE, no cooldown)
+   Effect: Two-mode ability. STORE (out of combat): pick a consumable from inventory,
+   lock it in the heel. DEPLOY (in combat): use stored item as FREE ACTION (no turn cost).
+   Stash state persists across floors. On unequip: stored item drops on floor.
+   Tradeoff: requires pre-planning before fights. High skill ceiling.
+   New state: engine.stash_sneakers_item_id, engine.stash_sneakers_pending_store.
+
+9. THE UNDERTAKER'S BELT [Neck, +8 armor, +2 defense, +1 CON]
+   Grants: Last Wishes (SELF, PER_FLOOR 1 charge, is_passive=True — fires automatically)
+   Effect: PASSIVE DEATH SAVE. When player would reach 0 HP: survive at 1 HP, all enemies
+   in Chebyshev 2 take overkill dmg, +15 temp HP, 1 turn invulnerable.
+   Tradeoff: once/floor. Fires automatically, so second near-death kill you.
+   New AbilityDef field: is_passive=True (UI shows "(passive)", no targeting mode).
+   Integration: engine.py player-lethal-damage check before death event fires.
+
+10. CORONER'S BADGE [Hat, +2 BKS]
+    Grants: Cause of Death (SINGLE_ENEMY_LOS, cooldown 10)
+    Effect: Analyze target. Apply "cause_of_death_mark" (dur=8): 20 + BKS//4 % bonus
+    damage on all attacks against that target (via modify_incoming_damage amplification).
+    One study active at a time; new target clears old mark. Range: full FOV.
+    At BKS 8: +22% dmg. At BKS 12: +23% dmg. Low variance, high consistency.
+    New state: engine.cod_study_target_id. New effect: CauseOfDeathMarkEffect.
+
+11. THE RAT KING'S SCEPTER [Weapon/beating, base_dmg=7, +2 SWG, -1 STS]
+    Grants: Swarm Call (SELF, PER_FLOOR 2 charges)
+    Effect: Summon 3 Scurry Rats (speed=150, hp=5, power=4, is_summon=True, lifetime=25).
+    On rat death: spawn "blood_patch" hazard (hazard_type="blood_patch", dur=10) that
+    applies bleeding (2t, 2dmg) to any enemy standing on it.
+    Tradeoff: -1 STS passive cost. Rats are fragile. Real value in blood patch zoning.
+    New enemy template: "scurry_rat" (spawn_weight=0 — never spawns naturally).
+    New hazard: "blood_patch" (char='.', red, tick in energy loop).
+
+12. THE WARRANT [Gun/sidearm, base_dmg=14-20, mag=2, medium ammo]
+    Grants: Served (SINGLE_ENEMY_LOS, cooldown 12)
+    Effect: Mark enemy as "wanted" (WantedEffect, floor_duration). NEXT HIT on that target:
+    2x damage, defense completely ignored. KILL SHOT: recover 2 ammo. Misses don't consume.
+    One wanted target per floor. Cooldown applies from cast, not hit.
+    Synergy peak: Sniping L3 mega-crit on a wanted shot = raw_dmg × 2 (wanted) × 4 (mega) = 8x.
+    New state: engine.warrant_target_id. New effect: WantedEffect (floor_duration marker).
+    Integration: gun_system.py post-hit check for wanted effect + defense bypass.
+
+--------------------------------------------------------------------------------
+SHARED INFRASTRUCTURE SUMMARY
+--------------------------------------------------------------------------------
+New Effect Subclasses (5): HoodooProxyEffect, ParoleeEffect, CauseOfDeathMarkEffect,
+  WantedEffect, ReadTheRoomEffect
+New hazard_type (1): "blood_patch"
+New AbilityDef entries (12): hoodoo_pin, last_rites, mandatory_check_in, return_to_sender,
+  officer_down, lucky_numbers, ghost_stash, last_wishes (passive), read_the_room,
+  cause_of_death, swarm_call, served
+New AbilityDef field (1): is_passive: bool = False
+New engine state vars (8): hoodoo_proxy_target_id, parolee_id, cod_study_target_id,
+  warrant_target_id, _read_the_room_fov_penalty, stash_sneakers_item_id,
+  stash_sneakers_pending_store
+New enemy template (1): "scurry_rat" (spawn_weight=0, validation-only)
+Files touched: effects.py, abilities.py, items.py, engine.py, combat.py, gun_system.py,
+  inventory_mgr.py, enemies.py, hazards.py, render.py (passive ability UI display)
+
+--------------------------------------------------------------------------------
+BATCH 2 CONTRIBUTIONS NOT IN BATCH 1
+--------------------------------------------------------------------------------
+- First slashing-weapon unique (Last Rites Cleaver)
+- First gun unique (The Warrant)
+- First passive (non-activatable) ability item (Undertaker's Belt — Last Wishes)
+- First purely random outcome ability (Lotto Scratchers — Lucky Numbers)
+- First preparation/planning ability (Stash Sneakers — Ghost Stash two-stage)
+- First AI-override debuff effect (Parole Notepad — ParoleeEffect ai_type override)
+- First defense-ignoring gun shot mechanic (The Warrant — Served)
+================================================================================

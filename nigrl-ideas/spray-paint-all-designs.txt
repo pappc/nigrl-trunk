@@ -1,0 +1,255 @@
+SPRAY PAINT DESIGNS — COMPLETE CATALOG (20 NEW COLORS)
+=======================================================
+NIGRL roguelike | Combined from V2, V3, V4 design docs
+Date: 2026-03-31
+
+EXISTING PAINTS (5 — already in game):
+  1. Red    (255,40,40)     — Enemy: +25% damage taken
+  2. Blue   (40,100,255)    — Player: +5 STS, 25% ability charge preserve
+  3. Green  (40,200,40)     — Player: +4 Defense
+  4. Orange (255,160,40)    — All: 5+2×GrafLvl damage/turn
+  5. Silver (200,200,210)   — Entry: slip (turn skip, +50% melee vuln)
+
+=====================================================================
+V2 APPROVED (5 paints)
+=====================================================================
+
+#6 — GOLD
+  ID: gold_spray_paint
+  RGB: (255,190,30) | bg_vis: (130,95,10) | bg_exp: (65,48,5)
+  Charges: 8 | Zones: crack_den | Value: 60
+  Effect: Kill on tile → +$5 extra cash drop.
+  Scaling: None. Synergy: Street Art L2 = +5 HP on kill + $5 cash.
+  Desc: "Enemies killed on gold tiles / drop $5 extra cash."
+
+#7 — TEAL
+  ID: teal_spray_paint
+  RGB: (40,200,185) | bg_vis: (10,100,90) | bg_exp: (5,50,45)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 35
+  Effect: Player on tile → +20% skill XP from all sources.
+  Scaling: None (recursive — XP boost accelerates Graffiti XP too).
+  Desc: "Player on tile: +20% skill XP / from all sources."
+
+#8 — LIME
+  ID: lime_spray_paint
+  RGB: (100,240,50) | bg_vis: (40,120,15) | bg_exp: (20,60,8)
+  Charges: 10 | Zones: meth_lab, crack_den | Value: 40
+  Effect: Enemy: +(6+2×GrafLvl) tox/turn. Player: +3 tox/turn.
+  Scaling: Enemy rate scales with Graffiti. Player rate stays flat.
+  Risk: Player takes self-tox. Synergy: Lime→Red corridor = tox amp + dmg amp.
+  Desc: "Entities on tile gain toxicity: / Enemy: +(6+2*Graffiti) per turn / Player: +3 per turn."
+
+#9 — GREY
+  ID: grey_spray_paint
+  RGB: (160,160,160) | bg_vis: (75,75,80) | bg_exp: (38,38,40)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 40
+  Effect: Enemy on tile → -(1+GrafLvl) to their outgoing melee damage (min 1).
+  Scaling: Reduction = 1 + Graffiti_Lvl. Strongest early, inverse scaling.
+  Desc: "Enemies on tile: -(1+Graffiti) / to their melee damage."
+
+#10 — RAD (RADIOACTIVE)
+  ID: rad_spray_paint
+  RGB: (180,255,60) | bg_vis: (85,130,20) | bg_exp: (42,65,10)
+  Charges: 8 | Zones: meth_lab | Value: 50
+  Effect: Enemy: +(10+2×GrafLvl) rad/turn. Player: +6 rad/turn.
+  Scaling: Enemy rate scales with Graffiti. Player rate stays flat.
+  Risk: Player takes self-rad (mutation risk). Meth Lab exclusive.
+  Desc: "Entities on tile gain radiation: / Enemy: +(10+2*Graffiti)/turn / Player: +6 per turn."
+
+=====================================================================
+V3 REPLACEMENTS (5 paints)
+=====================================================================
+
+#11 — CRIMSON
+  ID: crimson_spray_paint
+  RGB: (210,35,65) | bg_vis: (100,12,25) | bg_exp: (50,6,12)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 45
+  Effect: Player on tile → melee hits heal (15+5×GrafLvl)% of damage dealt.
+  Scaling: L0=15%, L1=20%, L2=25%, L3=30%. Cap 30%.
+  Risk: Must stay in melee range to benefit. No retreat healing.
+  Synergy: Red (bigger hits = bigger heal), Green (defense + leech combo).
+  Desc: "While standing here, melee hits / heal you for 20% of damage dealt. / (Scales with Graffiti level.)"
+
+#12 — COPPER
+  ID: copper_spray_paint
+  RGB: (195,115,45) | bg_vis: (95,55,15) | bg_exp: (47,27,7)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 40
+  Effect: Player: +(20+5×GrafLvl) energy/tick. Enemy: -(15+5×GrafLvl) energy/tick.
+  Scaling: Both scale with Graffiti. First energy-system tile.
+  Synergy: Silver+Copper = slip on entry then speed advantage.
+  Desc: "Player on tile: +30 energy/tick / (acts ~23% faster). / Enemy on tile: -20 energy/tick / (acts ~20% slower)."
+
+#13 — COBALT
+  ID: cobalt_spray_paint
+  RGB: (35,75,210) | bg_vis: (12,28,100) | bg_exp: (6,14,50)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 45
+  Effect: Player: +(3+GrafLvl) spell damage + 50% ability charge refund.
+  Scaling: Spell damage scales. Refund stays 50%. Build-gated (useless for melee).
+  Replaces Blue's 25% refund with 50% when standing on Cobalt.
+  Desc: "Player on tile: +4 spell damage. / Ability charge refund: 50% / (replaces Blue paint's 25%)."
+
+#14 — VIOLET
+  ID: violet_spray_paint
+  RGB: (150,45,195) | bg_vis: (70,15,90) | bg_exp: (35,7,45)
+  Charges: 8 | Zones: crack_den, meth_lab | Value: 50
+  Effect: Player melee: +(3+GrafLvl) damage. Risk: adjacent enemies deal +3 back.
+  Scaling: Player bonus scales. Enemy penalty stays flat at +3.
+  Risk/Reward: Huge burst vs single targets, dangerous vs packs.
+  Synergy: Stun weapons negate the risk. Green nearby = retreat tile.
+  Desc: "Player on tile: +(3+Graffiti) / melee damage. / Risk: adjacent enemies deal / +3 damage back each hit."
+
+#15 — RUST
+  ID: rust_spray_paint
+  RGB: (170,75,30) | bg_vis: (80,32,8) | bg_exp: (40,16,4)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 35
+  Effect: Enemy on tile → gains "rusted" stacks/turn. Each stack = -1 defense (max 10, floor-permanent).
+  Scaling: Stacks/turn = 1 + GrafLvl//2. L0=1, L2=2, L3=2.
+  Siege tile: no immediate payoff, strips armor over time.
+  Synergy: Silver (trap in place for free stacks), Orange (DoT through 0 def).
+  New effect: RustedEffect (floor_duration, stacks, defense reduction).
+  Desc: "Enemies on tile: -1 defense/turn / (stacks up to -10, permanent / until floor end)."
+
+=====================================================================
+V4 ADDITIONS (10 paints)
+=====================================================================
+
+#16 — MIDNIGHT
+  ID: midnight_spray_paint
+  RGB: (25,20,90) | bg_vis: (12,10,48) | bg_exp: (6,5,24)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 40
+  Effect: Player on tile → +(10+5×GrafLvl)% dodge chance. Cap 60% total.
+  Scaling: L0=10%, L1=15%, L2=20%, L3=25%.
+  First evasion tile. Synergy: Stealing dodge perks stack.
+  Desc: "Player on tile: +(10+5*Graffiti)% / dodge chance. / Total dodge capped at 60%."
+
+#17 — MAGENTA
+  ID: magenta_spray_paint
+  RGB: (240,40,160) | bg_vis: (115,15,75) | bg_exp: (58,7,38)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 40
+  Effect: Player on tile → each kill grants +(8+2×GrafLvl) Temp HP.
+  Scaling: L0=8, L1=10, L2=12, L3=14 Temp HP per kill.
+  Kill-reward sustain. Temp HP absorbed first before armor/HP.
+  Desc: "Player on tile: each kill grants / +(8+2*Graffiti) Temp HP."
+
+#18 — NAVY
+  ID: navy_spray_paint
+  RGB: (20,55,140) | bg_vis: (8,22,65) | bg_exp: (4,11,32)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 45
+  Effect: Player on tile → +(2+GrafLvl) gun damage per shot + 25% ammo preserved.
+  Scaling: Gun damage scales. First gun-build tile.
+  Synergy: Dead Shot Daiquiri (50% ammo return) + Navy (25%) = 75% ammo return.
+  Desc: "Player on tile: +(2+Graffiti) / gun damage per shot. / 25% chance ammo not consumed."
+
+#19 — AMBER
+  ID: amber_spray_paint
+  RGB: (245,190,20) | bg_vis: (120,90,5) | bg_exp: (60,45,3)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 35
+  Effect: Enemy on tile → 50% chance/turn to be feared if below 50% HP.
+  Scaling: Fear duration = 1 + GrafLvl//2 turns.
+  Conditional CC: only triggers on wounded enemies.
+  Desc: "Enemy on tile: 50%/turn feared / if below 50% HP. / Fear duration: 1+Graffiti//2."
+
+#20 — BONE
+  ID: bone_spray_paint
+  RGB: (235,220,185) | bg_vis: (115,105,85) | bg_exp: (58,52,42)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 40
+  Effect: Player on tile → DR scaling with missing HP. Up to (20+5×GrafLvl)% at 1 HP.
+  Formula: DR% = (1 - current_hp/max_hp) × (20+5×GrafLvl).
+  Scaling: L0=20% max, L3=35% max. Reactive defense — stronger when desperate.
+  Desc: "Player on tile: damage reduction / scales with missing HP. / Up to (20+5*Graffiti)% at low HP."
+
+#21 — SLATE
+  ID: slate_spray_paint
+  RGB: (90,110,135) | bg_vis: (40,50,62) | bg_exp: (20,25,31)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 35
+  Effect: Player on tile → Swagger defense doubled.
+  At SWG 8 = 0 def (doubled = 0). At SWG 12 = +2 def (doubled = +4).
+  Build-gated: useless at base Swagger, strong with Swagger investment.
+  Desc: "Player on tile: Swagger defense / is doubled. / (Useless at SWG 8; strong at 12+.)"
+
+#22 — CHARTREUSE
+  ID: chartreuse_spray_paint
+  RGB: (170,255,40) | bg_vis: (80,125,12) | bg_exp: (40,62,6)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 50
+  Effect: Player on tile → (10+5×GrafLvl)% chance per XP event for +1 free skill point.
+  Scaling: L0=10%, L1=15%, L2=20%, L3=25%.
+  Direct SP bypass — accelerates skill unlocks.
+  Desc: "Player on tile: (10+5*Graffiti)% / chance per XP gain to earn / +1 free skill point."
+
+#23 — UMBER
+  ID: umber_spray_paint
+  RGB: (110,50,15) | bg_vis: (52,20,5) | bg_exp: (26,10,3)
+  Charges: 10 | Zones: crack_den, meth_lab | Value: 40
+  Effect: Player on tile → +STR/+DEF scaling with adjacent enemy count.
+  1 enemy: +1 STR. 2: +2 STR, +1 DEF. 3+: +3 STR, +2 DEF.
+  Scaling: Bonuses are flat (no Graffiti scaling). Rewards holding ground when surrounded.
+  Desc: "Player on tile: +STR and +DEF / scaling with nearby enemy count. / Up to +3 STR, +2 DEF."
+
+#24 — TAWNY
+  ID: tawny_spray_paint
+  RGB: (210,150,60) | bg_vis: (100,70,25) | bg_exp: (50,35,12)
+  Charges: 10 | Zones: meth_lab (primary), crack_den | Value: 45
+  Effect: Meth Lab: +1 Meth resource per player action while standing.
+  Crack Den fallback: +(2+GrafLvl) Tolerance while standing.
+  Scaling: Meth gain flat. TOL bonus scales with Graffiti.
+  Meth Lab themed: sustains Meth-Head abilities.
+  Desc: "Meth Lab: +1 Meth per action. / Crack Den: +(2+Graffiti) TOL."
+
+#25 — INDIGO
+  ID: indigo_spray_paint
+  RGB: (65,25,180) | bg_vis: (28,8,85) | bg_exp: (14,4,42)
+  Charges: 8 | Zones: crack_den, meth_lab | Value: 55
+  Effect: Player on tile → each player turn, auto-stun 1 random adjacent enemy (1 turn).
+  Scaling: None (powerful baseline). 8 charges (premium).
+  CC aura tile. Synergy: Violet (stun negates the +3 enemy damage risk).
+  Desc: "Player on tile: each turn, stun / 1 random adjacent enemy. / 8 charges."
+
+=====================================================================
+FULL ROSTER SUMMARY (25 total)
+=====================================================================
+
+OFFENSIVE:
+  Red (dmg amp), Orange (DoT), Lime (tox), Rad (rad),
+  Violet (melee burst + risk), Rust (def strip)
+
+DEFENSIVE:
+  Green (defense), Grey (enemy dmg reduction), Midnight (dodge),
+  Bone (missing HP DR), Slate (swagger defense doubled), Umber (surrounded bonuses)
+
+SUSTAIN:
+  Crimson (melee lifesteal), Magenta (Temp HP on kill)
+
+SPEED/ENERGY:
+  Copper (energy manipulation), Silver (slip CC)
+
+CASTER:
+  Blue (STS + 25% refund), Cobalt (spell dmg + 50% refund)
+
+GUN:
+  Navy (gun dmg + ammo preserve)
+
+ECONOMY/PROGRESSION:
+  Gold (cash on kill), Teal (XP boost), Chartreuse (free SP chance)
+
+CC/CONTROL:
+  Silver (slip), Amber (fear wounded), Indigo (auto-stun adjacent)
+
+METH LAB:
+  Lime (tox), Rad (radiation), Tawny (Meth resource)
+
+=====================================================================
+IMPLEMENTATION PRIORITY
+=====================================================================
+
+Batch 1 (highest impact, simplest):
+  Gold, Teal, Grey, Lime, Rad — stat/value mods or per-tick loops
+
+Batch 2 (moderate complexity):
+  Crimson, Copper, Cobalt, Midnight, Magenta — new stat fields or combat hooks
+
+Batch 3 (complex, new effects):
+  Rust (new RustedEffect), Amber (conditional fear), Indigo (auto-stun),
+  Violet (dual-edge combat mod), Navy (gun system hook)
+
+Batch 4 (niche/build-gated):
+  Slate, Bone, Umber, Chartreuse, Tawny — smaller audience, lower priority

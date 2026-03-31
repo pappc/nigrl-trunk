@@ -1,0 +1,73 @@
+NUCLEAR RESEARCH — Branching Skill Trees Summary
+=================================================
+Source file: nigrl-ideas/nuclear-research-branching-skill-trees.txt
+10 branching topology variations. All 10 shapes used (one each).
+
+QUICK REFERENCE — All 10 Variations:
+
+V1  "Ground Zero"           Y-split (L3)       Bomb Specialist vs. Fallout Controller
+V2  "The Reactor"           Diamond            Aura Builder vs. Single-Target Nuke
+V3  "Chain Reaction"        Triple Fork (L4)   Bomb Mastery / Cascade Killer / Precision Targeting
+V4  "The Dead Hand"         W-shape            Containment vs. Berserker (with death insurance)
+V5  "Decay Chain"           Long Trunk Y       Long investment → Ramp Damage vs. Fusion One-Shot
+V6  "Fission/Fusion"        Inverted Y         Scholar (BKS/Contaminate) vs. Aggressor (Fissile/Reactor)
+V7  "Critical Geometry"     Ladder/Zigzag      4 build combinations from 2 paired choices
+V8  "Ground Zero Protocol"  Trident            3 arms: Contaminator / Bomb Engineer / Reactor (solo)
+V9  "Isotope Farm"          Double Diamond     4 paths converging on Isotope Protocol capstone
+V10 "Mad Scientist"         Asymmetric Y       Short safe branch (Critical Mass) vs. long mad branch
+
+CONSTANT TRUNK ELEMENTS (present in every variation):
+  - Irradiated Intellect: +3 BKS, rad gain bonus scaled by BKS%, mutation block <=150 rad
+  - Rad Bomb: 3/floor, 5x5, 15+BKS/2 damage, 25 rad cost (refund at 100+ rad), 3t fuse, 50 XP/cast
+
+SPELL INVENTORY (all new abilities defined in this doc):
+  rad_nova_b         — instant 5x5 AOE around player; 1/floor; 50 rad cost
+  meltdown_b         — 9x9 delayed nuke (5t fuse); 1/floor; 75 rad; 30+BKS*2 dmg
+  contaminate_b      — single-target rad DOT; 3/floor; 15 rad; 3 rad/turn x 8t
+  fallout_zone_b     — 3x3 radioactive terrain; 2/floor; 30 rad; 12t duration; 4 rad/turn
+  critical_mass_b    — self-buff; 1/floor; 40 rad; next spell guaranteed crit x8
+  fission_b          — 3 mini-bombs at 40% each; 1/floor; 50 rad
+  fusion_detonation_b — drain all rad; single target; dmg = rad/2; FLOOR_ONLY
+  half_life_b        — mark enemy; burst at <=50% HP; 2/floor; 20 rad
+  isotope_b          — mark enemy; on kill -> 3x3 Fallout Zone; 3/floor; 20 rad
+  chain_reaction_b   — passive: rad kills cascade 10+BKS/4 rad to adjacent; 1-hop max
+  reactor_core_b     — toggle aura; 5 rad/turn drain; 3 rad/turn to adjacent enemies
+  enrichment_b       — unlimited; 15 rad -> +1 stack; max 5 stacks; +5 dmg/stack on next bomb
+  ground_zero_b      — redirect next bomb's epicenter to marked tile; 1/floor
+  dead_hand_b        — 1/run death prevention; detonates all crystals; survive at 1 HP
+  scram_b            — 30% dmg reduction for 3t; 1/floor; 20 rad
+  prompt_criticality_b — passive; 5 turns at 200+ rad = next bomb MEGA_CRIT x4
+
+NEW HAZARD TYPES:
+  fallout_zone       — char '~', green; 4 rad/turn to entities on tile; duration-tracked
+  rad_crystal        — char '*', green-white; existing Rad Bomb crystal; formalized as entity
+
+KEY NEW ENGINE STATE (cumulative across all 10 variations):
+  rad_bomb_detonations, fission_splinter_count, critical_mass_ready, chain_reaction_kills,
+  half_life_marked_id, isotope_marked_id, fusion_charge, fusion_draining,
+  fallout_zone_tiles/duration, reactor_core_active/turns, enrichment_stacks,
+  prompt_criticality_hits, dead_hand_cooldown, rad_nova_used_this_floor, contaminate_targets,
+  ground_zero_tile, scram_cooldown, meltdown_fuse/tile, decay_chain_bonus
+
+KEY NEW PLAYER STATS:
+  rad_bomb_damage_bonus, rad_bomb_area_bonus, rad_bomb_charges_bonus, rad_bomb_fuse_reduction,
+  rad_spell_damage_mult, rad_cost_reduction, nuke_crit_bonus, contaminate_dot_bonus,
+  fallout_zone_radius_bonus, reactor_aura_radius, mutation_block_threshold (default 150)
+
+BRANCH IDENTITY MATRIX (what each path specializes in):
+  Bomb Specialist    — Short Fuse + Fission: faster bombs, triple-split, Enrichment stacking
+  Fallout Controller — Half-Life + Fallout Zone: terrain denial + execute marks
+  Aura Builder       — Reactor Core: passive ambient irradiation; pairs with Chain Reaction
+  Single-Target Nuke — Fusion Detonation: spend all rad for 100+ dmg single-target
+  Mad Bomber         — Meltdown: 9x9 once-per-floor screen clear
+  Cascade Killer     — Chain Reaction: rad kills cascade; Isotope marks leave hazard zones
+  Glass Cannon       — Prompt Criticality + Fusion: maximum burst, minimum safety margin
+  Contaminator       — Contaminate + Fallout Zone: DOT + terrain; enemies die to the floor
+  Experimenter       — Fissile Material + Decay Chain: builds power from taking damage
+
+RECOMMENDED IMPLEMENTATION ORDER:
+  1. V1 (Y-split)    — simplest; establishes two core Nuclear Research branch identities
+  2. V5 (Long Trunk) — closest to existing linear tree; easiest transition
+  3. V3 (Triple Fork) — adds Chain Reaction passive; opens cross-tree synergies
+  4. V7 (Ladder)     — tests dual-choice-node mechanic
+  5. Rest after those foundations are proven

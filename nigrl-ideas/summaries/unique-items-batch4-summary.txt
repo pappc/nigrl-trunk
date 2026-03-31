@@ -1,0 +1,64 @@
+SUMMARY: unique-items-batch4.txt
+================================
+25 unique equippable items. No consumables.
+
+SLOT BREAKDOWN:
+  Weapons (9): Prophet's Shank, Chrome Shorty, Ancestral Beater, Static Snap Baton,
+               Widow's Needle, Crackhead's Lucky Pipe, Saint's Crowbar, Tol Hammer,
+               Chain Whip
+  Rings (5):   Ring of Second Wind, Counterfeit Ring, Ring of the Block,
+               Pension Ring, Ring of Comeuppance
+  Neck (3):    Dealer's Chain, Crackhead Crucifix, Seven Deadly Chains
+  Feet (4):    Gravity Boots, Rubber Soles, Specter Creepers, Marathon Nikes
+  Hats (4):    Tinfoil Throne, Bucket Hat of Knowing, Welder's Mask,
+               Fitted Cap of the Streets
+
+KEY NEW MECHANICS / ENGINE FIELDS:
+  - prophets_shank_charges: int — builds on taking damage, spends on attack
+  - chrome_shorty: kill-or-self-damage (3 HP unblockable if no kill)
+  - ancestral_kill_count: int — run-wide kill counter → +1 damage per 2 kills (no cap)
+  - chain_whip_stance: int — stationary turn count → +15% bounce chance/stack (cap 3)
+  - second_wind_used_this_floor: bool — once/floor death save at 1 HP + Surge x3
+  - counterfeit_ring_active: bool — bonus SWG/STR while carrying >= $50
+  - ring_of_block_chilled_rooms: set — first entry in a 3+ enemy room = Chill 1 stack all
+  - pension_ring_kill_count / milestones: run-wide kill → random +1 permanent stat per 20 kills
+  - comeuppance_active + turns: enemy crits the player → +50% outgoing damage for 5 turns
+  - dealers_chain: 30% chance to duplicate any consumable on pickup
+  - crackhead_crucifix: dodge = +3% per active debuff on player (capped 60%)
+  - seven_deadly_chains: on-equip +1 all stats perm; each debuff = -1 max HP (7 cap/floor)
+  - specter_creepers_proc_turns: +30% melee damage on room entry vs. IDLE/WANDERING enemies
+  - marathon_steps_this_floor: int — < 30 steps/floor = Cramps next floor (-3 STR, -3 STS)
+  - welder_fire_bonus_active: +2 melee damage when fire hazard in FOV; fire immunity
+  - rubber_soles: Shocked immunity; +2 bonus lightning dmg when player applies Shocked to enemy
+  - permanent_crit_bonus: float on PlayerStats — Fitted Cap grants +0.5% per clean kill above
+    80% HP, RESETS to 0 on dropping below 50% HP. Max +15%.
+  - tinfoil_throne: 20% chance on any rad gain → free SP to a random eligible skill
+  - bucket_hat_knowing: equip sets all floor items to always_visible = True
+
+EXISTING SYSTEMS LEVERAGED:
+  - on_hit_effect: {"type": "shocked"} (Static Snap Baton)
+  - on_hit_tox (Widow's Needle)
+  - tol_scaling / Massive Blunt pattern (Tol Hammer)
+  - on_hit_bounce (Chain Whip — dynamic version)
+  - on_hit_stun_chance (Ancestral Beater)
+  - vampiric / HoT effect (Saint's Crowbar uses apply_effect "hot")
+  - grants_ability: "pry" (Saint's Crowbar)
+  - energy_per_tick (Gravity Boots, Marathon Nikes, Specter Creepers)
+  - outgoing_damage_mults list on PlayerStats (Ring of Comeuppance, Specter Creepers)
+  - AI AIState.IDLE / AIState.WANDERING check (Specter Creepers, Ring of the Block)
+  - always_visible on Entity (Bucket Hat of Knowing)
+  - modify_base_stat() permanent stat change (Pension Ring, Seven Deadly Chains)
+  - entity_died event bus hook (Pension Ring, Ancestral Beater, Chrome Shorty, Fitted Cap)
+  - FearEffect (Ring of the Block uses existing Chill, not Fear)
+  - DivineShieldEffect / death-save pattern (Second Wind ring)
+  - IgniteEffect skip pattern (Welder's Mask, Rubber Soles)
+  - add_radiation() hook (Tinfoil Throne SP proc)
+
+THEMATIC DESIGN NOTES:
+  - All items use NIGRL's irreverent street tone.
+  - No item is a pure stat stick — each has a conditional or tradeoff mechanic.
+  - Batch intentionally covers all 5 non-sidearm equip slots + rings.
+  - No sidearm gun unique in this batch (existing Decimator covers that slot).
+  - Four featured "build archetypes" synergize items from different slots.
+  - Hardest-to-implement items noted: Chain Whip, Seven Deadly Chains, Fitted Cap.
+  - Easiest-to-implement noted: Tol Hammer, Static Snap Baton, Ancestral Beater.

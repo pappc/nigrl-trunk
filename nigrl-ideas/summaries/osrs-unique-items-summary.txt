@@ -1,0 +1,129 @@
+================================================================================
+OSRS UNIQUE ITEMS — SUMMARY
+Source: nigrl-ideas/osrs-unique-items.txt
+================================================================================
+
+25 unique equippable items. Design lens: Old School RuneScape's special attacks,
+degradation, set effects, slayer bonuses, and niche zone-specific weapons.
+Every item references a specific OSRS counterpart and translates its philosophy
+to NIGRL's urban street setting.
+
+SLOT BREAKDOWN:
+  Weapons stabbing (4): Dragon Double Dagger, Smite Shank, Abyssal Dagger of Debt, Ghrazi Stiletto
+  Weapons slashing (2): Armadillo Godsword, Scythe of Vitur
+  Weapons beating (5):  Granite Jawn, Barrows Beater, Verac's Veil, Toxic Staff Dead, Elder Maul
+  Sidearms guns (2):    Craw's Web Shooter, Toxic Blowpipe
+  Weapon guns (1):      Twisted Bow of the Block
+  Rings (3):            Berserker Coil, Ring of the Witness, Wilderness Chrome
+  Neck (3):             Void Chain, Blowpipe Bullet Chain, Spectral Shield Chain
+  Feet (2):             Void Kicks, Bandos Kicks
+  Hats (3):             Void Hood, Seer's Spectacles, Slayer Helm of the Snitch
+
+QUICK REFERENCE:
+  dragon_double_dagger  Weapon (stab)  DDD Puncture: 2-hit spec, +10% crit on 2nd (55 spec)
+  armadillo_godsword    Weapon (slash) Sky Opener: 1.5x power spec, +20 spec on kill (75 spec)
+  granite_jawn          Weapon (beat)  Quick Smash: free action 50% dmg hit (30 spec)
+  barrows_beater        Weapon (beat)  Dharok passive: +0 to +20 dmg based on missing HP
+  craws_shooter         Sidearm        Zone bonus in crack_den: +6 dmg, +15% hit chance
+  veracs_veil           Weapon (beat)  Ignore dodge; 20% true damage (bypass defense) per hit
+  toxic_staff_dead      Weapon (beat)  BKS-scaling; tox on hit; Calamity Shield: 5t tox immunity (50 spec)
+  void_kicks            Feet           Void set piece (1 of 3); 0 armor, no speed
+  void_hood             Hat            Void set piece (2 of 3); 10 armor; +1 STS at 3-piece
+  void_chain            Neck           Void set piece (3 of 3); 15 armor; +1 def at 3-piece
+  berserker_coil        Ring           +3 STR; melee kill = +4 STR for 3t (max +8, stacking)
+  seers_spectacles      Hat            +2 BKS, +6 spell dmg; spell kill = +1 BKS 8t (max +3)
+  smite_shank           Weapon (stab)  Passive: drains target energy by (dmg // 2) per hit
+  vitur_scythe          Weapon (slash) Passive: each attack hits 2 adjacent enemies for 50% dmg
+  abyssal_dagger_debt   Weapon (stab)  Sunder on every hit; Abyssal Puncture: 2x 85% + sunder (50 spec)
+  bandos_kicks          Feet           +25 armor, +2 STR, +2 SWG, +1 def; kills fresh enemy = +10 HP
+  toxic_blowpipe        Sidearm        Fastest fire rate; 8 tox per hit; reduced energy cost
+  twisted_bow           Weapon (gun)   +5 dmg per 100 tox on target (max +25); range 9
+  ring_of_witness       Ring           +2 SWG +1 CON; 50 charges absorb min(5,dmg//3); recharge +5/floor
+  slayer_helm_snitch    Hat            +2 STS, 15 armor; random enemy-type assigned/floor = +20% dmg vs. it
+  ghrazi_stiletto       Weapon (stab)  Best STR scaling (3/2); bonus_crit_mult +1 (crits = 3x)
+  blowpipe_bullet_chain Neck           +3 STR, +2 STS, +3 flat power; 0 armor; naked kill = +5 SWG 5t
+  spectral_shield_chain Neck           +2 TOL, 40 armor, +2 def; each turn: 50% to drain -2 tox and -2 rad
+  elder_maul            Weapon (beat)  Highest base dmg (22); str_req 15; attack costs 150e; Heavy Blow spec
+  wilderness_chrome     Ring           +2 STR, +3 STS, -2 CON; active after 3 kills = +10% outgoing dmg
+
+KEY NEW MECHANICS INTRODUCED:
+  - Spec energy system (engine.spec_energy: float; +25/turn; 100 max; 6 spec weapons draw from it)
+  - Void set system (3-piece: +10% outgoing damage total; count-based outgoing_damage_mults)
+  - Dharok's HP-inverse scalar (damage bonus = int((1 - hp_ratio) * 20); passive field)
+  - Zone-specific gun passive (Craw's: bonus only in crack_den zone)
+  - Attack cost override (Elder Maul: 150 energy instead of 100 per attack)
+  - stat_req above player base max (Elder Maul: str_req 15; needs ring STR to equip)
+  - Slayer task system (random enemy_type assigned per floor; engine.snitch_task_enemy_type)
+  - Skull ring activation (3-kill threshold; mult added; reset on unequip)
+  - Ignore dodge field (ignore_dodge: True on item defn; skip dodge roll in combat.py)
+  - Per-entity ring charge resource (witness_charges; decrement on hit; recharge per floor)
+  - Smite energy drain (smite_drain: True; reduce target.energy by damage//2 per hit)
+  - Vitur sweep (vitur_sweep: True; side-tiles hit for 50% of primary damage)
+  - Tox-scaling gun damage (tox_scaling_gun: dict; bonus_per_100_tox applied in gun_system)
+  - Gun tox-on-hit (on_gun_hit_tox: int — new field, applied after confirmed gun hit)
+  - Reduced gun energy cost field (reduced_energy_cost_gun: int)
+  - One-hit kill heal trigger (Bandos Kicks: detect fresh-HP kill, heal 10)
+  - Spectral passive decay (50% chance per turn: -2 tox AND -2 rad independently)
+  - Berserker post-kill STR stacking (BerserkerMadnessEffect, max +8 cap)
+  - Seers spell-kill BKS stacking (SeersBksKillEffect, max +3 cap)
+  - Calamity Shield tox immunity + tox aura (ToxStaffCalamityEffect, 5 turns)
+  - Free action attack (Granite Jawn: player_free_action = True; granite_free_used_this_turn flag)
+
+NEW ENGINE/ENTITY STATE:
+  engine.spec_energy: float = 100.0
+  engine.granite_free_used_this_turn: bool
+  engine.berserker_coil_bonus: int
+  engine.calamity_shield_active: bool
+  engine.snitch_task_enemy_type: str | None
+  engine.skull_kill_count: int
+  engine.skull_ring_active: bool
+  engine.skull_ring_equipped: bool
+  engine.seers_bks_kill_stacks: int
+  engine.void_item_count: int
+  entity.witness_charges: int = 50  (ring entity)
+  entity.witness_depleted: bool = False  (ring entity)
+
+NEW EFFECTS REQUIRED:
+  BerserkerMadnessEffect (id="berserker_madness"; dur=3; +4 STR on apply; cap 8 total)
+  SeersBksKillEffect (id="seers_bks_kill"; dur=8; +1 BKS on apply; cap +3)
+  ToxStaffCalamityEffect (id="calamity_shield"; dur=5; tox immunity + tox aura)
+
+NEW ITEM FIELDS PROPOSED:
+  "dharoks_passive": bool
+  "smite_drain": bool
+  "vitur_sweep": bool
+  "ignore_dodge": bool
+  "ignore_defense_chance": float
+  "attack_cost_override": int
+  "on_gun_hit_tox": int
+  "reduced_energy_cost_gun": int
+  "tox_scaling_gun": {"bonus_per_100_tox": int, "max_bonus": int}
+  "craws_zone": str  (zone key for zone-specific gun passive)
+  "craws_bonus_damage": int
+  "craws_bonus_hit": float
+  "void": bool  (for set counting)
+
+OSRS REFERENCE TABLE (each item maps to an OSRS source):
+  Dragon Double Dagger  ← Dragon Dagger (Puncture spec, 2 fast hits)
+  Armadillo Godsword    ← Armadyl Godsword (Sky Opener / Flurry spec)
+  Granite Jawn          ← Granite Maul (Quick Smash free-action spec)
+  Barrows Beater        ← Dharok's Greataxe (HP-inverse damage set effect)
+  Craw's Web Shooter    ← Craw's Bow (wilderness zone accuracy/damage bonus)
+  Verac's Veil          ← Verac's Flail (ignore prayer protection / dodge)
+  Toxic Staff Dead      ← Toxic Staff of the Dead (passive venom, Calamity spec)
+  Void Set (3 items)    ← Void Knight equipment set (+10% accuracy/damage full set)
+  Berserker Coil        ← Berserker Ring (+str, kill momentum bonus)
+  Seer's Spectacles     ← Seers Ring (magic damage ring; kill feedback loop)
+  Smite Shank           ← Smite prayer (drain opponent energy per damage dealt)
+  Scythe of Vitur       ← Scythe of Vitur (multi-hit in line/sweep)
+  Abyssal Dagger Debt   ← Abyssal Dagger (spec lowers defense, double hit)
+  Bandos Kicks          ← Bandos Boots (best melee boots, strength + defense)
+  Toxic Blowpipe        ← Toxic Blowpipe (fast, venom on hit, high sustained DPS)
+  Twisted Bow           ← Twisted Bow (scales with enemy's magic = enemy's tox)
+  Ring of the Witness   ← Ring of Suffering (absorb charges, degradable ring)
+  Slayer Helm Snitch    ← Slayer Helmet (task-specific damage bonus)
+  Ghrazi Stiletto       ← Ghrazi Rapier (best-in-slot stab DPS, no spec)
+  Blowpipe Bullet Chain ← Amulet of Torture (best neck for melee, glass cannon)
+  Spectral Shield Chain ← Spectral Spirit Shield (passive prayer/stat drain reduction)
+  Elder Maul            ← Elder Maul (slowest, highest damage in the game)
+  Wilderness Chrome     ← Skulled items / wilderness risk mechanics

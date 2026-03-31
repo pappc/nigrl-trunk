@@ -1,0 +1,1238 @@
+MUTATION — 10 Branching Skill Tree Variations
+=============================================
+Design doc for the NIGRL roguelike (Crack Den / Meth Lab skill).
+These are BRANCHING trees with player-choice topology — NOT linear L1-L3.
+The player selects one branch at each split and cannot unlock the other.
+
+Mutation system reference:
+  - Passive trigger: (current_rad // 50) * 0.001 per energy tick. Min 75 rad.
+  - Tier thresholds: Weak 75+ rad (costs 50 rad, 100 XP), Strong 125+ rad (125 rad, 250 XP),
+    Huge 250+ rad (200 rad, 500 XP)
+  - Good mutation chance: min(1.0, (0.33 + base_bonus) * (1 + multiplier))
+    Base = 33%. Mutation L3 (Favorable Odds) adds +0.50 multiplier → ~50% good.
+    Five Loco drink: +0.25/stack multiplier. Yellowcake food: 10x trigger rate, blocks Weak.
+  - Bad weak: -1 stat, -10% resist, -100 SP. Good weak: +1 stat, +10% resist, +100 SP.
+  - Bad strong: -3 stat, -1 skill level, -200 SP.
+    Good strong: +3 stat, +1 skill level, +200 SP, +5% briskness, +3 DR.
+  - Bad huge: -5 stat, -2 all stats, lose equipment (neck/feet/hat), -1 to 5 random skill levels.
+    Good huge: +5 stat, +2 all stats, +5 skill levels, +5% briskness, +5 DR.
+  - Rad gain: amount * (1 - rad_resistance/100) * (1 + rad_gain_multiplier_bonus)
+  - Player HP: 30 + CON*10. At CON 10 = 130 HP.
+  - Swagger defence: int((eff_swg-8)/2).
+  - Crit chance: street_smarts * 3%. Energy: 100/tick base. +30 = ~23% faster.
+  - Stat names: constitution, strength, street_smarts, book_smarts, tolerance, swagger
+
+Current linear trunk (L1-L3, for reference):
+  L1: Mutagen     — +1 all stats, immediately mutate for free
+  L2: Unstable    — 20% on melee hit: Unstable buff (20t, +5 rad, +2 melee dmg,
+                    hits irradiate enemies 10 rad)
+  L3: Favorable Odds — +50% good mutation multiplier (raises good% from 33% to ~50%)
+
+XP source for Mutation: gaining radiation, triggering mutations, surviving bad mutations.
+
+Related trees to synergize with:
+  - Nuclear Research: BKS-scaling, Rad Bombs, blocks mutations below 150 rad, Nutrient Producer
+  - Glow Up: Rad resistance, Emission (spread rad to enemies), Fallout (20% to irradiate on damage)
+  - Chemical Warfare: tox/rad dual-damage builds; status stacking
+  - White Power: rad/tox dual resistance options; SWG stacking
+
+Shape glossary:
+  Y-split (L3)        — L1, L2 trunk; branch at L3: L3a/L4a vs L3b/L4b. 6 perks, 2 capstones.
+  Diamond             — L1 shared; L2a/L2b split; L3a/L3b; L4 convergence; L5a/L5b final split.
+  Triple Fork (L4)    — L1, L2, L3 trunk; split at L4 into L4a/L4b/L4c. 6 perks, 3 capstones.
+  W-shape             — L1/L2 shared; L3a/L4a and L3b/L4b branches; L5 convergence; L6a/L6b.
+  Long Trunk Y        — L1-L4 shared trunk; late branch at L5 into L5a/L5b.
+  Inverted Y          — Two starting branches (L1a/L1b pick one); converge at shared L3-L4.
+  Ladder/Zigzag       — L1 shared; L2 choose A/B; L3 shared; L4 choose A/B; L5 capstone.
+  Trident             — L1-L2 shared; L3a/L3b/L3c split; L3a+L3b reconverge L5; L3c solo.
+  Double Diamond      — L1 shared; L2 split; L3 converge; L4 split; L5 capstone.
+  Asymmetric Y        — L1-L2 shared; split at L3: A=short (L3a cap); B=long (L3b-L5b cap).
+
+New engine state needed (all variations combined):
+  mutation_count (run-wide int, increments each mutation regardless of tier or polarity)
+  mutation_reroll_available (bool, per-floor, from Splice ability)
+  genome_locked_stat (str, name of stat locked from bad mutation this floor)
+  rad_berserker_stacks (int, per-floor; cleared on floor exit)
+  adaptive_dr_bonus (int, run-wide; accumulates from Scar Tissue)
+  freak_speed_stacks (int, resets on floor; from Volatile Evolution)
+  last_mutation_was_good (bool, for Streak mechanic)
+  mutation_streak (int, consecutive same-polarity mutations)
+  irradiate_splash_radius (int, default 0; set by Rad Spreader)
+  contamination_cloud_active (bool; from Fallout Aura capstone)
+  forced_strong_next (bool; forces next passive mutation to be Strong tier)
+  forced_huge_next (bool; forces next passive mutation to be Huge tier)
+  mutation_xp_multiplier (float; additive bonus to mutation XP gain)
+  scar_tissue_hits (int, run-wide; tracks hits absorbed after bad mutations)
+
+New PlayerStats fields needed (all variations combined):
+  rad_gain_multiplier_bonus (float; multiplicative bonus to rad gain, stacks additively)
+  mutation_good_base_bonus (float; additive to the 0.33 base in good chance formula)
+  mutation_trigger_multiplier (float; multiplies passive trigger chance per tick)
+  mutation_tier_skip_weak (bool; if True, minimum mutation tier is Strong)
+  adaptive_dr (int; permanent DR gained from Scar Tissue perk)
+  mutation_melee_bonus (int; flat melee damage bonus per mutation count stack)
+  rad_to_power_ratio (float; converts current rad to melee damage bonus)
+  mutation_count (int; run-wide total mutations, also on engine but mirrored here)
+
+New effects needed (all variations combined):
+  UnstableEffect        — existing (L2 trunk)
+  SplicedEffect         — after Splice reroll: +2 to chosen stat for 20t, visual feedback
+  BerserkerSurgeEffect  — after mutation mid-combat: +6 melee dmg, +20 speed for 8t
+  GlowingEffect         — rad tank: constant low-level radiation aura; irradiates adjacent foes 5 rad/turn
+  ContaminationCloud    — capstone aura: 3-tile radius, irradiates all in range 3 rad/tick
+  AdaptiveShieldEffect  — temp HP equal to (mutation_count * 3) on each floor entry
+  OverripeEffect        — 10% on melee hit: trigger forced mutation check immediately
+  PrimordialRageEffect  — capstone berserk: +12 melee, -50% defense, lasts 15t; triggered by Huge mutation
+  EvolutionaryPressure  — passive: each good mutation adds 1 permanent stack of +1 STR (no UI effect)
+
+New ability IDs needed (all variations combined):
+  splice_reroll          — reroll outcome of most recent mutation (1/floor, FLOOR_ONLY)
+  rad_burst              — consume 75 rad → deal 8-12 rad damage to all adjacent (ADJACENT, INFINITE cd 8t)
+  rad_pulse              — consume 50 rad → irradiate all in sight 15 rad (AOE_CIRCLE r=8, 2/floor)
+  inoculate_self         — consume 100 rad → guarantee next mutation is Good polarity (ONCE/floor)
+  genome_lock            — protect one stat from mutation degradation this floor (FLOOR_ONLY)
+  primal_scream          — consume all current rad → deal (rad/10) damage to all visible enemies (PER_FLOOR 1)
+  contaminate_aura       — toggle aura: irradiate all adjacent 3 rad/tick, costs 1 rad/tick to self (INFINITE)
+  irradiate_surge        — consume 60 rad → gain BerserkerSurgeEffect + 3 rad to all in LOS (INFINITE cd 12t)
+  forced_evolution       — spend 150 rad → immediately trigger one Strong mutation (PER_FLOOR 1)
+  absorb_rad             — consume 100 rad → heal 15 HP and gain +3 DR for 20t (INFINITE cd 15t)
+  genome_splice          — costs 0 rad → choose between two mutation stat options shown in menu (ONCE/run)
+
+
+==========================================================================
+VARIATION 1: "FREAKSHOW" — Mutation Farming
+==========================================================================
+Shape: Y-split (L3)
+Fantasy: Stack as many mutations as possible, good or bad. Each mutation,
+  regardless of polarity, makes you permanently stronger in combat. You are
+  gambling with your genome but the house always wins something.
+
+TREE DIAGRAM:
+
+    L1: Willing Subject
+          |
+    L2: Rapid Metabolism
+         / \
+        /   \
+  [BRANCH A]  [BRANCH B]
+  A: More Mutations  B: Better Mutations
+  L3a: Overexposure  L3b: Selective Pressure
+       |                  |
+  L4a: Full Freak     L4b: Apex Specimen
+   (capstone)          (capstone)
+
+TRUNK:
+
+L1 — WILLING SUBJECT (passive)
+  Perk type: passive
+  Effect: +0.50 to rad_gain_multiplier_bonus. You gain 50% more radiation from
+    all sources (enemies, hazards, items, abilities). Immediately upon taking
+    this perk, gain 75 rad and trigger a free mutation (same as existing L1 Mutagen).
+    Also gain +1 CON as a permanent stat bonus.
+  Design note: Replaces the existing L1 entirely in this variation. The free mutation
+    on unlock is the hook — you see immediately what you're signing up for.
+
+L2 — RAPID METABOLISM (passive)
+  Perk type: passive
+  Effect: Passive mutation trigger chance doubled (mutation_trigger_multiplier = 2.0).
+    Additionally: good mutation base bonus increased by +0.10 (from 0.33 to 0.43
+    before multipliers). You're mutating more often and the odds are slightly better.
+  Design note: Sets up both branches. Branch A accelerates even further. Branch B
+    focuses on tilting the odds.
+
+BRANCH A: More Mutations (Quantity over Quality)
+
+L3a — OVEREXPOSURE (passive)
+  Perk type: passive
+  Effect: mutation_trigger_multiplier increases by another 2.0 (total 4.0x base rate).
+    Each mutation (good or bad) permanently adds +1 to a random stat with a floor of
+    the current stat value (i.e., bad mutations can no longer reduce stats BELOW their
+    pre-mutation value; the bonus from this perk is separate from the normal mutation result).
+    In practice: every mutation = at minimum a net +0 stat change, but now also +1 random stat on top.
+  Design note: The mutation rate is now very high. Bad mutations still apply their full -stat penalty,
+    but Overexposure immediately gives +1 elsewhere. Net effect per bad mutation: -1 in one stat,
+    +1 in another. Net per good mutation: +1 stat, +1 elsewhere = +2 spread across stats. Over time
+    the player's stat total only goes up regardless of polarity.
+
+L4a — FULL FREAK (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: For every 5 mutations accumulated (mutation_count), gain +1 permanent melee damage bonus
+    (mutation_melee_bonus). This bonus is displayed in the character sheet.
+    Additionally: mutation_trigger_multiplier increases to 6.0x base rate. At 30 total mutations,
+    melee damage bonus is +6. At 50 mutations: +10. This scales indefinitely.
+    Visual: When mutation_count crosses a multiple of 5, log message: "Your body grows stronger."
+  Synergies: Pairs with Nuclear Research (blocks mutations below 150 rad forces them all to be
+    Strong/Huge, each worth more XP and stats). Pairs with Glow Up Fallout passive (20% irradiate on
+    damage = more ambient rad = faster trigger rate). Five Loco drink becomes a farming tool.
+  Balance: Diminishing returns from mutation costs vs. stat gains. Bad huge mutations can still
+    destroy equipment (neck/feet/hat). At high mutation counts, even bad outcomes rarely matter
+    because the bonus scaling outpaces the stat loss.
+
+BRANCH B: Better Mutations (Quality over Quantity)
+
+L3b — SELECTIVE PRESSURE (passive + activated)
+  Perk type: passive + activated
+  Ability: splice_reroll (FLOOR_ONLY, 1/floor)
+    When a mutation resolves, you may spend your floor charge to reroll it once. The second result
+    is final. Shows a log message: "Splice reroll: [original] → [new result]."
+  Passive: good mutation base bonus increases by +0.20 (cumulative with L2: now +0.30 base bonus,
+    which at the 0.50 Favorable Odds multiplier = min(1.0, 0.63 * 1.5) = ~94.5% good chance if
+    Favorable Odds also taken; or ~78% good chance at just the L2+L3b multiplier of 1.0).
+  Design note: This branch is about manipulating the RNG rather than raw frequency. The reroll
+    ability is most valuable when a bad Huge mutation is incoming.
+
+L4b — APEX SPECIMEN (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: All future Good mutations have their stat bonuses doubled (Good weak = +2 stat instead of +1,
+    Good strong = +6 stat instead of +3, Good huge = +10 stat instead of +5, and +4 all stats instead
+    of +2). Bad mutation stat penalties are reduced by 1 (minimum 0 for weak, minimum 1 for strong,
+    minimum 3 for huge; equipment loss from bad huge still applies).
+    Additionally: +2 STR, +2 CON as permanent stat bonuses.
+  Synergies: Devastating with Favorable Odds (L3 existing tree). Stack every good-mutation amplifier:
+    Five Loco, Selective Pressure, Favorable Odds, Apex Specimen = near-certain doubled good mutations.
+    Nuclear Research's Nutrient Producer pairs well (stat gains from food now augment what are already
+    very large mutation stat bonuses).
+  Balance: Requires significant investment (L1+L2+L3b+L4b = 4 skill levels). Bad huges still
+    cripple you. The equipment loss on bad huge is untouched. High-investment, high-payoff.
+
+
+==========================================================================
+VARIATION 2: "CHERNOBYL TANK" — Rad as Armor
+==========================================================================
+Shape: Diamond
+Fantasy: You don't avoid radiation — you wear it. High radiation means high
+  defense, high threat presence, and eventually the ability to absorb rad
+  damage like a sponge and redirect it as healing or power.
+
+TREE DIAGRAM:
+
+    L1: Rad Hide
+       /       \
+  L2a: Thick Skin   L2b: Rad Soak
+       \       /
+    L3: Glow Harder
+       /       \
+  L4a: Meltdown  L4b: Rad Absorption
+   (capstone)     (capstone)
+
+TRUNK / CONVERGENCE:
+
+L1 — RAD HIDE (passive)
+  Perk type: passive + stat
+  Effect: +2 CON, +20% rad_resistance. Your skin has started to calcify.
+    Additionally: for every 50 rad you currently carry, gain +1 defense (capped at +6 defense
+    from this source, i.e., at 300 rad = max bonus). This is a dynamic bonus checked each
+    combat calculation. Stored as a computed property, not a flat stat.
+  Design note: L1 teaches the core mechanic — holding high rad is now a defense buff, not just
+    a liability. Two stat-scaling paths diverge here.
+
+BRANCH A (early): Thick Skin
+
+L2a — THICK SKIN (passive)
+  Perk type: passive + stat
+  Effect: +20% rad_resistance (cumulative: now 40% total from tree). +1 CON.
+    Damage from enemy radiation attacks is reduced by a flat 3 (minimum 1). Enemies with
+    irradiate on-hit effects now irradiate you for 50% less (e.g., an enemy that inflicts 20 rad
+    on hit now inflicts 10 rad). This slows your rad accumulation but keeps you safer.
+  Design note: The "safer" path to the convergence. Lower damage risk but also lower passive
+    mutation rate because you accumulate rad more slowly.
+
+BRANCH B (early): Rad Soak
+
+L2b — RAD SOAK (passive + stat)
+  Perk type: passive + stat
+  Effect: +0.30 rad_gain_multiplier_bonus (gain 30% more rad from all sources). +1 STR.
+    Each time you gain radiation (any source), 10% of the rad gained also heals you for
+    (rad_gained * 0.10) HP, rounded up (minimum 1 HP per irradiation event, max 8 HP per event).
+    You are converting incoming radiation into life force.
+  Design note: The "dangerous" path. You're getting irradiated faster and mutating more
+    frequently, but every irradiation heals you. Pairs with Glow Up's Fallout passive beautifully:
+    20% irradiate on damage means enemy hits heal you back a little.
+
+CONVERGENCE:
+
+L3 — GLOW HARDER (passive)
+  Perk type: passive
+  Effect: The defense bonus from Rad Hide's rad-scaling now caps at +10 instead of +6 (requires
+    500 rad for full bonus). Additionally, your visible glow (flavor) causes enemies within 3 tiles
+    to gain 5 rad per turn they remain adjacent (irradiate_splash_radius = 1 tile, 5 rad/turn).
+    This is a passive aura — always on while you have 75+ rad.
+  Design note: Convergence point rewards staying at high rad. The passive irradiation of nearby
+    enemies sets up both capstones differently.
+
+CAPSTONE SPLIT:
+
+L4a — MELTDOWN (activated, CAPSTONE)
+  Perk type: activated
+  Ability: primal_scream (PER_FLOOR 1)
+    Consume ALL current rad (minimum 100 to activate). Deal (rad_consumed / 10) damage to every
+    visible enemy — raw rad damage, ignores defense, ignores DR. At 200 rad: 20 damage to all
+    visible enemies. At 500 rad: 50 damage to all visible enemies.
+    After the burst: your rad drops to 0. You gain no defense bonus until you rebuild rad.
+    Gain PrimordialRageEffect: +12 melee damage, -50% defense for 15t (post-meltdown frenzy).
+  Design note: Nuclear option. You've been building rad all floor as a defense stat, then you
+    cash it all in for massive AOE damage. Requires careful timing — you lose your defense buffer
+    immediately after. Best used when multiple enemies are nearby.
+  Synergies: Glow Up's Emission (spread rad to enemies before detonating = enemies are also irradiated
+    when hit). Nuclear Research's Rad Bomb + Meltdown on same floor = massive rad burst sequence.
+
+L4b — RAD ABSORPTION (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: You no longer take HP damage from radiation-based sources (enemy rad attacks, rad hazards,
+    rad food, rad effects). Instead, all incoming rad is treated as a direct HP regen trigger:
+    for every 10 rad you would have gained, heal 1 HP. Bad mutation stat losses are reduced by 2
+    (minimum 0 for weak). Your rad cap effectively becomes a second HP pool.
+    Additionally: +3 CON, +10% rad_resistance (cumulative).
+  Design note: The ultimate defensive capstone. Radiation is now net-positive. You gain rad freely,
+    it translates to healing, you hold high rad for defense bonus, and bad mutations are softened.
+    Weakness: no damage output from this branch. Pure survival.
+  Synergies: Pairs with Rad Soak (L2b path) for maximum healing-from-rad. Pairs with Glow Up Emission
+    for irradiating enemies while you sit in the middle absorbing everything.
+
+
+==========================================================================
+VARIATION 3: "SPLICE AND DICE" — Mutation Control
+==========================================================================
+Shape: Triple Fork (L4)
+Fantasy: You study the science of mutation. You learn to choose your mutations,
+  lock stats from degradation, and eventually unlock one of three mastery paths:
+  combat supremacy, total stat control, or one perfect mutation per run.
+
+TREE DIAGRAM:
+
+    L1: Research Subject
+          |
+    L2: Genome Mapping
+          |
+    L3: Directed Evolution
+       /    |    \
+      /     |     \
+  L4a:   L4b:   L4c:
+  Combat  Perfect  One True
+  Genome  Balance  Splice
+ (cap)    (cap)    (cap)
+
+TRUNK:
+
+L1 — RESEARCH SUBJECT (passive + stat)
+  Perk type: passive + stat
+  Effect: +1 BKS, +1 STR. When any mutation (passive or triggered) occurs, you see the outcome
+    in a detailed log: "Mutation resolved: [polarity] [tier] → [changes]." This is purely informational
+    in vanilla play but the key is the bonus: after seeing any mutation resolve, gain +50 XP toward
+    Mutation skill (in addition to normal XP). Effectively doubles mutation XP gain.
+  Design note: Flavor perk. Low-power but establishes the "scientist studying themselves" identity.
+    The +50 mutation XP per event means you level this tree faster.
+
+L2 — GENOME MAPPING (passive + activated)
+  Perk type: passive + activated
+  Ability: genome_lock (FLOOR_ONLY, 1/floor)
+    Before any mutation this floor, you may declare one stat to be "locked."
+    If the upcoming mutation would reduce that stat, the reduction is blocked (the mutation still
+    fires and costs rad, but the stat penalty is negated for the locked stat). Effectively
+    insurance against losing your most important stat.
+  Passive: +0.15 to mutation_good_base_bonus. Good mutation chance now ~48% base (before multipliers).
+  Design note: Genome Lock is the defining perk of this variation. Managing your most critical stats
+    against the randomness of mutations is the core skill expression.
+
+L3 — DIRECTED EVOLUTION (passive)
+  Perk type: passive
+  Effect: You gain the ability to choose mutation TIER (but not polarity or outcome):
+    Once per floor, when a passive mutation triggers, you may spend an additional 75 rad to force
+    it up to the next tier (Weak→Strong costs +75 rad; Strong→Huge costs +75 rad; Huge stays Huge).
+    If you don't have the additional rad, the mutation resolves normally.
+    Also: +0.20 to mutation_good_base_bonus (cumulative: now ~68% good base before multipliers).
+  Design note: Significant power. Spending 125+75=200 rad to force a Strong mutation that's also
+    68% likely to be good is an attractive proposition. Synergy with Nuclear Research which can
+    block Weak mutations (let NucResearch handle the floor requirement, Directed Evolution
+    upgrades whatever tier you're at to Huge if you have the rad).
+
+BRANCH A: Combat Genome
+
+L4a — COMBAT GENOME (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: Every mutation (any polarity, any tier) permanently grants +1 melee damage (mutation_melee_bonus).
+    This bonus is multiplicative with weapon damage, not additive (applied after str_scaling).
+    At 10 total mutations: +10 raw melee bonus. At 20: +20. Uncapped.
+    Additionally: +2 STR, +1 STS. Crits gained from mutations that award STS upgrades now
+    benefit from double crit chance for the remainder of the run (crit_multiplier_bonus).
+  Synergies: Pairs devastatingly with any mutation-frequency increase. FREAKSHOW (Variation 1)
+    combined with Combat Genome would create extremely high-damage late runs. Also pairs with
+    Glow Up's Fallout (damage triggers irradiation which speeds up mutation triggers).
+
+BRANCH B: Perfect Balance
+
+L4b — PERFECT BALANCE (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: Bad mutations of Weak or Strong tier no longer reduce stats. Instead, bad weak mutations
+    grant +100 SP (same as good weak) and bad strong mutations grant +200 SP + +1 skill level
+    (same as good strong). You've learned to absorb the chaos constructively.
+    Bad Huge mutations still lose equipment — this is the remaining risk that justifies the power.
+    Additionally: Good mutation stat bonuses are increased by +1 (Good weak = +2, Good strong = +4).
+    +2 BKS permanent.
+  Design note: Potentially the strongest capstone in the entire document if the run goes long enough.
+    Almost every mutation outcome is now net-positive. The only real failure state is bad Huge,
+    which still punishes. Works best with low rad (staying near 75-125 range to trigger only Weak/Strong).
+  Synergies: Pairs with Nuclear Research "Inoculation" (blocks mutations below 150 rad) to force
+    only Strong+ — but then Perfect Balance doesn't neutralize Strong bad mutations' stat loss
+    (it does reduce it). The real combo is Perfect Balance + moderate rad so you hit Weak/Strong
+    with high frequency and near-zero downside.
+
+BRANCH C: One True Splice
+
+L4c — ONE TRUE SPLICE (activated, CAPSTONE)
+  Perk type: activated
+  Ability: genome_splice (ONCE per run)
+    Opens a selection menu: choose between two mutation options. Each option shows:
+    "[stat name]: [current value] → [new value]" and "[polarity] [tier] result."
+    You choose one, and it applies immediately consuming the normal rad cost for its tier.
+    The chosen mutation is guaranteed good, guaranteed of the tier you select (Weak/Strong/Huge),
+    and you pick which stat is affected. This is the only ability in the game that lets you
+    fully control a mutation outcome.
+    On activation: gain forced_strong_next = False, forced_huge_next = False (this supersedes them).
+    Gain +5 skill levels distributed randomly across your non-maxed skills (same as good Huge).
+    Gain +2 all stats (same as good Huge). No rad cost on activation; the genome_splice ability
+    bypasses the rad cost entirely.
+  Design note: ONCE per run. This is essentially a guaranteed perfect Huge mutation whenever you
+    want it. The value is in timing: use it when you need a specific stat boosted, or when all
+    your stats are low from bad mutations. The +5 skill levels make it attractive mid-run.
+  Balance: The inability to repeat this ability is the limiting factor. Perfect Balance (L4b) will
+    outscale this over a long run; One True Splice is better for runs that don't last long enough
+    to accumulate many mutations.
+
+
+==========================================================================
+VARIATION 4: "VOLATILE EVOLUTION" — Rad Berserker
+==========================================================================
+Shape: W-shape
+Fantasy: Each mutation makes you faster and more dangerous in combat, but
+  the clock is always ticking. You live in the space between mutations —
+  burning hot, burning fast, burning out.
+
+TREE DIAGRAM:
+
+    L1: Adrenaline Splice   L2: Freak Speed
+           |   \           /   |
+           |    \         /    |
+           |  [BRANCH A]  [BRANCH B]
+           |   L3a: Hot  L3b: Burnout
+           |   L4a: Mach L4b: Death
+           |    \         /    |
+           |     \       /     |
+    L5: Apex Predator (convergence)
+           / \
+          /   \
+    L6a: Speed  L6b: Explosion
+    God          Hazard
+    (capstone)   (capstone)
+
+TRUNK (shared):
+
+L1 — ADRENALINE SPLICE (passive)
+  Perk type: passive
+  Effect: Each mutation (any polarity, any tier) grants a 12-turn speed buff:
+    +30 energy gain per tick (same value as a full speed boost item). This buff does not stack
+    but refreshes on each new mutation. You are rewarded for mutating frequently.
+    Also: first mutation of each floor always triggers this buff regardless of passive trigger timing.
+  Design note: Immediately makes "having mutations happen" feel good. Every mutation event is now
+    also a combat burst. Sets up the W-shape's two branches which explore how to exploit the speed.
+
+L2 — FREAK SPEED (passive + stat)
+  Perk type: passive + stat
+  Effect: +1 STS, +1 STR. Speed buff from Adrenaline Splice extended to 20 turns (up from 12).
+    Additionally: freak_speed_stacks tracks how many speed buffs have occurred this floor.
+    Each stack of freak_speed_stacks adds +2 melee damage while at least one stack is active
+    (i.e., while you have the Adrenaline Splice speed buff running). At 3 stacks = +6 melee.
+    Resets on floor exit.
+  Design note: Now mutations mid-combat are explicitly powerful. The more mutations you trigger
+    mid-fight, the more damage you deal.
+
+BRANCH A: Hot (mid-run)
+
+L3a — SCORCHED GENOME (passive)
+  Perk type: passive
+  Effect: While the Adrenaline Splice speed buff is active, all your melee attacks have a 20%
+    chance to inflict BerserkerSurgeEffect on yourself (+6 melee dmg, +20 speed for 8t) when
+    you score a critical hit. This is a crit-on-crit effect. Also: +0.30 rad_gain_multiplier_bonus.
+    You're building rad faster which means more mutations which means more speed buffs.
+
+L4a — MACH FREAK (passive)
+  Perk type: passive
+  Effect: While freak_speed_stacks >= 2 this floor, your attack cost is reduced by 25%
+    (attacks cost 75 energy instead of 100). Effectively 33% faster attack rate when mutating
+    frequently. +1 STS.
+
+BRANCH B: Burnout (mid-run)
+
+L3b — UNSTABLE CORE (passive)
+  Perk type: passive
+  Effect: The Adrenaline Splice speed buff now also grants +4 melee damage (on top of the speed).
+    BUT: when the buff expires, take 8 HP damage (the crash). This is unavoidable — mutation speed
+    buffs now have a painful ending. In exchange, while the buff is active, all incoming damage is
+    reduced by 20%.
+
+L4b — DEATH OR GLORY (passive)
+  Perk type: passive
+  Effect: Each time you take the Unstable Core crash damage (8 HP on buff expiry), permanently
+    gain +1 CON (min 1 CON gained). You are literally getting tougher from the punishment.
+    Also: the crash damage is now 12 HP but triggers a mutation check immediately (consume
+    the crash as if it were a mutation trigger — doesn't cost rad, doesn't award XP, just
+    fires a weak mutation check at current rad thresholds). You crash, you mutate, you surge again.
+
+CONVERGENCE:
+
+L5 — APEX PREDATOR (passive)
+  Perk type: passive + stat
+  Effect: +2 STR, +1 STS. freak_speed_stacks cap raised to 8 (was 4 implicitly).
+    While freak_speed_stacks >= 3, gain +15% crit chance (multiplicative with existing crit chance).
+    At STS 10: base crit = 30%. With this perk at 3+ stacks: 30% * 1.15 = 34.5% crit chance.
+    Each crit scored while speed-buffed adds 5 rad. Crits now fuel more mutations which fuel more speed.
+  Design note: The convergence is where both mid-tree paths become equally valuable. Branch A
+    (more attacks, cheaper attacks) feeds crits which feed rad which feed mutations. Branch B
+    (harder crash, tougher body) now has enough CON to survive the crashes.
+
+CAPSTONE SPLIT:
+
+L6a — SPEED GOD (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: The Adrenaline Splice speed buff duration is now permanent until the end of the floor
+    (it no longer has a 20-turn timer; instead it lasts until floor exit or until 5 minutes of
+    real-time inactivity as an anti-softlock). While this buff is active, movement costs 50 energy
+    instead of 100 (double movement speed). +2 STS.
+    You essentially move and attack at double speed any floor where you've mutated at least once.
+  Balance: Permadeath tension — if the floor is short you may not mutate before combat starts.
+    Running Nuclear Research to block low-tier mutations means you might not trigger at all on a
+    floor where you never hit 150 rad.
+
+L6b — EXPLOSION HAZARD (passive, CAPSTONE)
+  Perk type: passive
+  Effect: When you would take crash damage (from Unstable Core / Death Or Glory), instead of
+    just taking HP damage, you also explode: 5 rad damage to all adjacent enemies and
+    irradiate them for 20 rad each. The crash is now a weapon.
+    Additionally: freak_speed_stacks never decrement — once earned this floor, stacks persist
+    until floor exit even after speed buffs end. Melee damage bonus from freak_speed_stacks is now
+    permanent (doesn't require buff to be active): each stack = +2 melee bonus all floor.
+    This path pairs with Death Or Glory: each crash = explosion = more kills = more exp = more
+    rad from combat = more mutations = more speed buffs.
+  Design note: The wild path. You become an exploding mutation engine. Weaker than Speed God
+    for pure speed but more dynamic in actual combat.
+
+
+==========================================================================
+VARIATION 5: "BODY HORROR" — Mutation Stacking
+==========================================================================
+Shape: Long Trunk Y
+Fantasy: You obsessively track every single mutation that has ever happened
+  to you. The mutations compound each other. By the late run, your body
+  is a catalogue of modifications and each new one resonates with all the others.
+
+TREE DIAGRAM:
+
+    L1: Catalogue
+          |
+    L2: Resonance
+          |
+    L3: Compound Effect
+          |
+    L4: Living Record
+         / \
+        /   \
+  L5a: Mass  L5b: Deep
+  Accumulate  Memory
+  (capstone)  (capstone)
+
+TRUNK:
+
+L1 — CATALOGUE (passive)
+  Perk type: passive + stat
+  Effect: +1 BKS. Gain the "Catalogue" passive: mutation_count is now displayed in the character
+    sheet under a new line "Mutations: [count]". Each mutation grants +10 HP (temporary for the
+    floor, stored as temp HP so it follows Temp HP → Armor → HP absorption order). The first
+    5 mutations of the run grant +5 permanent HP each (i.e., effectively +1 CON equivalent split
+    across 5 mutations). Catalog flavor text appears on each mutation: "Body adapts. [count] modifications."
+
+L2 — RESONANCE (passive)
+  Perk type: passive
+  Effect: For every 3 mutations accumulated (checked via mutation_count % 3 == 0), gain a permanent
+    +1 to a random stat. This is additional to normal mutation outcomes — it fires after the mutation
+    resolves. At 3 mutations: +1 random stat. At 6: another. At 9: another. Etc.
+    The resonance bonus stat is fully random — this is the "mutations synergizing" flavor.
+
+L3 — COMPOUND EFFECT (passive)
+  Perk type: passive
+  Effect: Bad mutation penalties are reduced based on your total mutation count:
+    - For every 5 mutations in mutation_count, bad weak stat loss reduced by 0.1 (floor to 0 min).
+      At 5 mutations: bad weak = -0.9 → -1 still (it's an integer, so rounds). At 10: -0.8.
+      At 15: -0.7. Actually implement as: bad weak stat penalty blocked with probability
+      (mutation_count * 0.05), max 75%. So at 15 mutations: 75% chance the bad weak does nothing to stats.
+    - For Strong bad: blocked with probability (mutation_count * 0.02), max 40%.
+    - For Huge bad: equipment loss blocked with probability (mutation_count * 0.01), max 20%.
+  Design note: The longer the run and the more mutations, the more you're protected. This is
+    "experience protects you" expressed mechanically.
+
+L4 — LIVING RECORD (passive + stat)
+  Perk type: passive + stat
+  Effect: +2 to all stats (flat, permanent). Mutation XP is doubled from this point forward
+    (mutation_xp_multiplier = 2.0 on top of any existing multipliers). Also: the Resonance
+    perk (L2) now fires for every 2 mutations instead of every 3. The compound is accelerating.
+  Design note: Long trunk rewards commitment. By the time you take L4, you should have 10-20
+    mutations already logged, meaning the L2 Resonance has already given several free stat points
+    and Compound Effect is already providing meaningful protection.
+
+CAPSTONE SPLIT:
+
+L5a — MASS ACCUMULATE (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: Every mutation now grants the following based on tier:
+    - Weak (any polarity): +3 melee damage permanently (mutation_melee_bonus +3).
+    - Strong (any polarity): +5 melee damage + +5 max HP permanently.
+    - Huge (any polarity): +10 melee damage + +10 max HP + +1 to all stats permanently.
+  The "any polarity" is critical — bad mutations now give power too. Every outcome is
+  win/win. You take the stat hit from bad mutations, but you gain the combat power regardless.
+  At 10 mutations (average 3-4 Weak, 4-5 Strong, 1-2 Huge): approximately +20-40 melee damage bonus.
+  Balance: Very strong in long runs. In short runs (few mutations), weaker than single-mutation-control
+    options. Permadeath risk is higher because you need volume of mutations to unlock the full power.
+
+L5b — DEEP MEMORY (passive, CAPSTONE)
+  Perk type: passive
+  Effect: All past mutations are "remembered." The Deep Memory passive applies a retroactive bonus:
+    for every mutation in mutation_count, gain +2% of the positive stat changes that mutation
+    would have given if it had been Good. This is computed as: for each mutation in count,
+    add (mutation_count * 0.02) to a permanent "memory bonus" float applied to melee damage and
+    defense calculations. Concretely: at 20 mutations, +40% bonus applied to your base STR for
+    melee damage and to your base SWG for defense purposes. Effective multiplier on combat stats.
+    Additionally: once per run, the Deep Memory ability allows you to "recall" a mutation from
+    memory — recovering 200 HP and clearing all active debuffs (this is the memory of being whole).
+  Design note: More thematic than Mass Accumulate. The retroactive compensation makes bad
+    mutations feel "rewound" over time. The heal ability is a safety net.
+  Synergies: Pairs strongly with Perfect Balance (Var 3 capstone) concept but as a standalone:
+    Deep Memory essentially gives you ghost-gains from every bad mutation as a damage multiplier,
+    making bad mutations almost welcome.
+
+
+==========================================================================
+VARIATION 6: "FALLOUT PROPHET" — Rad Spreader
+==========================================================================
+Shape: Inverted Y
+Fantasy: You are not a victim of radiation. You are its source. Two origin
+  stories — passive contaminator or aggressive irradiator — both lead to
+  the same nightmare: you irradiate everything around you as an ambient fact
+  of your existence.
+
+TREE DIAGRAM:
+
+  [BRANCH A: Carrier]   [BRANCH B: Vector]
+  L1a: Passive Emission  L1b: Active Spread
+  L2a: Contamination Zone L2b: Targeted Fallout
+             \               /
+              \             /
+          L3: Fallout Prophet (convergence)
+                    |
+          L4: Living Reactor (capstone)
+
+BRANCH A: Carrier (passive contaminator)
+
+L1a — PASSIVE EMISSION (passive)
+  Perk type: passive + stat
+  Effect: You emit a constant low-level radiation field. GlowingEffect is permanently active:
+    all entities within 1 tile gain 3 rad per energy tick (enemy-tick, not player-tick).
+    This is roughly 3 rad/turn for adjacent enemies. +1 TOL (your body tolerates its own output).
+    You also gain 2 rad per tick yourself (you irradiate yourself slightly; this fuels mutation triggers).
+  Note: This is Branch A start — player chooses L1a OR L1b, not both.
+
+L2a — CONTAMINATION ZONE (passive)
+  Perk type: passive
+  Effect: Emission range increases from 1 to 2 tiles (irradiate_splash_radius = 2).
+    Irradiation rate from proximity increases from 3 to 6 rad/tick for adjacent (1 tile),
+    and 3 rad/tick for 2-tile radius. You also leave "hot spots" — when you move off a tile,
+    that tile radiates 3 rad to any entity that steps on it for the next 5 turns. This creates
+    a trailing contamination path as you move.
+  Design note: Enemies following you get irradiated on their approach path. Kiting behavior is now
+    a contamination delivery tool.
+
+BRANCH B: Vector (active irradiator)
+
+L1b — ACTIVE SPREAD (passive + activated)
+  Perk type: activated
+  Ability: rad_burst (INFINITE, cooldown 8t)
+    Consume 75 rad → deal 8 rad damage to all adjacent entities AND irradiate them 20 rad.
+    This is the active version of what Branch A does passively — more burst, less ambient.
+    +1 STS (aiming the burst requires focus).
+  Note: This is Branch B start — player chooses L1a OR L1b, not both.
+
+L2b — TARGETED FALLOUT (passive + activated)
+  Perk type: activated
+  Ability: rad_pulse (PER_FLOOR 2)
+    Consume 50 rad → irradiate all visible enemies for 15 rad each. No damage, just irradiation.
+    Multiple enemies hit simultaneously. Used to set up enemy mutations (see below).
+  Passive: Enemies with 75+ rad have a 5% chance per energy tick to mutate — this is the enemy
+    mutation mechanic. When an enemy mutates: 60% bad mutation (they take -1-5 HP as a one-time event
+    and gain a debuff "Mutated: confused" for 10t, -30% to hit), 40% good mutation (they gain +2
+    melee damage for 10t — but at 40% rate and only under active irradiation management, this is
+    rare and controllable). You are manipulating the enemies' own genomes as a weapon.
+
+CONVERGENCE:
+
+L3 — FALLOUT PROPHET (passive)
+  Perk type: passive + stat
+  Effect: +2 TOL, +1 CON. Your irradiation aura (from either path) now also applies a "contaminated"
+    debuff to affected enemies: -20% movement speed (they become sluggish) and -10% to-hit chance
+    per 50 rad they carry (stacks up to -40% to-hit at 200+ rad). Enemies drowning in your fallout
+    fight with increasing inefficiency. The player themselves gains rad_resistance +20% from this perk.
+  Design note: Convergence power. Both paths have different delivery (ambient vs. burst), but
+    both now benefit from enemies being heavily irradiated as a debuff system.
+
+L4 — LIVING REACTOR (passive, CAPSTONE)
+  Perk type: passive + activated
+  Ability: contaminate_aura (INFINITE toggle)
+    Toggle a full contamination aura: 3-tile radius, irradiates all enemies 3 rad/tick.
+    While active, you also gain 1 rad/tick (the output irradiates you slightly).
+    This ability has no charge cost — it's simply on or off.
+  Passive: contamination_cloud_active flag is now permanent. Whether the toggle ability is on or off,
+    a residual 1-tile, 2 rad/tick baseline remains. The minimum emission never turns off.
+    Additionally: when any enemy dies with 150+ rad, they "detonate" — dealing (enemy_rad / 20) damage
+    to all entities within 2 tiles, and irradiating them for 30 rad. Enemies become radiation bombs
+    when they die at high irradiation. This synergizes catastrophically with Targeted Fallout (L2b)
+    — pulse an entire room, enemies detonate when killed, their explosions irradiate the next group.
+  Synergies: Glow Up's Emission and Fallout both accelerate enemy rad accumulation. Nuclear Research's
+    Rad Bomb becomes lethal when aimed at a group of 150+ rad enemies (it detonates them).
+
+
+==========================================================================
+VARIATION 7: "SCAR TISSUE" — Adaptive Defense
+==========================================================================
+Shape: Ladder / Zigzag
+Fantasy: Every wound makes you stronger. Every bad mutation leaves scar tissue.
+  You play a choose-your-own-pain game where the two choices at each fork
+  determine whether you're building a body that absorbs everything,
+  or one that adapts and improves from any harm.
+
+TREE DIAGRAM:
+
+    L1: Scar Tissue (shared)
+       / \
+  L2a: Hard  L2b: Flex
+  Callus     Tissue
+       \ /
+    L3: Regenerative Adaptation (shared)
+       / \
+  L4a: Ablative  L4b: Reactive
+  Shell          Response
+       \ /
+    L5: Immortal Body (capstone, shared)
+
+TRUNK L1:
+
+L1 — SCAR TISSUE (passive)
+  Perk type: passive + stat
+  Effect: +1 CON. Gain the scar_tissue_hits tracker. Whenever you receive any HP damage, gain
+    1 scar_tissue_hit. For every 10 scar_tissue_hits accumulated over the run, gain +1 permanent DR
+    (stored in adaptive_dr_bonus). This is entirely run-wide. At 50 total hits taken: +5 DR.
+    At 100 total hits taken: +10 DR. This is a "tank XP" system — getting hit makes you harder.
+
+FORK 1 (choose one):
+
+L2a — HARD CALLUS (passive + stat)
+  Perk type: passive + stat
+  Effect: +2 CON, +1 SWG. Bad mutations now grant +1 DR immediately upon resolving (in addition
+    to their normal stat penalty — you take the hit but your skin gets harder). Bad weak: -1 stat, +1 DR.
+    Bad strong: -3 stat, +2 DR. Bad huge: full normal penalties, +3 DR.
+    Hard Callus DR does not have a cap (unlike scar_tissue_hits which caps at +10; this adds on top).
+  Design note: Leans into taking damage as a resource. Pairs with high-mutation builds.
+
+L2b — FLEX TISSUE (passive)
+  Perk type: passive
+  Effect: Whenever you receive any damage, 15% of that damage is converted to temporary HP on
+    your NEXT turn (not this turn, preventing abuse). Max 20 temp HP regenerated this way per floor.
+    Also: incoming rad damage is reduced by 30%. You're adapting to what hurts you.
+  Design note: More defensive survivability path. Lower raw DR gain but consistent damage mitigation.
+
+SHARED L3:
+
+L3 — REGENERATIVE ADAPTATION (passive)
+  Perk type: passive
+  Effect: Between floors (on floor transition), gain HP equal to (adaptive_dr_bonus * 2 + mutation_count * 1).
+    This is a meaningful heal for Scar Tissue builds. At 5 DR + 10 mutations = 20 HP healed on
+    each floor transition. Also: +10% rad_resistance.
+  Design note: The ladder convergence rewards both paths. Hard Callus players have more DR going in
+    (better heal). Flex Tissue players have more mutations going in (also good heal, different source).
+
+FORK 2 (choose one):
+
+L4a — ABLATIVE SHELL (passive + stat)
+  Perk type: passive + stat
+  Effect: +2 SWG, +1 CON. At the start of each floor, gain temp HP equal to (mutation_count * 3 + adaptive_dr_bonus * 5).
+    This is AdaptiveShieldEffect. At 10 mutations + 5 DR = 55 temp HP at floor start. Scales hard.
+    Also: this temp HP absorbs rad damage (treat as HP for rad damage calculations).
+  Design note: The "turtle" path. You start each floor with a huge buffer. Pairs with Scar Tissue
+    (more hits = more DR = more temp HP) and with Fallout Prophet (rad detonation damage hits temp HP).
+
+L4b — REACTIVE RESPONSE (passive + activated)
+  Perk type: passive + activated
+  Ability: absorb_rad (INFINITE, cooldown 15t)
+    Consume 100 rad → heal 15 HP and gain +3 DR for 20t (temporary DR on top of permanent).
+    Effectively: convert rad surplus into healing and defense.
+  Passive: When your HP drops below 30%, gain BerserkerSurgeEffect automatically (once per floor).
+    You go berserk when bloodied. +1 STS.
+  Design note: The "reactive" path. You respond to threats dynamically rather than pre-loading
+    defense. The absorb ability is flexible and recharging.
+
+CAPSTONE (shared):
+
+L5 — IMMORTAL BODY (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: +3 CON, +2 SWG. Your body has become a monument to survival:
+    1. scar_tissue_hits now grant +1 permanent max HP every 5 hits (on top of the DR from L1).
+       At 50 hits: +5 DR + +10 max HP permanent. At 100 hits: +10 DR + +20 max HP.
+    2. Bad mutations no longer reduce stats below their initial (Level 1) values. You cannot
+       have a stat permanently reduced below what it was when you first entered the game.
+       Equipment loss from bad Huge still applies.
+    3. Once per run, automatically avoid death: if you would reach 0 HP, survive at 1 HP instead.
+       This is a traditional roguelike death save. Only works once. Log message: "Scar tissue holds."
+  Balance: The death save makes this one of the most powerful capstones in the game. Justified by
+    the extremely long investment chain (5 perks, two fork choices, no shortcuts).
+  Synergies: Pairs with literally every defensive system in the game. Meth Lab zone's toxicity
+    multiplier becomes less threatening with +10+ DR and +20+ max HP from scar tissue.
+
+
+==========================================================================
+VARIATION 8: "YELLOWCAKE PROTOCOL" — Forced Tier Manipulation
+==========================================================================
+Shape: Trident
+Fantasy: You've cracked the mutation code. Weak mutations are beneath you.
+  You force every mutation up to Strong or Huge tier, then specialize in
+  what to do with the resulting chaos — control the odds, weaponize the
+  process, or squeeze the system for maximum XP.
+
+TREE DIAGRAM:
+
+    L1: Skip Ahead
+          |
+    L2: Yellowcake Protocol
+       / |  \
+      /  |   \
+  L3a: L3b:  L3c:
+  Sure  Raw   XP
+  Thing Power  Harvest
+   |         (solo cap)
+  L4a:  L5: Convergence
+  Huge  (L3a+L3b merge)
+  Only   |
+  (cap) L5: Twin Towers (cap)
+
+Note: Trident shape — L3a and L3b reconverge at L5 (Twin Towers), L3c stays solo (XP Harvest).
+
+TRUNK:
+
+L1 — SKIP AHEAD (passive)
+  Perk type: passive
+  Effect: mutation_tier_skip_weak = True. The minimum mutation tier is now Strong (125+ rad required,
+    costs 125 rad). Passive mutation triggers at 75-124 rad simply do nothing. At 125+ rad,
+    mutations can occur but will be Strong tier at minimum.
+    Also: When a Strong tier mutation occurs, gain +50 bonus mutation XP.
+  Design note: This fundamentally changes your radiation management. You now need to reach 125 rad
+    before anything happens. Pairs with Nuclear Research's "Inoculation" (which also sets 150 rad
+    minimum) but Skip Ahead sets 125 as the floor. The combination would be 150 minimum.
+    You are explicitly trading mutation frequency for mutation quality.
+
+L2 — YELLOWCAKE PROTOCOL (passive + stat)
+  Perk type: passive + stat
+  Effect: +1 BKS, +1 STS. Whenever a Strong tier mutation fires (now the minimum due to L1),
+    it has a 30% chance to automatically upgrade to Huge tier for free (no additional rad cost,
+    the player just pays the Strong rad cost of 125 and gets a Huge outcome).
+    This stacks with Directed Evolution (Var 3 L3) — if you have both, you can spend rad to force
+    the upgrade AND there's a 30% free upgrade chance on top.
+    Good mutation base bonus +0.15 (cumulative, now ~48%).
+
+BRANCH A: Sure Thing (reliability)
+
+L3a — SURE THING (passive)
+  Perk type: passive
+  Effect: +0.30 to mutation_good_base_bonus (cumulative: now ~78% good base before multipliers).
+    Additionally: once per floor, inoculate_self ability:
+  Ability: inoculate_self (FLOOR_ONLY 1)
+    Consume 100 rad → guarantee the next mutation is Good polarity. The tier is still random/determined
+    by rad level, but the polarity is locked to Good. This ability's floor charge refreshes each floor.
+  Design note: Very high good% combined with tier control (Strong minimum) means virtually every
+    mutation outcome is Good Strong (at minimum), which permanently adds +3 stat + skill level + SP.
+
+L4a (capstone only if NOT taking Branch B) — HUGE ONLY (passive, CAPSTONE)
+  Perk type: passive
+  Effect: forced_huge_next is now permanent (every mutation triggers at Huge tier — pays Huge's 200 rad
+    cost from your pool). The minimum rad threshold remains 125 (from L1) but mutations will spend
+    200 rad when they fire (requiring you to stay above 125 rad when the trigger fires, and have
+    200+ rad for the Huge cost). If you have less than 200 rad, the mutation fires as Strong instead.
+    Also: Good Huge mutation stat bonuses are tripled (+15 to single stat, +6 all stats, 15 skill levels).
+    +3 CON.
+  Balance: Extreme. Each Good Huge mutation (with ~78% good chance + Sure Thing) gives +15 to one stat,
+    +6 all stats, +15 skill levels. At even 3-4 of these per run, the stats become ridiculous. The
+    limitation is that you need to maintain 200 rad, which requires ignoring most good-rad-reducing
+    items and actively seeking rad sources.
+  Design note: This is the Branch A solo capstone. You can't take this AND Twin Towers.
+
+BRANCH B: Raw Power (per-mutation damage scaling)
+
+L3b — RAW POWER (passive + stat)
+  Perk type: passive + stat
+  Effect: +2 STR. Each Strong or Huge mutation (any polarity) permanently increases melee damage
+    by 3 (mutation_melee_bonus +3 per Strong, +6 per Huge). The stat loss from bad mutations is
+    accepted as a cost of doing business. At 5 Strong mutations: +15 melee bonus. At 5 Huge: +30.
+    Also: +10% rad_gain_multiplier_bonus (get more rad = more Strong/Huge triggers).
+
+RECONVERGENCE (L3a + L3b merge to L5):
+
+L5 — TWIN TOWERS (passive, CAPSTONE — requires L3a AND L3b)
+  Perk type: passive + stat
+  Effect: +3 STR, +3 BKS. Combines the effects:
+    - Good mutation% from Sure Thing path is applied to the Raw Power damage scaling, meaning
+      each Good Strong mutation gives +3 stat AND +3 melee bonus.
+    - Each Huge mutation (any polarity) now grants ALL of: +6 melee bonus, +1 all stats,
+      the BKS-scaling ability to deal (BKS * 2) bonus rad damage on next hit (lasts 20t).
+    - The 30% free Huge upgrade chance from Yellowcake Protocol now applies to every mutation
+      without exception.
+    Requires that you've taken BOTH L3a and L3b (this is a converging trident path,
+    not a Y-split — you pick Branch A, then Branch B, or vice versa, spending 2 perk levels
+    to converge here).
+  Note to implementer: Trident convergence requires player to have unlocked both L3a AND L3b
+    before the L5 convergence perk becomes available. This means 5 perks: L1+L2+L3a+L3b+L5.
+    It is the most expensive path in this document.
+
+BRANCH C: XP Harvest (solo, no reconvergence)
+
+L3c — XP HARVEST (passive, CAPSTONE — solo)
+  Perk type: passive + stat
+  Effect: Mutation XP is now triple the base rate (mutation_xp_multiplier = 3.0). Each Strong
+    mutation grants 750 XP toward Mutation skill (3x 250). Each Huge grants 1500 XP (3x 500).
+    Additionally: mutation XP is spread to all skill trees you currently have XP in, at a rate
+    of 10% overflow. So a 750 XP mutation event gives 750 to Mutation AND 75 XP each to up to
+    3 other skilled trees you've been investing in.
+    +2 BKS, +1 STS (you are a student of your own evolution).
+  Design note: This is the "I am leveling via mutations" build. Combined with Skip Ahead (Strong minimum)
+    and Yellowcake Protocol (30% free Huge), each mutation is worth enormous XP. The overflow mechanic
+    means you're cross-leveling all your other skill trees too. A Mutation-primary build with 5-8 Strong
+    Huge mutations per run could be 60-70% of the way through multiple other skill trees.
+  Balance: XP doesn't help you survive. This is a late-game-accelerator, not a combat build. Works
+    best in tandem with active combat skill trees (Stabbing, Gatting) that benefit from the bonus XP.
+
+
+==========================================================================
+VARIATION 9: "THE EXPERIMENT" — Double Diamond (Risk/Reward RNG)
+==========================================================================
+Shape: Double Diamond
+Fantasy: Every choice you make about your mutations feeds into the next choice.
+  A double-diamond of calculated risks where good paths open more options and
+  bad outcomes close them. One capstone at the top, but four very different
+  roads to get there.
+
+TREE DIAGRAM:
+
+    L1: Guinea Pig
+       /         \
+  L2a: Positive   L2b: Negative
+  Feedback        Feedback
+       \         /
+        L3: Mutagenic Cascade (convergence)
+       /         \
+  L4a: Amplify    L4b: Negate
+  Good            Bad
+       \         /
+        L5: Genome Complete (capstone)
+
+DIAMOND 1:
+
+L1 — GUINEA PIG (passive + stat)
+  Perk type: passive + stat
+  Effect: +1 to all stats. Take a free mutation immediately on unlock (same as existing Mutagen perk).
+    Additionally: last_mutation_was_good and mutation_streak are now tracked. Mutation XP +50 flat bonus
+    per event. The streak tracking is purely mechanical setup for the two L2 branches.
+
+L2a — POSITIVE FEEDBACK (passive)
+  Perk type: passive
+  Effect: When last_mutation_was_good is True (your most recent mutation was good):
+    - Next passive mutation trigger chance is tripled (one-time bonus; resets after next mutation).
+    - Good mutations add an extra +1 to their stat bonus (Good weak = +2, Good strong = +4, etc.).
+    Momentum builds on good luck. After a good mutation, you're more likely to get another one
+    and the benefits are larger.
+
+L2b — NEGATIVE FEEDBACK (passive)
+  Perk type: passive
+  Effect: When last_mutation_was_good is False (your most recent mutation was bad):
+    - Next good mutation chance is increased by +0.40 base bonus (one-time, resets after).
+    - Bad mutations grant +50 rad instead of costing you rad (wait — bad mutations normally cost
+      rad; instead they give 50 rad back, partially refunding the cost). Bad weak still costs
+      50 rad but you get 50 back = net 0 rad cost. Bad strong costs 125 but you get 50 back = 75 net.
+    The universe corrects itself. Bad luck begets good luck.
+
+CONVERGENCE L3:
+
+L3 — MUTAGENIC CASCADE (passive)
+  Perk type: passive
+  Effect: mutation_streak now grants bonuses:
+    - After 2 consecutive same-polarity mutations: next mutation of opposite polarity cannot occur
+      (forced to same polarity as streak). E.g., two goods in a row → third mutation is also good.
+    - After 3 consecutive: the streak bonus (extra stat for positive; rad refund for negative)
+      from L2 persists for 3 turns instead of just the next mutation.
+    Also: +20% to rad_gain_multiplier_bonus.
+  Design note: The convergence creates a momentum system. Either path (Positive Feedback or Negative
+    Feedback) can now build a streak, and the streak locks in favorable conditions for multiple mutations.
+
+DIAMOND 2:
+
+L4a — AMPLIFY GOOD (passive + stat)
+  Perk type: passive + stat
+  Effect: +2 STR, +1 BKS. Good mutations have all effects doubled:
+    - Good weak: +2 stat, +20% resist, +200 SP.
+    - Good strong: +6 stat, +2 skill levels, +400 SP, +10% briskness, +6 DR.
+    - Good huge: +10 stat, +4 all stats, +10 skill levels, +10% briskness, +10 DR.
+    Mutation streak of 3+ good mutations: the 4th good mutation is treated as the next tier up
+    (Weak→Strong→Huge) with no additional rad cost. The cascade amplifies and upgrades.
+
+L4b — NEGATE BAD (passive + stat)
+  Perk type: passive + stat
+  Effect: +2 CON, +1 STS. Bad mutations are partially negated:
+    - Bad weak: stat reduced by 0 (fully negated), still costs rad, still awards 100 XP.
+    - Bad strong: stat reduced by 1 (instead of 3), skill level loss negated.
+    - Bad huge: equipment loss negated; stat reduced by 2 (instead of 5), all-stats reduction by 1.
+    This does not make bad mutations good — they still cost rad and have reduced (but present) penalties.
+    Mutation streak of 3+ bad mutations: the streak is broken forcibly (next mutation is always Good).
+
+CAPSTONE (shared):
+
+L5 — GENOME COMPLETE (passive, CAPSTONE)
+  Perk type: passive + stat
+  Effect: +3 to all stats (permanent). The double-diamond paths combine:
+    The Amplify Good bonuses are now also applied when Negate Bad is active, and vice versa.
+    In other words: good mutations give doubled stats AND bad mutations are negated.
+    Additionally: mutations can no longer be bad Huge (the worst tier of bad mutation is capped
+    at bad Strong). You may still get bad outcomes, but you will never lose your equipment
+    from mutations again for the rest of the run.
+    One final bonus: gain genome_splice ability (ONCE per run) — see ability definition above.
+    The genome is complete. You choose one final perfect mutation.
+  Balance: The combined effect of Amplify Good + Negate Bad + no bad Huge + genome_splice is
+    genuinely powerful but requires 5 perks in this tree (L1+L2+L3+L4+L5). The investment is real.
+  Synergies: The path you took through Diamond 1 (L2a vs L2b) still matters: Positive Feedback
+    players have slightly better good-mutation amplification (the streak mechanic still works).
+    Negative Feedback players have better bad-mutation mitigation (the rad refund still works).
+    The capstone merges both; the mid-tree perks make the journey different.
+
+
+==========================================================================
+VARIATION 10: "DARWIN AWARD" — Asymmetric Y (High-Speed Obliteration)
+==========================================================================
+Shape: Asymmetric Y
+Fantasy: One path ends fast and hard — a single devastating capstone for
+  players who want immediate power and are willing to pay with their genome.
+  The other path is a long slow-burn commitment to the ultimate mutation
+  supremacy build in the game. Two very different levels of ambition.
+
+TREE DIAGRAM:
+
+    L1: Primordial Soup
+          |
+    L2: Darwin's Law
+         / \
+        /   \
+  [BRANCH A: Short]  [BRANCH B: Long]
+  L3a: Award         L3b: Patient
+  (CAPSTONE, 1 perk)       |
+                      L4b: Recombination
+                           |
+                      L5b: Perfect Organism
+                       (CAPSTONE, 3 perks)
+
+TRUNK:
+
+L1 — PRIMORDIAL SOUP (passive + stat)
+  Perk type: passive + stat
+  Effect: +1 to all six stats (CON, STR, STS, BKS, TOL, SWG). Immediately trigger a forced
+    Strong mutation (not Huge, not Weak — exactly Strong). This is different from normal Mutagen
+    (which is any tier at current rad level). The Strong mutation fires at current polarity odds.
+    This perk establishes that you are committed to QUALITY mutations.
+  Design note: The +1 all stats is deliberately generous as an L1 perk because this tree
+    has a short branch (L3a) that ends immediately and a long branch (L5b) that requires maximum
+    commitment. Both branches need a strong foundation.
+
+L2 — DARWIN'S LAW (passive)
+  Perk type: passive
+  Effect: Good mutation base bonus +0.30 (cumulative: ~63% good chance base).
+    mutation_trigger_multiplier = 1.5x (50% more frequent passive triggers).
+    Also: the free Strong mutation from Primordial Soup now fires again (second free Strong mutation).
+    You get two free Strong mutations just from taking L1 + L2.
+  Design note: Very front-loaded power. L1+L2 alone give +1 all stats, +2 free Strong mutations (likely
+    good at 63% chance each), and a 50% faster mutation rate. This is intentional — both branches
+    of the Asymmetric Y get to build from this powerful trunk.
+
+BRANCH A: Short Path
+
+L3a — DARWIN AWARD (passive, CAPSTONE — short branch)
+  Perk type: passive + stat
+  Effect: +3 STR, +3 CON. This is explicitly the "wrong evolution" choice in terms of raw power
+    ceiling, but it's immediately available after just L1+L2:
+    For every current mutation in mutation_count, gain +2 melee damage permanently (retroactive).
+    If you've already had 5 mutations from Primordial Soup + Darwin's Law + earlier play: +10 melee bonus immediately.
+    Additionally: mutation_trigger_multiplier increases to 3x (from the 1.5x at L2). Mutations happen
+    very frequently. For every 10 mutations total, gain +1 to all stats (permanent).
+    At 30 total mutations: +3 all stats bonus from this perk alone.
+    You pay no more perk points. This branch is done at L3.
+  Design note: The "fast food" build. You spent 3 perk levels, you got massive melee scaling and
+    mutation frequency, and you stop there. Excellent for players who don't want to commit to a long
+    investment chain. The short branch is ALSO a valid strategy — not a trap.
+  Balance: The Branch B capstone (Perfect Organism) is arguably more powerful ceiling, but Darwin
+    Award activates 2 levels earlier, leaving those 2 perk levels for OTHER skill trees.
+
+BRANCH B: Long Path
+
+L3b — PATIENT EVOLUTION (passive)
+  Perk type: passive
+  Effect: Minimum mutation tier raised to Strong (mutation_tier_skip_weak = True). Strong minimum.
+    Each Strong mutation grants +150 bonus mutation XP (on top of base 250 = 400 total). Each Huge
+    grants +300 bonus (on top of base 500 = 800 total). You are accumulating mutation XP at
+    extraordinary rates.
+    Also: Yellowcake Protocol synergy: if Yellowcake food is consumed, the 10x mutation trigger rate
+    now also has a 50% chance to upgrade each Strong trigger to Huge automatically (additional to the
+    food's normal effects).
+
+L4b — RECOMBINATION (passive + activated)
+  Perk type: passive + activated
+  Ability: forced_evolution (PER_FLOOR 1)
+    Spend 150 rad → trigger one Strong mutation immediately (does not consume additional rad for
+    the mutation cost — the 150 rad IS the cost). This is a manually triggered Strong mutation,
+    once per floor, at your current good-mutation odds. At the ~63% good chance from Darwin's Law:
+    63% chance of +3 stat, +1 skill level, +5% briskness, +3 DR for free.
+  Passive: each forced_evolution use reduces the next natural mutation's rad cost by 25 rad.
+    Also: +2 BKS, +1 STS.
+
+L5b — PERFECT ORGANISM (passive, CAPSTONE — long branch)
+  Perk type: passive + stat
+  Effect: +3 to all stats. The culmination of the long path:
+    1. All Strong mutations are treated as Huge (for effects only; rad cost stays at 125).
+       You pay 125 rad but get Huge mutation outcomes: +5 single stat, +2 all stats, +5 skill levels,
+       +5% briskness, +5 DR. At 63%+ good chance from trunk perks.
+    2. Bad mutations of any tier no longer reduce stats. They still fire and cost rad, but all
+       penalties to stats, skill levels, SP, and equipment are negated. Mutations are either a blessing
+       (good polarity) or a void (bad polarity — costs rad but does nothing harmful).
+    3. Gain genome_splice ability (ONCE per run) — choose a perfect mutation at any time.
+    4. forced_evolution (from L4b) now fires TWICE per floor (2 charges/floor) instead of once.
+  Balance: This is the highest-ceiling single-tree capstone in the entire document. But it costs:
+    L1+L2+L3b+L4b+L5b = 5 perk levels, AND requires the long path setup. The player will
+    also have spent turns/floors accumulating Strong+ mutations (minimum 125 rad threshold means
+    slower mutation rate than mutation-farming builds). Perfect Organism is a late-run payoff
+    for a very focused, patient investment.
+  Synergies: Pairs with Nuclear Research (Inoculation at 150 rad min + forced_evolution = every
+    floor you get 2 guaranteed Strong mutations, upgraded to Huge by this capstone, at 63%+ good
+    chance). Glow Up (Emission + Fallout for rad accumulation). Five Loco drink (multiplier
+    stacks push good chance toward 90%+). Yellowcake food (10x trigger rate on top of the already
+    frequent floor-based mutations). This is the mutation tree that synergizes with literally
+    everything in the game.
+
+
+==========================================================================
+CROSS-TREE SYNERGY TABLE
+==========================================================================
+
+  Variation → Nuclear Research  Glow Up  Chemical Warfare  White Power
+  1 Freakshow         **           *           -              -
+  2 Chernobyl Tank    *            **          -              *
+  3 Splice and Dice   **           -           -              -
+  4 Volatile Evo      -            *           -              -
+  5 Body Horror       *            -           -              -
+  6 Fallout Prophet   *            ***         -              -
+  7 Scar Tissue       -            *           *              *
+  8 Yellowcake Proto  **           *           -              -
+  9 The Experiment    *            -           -              -
+  10 Darwin Award     **           **          -              -
+
+  * = mild synergy  ** = strong synergy  *** = core synergy
+  Nuclear Research best pairs: Splice and Dice (V3), Freakshow (V1), Yellowcake (V8), Darwin (V10)
+  Glow Up best pairs: Fallout Prophet (V6), Darwin (V10), Chernobyl Tank (V2)
+
+==========================================================================
+IMPLEMENTATION NOTES
+==========================================================================
+
+New engine state fields (add to GameEngine.__init__ or per-floor reset logic):
+  - mutation_count: int = 0  # run-wide, never resets
+  - mutation_reroll_available: bool = False  # per-floor reset
+  - genome_locked_stat: str = ""  # per-floor reset
+  - rad_berserker_stacks: int = 0  # per-floor reset
+  - adaptive_dr_bonus: int = 0  # run-wide, never resets
+  - freak_speed_stacks: int = 0  # per-floor reset
+  - last_mutation_was_good: bool = False  # run-wide
+  - mutation_streak: int = 0  # run-wide
+  - irradiate_splash_radius: int = 0  # set by perks
+  - contamination_cloud_active: bool = False  # set by ability toggle
+  - forced_strong_next: bool = False  # set by abilities
+  - forced_huge_next: bool = False  # set by abilities
+  - mutation_xp_multiplier: float = 1.0  # additive bonuses stack here
+  - scar_tissue_hits: int = 0  # run-wide
+  - genome_splice_used: bool = False  # run-wide, once per run
+  - forced_evolution_charges: int = 0  # per-floor reset based on perks
+
+New PlayerStats fields (add to PlayerStats.__init__):
+  - rad_gain_multiplier_bonus: float = 0.0  # additive, applied in rad gain formula
+  - mutation_good_base_bonus: float = 0.0  # additive to 0.33 base in good chance formula
+  - mutation_trigger_multiplier: float = 1.0  # multiplies passive trigger rate
+  - mutation_tier_skip_weak: bool = False  # if True, ignore mutations below 125 rad threshold
+  - adaptive_dr: int = 0  # permanent DR from Scar Tissue perk (separate from temp DR)
+  - mutation_melee_bonus: int = 0  # flat melee damage bonus, added in _compute_player_attack_power
+  - rad_to_power_ratio: float = 0.0  # currently unused, reserved for future items
+  - mutation_count_mirror: int = 0  # mirrors engine.mutation_count for stat sheet display
+
+Mutation resolution hook points (in mutations.py):
+  - After tier determination: check mutation_tier_skip_weak, forced_strong_next, forced_huge_next
+  - After polarity determination: check genome_locked_stat, mutation_reroll_available, inoculate flags
+  - After full resolution: increment mutation_count, update last_mutation_was_good, mutation_streak,
+    fire Resonance bonus (V5 L2), apply Overexposure bonus stat (V1 L3a), fire Adrenaline Splice
+    speed buff (V4 L1), fire BerserkerSurgeEffect if in combat (V4), update scar_tissue mechanic
+    from bad mutations (V7), etc.
+  - Apply mutation_xp_multiplier to XP awarded before adding to skill
+
+Rad gain hook points (in entity.py or wherever rad is applied):
+  - Apply rad_gain_multiplier_bonus: final_rad = base_rad * (1 - rad_resistance/100) * (1 + rad_gain_multiplier_bonus)
+  - Check irradiate_splash_radius for ambient aura damage (V6 L2a, V6 L3)
+  - Check Rad Soak heal trigger (V2 L2b): 10% of incoming rad = HP heal
+  - Check Rad Hide defense calculation (V2 L1): current_rad // 50 = defense bonus (cap varies)
+
+Effects to implement:
+  - BerserkerSurgeEffect: +6 melee dmg + +20 speed for 8t. Stacks refresh.
+  - GlowingEffect: persistent (no timer); apply_to_adjacent(3 rad/tick) each enemy energy tick.
+  - ContaminationCloud: 3-tile radius, 3 rad/tick to all enemies. Toggle via ability.
+  - AdaptiveShieldEffect: applied on floor entry; temp HP = mutation_count * 3 + adaptive_dr_bonus * 5.
+  - PrimordialRageEffect: +12 melee, -50% defense, 15t. Triggered by Meltdown/Death or Glory.
+  - SplicedEffect: +2 chosen stat for 20t; purely cosmetic feedback on splice reroll.
+
+Priority order for effects in effects.py:
+  BerserkerSurgeEffect: priority 60 (offensive buff, above standard debuffs)
+  GlowingEffect: priority 20 (passive aura, low priority, fires on enemy turns)
+  PrimordialRageEffect: priority 70 (major combat state, high priority)
+  AdaptiveShieldEffect: priority 50 (defensive buffer, applied pre-combat)
+
+Files requiring changes:
+  - mutations.py: add mutation_count tracking, streak tracking, hook points for all perk effects,
+      tier-skip logic, forced_tier logic, genome_lock integration
+  - stats.py (PlayerStats): add new fields listed above
+  - engine.py: add engine state fields, per-floor reset in _start_new_floor(), mutation_xp_multiplier
+      applied in XP award calls
+  - effects.py: add new effect subclasses above
+  - abilities.py: add new AbilityDef entries for all new abilities listed in ability IDs section
+  - skills.py: define perk structures for whichever variations are selected for implementation
+
+==========================================================================
+BALANCE SUMMARY TABLE
+==========================================================================
+
+  Variation    Complexity  Power Floor  Power Ceiling  Run Risk
+  1 Freakshow       Med      High          Very High    Med (bad huge)
+  2 Chern. Tank     Low      Med           High         Low (tank build)
+  3 Splice/Dice     High     Med           Very High    Low (control)
+  4 Volatile Evo    Med      High          High         High (crashes)
+  5 Body Horror     Med      Low           Very High    Low (long run)
+  6 Fallout Proph   Med      Low           High         Med (enemy rad)
+  7 Scar Tissue     Low      Med           High         Very Low
+  8 Yellowcake      High     Med           Very High    Med (bad huge)
+  9 The Experiment  Med      Med           High         Med
+  10 Darwin Award   High     High          Extreme      Med (patient path)
+
+  Recommended for implementation: Variations 1, 4, 7, 10 (diverse playstyles,
+  cover: quantity/farming, berserker, tank, dual-path asymmetric).
+  Most synergy-rich: Variation 6 (Fallout Prophet, deepens Glow Up relationship).
+  Most mechanically novel: Variation 3 (Splice and Dice, mutation tier selection).

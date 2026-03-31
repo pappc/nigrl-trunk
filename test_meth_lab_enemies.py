@@ -43,8 +43,13 @@ def _make_engine():
 
 def _make_dungeon():
     """Create a minimal mock dungeon."""
+    from config import TILE_FLOOR
     dungeon = MagicMock()
     dungeon.entities = []
+    dungeon.width = 80
+    dungeon.height = 40
+    # All tiles are floor by default
+    dungeon.tiles = [[TILE_FLOOR] * 80 for _ in range(40)]
 
     def is_blocked(x, y):
         for e in dungeon.entities:
@@ -398,7 +403,7 @@ def test_chemist_template():
 
 
 def test_chemist_vial_creates_creep():
-    """Chemist vial creates toxic creep at player's tile."""
+    """Chemist vial creates 3x3 toxic creep AOE centered on player."""
     engine = _make_engine()
     dungeon = _make_dungeon()
     engine.dungeon = dungeon
@@ -410,24 +415,27 @@ def test_chemist_vial_creates_creep():
     chemist = create_enemy("chemist", 12, 10)  # distance 2 (within range 5)
     engine.handle_chemist_vial(chemist)
 
-    creep_at_player = [
+    # Should have creep in a 3x3 area (up to 9 tiles)
+    all_creep = [
         e for e in dungeon.entities
         if getattr(e, "hazard_type", None) == "toxic_creep"
-        and e.x == 10 and e.y == 10
     ]
+    assert len(all_creep) == 9  # 3x3 on open floor
+
+    creep_at_player = [e for e in all_creep if e.x == 10 and e.y == 10]
     assert len(creep_at_player) == 1
     assert creep_at_player[0].hazard_duration == 10
     assert creep_at_player[0].hazard_tox_per_turn == 5
 
 
 def test_chemist_vial_no_double_stack():
-    """Chemist doesn't create creep if one already exists at target."""
+    """Chemist doesn't create creep if one already exists at a tile."""
     engine = _make_engine()
     dungeon = _make_dungeon()
     engine.dungeon = dungeon
     engine.player.x, engine.player.y = 10, 10
 
-    # Pre-place creep
+    # Pre-place creep at player's tile
     existing_creep = create_toxic_creep(10, 10, duration=5, tox_per_turn=3)
     dungeon.add_entity(existing_creep)
 
@@ -442,7 +450,14 @@ def test_chemist_vial_no_double_stack():
         if getattr(e, "hazard_type", None) == "toxic_creep"
         and e.x == 10 and e.y == 10
     ]
-    assert len(creep_at_player) == 1  # Still just the original
+    assert len(creep_at_player) == 1  # Still just the original at player's tile
+
+    # But other tiles in the 3x3 should have new creep (8 surrounding tiles)
+    all_creep = [
+        e for e in dungeon.entities
+        if getattr(e, "hazard_type", None) == "toxic_creep"
+    ]
+    assert len(all_creep) == 9  # 1 existing + 8 new
 
 
 # ══════════════════════════════════════════════════════════════════════════════

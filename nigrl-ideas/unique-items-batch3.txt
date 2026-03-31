@@ -1,0 +1,1673 @@
+================================================================================
+NIGRL UNIQUE ITEMS — BATCH 3 (25 Items)
+Design Document
+================================================================================
+
+Each entry covers:
+  - Slot / Category
+  - Item ID (snake_case, for ITEM_DEFS key)
+  - Display Name
+  - ASCII char + color
+  - Core Mechanic
+  - Detailed Mechanical Specification
+  - Implementation Notes (fields, new state, new effects required)
+  - Balance Considerations
+  - Synergies & Interactions
+
+Slot distribution: 5 Weapons (1 stabbing, 2 beating, 2 slashing), 1 Sidearm,
+  4 Rings, 4 Neck, 4 Feet/Boots, 4 Hats, 3 Consumables
+
+================================================================================
+WEAPONS (5 Items)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 1: Jawbreaker
+--------------------------------------------------------------------------------
+Slot:         weapon (beating)
+Item ID:      jawbreaker
+Char:         / — color (255, 230, 80) — bright yellow
+Zones:        [] (unique, no spawn)
+Value:        250
+Tags:         ["jawbreaker", "unique"]
+Name Gradient: [(255, 230, 80), (255, 80, 80)]
+
+CONCEPT:
+A massive jawbreaker candy taped to a wooden dowel. Ridiculous, sticky, and
+surprisingly devastating. The sugar coating accumulates on enemies as it hits,
+building up a "Sugarcrust" debuff that shatters on a crit for bonus damage.
+
+MECHANICAL SPECIFICATION:
+  base_damage: 10
+  str_req: 8
+  reach: 1
+  weapon_type: "beating"
+  str_scaling: {"type": "tiered", "divisor": 2}    — +1 dmg per 2 STR above 8
+
+  on_hit_sugarcrust: {
+    "stacks_per_hit": 1,       — each melee hit adds 1 Sugarcrust stack to target
+    "max_stacks": 6,
+    "crit_shatter": True,      — on critical hit, consume all stacks, deal stack_count * 5 bonus dmg
+    "shatter_effect": "stun",
+    "shatter_stun_turns": 2
+  }
+
+SUGARCRUST EFFECT (new Effect subclass):
+  id: "sugarcrust"
+  category: "debuff"
+  Stacking debuff. Each stack: defense -1 (cumulative). At max stacks (6):
+    - Target is "Stuck": modify_movement returns False (can't move away) for 3 turns.
+    - On shatter from crit: all defense stolen back, deal 5 * stacks bonus damage,
+      apply 2-turn stun.
+  Expire: stacks lose 1 per turn naturally (slow decay), reset fully on floor change.
+  Stack count displayed in status panel.
+
+IMPLEMENTATION NOTES:
+  - New field: on_hit_sugarcrust dict in items.py
+  - New Effect class: SugarcrustEffect with .stacks int, .stuck bool, stuck_timer
+  - In combat.py after hit: if weapon has on_hit_sugarcrust, apply_effect("sugarcrust", stacks=1)
+  - On crit check in combat.py: if target has sugarcrust effect, trigger shatter
+  - SugarcrustEffect.modify_movement: if stuck, return False (block movement)
+  - SugarcrustEffect.tick: decrement stuck_timer if stuck; decay 1 stack/turn
+
+BALANCE CONSIDERATIONS:
+  - 10 base + str scaling puts it on par with masonry_hammer (10 base)
+  - Sugarcrust payoff requires 6 hits or patience. Build-up = ~6 turns minimum.
+  - Crit shatter delivers 30 bonus + stun: devastating but requires Street-Smarts
+    investment for reliable crit rate (6% at STS=6, 36% at STS=12)
+  - Weaker early, scales with SS builds — good unique identity
+  - Stuck movement block is strong vs. fleeing enemies; no effect on already-stationary
+
+SYNERGIES:
+  - Street-Smarts: higher crit chance = more shatters
+  - Stabbing/Gouge ability: combine with beating skill tree to land stacks fast
+  - Ring of Intimidation: fear enemies first, they run into sugarcrust stuck state
+
+
+--------------------------------------------------------------------------------
+ITEM 2: Serrated Shiv
+--------------------------------------------------------------------------------
+Slot:         weapon (stabbing)
+Item ID:      serrated_shiv
+Char:         / — color (180, 60, 60) — dark red
+Zones:        [] (unique, no spawn)
+Value:        220
+Tags:         ["serrated_shiv", "unique"]
+Name Gradient: [(200, 40, 40), (100, 20, 20)]
+
+CONCEPT:
+A prison-shop shiv ground down with a bottle cap edge. Every hit opens a
+bleeding wound; wounds stack. When you move away from a bleeding target, each
+wound tears wider — the running itself causes the damage.
+
+MECHANICAL SPECIFICATION:
+  base_damage: 7
+  str_req: 5
+  reach: 1
+  weapon_type: "stabbing"
+  str_scaling: {"type": "tiered", "divisor": 2}
+
+  on_hit_bleed: {
+    "stacks_per_hit": 1,
+    "max_stacks": 8,
+    "damage_on_move_away": 4    — per bleed stack, when player moves away from target
+  }
+
+SERRATED BLEED EFFECT (new Effect subclass or extend existing bleed):
+  id: "serrated_bleed"
+  category: "debuff"
+  .stacks int
+  tick(): deal 1 damage per stack (baseline DoT; modest)
+  on_player_moves_away(entity, engine): if player leaves adjacency, deal
+    stacks * 4 damage to entity. This is the primary payoff.
+  Duration: 10 turns. On reapply: add stacks (up to max 8).
+
+ENGINE HOOK NEEDED:
+  In engine.handle_move (after confirmed player movement), scan all entities
+  that were adjacent before the move and are no longer adjacent. For each that
+  has serrated_bleed, fire the move_away damage.
+  Use engine flag: engine._serrated_last_adjacent = set(entity_ids) that were
+  adjacent before move. Compare after move.
+
+IMPLEMENTATION NOTES:
+  - New field: on_hit_bleed dict in items.py (note: existing on_hit_bleed field
+    from slashing weapons doc uses same key — consider on_hit_serrated_bleed
+    to avoid collision, or unify under bleed system)
+  - New Effect: SerratedBleedEffect with stacks
+  - New engine state: _serrated_last_adjacent (set of entity ids, computed pre-move)
+  - After player move, iterate prior-adjacent set, fire move_away procs
+
+BALANCE CONSIDERATIONS:
+  - Low base damage (7) compensates for the strong move-away burst
+  - 8 stacks * 4 = 32 burst damage on move away — strong but requires positioning
+  - Tick DoT: 8 stacks = 8/turn — moderate, adds up over 10 turns
+  - Encourages hit-and-run playstyle; high risk if surrounded (can't safely move)
+  - No STR scaling beyond tiered makes it plateau; primarily a tool build, not carry
+
+SYNERGIES:
+  - Boots of Springing / Striding: reliable move-away burst every 3-tile gap
+  - Stabbing skill tree: more stabs = more stacks faster
+  - Jaywalking: faster movement = more move-away procs
+
+
+--------------------------------------------------------------------------------
+ITEM 3: The Weighted Blanket
+--------------------------------------------------------------------------------
+Slot:         weapon (beating)
+Item ID:      weighted_blanket
+Char:         / — color (160, 140, 200) — soft purple
+Zones:        [] (unique, no spawn)
+Value:        200
+Tags:         ["weighted_blanket", "unique"]
+Name Gradient: [(120, 100, 180), (200, 190, 230)]
+
+CONCEPT:
+A 25-lb weighted therapy blanket on a leather strap. Swinging it creates a
+pressure wave. Exceptionally slow to use — attacks cost 150% energy — but
+each hit applies a stacking "Comfort" debuff that makes enemies docile. At
+max Comfort stacks, the enemy falls into a deep sleep (extended stun). Also,
+any healing the player receives is increased by 20% while equipped.
+
+MECHANICAL SPECIFICATION:
+  base_damage: 18
+  str_req: 10
+  reach: 1
+  weapon_type: "beating"
+  str_scaling: {"type": "tiered", "divisor": 2}
+  attack_energy_cost: 150    — hits cost 150 energy instead of 100
+
+  on_hit_comfort: {
+    "stacks_per_hit": 1,
+    "max_stacks": 4,
+    "sleep_turns": 6           — at max stacks, apply 6-turn stun (sleep)
+  }
+  heal_amplification: 0.20     — +20% to all incoming healing while equipped
+
+COMFORT EFFECT:
+  id: "comfort"
+  category: "debuff" (softening their defenses with cosiness)
+  Stacks 1-3: target's AI state forced to IDLE (won't attack, won't chase)
+  Stack 4: apply full stun 6 turns (deep sleep); consume all stacks
+  On reapply: add stacks
+  Display: "Comfy x{stacks}"
+
+HEAL AMPLIFICATION:
+  Implemented as an equip/unequip hook in item_effects.py or engine.py.
+  On equip: engine.player_stats.heal_amplification += 0.20
+  On unequip: -= 0.20
+  In all heal calls: multiply by (1 + player_stats.heal_amplification)
+  New field on PlayerStats: heal_amplification: float = 0.0
+
+IMPLEMENTATION NOTES:
+  - New field: attack_energy_cost on item — engine uses weapon.attack_energy_cost
+    instead of default ENERGY_THRESHOLD when computing attack cost
+  - New field: on_hit_comfort dict
+  - New field: heal_amplification float on item
+  - New PlayerStats field: heal_amplification (float)
+  - ComfortEffect: .stacks, apply on_reapply logic, IDLE-forcing via modify AI
+  - AI modification: in do_ai_turn(), if entity has "comfort" stacks 1-3, skip
+    all CHASING / ALERTING transitions → stays IDLE
+  - Sleep at stack 4: apply standard "stun" effect (already exists in effects.py)
+
+BALANCE CONSIDERATIONS:
+  - 150% attack energy = 1.5x slower than normal attack speed
+  - Compensation: 18 base damage (highest beating weapon), 20% heal amp, sleep control
+  - Sleep is extremely powerful (6 turns is long); requires 4 hits to proc (6 turns at 1.5x cost)
+  - Against single targets: devastating lockdown. Against packs: dangerously slow.
+  - Ideal for tanky, Constitution/Tolerance builds that lean on heals
+
+SYNERGIES:
+  - OG Kush / Iron Lung: +20% to strain heals
+  - Bone Club: lifesteal + heal amp stacks beautifully (different weapon slot)
+  - Munching skill tree: eat foods faster; all heals amplified
+  - Rosary / Amulet of EE: Divine Shield + heals for a truly unkillable tank build
+
+
+--------------------------------------------------------------------------------
+ITEM 4: Streetlight Arm
+--------------------------------------------------------------------------------
+Slot:         weapon (slashing)
+Item ID:      streetlight_arm
+Char:         / — color (200, 220, 80) — sickly yellow-green
+Zones:        [] (unique, no spawn)
+Value:        260
+Tags:         ["streetlight_arm", "unique"]
+Name Gradient: [(180, 200, 60), (60, 80, 20)]
+
+CONCEPT:
+The arm of a broken streetlight, still trailing live wire. Functions as a
+long-reach slashing weapon that electrifies everything it touches. Each hit
+chains a weaker shock to an adjacent enemy. If the player has any
+Electrodynamics skill level, the chain damage scales with BKS.
+
+MECHANICAL SPECIFICATION:
+  base_damage: 12
+  str_req: 9
+  reach: 2
+  weapon_type: "slashing"
+  str_scaling: {"type": "tiered", "divisor": 2}
+
+  on_hit_chain_shock: {
+    "base_chain_damage": 4,
+    "bks_scaling_divisor": 3,   — +1 chain dmg per 3 BKS above 6
+    "requires_elec_level": 0,   — always active; BKS scaling requires no skill minimum
+    "range": 1,                 — chain jumps to nearest enemy within 1 tile of struck target
+    "chain_stun_chance": 0.20   — 20% chance to apply 1-turn stun to chain target
+  }
+  on_hit_shock_self: {
+    "damage": 2                 — wielder takes 2 shock damage per hit (live wire)
+  }
+
+IMPLEMENTATION NOTES:
+  - New field: on_hit_chain_shock dict
+  - New field: on_hit_shock_self dict (player takes self-damage on every attack)
+  - In combat.py after hit resolution: find nearest entity within 1 tile of target,
+    deal chain_damage + int(max(0, bks - 6) / bks_scaling_divisor); stun roll
+  - Self-damage: after attack, deal 2 damage to player (bypasses armor? or not;
+    recommend: apply as raw HP loss, no armor mitigation — flavor is electric shock)
+  - Electrodynamics synergy: if skill.level >= 1, chain_damage += 2 flat bonus
+
+BALANCE CONSIDERATIONS:
+  - reach 2 is premium; self-damage (2/hit) is meaningful but modest
+  - Chain shock adds ~4-8 splash to adjacent foes — valuable in tight corridors
+  - 20% stun chance on chain = pseudo-AOE crowd control
+  - Self-damage counteracts lifesteal builds; test with Bone Club/9 Ring combos
+  - Net positive at BKS 8: 4 + int((8-6)/3) = 4 chain. At BKS 12: 6 chain.
+
+SYNERGIES:
+  - Electrodynamics skill tree: chain shock bonus, surge stacks on kill
+  - BKS-heavy caster builds
+  - Extension Cord: on_hit_bounce + chain_shock = electricity everywhere
+  - Sleeper Agent: chain + stationary stacks creates corner-killing pressure
+
+
+--------------------------------------------------------------------------------
+ITEM 5: Scalpel of Accountability
+--------------------------------------------------------------------------------
+Slot:         weapon (slashing)
+Item ID:      scalpel_of_accountability
+Char:         / — color (220, 220, 255) — cold white
+Zones:        [] (unique, no spawn)
+Value:        280
+Tags:         ["scalpel_accountability", "unique"]
+Name Gradient: [(200, 200, 255), (80, 80, 200)]
+
+CONCEPT:
+A surgical scalpel etched with the words "You Did This To Yourself." Impossibly
+sharp. Deals bonus damage equal to the target's current toxicity / 10 (rounded
+down). In the Meth Lab zone, enemies carry ambient toxicity — this weapon
+absolutely shreds chemically-compromised targets. Zero STR requirement; scales
+purely on enemy toxicity.
+
+MECHANICAL SPECIFICATION:
+  base_damage: 9
+  str_req: 3
+  reach: 1
+  weapon_type: "slashing"
+  str_scaling: {"type": "none"}   — no STR scaling at all
+
+  tox_exploit: {
+    "bonus_per_tox_10": 1,        — +1 damage per 10 tox on target (no cap)
+    "self_tox_on_hit": 2          — player gains 2 tox per hit (surgical precision requires contamination)
+  }
+  bonus_crit_mult: 1              — +1x crit multiplier (scalpel precision)
+
+IMPLEMENTATION NOTES:
+  - New field: tox_exploit dict
+  - In combat.py, after base damage: compute bonus = floor(target.toxicity / 10),
+    add to total damage
+  - Player tox gain: apply entity.toxicity += 2 (or use tox gain logic from engine)
+  - bonus_crit_mult: already supported in codebase (prison_shank uses it)
+  - Edge case: if player's tox_resistance reduces self-tox, that still applies
+    (resist the contamination blowback)
+
+BALANCE CONSIDERATIONS:
+  - vs. uncontaminated enemies: 9 base, like a weaker knife. Very weak opener.
+  - vs. tox 50 enemy: +5 bonus = 14 total. Comparable to normal weapons.
+  - vs. tox 100+ enemy: +10+ bonus. Exceptional.
+  - Meth Lab enemies carry 20-80 tox naturally; huge payoff in that zone
+  - Self-tox accumulation is significant over a long fight (30 tox in 15 hits)
+  - No str scaling: BKS or STS builds can pick this up with zero stat investment
+  - Bonus crit mult: crits at tox 100 enemy = (9+10)*4x = 76 damage. Devastating.
+
+SYNERGIES:
+  - Tox-Barbed Shiv / Dumpster Lid / Syringe Lance: poison enemies first, then
+    swap to Scalpel (if dual weapon slot available via sidearm workaround)
+  - Meth-Head skill tree: player can manage their own tox buildup
+  - Iron Lung strain: removes own tox after reaching threshold
+  - Nigle Fart strain: stack tox on self AND enemies simultaneously
+
+
+================================================================================
+SIDEARM (1 Item)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 6: Pawn Shop Special
+--------------------------------------------------------------------------------
+Slot:         sidearm
+Item ID:      pawn_shop_special
+Char:         ) — color (180, 150, 80) — worn brass
+Zones:        [] (unique, no spawn)
+Value:        200
+Tags:         ["pawn_shop_special", "unique"]
+Name Gradient: [(200, 170, 100), (80, 60, 30)]
+
+CONCEPT:
+A mismatched pistol assembled from parts of six different guns found in a
+pawn shop. Every time it fires it has a 25% chance to "Jam Weird" — instead
+of a normal jam, something unexpected happens. The Jam Weird table has six
+entries (roll 1d6):
+  1. Backfire — deals 50% of normal damage to the player instead
+  2. Overpressure — doubles damage this shot
+  3. Misfeed — shot fires but hits a random entity in FOV (not targeted)
+  4. Triple tap — fires 3 shots for 1 ammo (each shot still rolls Jam Weird)
+  5. Stovepipe — gun jams normally (0 shots fired, reload required)
+  6. Perfect — fires normally, +15% accuracy this shot
+
+MECHANICAL SPECIFICATION:
+  base_damage: (12, 16)
+  gun_range: 8
+  ammo_type: "medium"
+  mag_size: 6
+  reload_speed: 50
+  gun_class: "small"
+  firing_modes: {
+    "accurate": {"hit": 80, "energy": 70},
+    "fast":     {"hit": 55, "energy": 40},
+  }
+  jam_weird_chance: 0.25
+
+JAM WEIRD RESOLUTION (in gun_system.py):
+  After confirming shot, roll random.random() < jam_weird_chance:
+    Roll 1-6:
+      1: deal floor(shot_damage * 0.5) to player (direct HP loss, no armor)
+      2: shot_damage *= 2
+      3: retarget — pick random visible entity (could be ally or enemy, pick enemy in FOV)
+      4: fire shot 2 more times immediately (recursive; each rolls jam_weird independently)
+      5: gun enters jammed state, 0 damage, reload required
+      6: accuracy += 15 this shot only
+
+IMPLEMENTATION NOTES:
+  - New field: jam_weird_chance: float on gun item
+  - In gun_system.py fire resolution (after hit roll, before damage apply):
+    check weapon.get("jam_weird_chance") and roll
+  - Triple-tap recursion: set a depth counter (max depth 2) to prevent infinite loops
+  - Backfire: direct player HP loss, not routed through combat.py (no armor mitigation)
+  - Misfeed: if no other visible entities in FOV, shot is wasted
+  - Jam state: reuse existing gun jam logic (gun_jammed flag on entity)
+
+BALANCE CONSIDERATIONS:
+  - 80% accurate mode is already below average (most guns are 90%)
+  - Jam Weird activates 25% of shots — high chaos
+  - Expected value across 4 outcomes: 3 are net-positive/neutral (overpressure, triple, perfect),
+    1 is neutral (stovepipe), 1 is negative (backfire). Backfire at 1/6 * 25% = ~4% per shot.
+  - Net expected value: mildly positive but with very high variance
+  - Fits NIGRL's gambler/street ethos perfectly
+
+SYNERGIES:
+  - Street-Smarts: higher crit rate amplifies triple-tap and overpressure crits
+  - Ammo Rat skill tree: more ammo efficiency when shots proc good outcomes
+  - Drive-By skill tree: fire from movement; jam weird adds chaos to already-chaotic runs
+  - Midas' Brew: if you hate the gun, sell it for 5x value
+
+
+================================================================================
+RINGS (4 Items)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 7: Ring of Borrowed Time
+--------------------------------------------------------------------------------
+Slot:         ring
+Item ID:      ring_of_borrowed_time
+Char:         o — color (180, 140, 80) — tarnished gold
+Zones:        [] (unique, no spawn)
+Value:        220
+Tags:         ["ring_borrowed_time", "unique"]
+Name Gradient: [(180, 140, 80), (40, 30, 10)]
+
+CONCEPT:
+A cracked hourglass set in a ring band. While worn, the player gains +3 to ALL
+stats — but every 30 turns, the ring "collects its toll": instantly deal 15%
+of max HP as damage to the player (unblockable, no armor). If the player is
+below 25% HP when the toll is collected, the ring shatters and is destroyed
+(drops as 0-value ash).
+
+MECHANICAL SPECIFICATION:
+  stat_bonus: {
+    "constitution": 3, "strength": 3, "book_smarts": 3,
+    "street_smarts": 3, "tolerance": 3, "swagger": 3
+  }
+  borrowed_time: {
+    "tick_interval": 30,        — toll collected every 30 turns
+    "toll_pct": 0.15,           — deal 15% max HP as unblockable damage
+    "shatter_threshold": 0.25,  — if HP < 25% when toll fires, ring destroyed
+    "shatter_gives": "time_ash" — destroyed form (worthless item entity on ground)
+  }
+
+ENGINE STATE NEEDED:
+  engine.borrowed_time_counter: int — increments each player action/turn
+  On equip: reset counter to 0
+  Each turn tick: increment; at 30, fire toll
+
+TOLL RESOLUTION:
+  toll_damage = int(engine.player.max_hp * 0.15)
+  engine.player.hp -= toll_damage  (direct, no armor)
+  if engine.player.hp / engine.player.max_hp < 0.25:
+      remove ring, drop "time_ash" item at player position
+      message: "The ring cracks and crumbles! Your borrowed time has run out."
+
+IMPLEMENTATION NOTES:
+  - New fields: borrowed_time dict
+  - borrowed_time_counter in engine state (per-ring-instance or global)
+  - On ring unequip: clear counter
+  - New dummy item "time_ash": value 0, flavor only, no stats
+  - The +3 all stats is identical to nine_ring's +5 but covers all 6 stats at +3;
+    compare: Nine Ring gives +5 all but can never be removed. This one CAN be removed.
+
+BALANCE CONSIDERATIONS:
+  - +3 all stats on a removable ring is very strong (Nine Ring +5 but cursed-unremovable)
+  - Toll of 15% max HP every 30 turns: at CON 10 (130 HP), toll = ~19 HP
+  - 30 turns pass quickly during active combat; in meth lab's fast pace ≈ 3-5 rooms
+  - Shatter risk: incentivizes staying healthy; anti-synergy with Titan's Blood Ring
+  - Completely removable (unlike Nine Ring) = can unequip before toll fires
+
+SYNERGIES:
+  - High-CON builds: more HP makes 15% toll less punishing
+  - Rosary / Amulet of EE: armor to survive the toll
+  - Hard Boiled Egg / Death save: insurance against shatter at low HP
+  - Straw Hat: all-stat bonus stacks; the hat's +2 + ring's +3 = +5 total
+
+
+--------------------------------------------------------------------------------
+ITEM 8: Ring of the Lookout
+--------------------------------------------------------------------------------
+Slot:         ring
+Item ID:      ring_of_lookout
+Char:         o — color (100, 200, 100) — bright green
+Zones:        [] (unique, no spawn)
+Value:        180
+Tags:         ["ring_lookout", "unique"]
+Name Gradient: [(80, 200, 80), (30, 80, 30)]
+
+CONCEPT:
+A ring carved with tiny eyes. Dramatically expands FOV (+4 radius) and reveals
+all enemy positions on the floor (like telepathy / monster radar). Tradeoff:
+the ring "broadcasts" the player's position — all enemies in the dungeon have
+their sight_radius doubled while this ring is equipped (they can detect you
+from farther away).
+
+MECHANICAL SPECIFICATION:
+  fov_bonus: 4                  — +4 tiles to FOV radius while equipped
+  telepathy: True               — all entities render even outside FOV (use '?' dim)
+  enemy_sight_boost: 2.0        — all enemy sight_radius values multiplied by 2.0
+                                   while ring is equipped
+
+ENGINE INTEGRATION:
+  On equip: engine.player_stats.fov_bonus += 4; engine.player_stats.telepathy = True
+  Apply enemy_sight_boost: engine stores ring_enemy_sight_mult = 2.0
+  In ai.py sight checks: multiply sight_radius by engine.ring_enemy_sight_mult
+  On unequip: reverse all
+
+IMPLEMENTATION NOTES:
+  - New PlayerStats field: fov_bonus (int), telepathy (bool)
+  - New engine state: ring_enemy_sight_mult (float, default 1.0)
+  - In render.py: if telepathy, render all alive entities even outside visible
+    with a dim '?' or entity char at reduced brightness
+  - fov_bonus applied in dungeon.py compute_fov() call: radius += player_stats.fov_bonus
+  - Existing Monkey Radar pattern (from retro batch 2) does similar — follow that pattern
+
+BALANCE CONSIDERATIONS:
+  - Telepathy is extremely valuable (know where all enemies are)
+  - +4 FOV is substantial (default ~8, so +50% range)
+  - Double enemy sight: in small dungeon rooms (20-30 tiles wide), this often means
+    all enemies on a floor can immediately detect you on entry
+  - Turns every encounter from ambush-possible to full-frontal brawl
+  - Ideal for aggressive builds; terrible for stealth/ambush setups
+
+SYNERGIES:
+  - Boots of Blinding Speed: see far + move fast = kiting potential
+  - Street Scholar strain: calculated aim + full map awareness = perfect gunner ring
+  - Ring of Intimidation: see enemies far away, then fear them before engagement
+  - Boots of Springing: spot an enemy, teleport to them, spring away — tactical
+
+
+--------------------------------------------------------------------------------
+ITEM 9: Ring of Secondhand Smoke
+--------------------------------------------------------------------------------
+Slot:         ring
+Item ID:      ring_of_secondhand_smoke
+Char:         o — color (200, 200, 120) — smoky yellow
+Zones:        [] (unique, no spawn)
+Value:        160
+Tags:         ["ring_secondhand_smoke", "unique"]
+Name Gradient: [(220, 220, 140), (80, 80, 40)]
+
+CONCEPT:
+A ring embedded with a slow-burning ember. When the player smokes a joint,
+the ring projects a secondhand smoke aura for 20 turns. Any enemy that enters
+or starts a turn within 3 tiles of the player while the aura is active has
+the joint's strain effect applied to them (monster_effect roll). Also: the
+player gets a flat +2 Tolerance permanently for being this dedicated to the bit.
+
+MECHANICAL SPECIFICATION:
+  stat_bonus: {"tolerance": 2}
+  secondhand_smoke_aura: True     — flag; logic triggered after any strain_roll use
+
+SECONDHAND AURA EFFECT:
+  id: "secondhand_aura"
+  category: "buff"
+  floor_duration: False; duration: 20 turns
+  last_strain: str (stores the strain name of the last smoked joint)
+  tick(): for each enemy within 3 tiles of player:
+    if not already_hit_this_tick:
+      apply get_strain_effect(last_strain, random 1-100, target="monster")
+  (enemies get monster_effect from strain table, typically weaker than player effect)
+
+IMPLEMENTATION NOTES:
+  - New field: secondhand_smoke_aura: bool on ring
+  - After strain_roll use in item_effects.py: if player has ring equipped,
+    apply_effect(player, engine, "secondhand_aura", duration=20, strain=strain_name)
+  - SecondhandAuraEffect stores last strain, ticks proximity check
+  - Proximity check: Chebyshev distance <= 3 from player position
+  - Monster strain effects already handled by get_strain_effect with target="monster"
+  - Watch for: Columbian Gold monster effect is "none" (no effect) — intentional
+  - Watch for: OG Kush heals monsters too if monster_effect is None (uses player table)
+
+BALANCE CONSIDERATIONS:
+  - +2 Tolerance is modest but always-on (good for Smoking/Rolling builds)
+  - Aura payoff scales with strain quality: OG Kush aura heals enemies (trap!);
+    Agent Orange aura randomly debuffs nearby enemies (good); Dosidos aura gives
+    BKS buff to enemies (bad). Player must know strain tables.
+  - Encourages informed strain usage — meta knowledge rewarded
+  - Duration 20 turns; typically combat lasts 5-15 turns, so covers most fights
+    if you pre-smoke before entering a room
+
+SYNERGIES:
+  - Jungle Boyz strain: monster_effect is "soul_pair" (damages enemy self) or
+    "jb_heal_damage" — genuinely useful on enemies via aura
+  - Agent Orange: random DoT debuffs on all nearby enemies
+  - Rolling skill tree (L Farming): more joints per floor = more aura uptime
+  - Massive Blunt: 10% auto-smoke on hit — each proc activates the aura!
+
+
+--------------------------------------------------------------------------------
+ITEM 10: Blood Debt Ring
+--------------------------------------------------------------------------------
+Slot:         ring
+Item ID:      blood_debt_ring
+Char:         o — color (180, 30, 30) — deep red
+Zones:        [] (unique, no spawn)
+Value:        240
+Tags:         ["blood_debt_ring", "unique"]
+Name Gradient: [(220, 20, 20), (60, 0, 0)]
+
+CONCEPT:
+A ring sealed with dried blood. Grants powerful offensive bonuses — but only
+when you're the one paying the price. While HP is below 50%, gain +4 STR,
++4 STS, and +10% crit multiplier bonus. When HP drops below 25%, additionally
+gain 30 energy/tick (attack frenzy). The ring cannot be unequipped while below
+50% HP (the debt must be paid in full — get back above 50% to remove it).
+
+MECHANICAL SPECIFICATION:
+  stat_bonus: {}   — no base stats
+  blood_debt: {
+    "threshold_1": 0.50,        — below 50% HP: activate phase 1
+    "phase1_str": 4,
+    "phase1_sts": 4,
+    "phase1_crit_mult_bonus": 1,
+    "threshold_2": 0.25,        — below 25% HP: activate phase 2
+    "phase2_energy_per_tick": 30,
+    "lock_below_threshold": 0.50  — cannot unequip below this HP ratio
+  }
+
+BLOOD DEBT EFFECT:
+  id: "blood_debt_phase1"
+  id: "blood_debt_phase2"
+  Both applied/removed dynamically as HP crosses thresholds.
+
+ENGINE INTEGRATION:
+  Each turn or on-damage: check HP ratio against thresholds.
+  If HP/max_hp < 0.50 and not phase1 active: apply phase1 effect
+  If HP/max_hp >= 0.50 and phase1 active: remove phase1 effect
+  (Phase 2 similarly gated at 0.25)
+  Unequip check: if HP < lock_threshold, refuse unequip with message:
+    "You can't remove the Blood Debt Ring — repay the debt first."
+
+IMPLEMENTATION NOTES:
+  - New field: blood_debt dict
+  - BloodDebt phase effects: apply as temporary_stat_bonuses (str+4, sts+4)
+    and outgoing_damage_mults append (crit handled separately)
+  - phase2: energy_per_tick treated like equipment_energy_per_tick
+  - Unequip lock: in inventory_mgr.py unequip logic, check ring for blood_debt
+    lock_below_threshold and player HP ratio
+  - Threshold check: run in _run_energy_loop after each turn, or on every
+    damage event in combat.py
+
+BALANCE CONSIDERATIONS:
+  - Completely inert above 50% HP — a wasted ring slot at full health
+  - Phase 1 at <50%: +4 STR turns a base-10 weapon into effectively +2 dmg bonus,
+    +4 STS = +12% crit, +1x crit mult = strong offense when desperate
+  - Phase 2 at <25%: +30 energy/tick = 30% faster, enables multiple attacks/turn
+  - Lock below 50%: substantial risk — no removing to grab a better ring
+  - Titan's Blood Ring: both trigger near death; Blood Debt Ring adds burst offense
+    while Titan Form adds HP, creating a tanky berserker floor-peak
+
+SYNERGIES:
+  - Titan's Blood Ring: layer defensive Titan Form with Blood Debt offensive burst
+  - Hard Boiled Egg / death save: insure against dying during phase 2
+  - Scalpel of Accountability: STS boost from phase 1 amplifies crit-based tox exploit
+  - Boots of Blinding Speed: phase 2 energy bonus stacks with boots (+50 + 30 = +80/tick)
+
+
+================================================================================
+NECK ITEMS (4 Items)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 11: Grillz
+--------------------------------------------------------------------------------
+Slot:         neck
+Item ID:      grillz
+Char:         " — color (255, 215, 0) — gold
+Zones:        [] (unique, no spawn)
+Value:        220
+Tags:         ["grillz", "unique"]
+Name Gradient: [(255, 220, 60), (200, 160, 0)]
+
+CONCEPT:
+Diamond-and-gold dental grillz on a display chain. Pure swagger flex —
+every point of Swagger above 8 now gives +2 defense instead of +1 (doubling
+the Swagger defense formula), and Swagger also scales melee damage (+1 damage
+per 2 Swagger above 8, stacking with weapon STR scaling). Intimidation is damage.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 15
+  stat_bonus: {}
+  swagger_defense_multiplier: 2.0     — Swagger defense: int((eff_swg - 8) / 2)
+                                         becomes int((eff_swg - 8) / 2) * 2
+  swagger_melee_bonus: {
+    "divisor": 2,                     — +1 melee damage per 2 Swagger above 8
+    "threshold": 8
+  }
+
+ENGINE INTEGRATION:
+  On equip: set engine.player_stats.grillz_equipped = True
+  In combat.py swagger defence calc: if grillz_equipped,
+    swagger_defence = int((eff_swg - 8))   (double the formula)
+  Melee bonus: add int(max(0, eff_swg - 8) / 2) to player attack power
+
+IMPLEMENTATION NOTES:
+  - New PlayerStats field: grillz_equipped (bool, default False)
+  - New field: swagger_defense_multiplier on item
+  - New field: swagger_melee_bonus dict on item
+  - On equip/unequip in item_effects.py or inventory_mgr.py: set grillz_equipped
+  - Swagger defence is currently in combat.py line approx: int((eff_swg-8)/2)
+    Modify to: int((eff_swg-8)/2) * (2 if stats.grillz_equipped else 1)
+  - Melee bonus: in combat.py where player power is computed, add swagger_bonus
+    if grillz_equipped
+
+BALANCE CONSIDERATIONS:
+  - At Swagger 8 (base): no bonus at all (formula starts at 0)
+  - At Swagger 10: base +1 def becomes +2 def; +1 melee damage
+  - At Swagger 12: base +2 def becomes +4 def; +2 melee damage
+  - With ring bonuses: Swagger 12 + ring +4 = Swagger 16: +8 def, +4 melee
+  - Strongest on builds that deliberately stack Swagger rings
+  - 15 armor is weak for a neck slot (chains give 20-70); neck slot is the payoff,
+    not armor
+
+SYNERGIES:
+  - 2x4 / Extra Sharp Hair Pick: both already use swagger_linear scaling;
+    Grillz adds a parallel defense layer to the same stat investment
+  - Ring of Borrowed Time: +3 swagger + grillz = strong compounding
+  - Ring builds: stack swagger rings, Grillz turns swagger into both offense/defense
+  - White Power skill tree (if it has swagger bonuses): natural fit
+
+
+--------------------------------------------------------------------------------
+ITEM 12: Crackhead's Communion
+--------------------------------------------------------------------------------
+Slot:         neck
+Item ID:      crackheads_communion
+Char:         " — color (200, 100, 255) — electric purple
+Zones:        [] (unique, no spawn)
+Value:        200
+Tags:         ["crackheads_communion", "unique"]
+Name Gradient: [(160, 60, 220), (220, 100, 255), (80, 20, 140)]
+
+CONCEPT:
+A vial of mysterious iridescent liquid on a cord. When you take damage, there
+is a 20% chance the vial absorbs some of the pain and converts it into a random
+beneficial effect. The vial has 3 charges per floor; on the 4th damage event
+(no more charges), the vial cracks and you take 25% bonus damage from the hit
+that broke it.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 0
+  communion_vial: {
+    "charges_per_floor": 3,
+    "absorb_chance": 0.20,            — 20% per damage event to trigger
+    "crack_penalty": 0.25,            — 25% extra damage on floor-charge exhaustion hit
+    "effects_table": [                — random effect on trigger
+      "communion_heal",               — heal 20 HP
+      "communion_speed",              — +40 energy/tick for 5 turns
+      "communion_str",                — +3 STR for 8 turns
+      "communion_dodge",              — +25% dodge for 5 turns
+      "communion_shield",             — gain 25 temp HP
+    ]
+  }
+
+ENGINE STATE:
+  engine.communion_charges: int (reset to 3 each floor change)
+  engine.communion_cracked: bool (reset each floor)
+
+RESOLUTION (in combat.py or effects.py on incoming damage):
+  if communion equipped and not cracked:
+    if charges > 0 and random.random() < 0.20:
+      charges -= 1
+      apply random entry from effects_table
+    elif charges == 0:
+      communion_cracked = True
+      incoming_damage *= 1.25
+
+IMPLEMENTATION NOTES:
+  - New field: communion_vial dict on item
+  - New engine state: communion_charges (int), communion_cracked (bool)
+  - Floor reset in engine.on_floor_change(): communion_charges = 3, cracked = False
+  - New temporary effects: communion_heal, communion_speed, communion_str,
+    communion_dodge, communion_shield — can be thin wrappers on existing mechanisms
+    (heal_flat, temporary_stat_bonus STR, add_dodge_chance, temp_hp grant)
+  - Crack penalty: in incoming damage calc, multiply by 1.25 on first hit post-crack;
+    then cracked flag remains but no more penalty (just 0 charges state)
+
+BALANCE CONSIDERATIONS:
+  - 3 charges/floor with 20% trigger rate: expected ~0.6 triggers per 3 charges
+    (each charge has 20% chance to proc when hit). Very RNG-dependent.
+  - Crack on exhaustion: potentially catastrophic (big hit + 25% on top)
+  - No armor: purely reactive utility, not passive defense
+  - Ideal for aggressive players who take many small hits (triggers more often)
+
+SYNERGIES:
+  - Titan's Blood Ring: both trigger at low HP scenarios; layered safety net
+  - Straw Hat: death save + communion_shield might stack for survival
+  - High-CON builds: more HP means crack penalty is less likely to be fatal
+
+
+--------------------------------------------------------------------------------
+ITEM 13: Knot of St. Expedite
+--------------------------------------------------------------------------------
+Slot:         neck
+Item ID:      knot_of_st_expedite
+Char:         " — color (220, 140, 60) — orange-brown
+Zones:        [] (unique, no spawn)
+Value:        190
+Tags:         ["knot_expedite", "unique"]
+Name Gradient: [(240, 160, 80), (100, 50, 20)]
+
+CONCEPT:
+A knotted cord blessed by the patron saint of urgent causes. Grants +15 energy
+per tick. The tradeoff: every time you skip your turn (via the Wait action or
+by being stunned), the knot loses 1 of its 5 "patience charges." At 0 charges,
+the energy bonus reverses to -15/tick for 10 turns (the saint gets impatient
+with you). Charges refill at a rate of 1 per floor.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 10
+  energy_per_tick: 15               — standard field (existing system)
+  patience_charges: {
+    "max": 5,
+    "refill_per_floor": 1,
+    "lost_on_wait": 1,              — 1 charge lost when player waits/is stunned
+    "penalty_energy": -15,          — energy per tick becomes -15 for 10 turns
+    "penalty_turns": 10
+  }
+
+ENGINE STATE:
+  engine.patience_charges: int (starts 5, refills 1/floor up to max 5)
+  engine.patience_penalty_active: bool
+
+TURN LOGIC:
+  In engine: when player uses "wait" action OR when stun effect skips player turn:
+    if knot equipped: patience_charges -= 1
+    if patience_charges == 0:
+      apply "patience_penalty" effect (energy_per_tick = -15 for 10 turns)
+      remove the +15 from energy_per_tick during penalty
+
+IMPLEMENTATION NOTES:
+  - New field: patience_charges dict on item
+  - New engine state: patience_charges (int), patience_penalty_active (bool)
+  - energy_per_tick on equip is conditional: if not penalty, +15; if penalty, +0
+    (the -15 is a separate debuff effect on top of normal speed)
+  - PatiencePenaltyEffect: modifies energy_gain by -15/tick for 10 turns
+  - On equip: patience_charges = 5; on unequip: clear state
+  - Floor refill: engine.on_floor_change() += 1 (capped at max 5)
+  - Stun detection: in StunEffect.before_turn, check if knot equipped, decrement
+
+BALANCE CONSIDERATIONS:
+  - +15 energy is weaker than Boots of Springing/Striding (+20 each)
+  - 5 charges = 5 waits/stuns before penalty; in a full run, that's manageable
+  - Penalty is -15 for 10 turns: net swing of 30/tick from the base (+15 to -15)
+  - The real penalty is being SLOWER than no neck item at all for 10 turns
+  - Encourages aggressive play — no waiting in corners
+
+SYNERGIES:
+  - Boots (any): stacking energy bonuses; knot adds another layer
+  - Jabbing/active combat builds: if you never wait, the downside never fires
+  - Straw Hat: death save = no stun turns (teleport to safety instead of dying)
+  - Blood Debt Ring phase 2: +30 energy + +15 knot = +45/tick at low HP
+
+
+--------------------------------------------------------------------------------
+ITEM 14: Junkie's Locket
+--------------------------------------------------------------------------------
+Slot:         neck
+Item ID:      junkies_locket
+Char:         " — color (160, 60, 40) — rust red
+Zones:        [] (unique, no spawn)
+Value:        175
+Tags:         ["junkies_locket", "unique"]
+Name Gradient: [(180, 80, 60), (60, 20, 10)]
+
+CONCEPT:
+A tarnished locket containing a tiny photo of someone you used to know. Every
+consumable drug item you smoke provides +1 permanent Tolerance (up to a max
+of +5 from this item over the run). Each permanent +1 also permanently reduces
+Constitution by 1 (your body erodes as your tolerance grows). The locket tracks
+how deep you've gone.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 5
+  tolerance_locket: {
+    "tol_per_smoke": 1,         — +1 perm TOL per successful strain_roll use
+    "max_perm_bonus": 5,        — cap at +5 total perm TOL from this item
+    "con_drain_per_tol": 1      — each +1 TOL also -1 permanent CON
+  }
+
+ENGINE STATE:
+  engine.locket_tol_gained: int (0 to 5; persists across floors)
+
+RESOLUTION:
+  After any successful strain_roll (joint, kush, etc.):
+    if locket equipped and locket_tol_gained < 5:
+      locket_tol_gained += 1
+      player_stats.tolerance += 1  (permanent base stat change)
+      player_stats.constitution -= 1  (permanent base stat change)
+      player.max_hp updated: 30 + CON * 10
+      player.hp = min(player.hp, player.max_hp)
+      message: "The locket hums. Tolerance up. But something's fading..."
+
+IMPLEMENTATION NOTES:
+  - New field: tolerance_locket dict on item
+  - New engine state: locket_tol_gained (int, persists run-wide)
+  - After strain_roll in item_effects.py: check locket equipped, fire logic
+  - Permanent stat change: modify player_stats._base["tolerance"] directly
+    (same mechanism as Protein Powder stat boosts in foods.py)
+  - Also update _base["constitution"] and recompute max_hp
+  - Track via unique_item = True, unique_id = "junkies_locket" to ensure
+    only one in play at once
+
+BALANCE CONSIDERATIONS:
+  - Max +5 TOL at cost of -5 CON: major tradeoff (-50 max HP, stronger drug rolls)
+  - Tolerance range [6,17] possible (base 6-12, +5 from locket); beyond 12 is bonus
+  - At TOL 12+: strain effects are notably stronger (extra rolls, higher floor)
+  - At CON 6 (minimum): 30 + 6*10 = 90 HP (vs 130 at CON 10) — very squishy
+  - Perfect for dedicated Smoking/Rolling builds that want maximum drug efficiency
+  - Anti-synergy with CON tanking; hard counter for melee survivability builds
+
+SYNERGIES:
+  - Massive Blunt: TOL-scaling weapon + higher TOL = double benefit
+  - Iron Lung / Nigle Fart: high-TOL strains reward maximum tolerance investment
+  - Rosary / Chains: compensate for HP loss with armor
+  - Hard Boiled Egg: death save insurance when CON is gutted to 6
+
+
+================================================================================
+FEET/BOOTS (4 Items)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 15: Rollerblades of the Damned
+--------------------------------------------------------------------------------
+Slot:         feet
+Item ID:      rollerblades_of_damned
+Char:         s — color (80, 80, 80) — dark grey/black
+Zones:        [] (unique, no spawn)
+Value:        200
+Tags:         ["rollerblades_damned", "unique"]
+Name Gradient: [(20, 20, 20), (200, 0, 0), (20, 20, 20)]
+
+CONCEPT:
+Jet-black rollerblades etched with occult symbols. Provide +30 energy/tick
+but only when moving — standing still gives 0 bonus. Each consecutive move
+(without attacking or waiting) builds a "Momentum" charge (max 5). Each
+Momentum charge grants +5% dodge chance. Attacking breaks all Momentum.
+
+MECHANICAL SPECIFICATION:
+  energy_per_tick: 0              — base 0 (conditional, see below)
+  rollerblades: {
+    "energy_moving": 30,          — +30/tick only on turns where player moved
+    "momentum_max": 5,
+    "dodge_per_stack": 5,         — +5% dodge per momentum stack
+    "momentum_reset_on_attack": True,
+    "momentum_reset_on_wait": True
+  }
+
+ENGINE STATE:
+  engine.rollerblade_momentum: int (0-5)
+  engine.rollerblade_moved_last_turn: bool
+
+TURN LOGIC:
+  On player move: rollerblade_moved_last_turn = True; momentum = min(5, momentum+1)
+  On player attack/wait: momentum = 0; rollerblade_moved_last_turn = False
+  energy_per_tick (applied in _run_energy_loop):
+    if rollerblades equipped and rollerblade_moved_last_turn: +30
+  Dodge: player_stats.dodge_chance += momentum * 5 (dynamic, updated each turn)
+
+IMPLEMENTATION NOTES:
+  - New field: rollerblades dict on item
+  - New engine state: rollerblade_momentum, rollerblade_moved_last_turn
+  - Energy bonus: conditionally add 30 in energy tick loop based on moved flag
+  - Dodge application: in _run_energy_loop or player stats update, set
+    temporary_stat_dodge = momentum * 5 (needs a slot in stats distinct from
+    permanent dodge_chance to avoid stacking issues)
+  - Momentum displayed: "Momentum x{n}" in UI or as a buff indicator
+  - On unequip: clear momentum and dodge bonus
+
+BALANCE CONSIDERATIONS:
+  - 30 energy/tick while moving: equivalent to Boots of Striding (+20) or better
+  - 5 stacks * 5% = 25% max dodge: substantial but requires 5 consecutive moves
+    (can't attack for 5 turns in a row; likely only before entering a room)
+  - At max momentum entering a room: 25% dodge on first attack. Good opening gambit.
+  - Zero benefit in stationary fights — total dead weight if cornered
+  - Anti-synergy with Boots of Blinding Speed (can't use both; same slot)
+
+SYNERGIES:
+  - Serrated Shiv: move away after building bleed = momentum builds naturally
+  - Jaywalking skill tree: movement-focused skills
+  - Ring of the Lookout: see enemies from far away; build momentum while approaching
+  - Rollerblades of the Damned + Blood Debt Ring phase 2: momentum dodging + speed burst
+
+
+--------------------------------------------------------------------------------
+ITEM 16: Clout Cleats
+--------------------------------------------------------------------------------
+Slot:         feet
+Item ID:      clout_cleats
+Char:         s — color (220, 220, 220) — chrome white
+Zones:        [] (unique, no spawn)
+Value:        185
+Tags:         ["clout_cleats", "unique"]
+Name Gradient: [(255, 255, 255), (180, 180, 180)]
+
+CONCEPT:
+A pair of gleaming steel-toed cleats. On every melee attack, there is a 30%
+chance to "stomp" the target — this deals bonus damage equal to your Swagger
+stat (unmodified, just the raw value) and knocks the enemy back 1 tile if it
+doesn't already have adjacent terrain. Essentially, your boots do your talking.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 12
+  stat_bonus: {"swagger": 2}
+  cleat_stomp: {
+    "chance": 0.30,
+    "swagger_damage": True,    — bonus damage = player raw swagger value
+    "knockback_tiles": 1       — 1-tile knockback on stomp
+  }
+
+IMPLEMENTATION NOTES:
+  - New field: cleat_stomp dict on item
+  - In combat.py after melee hit: if player has cleat_stomp feet equipped,
+    roll random.random() < 0.30:
+      bonus = engine.player_stats.effective_swagger  (raw swagger stat)
+      deal bonus damage to target (through defense? recommend: bypass armor; it's a stomp)
+      apply 1-tile knockback (reuse on_hit_knockback logic from war_maul)
+  - Swagger damage value: use effective_swagger (includes ring bonuses)
+  - +2 Swagger base bonus: feeds into the stomp damage + grillz synergy
+
+BALANCE CONSIDERATIONS:
+  - At Swagger 8 (base): 30% * 8 stomp = 2.4 avg bonus dmg per hit. Decent.
+  - At Swagger 12 + rings: 30% * 14 = 4.2 avg bonus. Strong.
+  - Knockback: modest repositioning; 1 tile is less dramatic than war_maul's 3
+  - Pairs with Grillz: grillz already buffs swagger defense/melee, cleats add stomp
+  - +2 Swagger on equip makes the stomp slightly stronger immediately
+
+SYNERGIES:
+  - Grillz: both scale swagger, create a full "Swagger build" with neck+feet slots
+  - 2x4 / Extra Sharp Hair Pick / swagger_linear weapons: same stat investment
+  - Ring of Borrowed Time: +3 swagger compounds with grillz + cleats
+  - Beating skill tree: stomp proc = beating damage? Or add swagger bonus to Beating XP?
+
+
+--------------------------------------------------------------------------------
+ITEM 17: Ghost Slippers
+--------------------------------------------------------------------------------
+Slot:         feet
+Item ID:      ghost_slippers
+Char:         s — color (200, 200, 255) — pale blue-white
+Zones:        [] (unique, no spawn)
+Value:        175
+Tags:         ["ghost_slippers", "unique"]
+Name Gradient: [(220, 220, 255), (100, 100, 180), (220, 220, 255)]
+
+CONCEPT:
+Spectral house slippers that barely make a sound. While equipped, the player
+is effectively SILENT: enemies' hearing radius (for detecting footsteps) is
+reduced to 0 — enemies can only detect you via line-of-sight, never by sound.
+Also: the first attack you land on any enemy that hasn't seen you yet (ambush)
+deals double damage. One-time bonus per enemy per floor.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 5
+  silence_footsteps: True          — enemies cannot detect player by sound
+  ambush_first_strike: {
+    "damage_mult": 2.0,             — 2x damage on first hit vs enemies that haven't seen you
+    "per_enemy_per_floor": True     — each enemy only gets ambushed once per floor
+  }
+
+ENGINE STATE:
+  engine.ghost_slippers_seen_enemies: set  — entities that have spotted player this floor
+
+IMPLEMENTATION NOTES:
+  - New PlayerStats field: silence_footsteps (bool)
+  - In ai.py sound detection logic: if engine.player_stats.silence_footsteps,
+    skip sound-based detection entirely (enemies only spot player via FOV check)
+  - New engine state: ghost_slippers_seen_enemies (set of entity ids)
+  - Reset per floor: ghost_slippers_seen_enemies = set() in on_floor_change
+  - Ambush check in combat.py: if player has ghost_slippers and target id not in seen set:
+    damage *= 2.0; then add target to seen set
+  - Entity "seen" state: already tracked by enemy AI transitions; if enemy is in
+    CHASING or has detected player, they're considered seen
+
+BALANCE CONSIDERATIONS:
+  - Silence is very powerful in Meth Lab zone (large rooms, alarm enemies)
+  - Ambush 2x per-enemy is massive for burst kills: 14+14 str = 28 damage ambush
+    on a 14-dmg weapon = 28 vs typical floor 2 enemy HP of 30-50. Often one-shots.
+  - Post-ambush: no special bonus; ghost slippers offer only 5 armor
+  - Low armor makes this a high-skill item: only valuable if you can keep enemies
+    undetected (which silence helps)
+  - Perfect for exploring ahead and ambushing rooms one-by-one
+
+SYNERGIES:
+  - Scalpel of Accountability: high-crit ambush on tox enemies for massive burst
+  - Stabbing skill tree: Gouge ability on ambush = stacked burst
+  - Ring of the Lookout: see all enemies; plan which rooms to ambush
+  - Serrated Shiv: land bleed stacks before enemy even detects you
+
+
+--------------------------------------------------------------------------------
+ITEM 18: Mag-Lift Shoes
+--------------------------------------------------------------------------------
+Slot:         feet
+Item ID:      mag_lift_shoes
+Char:         s — color (160, 100, 220) — purple tech
+Zones:        [] (unique, no spawn; Meth Lab thematic fit)
+Value:        210
+Tags:         ["mag_lift_shoes", "unique"]
+Name Gradient: [(180, 120, 255), (80, 40, 160)]
+
+CONCEPT:
+Experimental magnetic levitation shoes, jury-rigged from Meth Lab equipment.
+Every 5 tiles the player moves, they "arc" — gaining a free instant movement
+to any tile within 3 tiles of their current position (line-of-sight required,
+bypasses enemies). This arc also applies a 1-tile electromagnetic knockback to
+any enemy adjacent to the arc's landing tile. Also: +20% tox resistance.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 0
+  tox_resistance: 20             — existing field
+  mag_lift: {
+    "tiles_per_arc": 5,          — arc fires every 5 tiles walked
+    "arc_range": 3,              — teleport range for the arc
+    "knockback_on_land": 1,      — 1-tile knockback to enemies adjacent to landing tile
+    "arc_cooldown_turns": 3      — minimum 3 turns between arcs (prevent infinite loop)
+  }
+
+ENGINE STATE:
+  engine.mag_lift_tiles_moved: int (counts tiles walked; resets to 0 on arc)
+  engine.mag_lift_cooldown: int (decrements per turn; arc only fires at 0)
+
+IMPLEMENTATION NOTES:
+  - New field: mag_lift dict on item
+  - New engine state: mag_lift_tiles_moved, mag_lift_cooldown
+  - In engine.handle_move: if mag_lift equipped, increment tiles_moved
+    at tiles_moved >= 5 and cooldown == 0: trigger arc
+  - Arc trigger: enter MenuState.ADJACENT_TILE_TARGETING with range=3 constraint
+    (or auto-fire to nearest open tile if no targeting desired)
+  - Recommend: auto-fire to a random valid tile (within 3, LOS, no wall, passable)
+    for simplicity; show message "Mag-Lift arc!" — or offer targeting via existing
+    ADJACENT_TILE_TARGETING
+  - Knockback on landing: after teleport, iterate adjacents of landing tile,
+    push each enemy 1 tile away (reuse knockback logic)
+  - tox_resistance: 20 — reuse existing field (already supported by hat/chain system)
+
+BALANCE CONSIDERATIONS:
+  - 20% tox resistance is consistent with good protective gear
+  - Arc every 5 tiles: in typical dungeon corridors (5-10 tiles between rooms)
+    = roughly one arc per room entry
+  - Arc knockback: modest disruption of enemy formation
+  - Teleport 3 tiles: shorter than Boots of Springing's 3-tile teleport but on cooldown
+  - 0 armor: purely utility-oriented; fragile if caught
+
+SYNERGIES:
+  - Meth Lab zone: tox resistance + tox-based combat items (Syringe Lance, etc.)
+  - Chemical Warfare skill tree: tox resistance stacks; mag-lift provides mobility
+  - Ghost Slippers can't combine (same slot), but the playstyle is similar: mobility as defense
+  - Serrated Shiv: arc away from enemies, triggering move-away bleed burst on each arc
+
+
+================================================================================
+HATS (4 Items)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 19: Dunce Cap
+--------------------------------------------------------------------------------
+Slot:         hat
+Item ID:      dunce_cap
+Char:         ^ — color (255, 255, 80) — bright yellow
+Zones:        [] (unique, no spawn)
+Value:        150
+Tags:         ["dunce_cap", "unique"]
+Name Gradient: [(255, 255, 80), (200, 200, 0)]
+
+CONCEPT:
+A tall conical hat with a big D on it. Book-Smarts is reduced by 3 (you're
+officially a dunce) but every single combat action grants +2 to all Skill XP
+(you learn by doing, not by thinking). Additionally, all skill trees gain XP
+50% faster from physical combat actions specifically. Dumb but relentless.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 0
+  stat_bonus: {"book_smarts": -3}
+  dunce_cap: {
+    "xp_per_action": 2,          — grant 2 XP to ALL active skills after each combat action
+    "physical_xp_mult": 1.50,    — 50% more XP from hitting, stabbing, beating, shooting
+    "affects_skills": "all_active"
+  }
+
+IMPLEMENTATION NOTES:
+  - New field: dunce_cap dict on item
+  - After each combat action (melee hit, gun shot, spell cast): if dunce_cap equipped,
+    award 2 XP to all currently-leveled skills (skills with level > 0 or non-zero exp)
+  - Physical XP: in xp_progression.py, check if dunce_cap equipped; multiply by 1.5
+    for stabbing_xp, beating_xp, gatting_xp, etc.
+  - -3 book_smarts: reduces SP gain rate significantly (from 0.34 at BKS=9 to 0.27
+    at BKS=6) — the passive XP gains partially compensate
+
+BALANCE CONSIDERATIONS:
+  - -3 BKS: at BKS 9, now BKS 6. SP rate drops ~20%. Slower skill unlock.
+  - +2 XP/action and 1.5x physical: depends heavily on playstyle. Very active combat
+    playstyles see 50+ combat actions per floor = 100+ bonus XP/floor.
+  - Leveling physical skills from 0→1 costs 200 XP; dunce cap speeds this noticeably
+  - Ideal for players wanting to maximize multiple skill trees simultaneously
+  - Unique hat slot competes with Straw Hat (all stats +2 + death save)
+
+SYNERGIES:
+  - Stabbing / Beating / Slashing trees: 1.5x XP multiplier specifically benefits these
+  - Gatting / Sniping: +2 XP per shot + 1.5x gun XP = fast gun skill progression
+  - Meth-Head / Smoking: each smoke action also grants the +2 XP to all
+  - Early game: potentially fastest skill-leveling hat in game; late game BKS -3 hurts
+
+
+--------------------------------------------------------------------------------
+ITEM 20: Bucket of Shade
+--------------------------------------------------------------------------------
+Slot:         hat
+Item ID:      bucket_of_shade
+Char:         ^ — color (30, 30, 30) — near-black
+Zones:        [] (unique, no spawn)
+Value:        180
+Tags:         ["bucket_of_shade", "unique"]
+Name Gradient: [(20, 20, 20), (80, 80, 80)]
+
+CONCEPT:
+A jet-black bucket hat. "No cap." Enemies in your FOV that you have NOT yet
+attacked this floor have a 15% chance to be debuffed with "Shook" on each of
+their turns (they saw you wearing this and lost confidence). Shook reduces
+enemy damage by 25% and makes them IDLE for 2 turns. "You just got shaded."
+Also: +25 armor.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 25
+  stat_bonus: {}
+  bucket_of_shade: {
+    "shade_chance_per_turn": 0.15,
+    "shook_dmg_reduction": 0.25,
+    "shook_duration": 2,
+    "only_unengaged": True        — only enemies not yet attacked by player this floor
+  }
+
+ENGINE STATE:
+  engine.shade_attacked_enemies: set  — entity IDs attacked by player this floor
+  (reset on floor change)
+
+SHOOK EFFECT:
+  id: "shook"
+  category: "debuff"
+  duration: 2 turns
+  modify_incoming_damage: multiply outgoing (enemy's) damage by 0.75
+  before_turn: force entity AI to IDLE for this turn (skip action)
+
+IMPLEMENTATION NOTES:
+  - New field: bucket_of_shade dict on item
+  - New engine state: shade_attacked_enemies (set)
+  - In _run_energy_loop during enemy AI turns: if bucket_of_shade equipped
+    and entity not in shade_attacked_enemies and entity in player FOV:
+    roll 15% → apply_effect(entity, engine, "shook", duration=2)
+  - On player attack: add target to shade_attacked_enemies
+  - ShookEffect: is_curse = True (so new shook replaces old, no stacking)
+  - Shook force_IDLE in before_turn: set entity ai_state = IDLE this tick
+
+BALANCE CONSIDERATIONS:
+  - 25 armor is strong for hat slot (Cuban Link has 50 but it's neck + reach bonus)
+  - Shade effect: 15% per enemy turn means in 5-turn combat, expected ~0.75 shook
+    procs per enemy — effectively ~3 free "skip turns" across a room of 5 enemies
+  - "Only unengaged" clause: once player attacks, shade stops. Encourages picking
+    targets carefully — shade the dangerous ones before engaging
+  - Strong passive crowd control; no active cost
+
+SYNERGIES:
+  - Ring of the Lookout: see all enemies; shade them all before entering room
+  - Ghost Slippers + Bucket of Shade: ambush + shade pre-combat crowd control
+  - Ring of Intimidation: fear + shade = enemies both flee AND are passive
+  - Jawbreaker: shade buys time to stack Sugarcrust without being hit
+
+
+--------------------------------------------------------------------------------
+ITEM 21: Balaclava of a Thousand Ops
+--------------------------------------------------------------------------------
+Slot:         hat
+Item ID:      balaclava_thousand_ops
+Char:         ^ — color (30, 60, 30) — dark military green
+Zones:        [] (unique, no spawn)
+Value:        200
+Tags:         ["balaclava_thousand_ops", "unique"]
+Name Gradient: [(20, 40, 20), (80, 120, 80)]
+
+CONCEPT:
+A worn balaclava with a thousand tiny tallies stitched into it. Each kill you
+make while wearing it adds a permanent +0.5% crit chance (rounded down, applied
+each 2 kills for +1%). Capped at +15% bonus crit from the balaclava. Also
+provides modest tox and rad resistance to reflect a lifetime of being in the
+shit. Also: -1 Swagger (the mask hides your face; you can't flex properly).
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 0
+  tox_resistance: 15
+  rad_resistance: 15
+  stat_bonus: {"swagger": -1}
+  kill_crit_bonus: {
+    "crit_per_kills": 2,          — 1 kill = +0.5%, 2 kills = +1% crit
+    "max_bonus_crit": 15,         — max +15% additional crit chance
+    "bonus_crit_int": True        — integer tracking; 2 kills per +1% crit
+  }
+
+ENGINE STATE:
+  engine.balaclava_kill_count: int  (run-wide; persists across floors)
+  engine.balaclava_crit_bonus: int  (computed from kill count)
+
+RESOLUTION:
+  On kill: if balaclava equipped, balaclava_kill_count += 1
+  balaclava_crit_bonus = min(15, balaclava_kill_count // 2)
+  Apply as dynamic dodge_chance equivalent for crit: player_stats crit_bonus
+    player.crit_bonus = balaclava_crit_bonus (separate from STS-based crit)
+
+IMPLEMENTATION NOTES:
+  - New field: kill_crit_bonus dict on item
+  - New engine state: balaclava_kill_count, balaclava_crit_bonus
+  - Crit formula currently: street_smarts * 3% base crit. Add balaclava_crit_bonus.
+  - In combat.py crit roll: is_crit = random.random() < (crit_chance/100)
+    where crit_chance = player_stats.effective_street_smarts * 3 + balaclava_crit_bonus
+  - Kill detection: in engine, after entity death, check balaclava equipped
+  - Run-wide persistence: kill count doesn't reset on floor change
+  - Unequip: retain kill count; re-equip picks up where left off
+
+BALANCE CONSIDERATIONS:
+  - Starts at 0 crit bonus; needs 30 kills for max +15%
+  - Typical run: 100-200 kills total across floors 1-4. Reaches max around floor 3.
+  - At max: STS 12 (36%) + 15% = 51% crit chance. Near coinflip crits.
+  - -1 Swagger: minor penalty. Slight defense loss (0.5 def at most).
+  - 15% tox/rad resistance: useful in Meth Lab; weak elsewhere
+
+SYNERGIES:
+  - Street-Smarts investment: +15% on top of STS-based crit = massive
+  - Scalpel of Accountability: crit-exploit tox weapon + crit hat = synergy
+  - Prison Shank: +1x crit mult already; combined with balaclava = deadly crits
+  - Stabbing skill tree: more hits = more kills = faster balaclava stacking
+
+
+--------------------------------------------------------------------------------
+ITEM 22: Snapback of No Return
+--------------------------------------------------------------------------------
+Slot:         hat
+Item ID:      snapback_of_no_return
+Char:         ^ — color (160, 40, 40) — dark red
+Zones:        [] (unique, no spawn)
+Value:        195
+Tags:         ["snapback_no_return", "unique"]
+Name Gradient: [(180, 50, 50), (60, 10, 10)]
+
+CONCEPT:
+A snapback where the plastic strap was used to bind a wound once. When
+equipped, you cannot use the Wait action at all — the hat literally refuses
+to let you idle. In return: every action you take (every attack, move, use)
+restores 1 HP. Also provides +2 Constitution and 20 armor. The hat of someone
+who has no time to bleed.
+
+MECHANICAL SPECIFICATION:
+  armor_bonus: 20
+  stat_bonus: {"constitution": 2}
+  no_wait: True                   — Wait action is disabled while equipped
+  action_heal: {
+    "hp_per_action": 1,           — recover 1 HP after each action taken
+    "max_per_turn": 1             — cap at 1 HP per turn (avoid multi-action abuse)
+  }
+
+ENGINE INTEGRATION:
+  In engine.process_action() for "wait": if snapback equipped, block with message:
+    "The Snapback of No Return won't let you wait. Keep moving."
+  After each player action in engine: if snapback equipped,
+    engine.player.hp = min(player.max_hp, player.hp + 1)
+
+IMPLEMENTATION NOTES:
+  - New field: no_wait (bool) on item
+  - New field: action_heal dict on item
+  - Blocking wait in engine.process_action: check equipped hat for no_wait
+  - HP recovery: add at end of action handling in engine; +1 per action
+  - This is modest HoT: 1 HP per action. During a 10-action fight: +10 HP.
+  - Edge case: stun effects that force-skip the player's turn — player didn't
+    "take an action" so no heal. Stun = 0 healing. Dangerous with this hat.
+
+BALANCE CONSIDERATIONS:
+  - +2 CON: from base, CON 9 → effectively 11; +20 max HP; +20 armor is solid
+  - No wait: prevents resting/healing between enemies in a room
+    (can't wait to regen from effects without this hat; but items like OG Kush still work)
+  - 1 HP/action: if taking 10 actions per combat, +10 HP over a fight
+    At 10 CON (130 HP), 10 extra HP is ~7.7% recovery. Modest but consistent.
+  - The no-wait restriction matters most when cornered or kiting. High-skill hat.
+  - Anti-synergy: Knot of St. Expedite (patience lost on wait) + this hat = never
+    triggering the patience penalty at all — a hidden synergy!
+
+SYNERGIES:
+  - Knot of St. Expedite (neck): can't wait = never lose patience charges
+  - Blood Debt Ring: action_heal at low HP keeps you in blood_debt phase 2 range
+  - Rollerblades of the Damned: constant movement + action heal = sustainable HP loop
+  - Weighted Blanket: 150% attack cost means you "act" less often; heal 1/attack is slow
+
+
+================================================================================
+CONSUMABLES (3 Items)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 23: Lean Pint
+--------------------------------------------------------------------------------
+Slot:         consumable
+Item ID:      lean_pint
+Char:         ! — color (180, 80, 220) — purple
+Zones:        ["crack_den", "meth_lab"] — rare world drop
+Value:        120
+Category:     consumable
+use_verb:     "Sip"
+Tags:         ["lean_pint", "unique"]
+Name Gradient: [(160, 60, 200), (80, 20, 120)]
+
+CONCEPT:
+A pint-size cup of purple lean. Slow everything down. On use: player's energy
+gain drops by 50% for 15 turns (moving and acting half as often), enemies in
+FOV have their AI update rate halved (they also act half as often). However,
+the player gains 40% dodge chance and all incoming damage is reduced by 30%
+for the same 15 turns. Everything is slower but nothing hurts as bad.
+
+MECHANICAL SPECIFICATION:
+  use_effect: {"type": "lean_pint"}
+
+LEAN PINT EFFECT:
+  id: "lean_pint_effect"
+  category: "buff"
+  duration: 15 turns
+  modify_energy_gain(amount, entity, engine): return amount * 0.5  (player energy halved)
+  apply(): engine.player_stats.add_dodge_chance(40)
+  expire(): engine.player_stats.add_dodge_chance(-40)
+
+  ENEMY SLOWDOWN: new mechanism
+    While effect active, in _run_energy_loop enemy energy distribution:
+      if lean_pint_active: distribute only 50% energy to enemies each tick
+    (or: enemies accumulate energy at half rate while player has lean_pint_effect)
+
+  modify_incoming_damage(amount, entity, engine): return int(amount * 0.70)  — 30% DR
+
+IMPLEMENTATION NOTES:
+  - New use_effect type: "lean_pint" in item_effects.py
+  - LeanPintEffect: override modify_energy_gain (halves player energy),
+    modify_incoming_damage (30% DR), apply/expire for dodge
+  - Enemy slowdown: in _run_energy_loop, add check: if player has lean_pint_effect,
+    halve energy distributed to enemies (apply 50% reduction)
+  - 40% dodge capped at 90%; if player already has dodge, this may hit cap
+  - This is a "time slow" consumable — powerful strategic reset tool
+
+BALANCE CONSIDERATIONS:
+  - 15 turns at half speed: effectively 30 normal turns of protection, but you also
+    act half as often (can't heal or reposition efficiently)
+  - 40% dodge + 30% DR = substantial mitigation. Surviving an overwhelming encounter.
+  - Single-use, rare spawn — appropriate for its power level
+  - Enemy slowdown is extremely powerful; balanced by player also being slower
+  - Net result: fights last twice as long (in real turns) but are much more survivable
+
+SYNERGIES:
+  - Blood Debt Ring: lean pint keeps you alive in phase 1/2 territory longer
+  - Massive Blunt / Jawbreaker: slower combat = more time to build slow mechanics
+  - Crackhead's Communion: lean pint extends the window for communion procs
+  - Amulet of Equivalent Exchange: soul abilities don't cost energy; no slowdown penalty
+
+
+--------------------------------------------------------------------------------
+ITEM 24: Burner Phone
+--------------------------------------------------------------------------------
+Slot:         consumable
+Item ID:      burner_phone
+Char:         "i" — color (60, 60, 60) — dark grey
+Zones:        ["crack_den", "meth_lab"] — moderate rarity
+Value:        80
+Category:     consumable
+use_verb:     "Call"
+Tags:         ["burner_phone", "unique"]
+
+CONCEPT:
+A cracked prepaid phone with one number in it. On use, you "make the call."
+One random enemy on the current floor immediately dies (as if killed normally —
+drops loot, grants XP, potentially triggers boss panic). You can only use one
+Burner Phone per floor. Flavor: someone always owes you a favor.
+
+MECHANICAL SPECIFICATION:
+  use_effect: {"type": "burner_phone"}
+
+BURNER PHONE RESOLUTION:
+  1. If already used on this floor: message "No signal. You already called in your favor."
+     Return without effect. (engine.burner_phone_used_this_floor flag)
+  2. Collect all alive, non-boss enemies on current floor.
+  3. If no valid targets: message "No one picks up. No targets on this floor."
+  4. Pick one at random.
+  5. Kill it: deal max_hp damage directly (call engine._kill_entity or similar)
+     — grants normal XP, drops normal loot, fires death effects (split, creep spawn)
+  6. engine.burner_phone_used_this_floor = True
+  7. Message: "You make the call. [Enemy name] drops dead. No questions asked."
+
+ENGINE STATE:
+  engine.burner_phone_used_this_floor: bool (reset on floor change)
+
+IMPLEMENTATION NOTES:
+  - New use_effect type: "burner_phone" in item_effects.py
+  - Check engine.burner_phone_used_this_floor before resolving
+  - "Kill" the target: set entity.hp = 0 and fire death logic via existing
+    kill path in engine (combat.py / engine._handle_death or similar)
+  - Do not kill bosses (entity.is_boss flag): message "Whoever you called doesn't
+    deal with bosses."
+  - Death grants XP, loot, etc. exactly as normal
+
+BALANCE CONSIDERATIONS:
+  - One use per floor is critical — prevents farming
+  - Single-use consumable: value is exactly one free kill
+  - Most valuable against high-HP enemies mid-floor (saves resources)
+  - XP/loot still received: not a "skip" — the fight still happened, you just won
+  - Can proc death-split enemies (Creep spawns from certain enemies) — slight risk
+
+SYNERGIES:
+  - Balaclava of a Thousand Ops: free kill counts toward crit stacks
+  - Amulet of Equivalent Exchange: soul collected from burner phone kill
+  - L Farming skill tree: extra drop chance on the targeted kill
+  - Any run where you face a high-HP threat: tactical use to clear a dangerous room
+
+
+--------------------------------------------------------------------------------
+ITEM 25: Diploma (Expired)
+--------------------------------------------------------------------------------
+Slot:         consumable
+Item ID:      diploma_expired
+Char:         "~" — color (240, 220, 160) — parchment
+Zones:        ["crack_den"] — uncommon
+Value:        200
+Category:     consumable
+use_verb:     "Present"
+Tags:         ["diploma_expired", "unique"]
+Name Gradient: [(240, 220, 160), (160, 140, 80)]
+
+CONCEPT:
+A framed diploma from an unaccredited university, graduation date smudged.
+On use: the player "presents credentials" — grants a massive but temporary
+Book-Smarts buff (+6 BKS for 20 turns), converting all potential XP during
+that window into real XP at an accelerated rate. When the buff expires,
+permanent BKS is reduced by 1 (the university's reputation catches up with you).
+One-time use, not per-floor.
+
+MECHANICAL SPECIFICATION:
+  use_effect: {"type": "diploma_expired"}
+
+DIPLOMA RESOLUTION:
+  1. Grant effect: "diploma_buff" — +6 BKS for 20 turns
+     (via add_temporary_stat_bonus("book_smarts", 6))
+  2. Apply XP conversion multiplier: while diploma_buff active, SP conversion
+     rate increased by 2x (potential XP converts to real XP twice as fast)
+  3. On expire (after 20 turns): remove +6 BKS bonus;
+     player_stats._base["book_smarts"] -= 1 (permanent -1 BKS)
+     Enforce minimum: _base["book_smarts"] = max(1, _base["book_smarts"] - 1)
+  4. Message on expire: "Your credentials expired. The university never existed."
+
+DIPLOMA BUFF EFFECT:
+  id: "diploma_buff"
+  category: "buff"
+  duration: 20 turns
+  apply(): add_temporary_stat_bonus("book_smarts", 6); set diploma_active flag
+  expire(): remove +6 BKS; _base BKS -= 1; clear flag
+  While active: in xp_progression.py SP conversion, multiply SP gain rate * 2
+
+ENGINE STATE:
+  engine.diploma_active: bool (used to double SP conversion rate)
+  This is consumed on use (ONCE type logically; single item, consumed)
+
+IMPLEMENTATION NOTES:
+  - New use_effect type: "diploma_expired" in item_effects.py
+  - DiplomaBuffEffect: apply/expire hooks; temporary +6 BKS, expire -1 perm BKS
+  - Permanent stat change: same mechanism as Junkie's Locket (modify _base directly)
+  - SP multiplier: in xp_progression.py, check engine.diploma_active; double rate
+  - Recompute max_hp on CON change if needed (BKS change doesn't affect HP)
+  - Edge case: if BKS already at minimum 6, reducing by 1 → 5. Allow below minimum?
+    Recommend: clamp at 1 (allow going below normal minimum for flavor/risk)
+
+BALANCE CONSIDERATIONS:
+  - +6 BKS for 20 turns: temporary BKS goes from e.g. 8 → 14 (above normal max 12)
+  - At BKS 14: SP rate = min(0.5, 0.1 + 0.3*sqrt(14/80)) = ~0.43 vs ~0.26 at BKS 8
+    Combined with 2x multiplier: ~0.86 SP conversion rate for 20 turns — huge
+  - Use during heavy XP generation (early floor, lots of enemies): convert massive
+    potential XP before it expires
+  - Permanent -1 BKS: meaningful cost. If BKS was 7, now 6. SP rate drops permanently.
+  - Forbidden item for BKS-critical builds (Rune Scraper) unless you can afford -1 BKS
+
+SYNERGIES:
+  - Rune Scraper: BKS weapon benefits from temporary boost even if perm -1 on expire
+  - Dunce Cap: Dunce Cap reduces BKS -3 but boosts physical XP; diploma provides
+    the BKS burst to convert all that accumulated XP quickly, then fades
+  - Kushenheimer strain: Tier 5 grants +1 perm BKS, partly counteracting diploma's cost
+  - Blackkk Magic / Smartsness: skill trees that benefit most from rapid leveling
+
+
+================================================================================
+IMPLEMENTATION SUMMARY — NEW FIELDS & ENGINE STATE REQUIRED
+================================================================================
+
+NEW ITEM FIELDS:
+  on_hit_sugarcrust: dict
+  on_hit_serrated_bleed: dict (or on_hit_bleed with serrated flag)
+  attack_energy_cost: int (weapon-specific attack energy override)
+  on_hit_comfort: dict
+  heal_amplification: float
+  on_hit_chain_shock: dict
+  on_hit_shock_self: dict
+  tox_exploit: dict
+  jam_weird_chance: float
+  borrowed_time: dict
+  fov_bonus: int
+  telepathy: bool
+  enemy_sight_boost: float
+  secondhand_smoke_aura: bool
+  blood_debt: dict
+  swagger_defense_multiplier: float
+  swagger_melee_bonus: dict
+  communion_vial: dict
+  patience_charges: dict
+  tolerance_locket: dict
+  rollerblades: dict
+  cleat_stomp: dict
+  silence_footsteps: bool
+  ambush_first_strike: dict
+  mag_lift: dict
+  dunce_cap: dict
+  bucket_of_shade: dict
+  kill_crit_bonus: dict
+  no_wait: bool
+  action_heal: dict
+
+NEW EFFECT SUBCLASSES (effects.py):
+  SugarcrustEffect ("sugarcrust")
+  SerratedBleedEffect ("serrated_bleed")
+  ComfortEffect ("comfort")
+  BloodDebt1Effect ("blood_debt_phase1")
+  BloodDebt2Effect ("blood_debt_phase2")
+  ShookEffect ("shook")
+  SecondhandAuraEffect ("secondhand_aura")
+  CommunionHealEffect, CommunionSpeedEffect, etc. (thin wrappers)
+  PatiencePenaltyEffect ("patience_penalty")
+  LeanPintEffect ("lean_pint_effect")
+  DiplomaBuff Effect ("diploma_buff")
+
+NEW ENGINE STATE:
+  _serrated_last_adjacent: set
+  borrowed_time_counter: int
+  ring_enemy_sight_mult: float (default 1.0)
+  communion_charges: int
+  communion_cracked: bool
+  ghost_slippers_seen_enemies: set
+  shade_attacked_enemies: set
+  balaclava_kill_count: int
+  balaclava_crit_bonus: int
+  rollerblade_momentum: int
+  rollerblade_moved_last_turn: bool
+  patience_charges: int
+  patience_penalty_active: bool
+  locket_tol_gained: int
+  mag_lift_tiles_moved: int
+  mag_lift_cooldown: int
+  burner_phone_used_this_floor: bool
+  diploma_active: bool
+
+NEW PLAYER_STATS FIELDS:
+  heal_amplification: float = 0.0
+  fov_bonus: int = 0
+  telepathy: bool = False
+  grillz_equipped: bool = False
+  silence_footsteps: bool = False
+
+================================================================================
+END OF DOCUMENT
+================================================================================

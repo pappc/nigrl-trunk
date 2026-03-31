@@ -1,212 +1,305 @@
 # Game Design Ideator — Agent Memory
 
-## Skill Trees Overview (from skills.py)
+## Core Constants
 
-17 total skill trees. 11 are fully placeholder. 6 have partial content (up to L3).
-See `nigrl-ideas/skills_and_perks_table.txt` for the complete reference table.
+- Output dir: `nigrl-ideas/` → `C:/Users/pappc/claude-projects/nigrl-trunk/nigrl-ideas/`
+- XP curve: [200,400,600,800,2000,6000,15000,25000,100000,500000] (total: 649,000)
+- Book Smarts SP rate: min(0.5, 0.1 + 0.3*sqrt(bksmt/80)). At bksmt=0: 10%. At bksmt=50: ~34%.
+- Player HP: 30 + CON*10. At CON 10: 130 HP. Swagger defence: int((eff_swg-8)/2).
+- Crit chance: street_smarts*3%. Enemy HP: base_hp + con*5. Enemy dmg floor 1-2: 4-8.
+- Energy: 100/tick base. +30 = ~23% faster. MEGA_CRIT_MULTIPLIER = 4.
+- Stat names: constitution, strength, street_smarts, book_smarts, tolerance, swagger
 
-Designed perks summary:
-- Smoking L1-3: Phat Cloud (passive TBD), Stat Up! (+2 Tol/+2 Con), Roach Fiend (+2 Tol)
-- Rolling L1-3: Stat Up! (+1 Str/+1 Tol), Seeing Double (passive TBD), Spectral Paper (passive TBD)
-- Pyromania L4: Neva Burn Out (passive TBD) — levels 1-3 are placeholder
-- Stabbing L1-3: Gouge (activated, adjacent stun ability), Stat Up! (+2 Street Smarts), Windfury (passive extra-hit)
-- Alcoholism L1-3: Im Drinkin Here (passive TBD), Stat Up! (+2 Tol), Throw Bottle (activated, ability)
-- Munching L1-3: Fatter (+1 Con), Even Fatter (+2 Con), Better Later (passive TBD)
+## Perk Type Vocabulary
 
-Fully placeholder (no perks at all):
-  Negromancy, Blackkk Magic, Beating, Smacking, Stealing, Jaywalking,
-  Deep-Frying, Drinking, Dismantling, Abandoning, Meth-Head
+- "none" → placeholder | "stat" → {stat_name: int} | "passive" → always-on | "activated" → {"ability": id}
+- Stat bonuses can be NEGATIVE (Negromancy L2, Meth-Head L2). Mixed stat+ability dicts valid.
 
-## XP Curve Reference
+## Skill Trees Summary
 
-DEFAULT_EXP_CURVE = [200, 400, 600, 800, 2000, 6000, 15000, 25000, 100000, 500000]
-Total to max: 649,000. Same curve applies to all skill trees.
+32 total skill trees in skills.py. Skills with partial/full content:
+  Smoking, Rolling, Stabbing, Alcoholism, Munching, Pyromancy, White Power, Mutation (L1-L3)
+Full L4/L5 designs: `nigrl-ideas/skill_perks_L4_L5.txt`. Table: `nigrl-ideas/skills_and_perks_table.txt`
 
-Book Smarts controls SP gain rate: min(0.5, 0.1 + 0.3 * sqrt(bksmt / 80))
-At bksmt=0: 10% of potential XP becomes SP. At bksmt=50: ~34%.
+## Design Docs Index (by topic file)
 
-## Output Directory
+### Equipment
+- `nigrl-ideas/ability-granting-unique-items.txt` — 10 ability-granting uniques (4 resource-system, 6 single-ability); summary in `summaries/ability-granting-unique-items-summary.txt`
+- `nigrl-ideas/ability-granting-batch2-currency.txt` — 13 resource/currency system uniques (all slots, 2 guns); summary in `summaries/ability-granting-batch2-currency-summary.txt`
+- `nigrl-ideas/ability-granting-batch2-single.txt` — 12 single-ability uniques (all slots incl. first slashing weapon unique + first gun unique); summary in `summaries/ability-granting-batch2-single-summary.txt`
+- `nigrl-ideas/osrs-unique-items.txt` — 25 OSRS-inspired uniques (all slots, 3 guns); summary in `summaries/osrs-unique-items-summary.txt`
+- [legendary-items.md](legendary-items.md) — Items 1-10, Batches 1-4 (1-40), `legendary-equipment-designs.txt`
+- [trad-roguelike-equipment.md](trad-roguelike-equipment.md) — Items 41-50 NetHack/DCSS/ADOM; `traditional-roguelike-inspired-equipment.txt`
+- [unique-equipment.md](unique-equipment.md) — 10 build-defining uniques; `unique-equipment-designs.txt`
+- [retro-items.md](retro-items.md) — 25 NES/SNES/N64 refs; `retro-reference-unique-items.txt`
+- [anime-items.md](anime-items.md) — 25 anime refs; `anime-reference-unique-items.txt`
+- `nigrl-ideas/retro-anime-unique-items-batch1.txt` — 25 Batch 1 items (PS1/N64/DC/GBA + 90s anime); summary in `summaries/retro-anime-batch1-summary.txt`
+- `nigrl-ideas/retro-anime-unique-items-batch2.txt` — 25 Batch 2 items (PS1/DC/GBA/anime); summary in `summaries/retro-anime-items-batch2-summary.txt`
+- [new-guns.md](new-guns.md) — 12 guns; `new-gun-concepts.txt`; [gun-trees.md](gun-trees.md) — 5 gun skill trees
+- [gun-consumables.md](gun-consumables.md) — 10 gun consumables; `gun-consumable-designs.txt`
+- `nigrl-ideas/unique-gun-designs.txt` — 10 unique guns (zones: [], special acquisition); summary in `summaries/unique-gun-designs-summary.txt`
+- [meth-lab-weapons.md](meth-lab-weapons.md) — 8 stab weapons; `meth-lab-stab-weapons.txt`
+- `nigrl-ideas/slashing-weapons-and-skill-tree.txt` — 10 slashing weapons + 5 L1-L3 variations
+- `nigrl-ideas/indie-unique-items-batch1.txt` — 25 indie 2010-2020 refs; summary in `summaries/indie-unique-items-batch1-summary.txt`
+- `nigrl-ideas/indie-unique-items-batch2.txt` — 25 indie golden age Batch 2; summary in `summaries/indie-unique-items-batch2-summary.txt`
+- [cursed-blessed-items.md](cursed-blessed-items.md) — 10 cursed-to-blessed uniques; `cursed-to-blessed-unique-items.txt`; kill-counter unlock + 24 new fields
+- `nigrl-ideas/unique-items-batch3.txt` — 25 original uniques (all slots); summary in `summaries/unique-items-batch3-summary.txt`
+- `nigrl-ideas/poe-wow-unique-items.txt` — 25 PoE/WoW inspired uniques (all slots, 3 guns); summary in `summaries/poe-wow-unique-items-summary.txt`
+### Strains / Drugs / Drinks
+- [str-rad-strains.md](str-rad-strains.md), [bksmt-rad-strains.md](bksmt-rad-strains.md), [tox-tolerance-strains.md](tox-tolerance-strains.md)
+- [swagger-strains.md](swagger-strains.md) — SWG strains V2; `swagger_mutation_strain_designs_v2.txt`
+- `nigrl-ideas/stat-scaling-strains-v2.txt` — 30 strains V2 (CURRENT)
+- [roguelike-drinks.md](roguelike-drinks.md) — 30 roguelike drinks; `roguelike-inspired-drinks.txt`
+- [meth-lab-drinks.md](meth-lab-drinks.md) — 10 Meth Lab drinks; [colored-dranks.md](colored-dranks.md) — 14 colored dranks
+- [food-compendium.md](food-compendium.md) — 50+35 foods; `item-food-compendium.txt`, `roguelike-inspired-foods-part2.txt`
 
-All design docs saved to: `nigrl-ideas/` (relative to project root).
-Absolute path: C:/Users/pappc/claude-projects/nigrl-trunk/nigrl-ideas/
+### Skills / Abilities
+- `nigrl-ideas/wow-inspired-melee-abilities.txt` — 25 WoW-adapted melee abilities; all 4 weapon types
+- [arachnigga-skill.md](arachnigga-skill.md) — 5 tree proposals, cobweb/venom
+- [blackkk-magic-trees.md](blackkk-magic-trees.md) — 10 designs V2; `blackkk-magic-skill-designs-v2.txt`
+- `nigrl-ideas/mutation-branching-skill-trees.txt` — 10 branching Mutation trees (all 10 shapes); summary in `summaries/mutation-branching-skill-trees-summary.txt`
+- [graffiti-skill.md](graffiti-skill.md) — L1-L5 Tag→Bombing Run; `graffiti-skill-designs.txt`
+- [beating-trees.md](beating-trees.md) — 10 L4+L5 variants; `beating-skill-tree-designs.txt`
+- [stabbing-branching-trees.md](stabbing-branching-trees.md) — V1+V2 (10 total); two .txt files
+- [cryomancy-skill.md](cryomancy-skill.md) — 5 L1-L6 takes; `cryomancy-skill-tree-designs.txt`
+- [electrodynamics-skill.md](electrodynamics-skill.md) — 5 L1-L6 takes; `electrodynamics-skill-tree-designs.txt`
+- `nigrl-ideas/pyromancy-skill-tree-designs.txt` — 5 L1-L6 takes (RENAME Pyromania→Pyromancy)
+- `nigrl-ideas/rolling-branching-skill-trees.txt` — 5 branching designs
+- `nigrl-ideas/pyromania-branching-skill-trees.txt` — 5 branching designs
+- `nigrl-ideas/gatting-branching-skill-trees.txt` — 10 branching designs; summary in `summaries/gatting-branching-skill-trees-summary.txt`
+- `nigrl-ideas/skill_perks_L4_L5.txt` — L4/L5 for 14 trees
+- `nigrl-ideas/chemical-warfare-skill-tree-variations.txt` — 10 L1-L4 variations; summary in `summaries/chemical-warfare-variations-summary.txt`
+- `nigrl-ideas/chemical-warfare-branching-skill-trees.txt` — 10 branching topology variations (Y-split x2, Diamond x3, Triple Fork x2, W-shape x2, Long Trunk Y x1); summary in `summaries/chemical-warfare-branching-trees-summary.txt`
+- `nigrl-ideas/white-power-branching-skill-trees.txt` — 10 branching topology variations (all 10 shapes, each used once); summary in `summaries/white-power-branching-trees-summary.txt`
+- `nigrl-ideas/white-power-tox-inversion-trees.txt` — 10 NEW branching trees; TOX INVERSION as core mechanic (tox = less damage taken AND dealt); all 10 shapes; summary in `summaries/white-power-tox-inversion-summary.txt`
+- `nigrl-ideas/nuclear-research-branching-skill-trees.txt` — 10 branching Nuclear Research trees (all 10 shapes); BKS-scaling rad spells, 16 new abilities; summary in `summaries/nuclear-research-branching-trees-summary.txt`
+- [spell-compendium-index.md](spell-compendium-index.md) — full ability index across all compendium docs
+- `nigrl-ideas/skill-deep-frying-combat-abilities.txt` — 10 Deep-Frying L3-L10 abilities (CON-scaling DPS tree); summary in `summaries/skill-deep-frying-combat-abilities-summary.txt`
+- `nigrl-ideas/deep-frying-skill-tree-variants.txt` — 10 complete L1-L10 Deep-Frying tree layouts (10 themes); summary in `summaries/deep-frying-skill-tree-variants-summary.txt`
+- `nigrl-ideas/smartsness-branching-skill-trees.txt` — 10 L1-L3 Smartsness variations; all 30 perks new; 10 abilities, 8 effects; summary in `summaries/smartsness-branching-skill-trees-summary.txt`
 
-## Perk Type Vocabulary (skills.py conventions)
+### Abilities
+- `nigrl-ideas/poe-inspired-melee-abilities.txt` — 25 PoE-inspired melee abilities; all 4 weapon types; strikes/slams/warcries/passives/triggers
 
-- "none"      → placeholder, does nothing
-- "stat"      → effect dict has stat keys (e.g., {"tolerance": 2, "constitution": 2})
-- "passive"   → always-on; effect=None means mechanically unimplemented (name-only seed)
-- "activated" → effect dict has {"ability": "ability_id"} — grants an AbilityDef entry
+### Mechanics / World
+- [zone2-meth-lab.md](zone2-meth-lab.md) — Meth Lab full design (toxicity + meth meter)
+- [arpg-mechanics.md](arpg-mechanics.md) — Ward, Leech, Threshold, Shred, Impale etc.
+- `nigrl-ideas/mechanic-branching-skill-trees.txt` — BTD6-inspired L4 branch system
+- Spray paints: 25 total. V2 `spray-paint-designs-v2.txt`, V3 `spray-paint-designs-v3.txt`, V4 `spray-paint-designs-v4.txt`; summaries in `summaries/`; V4 adds Midnight/Magenta/Navy/Amber/Bone/Slate/Chartreuse/Umber/Tawny/Indigo; new fields: tile_dodge_bonus, tile_swagger_mult
+- `nigrl-ideas/dungeon-generation-designs.txt` — 9 room generation techniques
+- [spider-event.md](spider-event.md) — Spider Infestation; `spider-enemy-roster.txt`, `black-widow-boss-designs.txt`
+- `nigrl-ideas/tyrone-penthouse-features.txt` — 12 Penthouse hub features (NPCs, interactables, services); summary in `summaries/tyrone-penthouse-features-summary.txt`
 
-## Stat Names (for perk effect dicts)
+## Key Engine/System Notes
 
-constitution, strength, street_smarts, book_smarts, tolerance, swagger
+### Equipment Fields (items.py)
+Existing weapon fields: vampiric, on_hit_effect, on_hit_stun_chance, str_scaling (tiered/ratio/dim),
+  reach, weapon_type, bonus_crit_mult, grants_ability, on_hit_rad, thorns, execute, on_hit_knockback,
+  on_hit_bounce, on_hit_sunder, break_hits/break_final_mult, on_hit_tox, on_hit_skill_xp
+New fields proposed (various batches): starts_cursed, curse_unlock_steps, unique_id, unique_item,
+  on_kill_drug_drop, tox_resistance, rad_resistance, conditional_tox_resistance, energy_per_tick
+Slashing weapon fields proposed: on_hit_bleed {chance, amount, duration}, on_hit_lacerate {stacks},
+  on_hit_cleave {chance, damage_pct}
+Unique gun fields proposed: vampiric_gun/vampiric_gun_amount, tox_on_hit (gun), bksmt_scaling_gun/bksmt_scaling_ratio,
+  ricochet/ricochet_damage_pct/ricochet_range, wind_up_gun/wind_up_per_turn/wind_up_max_turns,
+  hp_cost_gun/hp_cost_per_shot, ambush_first_shot/ambush_crit_bonus_mult, panic_scaling/panic_scaling_cap,
+  full_mag_dump/full_mag_dump_min_shots, earned_power/earned_power_per_kills/earned_power_cap
+Unique gun render rules: mag_size==999 → display "inf"; wind_up_gun → show "Charged: +N dmg" in gun info
 
-## L4/L5 Perk Designs
+### New Lifecycle Hooks Proposed
+- Effect.modify_heal(amount, entity, engine) -> int — block/modify healing (Leech Chain Blood Frenzy)
+- on_after_damage(entity, engine, damage) — post-damage hook (Shadow compendium)
+- modify_incoming_heal(amount, entity, engine) -> int — reduce enemy healing (Mortal Wound, V3P2 shadow)
+- apply_elemental_gun_hit(engine, target) — after confirmed gun hit (gun consumables)
 
-Full L4/L5 designs for all 14 trees with L1-L3 + full L1-L5 for Negromancy and
-Meth-Head: see `nigrl-ideas/skill_perks_L4_L5.txt`.
+### New Entity Fields Proposed (cumulative)
+entity.is_boss, entity.fresh_corpse, entity.is_thrall, entity.last_move_dir, entity.ambush_eligible,
+entity.elements_received, entity.frost_patch_duration, entity.dirty_south_filth, entity.shadowbox_combo, entity._prophecy_charge
 
-Stat bonuses from "stat" perk_type can be NEGATIVE (e.g., constitution: -1).
-This is valid — Negromancy L2 and Meth-Head L2 deliberately use negative BkSmt/CON.
+### New Engine State Proposed (cumulative)
+soul_shards, talisman_kills/mercy_moves/mode, reaping_charge_pool, roller_momentum_debt,
+chain_first_use_set, wind_up_charged, horseshoe_reroll_used_this_turn, unique_effects_applied,
+gun_accuracy/damage_bonus, killstreak_count, _shadow_dark, _active_herald, last_completed_food_id,
+first_blood_hit_set, _slashing_fast_bleed, grit_charges, last_kill_was_melee, player_free_action,
+haymaker_counter, rage_stacks/rage_timers, last_rites_cooldown, crit_burst_cooldown,
+blood_oath_pending, berserk_stun_on, curse_broken_{item_id} (10 flags; cursed-blessed batch),
+job_wind_up/job_equip_id (Patience of Job), cold_open_shot_targets: set (reset/floor),
+respect_kills/respect_bonus (persist til unequip; run-wide kill counter)
+mutation_count (run-wide), mutation_reroll_available/genome_locked_stat (per-floor), rad_berserker_stacks/freak_speed_stacks (per-floor),
+adaptive_dr_bonus/scar_tissue_hits/last_mutation_was_good/mutation_streak (run-wide),
+irradiate_splash_radius, contamination_cloud_active, forced_strong_next/forced_huge_next,
+mutation_xp_multiplier (float), genome_splice_used (bool), forced_evolution_charges (per-floor)
+wp_fortress_stacks (per-floor; clears on move), wp_crust_stacks (per-turn decay), wp_scab_charged (per-hit),
+wp_martyr_stacks (run-persistent), wp_oath_pool: float (run-persistent), wp_inversion_prevented_dmg (per-floor),
+wp_tincan_hits_remaining (per-floor), wp_room_first_hit (per-room), wp_kiln_regen_bonus, wp_last_armor_value
+### Ability-Granting Batch 2 — New Engine State (single-ability items)
+hoodoo_proxy_target_id (str|None; clears on entity death + floor change),
+parolee_id (str|None; clears on floor change; kill handler pays $25 payout),
+cod_study_target_id (str|None; Coroner's Badge studied target; floor/death clear),
+warrant_target_id (str|None; The Warrant wanted target; floor/death clear),
+_read_the_room_fov_penalty (int default 0; subtracted from fov_radius in _compute_fov),
+stash_sneakers_item_id (str|None; persists floor; drops on unequip),
+stash_sneakers_pending_store (bool default False)
+### Ability-Granting Currency Batch 2 — New Engine State (resource items)
+floor_tracker_rooms (int, 0; cumulative run-wide), floor_tracker_rooms_visited (set, reset/floor),
+dodge_ledger_evasions (int, 0; reset on unequip), block_party_ring_blocked (int, 0; reset on unequip),
+tox_budget_ring_budget (int, 0; reset on unequip), accumulator_charge (int, 0; reset per floor+unequip),
+sawed_off_breach (int, 0; lifetime; reset on unequip), rad_dial_charge (int, 0; reset on unequip),
+respect_knucks_chain (int, 0; reset on miss/hit-taken/unequip), respect_knucks_target_id (str|None),
+_last_ability_fired_id (str|None; updated after every ability fire — for Inscription Chain)
+### Ability-Granting Batch 2 — New Effects
+hoodoo_proxy (floor_dur; mirror player-taken dmg to marked enemy; expires on entity death),
+parolee (floor_dur; ai_type override to passive_until_hit; compliance stun within 2 tiles),
+cause_of_death_mark (dur=8; modify_incoming_damage × (1 + bonus_pct/100); BKS-scaled),
+wanted (floor_dur; marker for gun defense-bypass shot; ammo recovery on kill),
+read_the_room_active (dur=8; forces all hits to crit; FOV -3 while active)
+### Ability-Granting Batch 2 — New Hazard + Enemy
+hazard_type="blood_patch" (char='.', red; dur=10; applies bleeding 2t on enemies standing on it)
+enemy_type="scurry_rat" (MonsterTemplate spawn_weight=0; only spawned by Swarm Call summon)
+### Ability-Granting Batch 2 — New AbilityDef Field
+AbilityDef.is_passive: bool = False — if True: UI shows "(passive)" label, no targeting entered
 
-## Balance Reference Points
+### New PlayerStats Fields Proposed
+shock_resistance, fire_immune, tile_armor_bonus, max_hp_penalty, surge_charges,
+momentum_kills, crit_multiplier_bonus, tox_gain_reduction, melee_damage_bonus,
++ cursed-blessed batch: hp_cap_ratio, regen/drain_per_turn, speed_bonus, vulnerability_multiplier,
+  xp_blocked, ability_locked, spell_damage_bonus, sp_regen, sight/sound_radius_bonus, telepathy, no_map_memory
++ Mutation branching batch: rad_gain_multiplier_bonus (float), mutation_good_base_bonus (float),
+  mutation_trigger_multiplier (float), mutation_tier_skip_weak (bool), adaptive_dr (int),
+  mutation_melee_bonus (int), rad_to_power_ratio (float), mutation_count_mirror (int)
++ Spray paint v2 batch: tile_max_hp_bonus (int, 0; pink REJECTED), tile_xp_bonus (float, 0.0; teal; mult on all skill XP gains)
++ Spray paint v3 batch: tile_spell_damage_bonus (int, 0; cobalt; reset on step-off), tile_melee_damage_bonus (int, 0; violet; optional inline)
++ Spray paint v3 effect: RustedEffect (id="rusted", floor_duration=True, stacks field max 10; defense reduction read in combat.py)
++ White Power tox inversion batch: tox_inversion_active (bool), wp_inversion_coefficient (float, def 0.5),
+  wp_inversion_outgoing_coefficient (float), wp_no_outgoing_penalty (bool), wp_grinding_stone_active (bool),
+  wp_paper_wall_used (per-floor bool), wp_iron_will_first_hit (per-floor bool)
 
-- Player base stats: 5-12 range at start, sum=46 across 6 stats
-- Player max HP: 30 + CON * 10. At CON 10: 130 HP.
-- Swagger defence: int((effective_swagger - 8) / 2). Starts at 8 → 0 defense. Every +2 above 8 = +1, every -2 below 8 = -1.
-- Crit chance: street_smarts * 3%. At start: 15%-36%.
-- Enemy HP typical: base_hp + con*5. Tweaker (con 2-4): 10-20 HP.
-- Enemy damage typical: 4-8 per hit on floor 1-2. Defense 0-3.
-- Energy system: 100 energy/tick = base speed. +30 = ~23% faster vs baseline.
-- Largest single STR grant in any perk: +4 (Meth-Head L2, Beating L5).
-- Highest CON tree: Munching (+9 total L1-L5). Highest STR tree: Beating (+9).
+### OSRS Batch — New Engine State
+spec_energy: float=100.0 (+25/turn; 100 max; shared pool across all spec weapons; display in UI),
+granite_free_used_this_turn (bool; reset each turn), berserker_coil_bonus (int; max +8 STR),
+calamity_shield_active (bool), snitch_task_enemy_type (str|None; set per floor),
+skull_kill_count (int; 3 kills = activate), skull_ring_active/equipped (bool),
+seers_bks_kill_stacks (int; max 3), void_item_count (int; count of void-tagged equipped items),
+entity.witness_charges: int=50 (ring entity), entity.witness_depleted: bool=False (ring entity)
+### OSRS Batch — New Item Fields Proposed
+dharoks_passive (bool), smite_drain (bool), vitur_sweep (bool), ignore_dodge (bool),
+ignore_defense_chance (float), attack_cost_override (int),
+on_gun_hit_tox (int; applies tox after confirmed gun hit), reduced_energy_cost_gun (int),
+tox_scaling_gun (dict: bonus_per_100_tox/max_bonus), void (bool; for set counting)
 
-## New Effects Introduced in L4/L5 Designs
+### PoE/WoW Batch — New Engine Flags
+glass_cannon_equipped, borrowed_time_equipped, accountability_mirror_budget (per-floor),
+meth_lab_overalls_equipped, backpedal_boots_equipped, preachers_belt_equipped,
+snitches_get_stitches_equipped, grudge_beads_damage (persist across floors),
+prophecy_charges/prophecy_killed_this_floor, street_tax_equipped, hollow_point_hat_equipped,
+corner_store_equipped, static_discharge_equipped, snitches_triggered_this_turn (per-turn reset),
+deadweight_stacks/no_kill_turns/target_id, knucklehead_dazed_target_id/count,
+manifesto_tox_bonus (0-25, run-wide), vicar_proc_active
+### PoE/WoW Batch — New Effects
+borrowed_time_hot (HoT 5/turn, floor_duration), bks_surge (+1 temp BKS/stack max 4, dur 10),
+dazed (-40% energy gain, dur 2)
+### PoE/WoW Batch — New PlayerStats
+melee_damage_bonus: int (additive to atk_power in _compute_player_attack_power)
+### Important Rules
+- Multiplicative damage AFTER all additive bonuses (Two Down Ring pattern)
+- Debuff duration doubling: multiply `duration` param at apply_effect call site
+- Windfury disabled by One For One weapon (one_for_one_weapon)
+- force_apply=True on apply_effect bypasses debuff immunity (Magicbane Backfire)
+- Angband non-stacking rule: shock_resistance is bool (not stacking int)
+- starts_cursed: item can't unequip until curse_unlock_steps walked
+- Gun AOE: ceil(num_shots/2) max hits per target (universal rule)
+- "Pass turn" check: engine.player_attacked_this_turn flag
+- Pyromania → Pyromancy rename needed across: skills.py, engine.py, effects.py, spells.py,
+    inventory_mgr.py, items.py, test_bic_torch.py
 
-effects.py additions needed:
-  confused     — 40% chance to wander randomly instead of AI action
-  cough        — stun alias (skip turn), 4t, 15% chance/turn in Hot Box
-  wire         — +30 energy/tick; expires from damage → triggers crash
-  crash        — -20 energy/tick, 5t; triggered by Wire expiry from damage
-  rage         — +50% dmg dealt, +50% dmg taken, blocks Wire→Crash
-  burned_out   — -15 energy/tick, 3t; blocks Wire gain; follows Rage expiry
-  intimidated  — cannot move toward player, 5t
-  shook        — -30 energy/tick + -2 damage, 15t; from Top of Food Chain
-  slip         — +15 energy/tick + +10% dodge, 6t; from Hit-and-Run
-  clean_slate  — +5 dmg, +5 armor, +15 energy/tick, 15t; from Burn Bridge
-  staggered    — -30 energy/tick, +15% skip-turn chance, 10t; from Last Call
+### Hazard Entity Types
+- hazard_type="crate" (0xE000), "fire" (0xE001) — existing
+- hazard_type="frost_patch" — proposed (Cold Snap, trad roguelike batch), hazard_duration field
+- hazard_type="bomb" — proposed (Bomberman Boots Batch 2), char='*', fuse 3t, cross AOE
+- smoke_cloud — proposed (Rolling branching trees)
 
-## New Abilities Introduced in L4/L5 Designs
+### Retro/Anime Batch 1 — New Fields (items.py)
+hiten_draw_bonus/hiten_pierce_defense, vagrant_risk_weapon, energy_attack_cost_multiplier,
+ghost_camo_weapon/ghost_camo_ambush_bonus/ghost_camo_stun_turns,
+od_gauge_weapon/od_passive_fill/od_hit_fill/od_burst_damage,
+soul_feed_per_kill/soul_feed_max_bonus, plant_regen_per_combat_turn/entangle_chance,
+wolf_blade_hunting/resolve_threshold/resolved_bleed/stun_chance,
+ginga_chain_weapon/bonus_per_3/cap/sweep_interval/sweep_chance,
+caster_discharge/caster_discharge_damage/radius/knockback,
+chaotic_amp_scarf/multiplier/self_hit_chance/pyro_free,
+tenchu_shadow_kill/sound_radius_reduction, drift_shoes/drift_interval,
+seraphic_gate_sandals/einherjar_bonus, defense_vs_ranged (hat/feet)
 
-ABILITY_REGISTRY additions needed (ability_id: key details):
-  hot_box        — SELF, PER_FLOOR 1, Smoking L5
-  reap           — SINGLE_ENEMY_LOS, INFINITE (CD 15), Negromancy L3
-  raise_dead     — SINGLE_ENEMY_LOS (targets dead entity), PER_FLOOR 2, Neg L5
-  grease_bomb    — AOE_CIRCLE r=3, PER_FLOOR 2, Deep-Frying L5
-  wrecking_ball  — SELF, PER_FLOOR 1, Dismantling L5
-  rage_quit      — SELF, PER_FLOOR 2, Meth-Head L4
-  burn_bridge    — SELF, PER_FLOOR 1, Abandoning L4
-  last_call      — SELF, ONCE, Alcoholism L5
+### Retro/Anime Batch 1 — New Engine State
+vagrant_risk (0-100, per-floor), parasite_od_gauge (0-100, per-floor),
+soul_edge_kill_bonus (float, persists til unequip), wolf_blade_kills (run-wide),
+ginga_chain, deathblow_combo (per floor/miss), majora_floor_timer/majora_desperate_bonus,
+player_has_been_seen_this_floor, drift_move_count, einherjar_candidate,
+tournament_points/iron_fist_title_earned, spirit_gun_charges (run-wide),
+_parasite_eve_full_set, mito_awakening_bonus (perm tol), _hiten_blade_drawn,
+ghost_camo_active/ghost_no_attack_turns, caster_shell_discharged, player_was_hit_this_turn,
+mercy_band_kills/mercy_band_current_floor_kills, zero_system_kills_this_floor/zero_fever_triggered,
+lodoss_spirit_used, nypd_analyzed_this_floor
 
-## Negromancy — Soul Shards Resource
+### Retro/Anime Batch 1 — Key Patterns
+- Floor timer: majora_floor_timer (90t countdown, resets). Committed weapon: soul_edge_kill_bonus persists til unequip.
+- 3-piece set: Parasite Eve (weapon+ring+neck = OD tripled + all stats). defense_vs_ranged: int on hat/feet.
 
-engine.soul_shards: int 0-5. +1 on kill. Passive +1 flat damage per shard.
-Consumed by Reap (2 shards) and Raise Dead (all shards).
-fresh_corpse flag on Entity: set on death, timer=20 turns.
-Thrall: alive=True entity with is_thrall=True, hp=1, MEANDER AI vs enemies.
+### Retro/Anime Batch 2 — Key State/Fields
+Fields: demolition_shot_interval, assimilate_bonuses, tension_pulse, inverted_scaling, law_chaos_alignment,
+  sp_pool_weapon, phase_shift_passive, floor_scan_passive, reishi_absorption, raitei_threshold, monkey_radar,
+  graffiti_synergy, hado_tracking, stealing_xp_multiplier
+State: hearse_hit_counter, assimilated_enemy_types, tension_meter, gavel_alignment, blue_rogue_sp,
+  quincy_gun_bonus, bomberman_bomb_pos/fuse, knocked_back_entities, hado_level, jagan_used_on,
+  seen_entities_this_floor (Boogiepop first-sight), fate_heal_triggered_this_floor
+PlayerStats: xp_multiplier (Lain, * all skill XP), assimilate_power/speed/hp/tox_bonus
+Patterns: inverted scaling (2.0 - hp_ratio), SP pool cross-floor, auto-proc at <25% HP (once/floor flag),
+  threat erasure first FOV entry, Monkey Radar '?' rendering in render.py
 
-## Meth-Head — Wire/Crash Loop
+### Indie Batch 1 — Key State/Fields
+Fields: ranged_deflect_chance, katana_damage_vulnerability
+State: pale_nail_soul, shade_soul_charged, execution_rush_turns, hotline_panic_mode,
+  chrono_first_strike_entities, chrono_pause_active, transistor_function_id, brutality_scroll_count,
+  cogmind_scavenged_types, shovel_pogo_charged, boon_seal_trial, thought_cabinet_stats/bonus,
+  defect_orb_slots/dark_energy, karma_level/aura_active, dash_charges, mercy_kill_count,
+  vs_crit_streak, proselytized_allies, robo_baby_active, drifter_gear_nodes/illness_hp_loss
+Patterns: in-item resource (Soul/Orbs/Karma), route-forking (Undertale pacifist/genocide,
+  Thought Cabinet behavior mirror), pass-through movement (HLD Boots), enemy conversion (Qud Hood),
+  familiar auto-fire (Robo-Baby BKS-scaling). Chaos procs: self-damage or mass-aggro in proc table.
 
-Wire (+30 energy/tick): gained on kill, stacks duration (max 40t).
-Crash (-20 energy/tick, 5t): triggered when Wire expires from taking damage.
-Rage L4: blocks Wire→Crash conversion; ends with Burned Out (3t, -15 speed).
-Supernova L5: Wire crash shockwave = STR*2 to Chebyshev(1) enemies, no defense.
+### Indie Batch 2 — Key Design Patterns
+- Mutual fragility (Ghostrunner Edge): max HP = 1 via max_hp_penalty; death saves become essential
+- Accumulate/reset threshold (Deaths Door, Blasphemous guilt): choose WHEN to cash in charges
+- Run-wide degradation (terror 0-100, player_stress 0-10): never reset per floor; compounds
+- Environmental fuel (DRG Boots): fire/hazard tiles → power source, not threat
+- RNG-as-mechanic (Noita d6, Disco Hat d8, World Seed 1-9999): chaos IS the feature
+- Full field/state detail: `summaries/indie-unique-items-batch2-summary.txt`
 
-## Zone 2 — Meth Lab (Toxicity + Meth Meter)
+### Gatting Branching Trees — Key Pattern
+Heat meter (0-100): builds via shots, decays idle. Fortify = stationary stacks. Firing_buffer
+= shots vs idle turns. 21 new abilities; the_last_man = ONCE per run. Full detail: `summaries/`.
+entity.naked (bool); Effects: first_blood, reaped, staggered, suppressed, pinned, branded, last_man.
 
-Full details in: `.claude/agent-memory/game-design-ideator/zone2-meth-lab.md`
-Design docs in: `nigrl-ideas/toxicity_mechanic.txt`, `crackhead_skill_variants.txt`,
-  `toxicity_skill_variants.txt`
+### Batch 3+4 Unique Items
+- Full Batch 3 patterns: `summaries/unique-items-batch3-summary.txt`
+- Full Batch 4 patterns: [unique-items-batch4.md](unique-items-batch4.md) + `summaries/unique-items-batch4-summary.txt`
+- Batch 4 adds: permanent_crit_bonus (PlayerStats), 0xE00F/0xE010 tile assignments,
+  take-damage-to-charge, kill-or-self-damage, run-wide accumulating weapon stat,
+  stationary stance, per-debuff dodge scaling, cash-threshold conditional bonus.
 
-## Tox Resistance Items (Zone 2)
+### Hat Slot
+equip_slot="hat", char='^'. Existing hat IDs: wave_cap, backwards_cap, crown, tinfoil_hat,
+  triple_foil_hat, foil_lined_durag, hard_hat, shower_cap, fitted_cap, durag, knit_beanie, bike_helmet
 
-Full design in: `nigrl-ideas/tox-resistance-items.txt`
-6 items across equipment and consumable categories:
+### grants_ability Slot Support (inventory_mgr.py, as of 2026-03-28)
+- SUPPORTED (single): weapon, sidearm, feet — grant/revoke on equip/unequip
+- SUPPORTED (list): neck — grants_abilities list, all granted/revoked on equip/unequip
+- NOT SUPPORTED: hat, ring — must add grants_ability/grants_abilities processing to equip blocks
+  to use ability-granting items in those slots. Mirror neck slot logic.
 
-  Painter's Respirator  — accessory, +20% passive res, -1 SWG
-  Industrial Hand Soap  — food (3t eat), +30% temp res (40t), minor heal
-  Hazmat Gloves         — ring, +15% passive res, 20% on-hit tox negation chance
-  Charcoal-Filtered Bandana — accessory, +25% passive res, -2 sight_radius
-  Cold Medicine         — consumable (instant), +35% temp res + +2 TOL + -2 STSMT (25t)
-  Tinfoil Hat           — MOVED TO HAT SLOT — see tinfoil-hats.txt (HAT-06)
-                          (was ring +30% cond; now hat +35% cond, same mechanic)
-
-New item fields introduced: tox_resistance (int), on_hit_tox_reduction (float),
-  sight_radius_mod (int), conditional_tox_resistance (dict).
-New engine method needed: _recalculate_tox_resistance() — sums all sources.
-New effect needed: ToxResistTempEffect.
-New food effect type: "tox_resist_temp".
-New consumable use_effect types: "tox_resist_temp", "stat_temp".
-Use_effect may need to support a list of effect dicts (not just single dict).
-
-## Hat Equipment Slot
-
-Full design in: `nigrl-ideas/tinfoil-hats.txt`
-12 hats across both zones. Equip slot: "hat". char: '^'.
-Supports: power_bonus, defense_bonus, armor_bonus, stat_bonus, tox_resistance,
-          conditional_tox_resistance (same mechanic as tox-resistance-items.txt).
-
-Hat balance anchors:
-  - armor_bonus cap: 15 (Hard Hat) — chains are primary armor source
-  - Common hats: 1 minor-ring-equivalent in stat value, no tradeoffs
-  - Rare hats: multi-stat OR conditional mechanic, sometimes negative tradeoffs
-  - Tinfoil Hat: +35% cond tox resist (tox < 50), +1 BKS — Detox lane keystone
-  - Triple-Layered Foil: +30% UNCONDITIONAL tox resist, -1 PWR, -2 SWG
-  - Crown: RARE, +4 SWG +1 STSMT +2 PWR, no tradeoffs — Crack Den only
-  - Hard Hat: +3 DEF +15 ARM +10% tox, -3 SWG -1 STSMT — tank hat, low-SWG builds
-  - Shower Cap: +20% tox +2 TOL, -3 SWG — junk hat, free for low-SWG builds
-
-Loot table: add "hat" bucket to crack_den and meth_lab zone configs in loot.py.
-Zone 1-only hats: wave_cap, backwards_cap, crown.
-Zone 2-only hats: tinfoil_hat, triple_foil_hat, foil_lined_durag, hard_hat, shower_cap.
-Both zones: fitted_cap, durag, knit_beanie, bike_helmet.
-
-## Gun Skill Trees
-
-5 total trees. Full notes: `gun-trees.md`. Docs: skill-gun-trees.txt, skill-gun-firing-modes.txt
-Standard: Gang Violence, Trigger Discipline, Corner Store Hustler (XP: gun damage dealt).
-Firing-mode: Mag Rat (FAST), Dead Eye (ACCURATE). Toggle = free action.
-Mixed perk effect dicts (stat + ability keys) valid — Munching L1 is the precedent.
-
-## Stat-Scaling Strains
-
-V2 design (CURRENT): `nigrl-ideas/stat-scaling-strains-v2.txt` — 30 strains, full Meth Lab integration.
-Full lifecycle hooks, engine flags, and stat groupings: see `stat-scaling-strains-v2.md` (topic file TBD).
-Key rules: tox as offensive resource; SWG strains need SWG investment; Mule's Back caps tox mult.
-
-## Recent Design Docs Index
-
-See individual topic files in `.claude/agent-memory/game-design-ideator/` for details.
-
-  new-guns.md           — 12 new guns (2026-03-12); nigrl-ideas/new-gun-concepts.txt
-  meth-lab-weapons.md   — 8 stab weapons (2026-03-13); nigrl-ideas/meth-lab-stab-weapons.txt
-  str-rad-strains.md    — 5 STR/rad strains; nigrl-ideas/str_radiation_strain_designs.txt
-  bksmt-rad-strains.md  — 3 BkSmt/rad strains; nigrl-ideas/bksmt_radiation_strain_designs.txt
-  tox-tolerance-strains.md — 3 tox/TOL strains; nigrl-ideas/tox_tolerance_strain_designs.txt
-  swagger-strains.md    — SWG strains V2 + High Society; nigrl-ideas/swagger_mutation_strain_designs_v2.txt
-  spell-compendium-index.md — ability index; nigrl-ideas/spell_compendium.txt + spell_compendium_classics.txt
-  meth-lab-drinks.md    — 10 new Meth Lab drinks (2026-03-15); nigrl-ideas/item-meth-lab-drinks.txt
-  colored-dranks.md     — 14 colored dranks (2026-03-15); nigrl-ideas/item-colored-dranks.txt
-  elemental-compendium.md — 48 abilities, 9 element schools; nigrl-ideas/spell_compendium_elemental.txt
-  (spell_compendium_weird.txt — 34 abilities, WEIRD/BUSTED/RISKY section)
-
-Key Meth Lab design rules: no persistent per-run engine state in swagger strains; tox as
-  offensive resource; AOE gun fire ceil(num_shots/2) max hits per target.
-
-## Arachnigga Skill (2026-03-22)
-See topic file: `arachnigga-skill.md` — 5 tree proposals, cobweb/venom mechanic.
-
-## Blackkk Magic Skill Trees (2026-03-22)
-See topic file: `blackkk-magic-trees.md`; V2 doc: `nigrl-ideas/blackkk-magic-skill-designs-v2.txt`
-10 designs: Doom Clock, Haunt, Impending Doom, Punishment, Temporal Chains, Voodoo Doll,
-  Profane Bloom, Spiritual Debt, Bane, The Numbers Game. XP: land=15, proc=10, combo=25-50.
-
-## Graffiti Skill Tree (2026-03-22)
-See topic file: `graffiti-skill.md`; design doc: `nigrl-ideas/graffiti-skill-designs.txt`
-L1-L5 (Tag→Throw-Up→Burner→Chrome→Bombing Run). Effects: tagged/tagged_chrome, home_ground, etc.
-
-## Spray Paint Items (2026-03-23) — `nigrl-ideas/spray-paint-designs.txt`
-5 paints. New field: player_stats.tile_armor_bonus. Full details in doc.
-## Branching Skill Tree (2026-03-23) — `nigrl-ideas/mechanic-branching-skill-trees.txt`
-BTD6-inspired L4 split. Trunk L1-3; MAIN branch (all tiers) + DIP branch (T1 only).
-
-## Spider Infestation Event (2026-03-23)
-See topic file: `spider-event.md`. Docs: `nigrl-ideas/spider-enemy-roster.txt`, `black-widow-boss-designs.txt`
-
-## Stealing L4 Concepts (2026-03-24) — `nigrl-ideas/skill-stealing-L4-concepts.txt`
-6 proposals. Top pick: Sleight of Hand (passive Pickpocket upgrade — distracted miss on proc).
-Others: Booster Bag (activated item-strip ability), Five-Finger Discount (pickup cash bonus),
-  Fence It (cash back on item USE), Hustle Economy (+3 STS stat perk + 75% XP rate),
-  Smash and Grab (PER_FLOOR room-vacuum + forced enemy aggro).
-New effect needed if Sleight of Hand chosen: "distracted" (consumed-on-melee-attempt, 1 proc).
-New field if Hustle Economy chosen: player_stats.stealing_xp_bonus (float, 0.0 default).
+### Cursed-to-Blessed Pattern
+Two unlock triggers: curse_unlock_steps (steps walked) OR curse_unlock_kills (kills).
+New engine bool per item: curse_broken_{item_id}. New PlayerStats fields: hp_cap_ratio,
+regen_per_turn, hp_drain_per_turn, speed_bonus, vulnerability_multiplier, xp_blocked, etc.
+Blessed payoff rule: each item must have at least one unique effect not found elsewhere.
+See [cursed-blessed-items.md](cursed-blessed-items.md) for full field list and patterns.

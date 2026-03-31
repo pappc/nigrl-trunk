@@ -22,12 +22,20 @@ import effects
 # ======================================================================
 
 def _get_weapon_reach(engine) -> int:
-    """Return the reach of the equipped weapon (1 = adjacent, 2+ = extended)."""
+    """Return the reach of the equipped weapon (1 = adjacent, 2+ = extended).
+    Includes bonus reach from equipment (e.g. Cuban Link neck item)."""
     weapon = engine.equipment.get("weapon")
+    base = 1
     if weapon:
         defn = get_item_def(weapon.item_id)
-        return defn.get("reach", 1)
-    return 1
+        base = defn.get("reach", 1)
+    # Bonus reach from neck/feet/hat/rings
+    bonus = 0
+    if engine.neck:
+        ndefn = get_item_def(engine.neck.item_id)
+        if ndefn:
+            bonus += ndefn.get("reach_bonus", 0)
+    return base + bonus
 
 
 def _build_entity_target_list(engine, reach: int) -> list:
@@ -93,7 +101,7 @@ def _handle_entity_targeting_input(engine, action):
             if target.alive:
                 result = _fire_adjacent_ability(engine, target.x, target.y)
                 if result and engine.running and engine.player.alive:
-                    engine.player.energy -= ENERGY_THRESHOLD
+                    engine.player.energy -= engine.get_action_cost()
                     engine._run_energy_loop()
                 return result
             engine.targeting_ability_index = None
@@ -102,7 +110,7 @@ def _handle_entity_targeting_input(engine, action):
         if target.alive:
             engine.handle_attack(engine.player, target)
             if engine.running and engine.player.alive:
-                engine.player.energy -= ENERGY_THRESHOLD
+                engine.player.energy -= engine.get_action_cost()
                 engine._run_energy_loop()
         return True
 
@@ -155,6 +163,8 @@ def _handle_targeting_input(engine, action):
         tx, ty = engine.targeting_cursor
         engine._record_targeted_enemy_at(tx, ty)
         if engine.targeting_spell is not None:
+            if engine.targeting_spell.get("type") == "graffiti_gun_fire":
+                return _execute_graffiti_gun_fire(engine, tx, ty)
             if not _is_targeting_in_range(engine, tx, ty):
                 engine.messages.append("Out of range!")
                 return False
@@ -228,11 +238,21 @@ def _get_targeting_ability_def(engine):
 
 
 def _is_targeting_in_range(engine, tx: int, ty: int) -> bool:
-    """Return True if (tx, ty) is within the current ability's max_range (0.0 = unlimited, Manhattan distance)."""
+    """Return True if (tx, ty) is within the current ability's max_range (0.0 = unlimited, Chebyshev distance).
+    If the ability has a validate callable, use that instead."""
+    # Graffiti gun: Chebyshev distance 6
+    if engine.targeting_spell and engine.targeting_spell.get("type") == "graffiti_gun_fire":
+        dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+        return 0 < dist <= 6
     defn = _get_targeting_ability_def(engine)
-    if defn is None or defn.max_range == 0.0:
+    if defn is None:
         return True
-    dist = abs(tx - engine.player.x) + abs(ty - engine.player.y)
+    # Ability-specific validate: None return = valid, string = invalid
+    if defn.validate is not None:
+        return defn.validate(engine, tx, ty) is None
+    if defn.max_range == 0.0:
+        return True
+    dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
     return dist <= defn.max_range
 
 
@@ -245,6 +265,110 @@ def _enter_spell_targeting(engine, spell_dict: dict) -> None:
 
 
 # ======================================================================
+# Spell Echo (Smartsness L4)
+# ======================================================================
+
+def _try_spell_echo_targeted(engine, defn, tx, ty):
+    """Spell Echo: 15% chance for targeted spell to fire again at 50% damage.
+    Echo can chain. Retargets to random nearby enemy if target is dead.
+    Skips channeled spells."""
+    import random as _rng
+    if engine.skills.get("Smartsness").level < 4:
+        return
+    if not defn.is_spell:
+        return
+    # Skip channeled spells
+    if engine._channel is not None:
+        return
+
+    while _rng.random() < 0.15:
+        # Find target — retarget if dead
+        target = engine.dungeon.get_blocking_entity_at(tx, ty)
+        if target is None or not getattr(target, 'alive', False) or target is engine.player:
+            # Retarget: random living monster within 3 tiles of original target
+            candidates = [
+                m for m in engine.dungeon.get_monsters()
+                if m.alive and max(abs(m.x - tx), abs(m.y - ty)) <= 3
+            ]
+            if not candidates:
+                engine.messages.append([
+                    ("Spell Echo fizzles! ", (180, 140, 255)),
+                    ("No targets nearby.", (150, 150, 180)),
+                ])
+                return
+            new_target = _rng.choice(candidates)
+            tx, ty = new_target.x, new_target.y
+
+        # Store and halve spell damage for the echo
+        old_spell_dmg = engine.player_stats.total_spell_damage
+        engine._spell_echo_half_damage = True
+        defn.execute_at(engine, tx, ty)
+        engine._spell_echo_half_damage = False
+
+        engine.messages.append([
+            ("Spell Echo! ", (180, 140, 255)),
+            ("The spell fires again!", (220, 200, 255)),
+        ])
+        if engine.sdl_overlay:
+            engine.sdl_overlay.add_tile_flash_ripple(
+                [(tx, ty)], tx, ty,
+                color=(180, 140, 255), duration=0.5,
+            )
+
+
+def _try_spell_echo_self(engine, defn):
+    """Spell Echo for self-cast spells. Same 15% chain, no retargeting needed."""
+    import random as _rng
+    if engine.skills.get("Smartsness").level < 4:
+        return
+    if not defn.is_spell:
+        return
+    if engine._channel is not None:
+        return
+
+    while _rng.random() < 0.15:
+        engine._spell_echo_half_damage = True
+        defn.execute(engine)
+        engine._spell_echo_half_damage = False
+        engine.messages.append([
+            ("Spell Echo! ", (180, 140, 255)),
+            ("The spell fires again!", (220, 200, 255)),
+        ])
+
+
+# ======================================================================
+# Spellweaver (Smartsness L5)
+# ======================================================================
+
+def _spellweaver_before(engine, defn):
+    """Check and activate Spellweaver +30% damage bonus before a spell fires."""
+    engine._spellweaver_active = False
+    if engine.skills.get("Smartsness").level < 5:
+        return
+    if not defn.is_spell:
+        return
+    ability_id = defn.ability_id
+    last = engine._spellweaver_last_spell
+    last_turn = engine._spellweaver_last_turn
+    if last is not None and last != ability_id and (engine.turn - last_turn) <= 5:
+        engine._spellweaver_active = True
+
+
+def _spellweaver_after(engine, defn):
+    """Record spell cast for Spellweaver tracking. Show message if bonus was active."""
+    if not defn.is_spell:
+        return
+    if getattr(engine, '_spellweaver_active', False):
+        engine.messages.append([
+            ("Spellweaver! ", (200, 180, 255)),
+            ("+30% damage!", (255, 220, 255)),
+        ])
+        engine._spellweaver_active = False
+    engine._spellweaver_last_spell = defn.ability_id
+    engine._spellweaver_last_turn = engine.turn
+
+
+# ======================================================================
 # Spell execution and dispatch
 # ======================================================================
 
@@ -254,11 +378,14 @@ def _execute_spell_at(engine, tx: int, ty: int) -> bool:
     Otherwise fall back to _execute_dosidos_spell_at for item-triggered spells."""
     defn = _get_targeting_ability_def(engine)
     if defn is not None and defn.execute_at is not None:
+        _spellweaver_before(engine, defn)
         fired = defn.execute_at(engine, tx, ty)
         if fired:
+            _spellweaver_after(engine, defn)
             ability_id = _consume_ability_charge(engine)
             if ability_id:
                 engine._gain_spell_xp(ability_id)
+            _try_spell_echo_targeted(engine, defn, tx, ty)
             engine.menu_state = MenuState.NONE
             engine.targeting_spell = None
         return fired
@@ -350,6 +477,15 @@ def _execute_dosidos_spell_at(engine, tx: int, ty: int) -> bool:
             engine.targeting_spell = None
         return False
 
+    elif spell_type == "fireball":
+        if _spell_fireball(engine, tx, ty):
+            ability_id = _consume_ability_charge(engine)
+            if ability_id:
+                engine._gain_spell_xp(ability_id)
+            engine.menu_state = MenuState.NONE
+            engine.targeting_spell = None
+        return False
+
     engine.menu_state = MenuState.NONE
     engine.targeting_spell = None
     return False
@@ -421,9 +557,8 @@ def _spell_dimension_door(engine, tx: int, ty: int) -> bool:
 def _spell_chain_lightning(engine, tx: int, ty: int, total_hits: int) -> bool:
     """Chain lightning hitting total_hits times, bouncing to the nearest monster each time.
     Returns True if the spell fired, False if the target was invalid."""
-    stsmt = engine.player_stats.effective_street_smarts
-    tlr   = engine.player_stats.effective_tolerance
-    damage = 5 + stsmt + tlr + _get_wizard_bomb_bonus(engine)
+    bksmt = engine.player_stats.effective_book_smarts
+    damage = 5 + bksmt + engine.player_stats.total_spell_damage
 
     target = next(
         (e for e in engine.dungeon.get_entities_at(tx, ty)
@@ -438,17 +573,26 @@ def _spell_chain_lightning(engine, tx: int, ty: int, total_hits: int) -> bool:
         return False
 
     engine.messages.append(f"Chain Lightning! ({total_hits} hits, {damage} dmg each)")
+    hit_entities = set()
     for i in range(total_hits):
         if target is None:
             break
+        if id(target) in hit_entities:
+            break
+        hit_entities.add(id(target))
         last_x, last_y = target.x, target.y
         _deal_damage(engine, damage, target)
+        from xp_progression import _gain_elementalist_xp
+        _gain_elementalist_xp(engine, target, damage, "lightning")
         hp_disp = f"{target.hp}/{target.max_hp}" if target.alive else "dead"
         engine.messages.append(f"  Lightning hits {target.name} for {damage} ({hp_disp})")
+        from xp_progression import _gain_elemental_spell_xp
+        _gain_elemental_spell_xp(engine, "chain_lightning", damage)
         if not target.alive:
             engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
         if i < total_hits - 1:
-            living = [e for e in engine.dungeon.get_monsters() if e.alive]
+            living = [e for e in engine.dungeon.get_monsters()
+                      if e.alive and id(e) not in hit_entities]
             if not living:
                 break
             BOUNCE_DIST_SQ = 4  # 2-tile Euclidean radius (2^2 = 4)
@@ -465,21 +609,34 @@ def _spell_chain_lightning(engine, tx: int, ty: int, total_hits: int) -> bool:
 
 
 def _spell_ray_of_frost(engine, dx: int, dy: int) -> None:
-    """Fire a Ray of Frost in direction (dx, dy). Deals 12+BKSMT damage to all monsters
-    in a 10-tile line; stops at walls."""
+    """Fire a Ray of Frost beam in direction (dx, dy). Channeled: fires immediately,
+    then up to 2 more times if the player presses Wait.
+    Dmg per beam: random(6,12) + BKS/2 + Wizard Mind-Bomb bonus."""
+    _ray_of_frost_beam(engine, dx, dy)
+    # Start channel for 2 more ticks (3 total beams including this one)
+    engine.start_channel("ray_of_frost", 2, {"dx": dx, "dy": dy})
+
+
+def _ray_of_frost_beam(engine, dx: int, dy: int) -> None:
+    """Fire a single Ray of Frost beam. Called on initial cast and each channel tick."""
     bksmt  = engine.player_stats.effective_book_smarts
-    damage = 12 + bksmt + _get_wizard_bomb_bonus(engine)
+    damage = random.randint(6, 12) + bksmt // 2 + engine.player_stats.total_spell_damage
     tiles  = _ray_tiles(engine, engine.player.x, engine.player.y, dx, dy, max_dist=10)
     hit_count = 0
     for x, y in tiles:
         for entity in list(engine.dungeon.get_entities_at(x, y)):
             if entity.entity_type == "monster" and entity.alive:
                 _deal_damage(engine, damage, entity)
+                from xp_progression import _gain_elementalist_xp
+                _gain_elementalist_xp(engine, entity, damage, "cold")
+                effects.apply_effect(entity, engine, "chill", duration=10, silent=True)
                 hp_disp = f"{entity.hp}/{entity.max_hp}" if entity.alive else "dead"
                 engine.messages.append(
-                    f"Ray of Frost hits {entity.name} for {damage} dmg! ({hp_disp})"
+                    f"Ray of Frost hits {entity.name} for {damage} dmg! +1 Chill ({hp_disp})"
                 )
                 hit_count += 1
+                from xp_progression import _gain_elemental_spell_xp
+                _gain_elemental_spell_xp(engine, "ray_of_frost", damage)
                 if not entity.alive:
                     engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
     if hit_count == 0:
@@ -508,7 +665,7 @@ def _spell_warp(engine) -> None:
 
 
 def _player_ignite_duration(engine) -> int:
-    """Base ignite duration the player applies. +5 with Neva Burn Out (Pyromania lv4)."""
+    """Base ignite duration the player applies. +5 with +3 CON perk (Pyromania lv4)."""
     base = 5
     pyro = engine.skills.get("Pyromania")
     if pyro and pyro.level >= 4:
@@ -519,7 +676,7 @@ def _player_ignite_duration(engine) -> int:
 def _spell_firebolt(engine, tx: int, ty: int) -> bool:
     """Fire a Firebolt toward (tx, ty). Blocked by walls and entities. Returns True on hit."""
     bksmt  = engine.player_stats.effective_book_smarts
-    damage = 10 + bksmt + _get_wizard_bomb_bonus(engine)
+    damage = 10 + bksmt + engine.player_stats.total_spell_damage
     if not engine.dungeon.visible[ty, tx]:
         engine.messages.append("Firebolt: no line of sight to that tile.")
         return False
@@ -528,12 +685,16 @@ def _spell_firebolt(engine, tx: int, ty: int) -> bool:
         engine.messages.append("Firebolt fizzles \u2014 no target in path!")
         return False
     _deal_damage(engine, damage, hit)
+    from xp_progression import _gain_elementalist_xp
+    _gain_elementalist_xp(engine, hit, damage, "fire")
     ignite_eff = effects.apply_effect(hit, engine, "ignite", duration=_player_ignite_duration(engine), stacks=1, silent=True)
     stacks = ignite_eff.stacks if ignite_eff else 1
     hp_disp = f"{hit.hp}/{hit.max_hp}" if hit.alive else "dead"
     engine.messages.append(
         f"Firebolt! {hit.name} takes {damage} dmg and ignites (x{stacks})! ({hp_disp})"
     )
+    from xp_progression import _gain_elemental_spell_xp
+    _gain_elemental_spell_xp(engine, "firebolt", damage)
     if not hit.alive:
         engine.event_bus.emit("entity_died", entity=hit, killer=engine.player)
     return True
@@ -542,7 +703,7 @@ def _spell_firebolt(engine, tx: int, ty: int) -> bool:
 def _spell_arcane_missile(engine, tx: int, ty: int) -> bool:
     """Fire an Arcane Missile at a visible target at (tx, ty). Returns True on hit."""
     bksmt  = engine.player_stats.effective_book_smarts
-    damage = math.ceil(8 + bksmt / 2 + _get_wizard_bomb_bonus(engine))
+    damage = math.ceil(8 + bksmt / 2 + engine.player_stats.total_spell_damage)
     if not engine.dungeon.visible[ty, tx]:
         engine.messages.append("Arcane Missile: target not in view.")
         return False
@@ -566,7 +727,7 @@ def _spell_breath_fire(engine, tx: int, ty: int) -> bool:
     """Breathe a cone of fire toward (tx, ty). Cone: 5-tile range, 90 deg spread.
     Affected by walls, passes through enemies."""
     bksmt = engine.player_stats.effective_book_smarts
-    damage = 20 + bksmt + _get_wizard_bomb_bonus(engine)
+    damage = 10 + bksmt + engine.player_stats.total_spell_damage
 
     # Determine center direction toward target
     dx = tx - engine.player.x
@@ -600,6 +761,8 @@ def _spell_breath_fire(engine, tx: int, ty: int) -> bool:
         for entity in engine.dungeon.get_entities_at(cx, cy):
             if entity.entity_type == "monster" and entity.alive and entity not in hit_targets:
                 _deal_damage(engine, damage, entity)
+                from xp_progression import _gain_elementalist_xp
+                _gain_elementalist_xp(engine, entity, damage, "fire")
                 effects.apply_effect(entity, engine, "ignite", duration=_player_ignite_duration(engine), stacks=3, silent=True)
                 hit_targets.add(entity)
 
@@ -608,9 +771,97 @@ def _spell_breath_fire(engine, tx: int, ty: int) -> bool:
         return True  # still fired (visual + charge consumed)
 
     engine.messages.append(f"You breathe a cone of fire! {len(hit_targets)} enemy(ies) engulfed.")
+    from xp_progression import _gain_elemental_spell_xp
+    _gain_elemental_spell_xp(engine, "breath_fire", damage * len(hit_targets))
     for entity in hit_targets:
         if not entity.alive:
             engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
+
+    return True
+
+
+def _spell_fireball(engine, tx: int, ty: int) -> bool:
+    """Fireball: projectile hits first enemy in path, then explodes in 2-tile radius AOE."""
+    bksmt = engine.player_stats.effective_book_smarts
+    damage = 15 + bksmt + engine.player_stats.total_spell_damage
+
+    if not engine.dungeon.visible[ty, tx]:
+        engine.messages.append("Fireball: no line of sight to that tile.")
+        return False
+
+    # Trace projectile to find impact point and collect travel path
+    x0, y0 = engine.player.x, engine.player.y
+    dx_raw, dy_raw = tx - x0, ty - y0
+    steps = max(abs(dx_raw), abs(dy_raw))
+    travel_tiles = []
+    hit = None
+    impact_x, impact_y = tx, ty
+    if steps > 0:
+        for step in range(1, steps + 1):
+            sx = round(x0 + dx_raw * step / steps)
+            sy = round(y0 + dy_raw * step / steps)
+            if not (0 <= sx < DUNGEON_WIDTH and 0 <= sy < DUNGEON_HEIGHT):
+                break
+            if engine.dungeon.is_terrain_blocked(sx, sy):
+                break
+            travel_tiles.append((sx, sy))
+            for entity in engine.dungeon.get_entities_at(sx, sy):
+                if entity.entity_type == "monster" and entity.alive:
+                    hit = entity
+                    impact_x, impact_y = sx, sy
+                    break
+            if hit:
+                break
+    if hit is None:
+        impact_x, impact_y = tx, ty
+
+    # Gather all tiles in 2-tile Chebyshev radius around impact
+    aoe_tiles = []
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            ax, ay = impact_x + dx, impact_y + dy
+            if max(abs(dx), abs(dy)) <= 2 and not engine.dungeon.is_terrain_blocked(ax, ay):
+                aoe_tiles.append((ax, ay))
+
+    # Visual: fire trail along projectile path + explosion ripple at impact
+    if engine.sdl_overlay:
+        # Trail: fast orange ripple along travel path
+        if travel_tiles:
+            engine.sdl_overlay.add_tile_flash_ripple(
+                travel_tiles, x0, y0,
+                color=(255, 120, 30), duration=0.5, ripple_speed=0.03,
+            )
+        # Explosion: slower red-orange burst at impact
+        engine.sdl_overlay.add_tile_flash_ripple(
+            aoe_tiles, impact_x, impact_y,
+            color=(255, 80, 20), duration=1.0, ripple_speed=0.04,
+        )
+
+    # Deal damage + ignite to all enemies in AOE
+    hit_targets = set()
+    for ax, ay in aoe_tiles:
+        for entity in engine.dungeon.get_entities_at(ax, ay):
+            if entity.entity_type == "monster" and entity.alive and entity not in hit_targets:
+                _deal_damage(engine, damage, entity)
+                from xp_progression import _gain_elementalist_xp
+                _gain_elementalist_xp(engine, entity, damage, "fire")
+                effects.apply_effect(entity, engine, "ignite",
+                                     duration=_player_ignite_duration(engine),
+                                     stacks=3, silent=True)
+                hit_targets.add(entity)
+
+    total_damage = damage * len(hit_targets)
+    if hit_targets:
+        engine.messages.append(
+            f"FIREBALL! Explosion hits {len(hit_targets)} enemy(ies) for {damage} each!"
+        )
+        from xp_progression import _gain_elemental_spell_xp
+        _gain_elemental_spell_xp(engine, "fireball", total_damage)
+        for entity in hit_targets:
+            if not entity.alive:
+                engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
+    else:
+        engine.messages.append("FIREBALL! The explosion hits nothing but air!")
 
     return True
 
@@ -689,13 +940,17 @@ def _spell_zap(engine, tx: int, ty: int) -> bool:
     if target is None:
         engine.messages.append("Zap: no enemy there.")
         return False
-    dist = math.sqrt((tx - engine.player.x) ** 2 + (ty - engine.player.y) ** 2)
-    if dist > 4.0:
+    dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+    if dist > 4:
         engine.messages.append("Zap: target out of range (max 4 tiles).")
         return False
     bksmt = engine.player_stats.effective_book_smarts
-    damage = 5 + bksmt // 2
+    damage = 5 + bksmt // 2 + engine.player_stats.total_spell_damage
     _deal_damage(engine, damage, target)
+    from xp_progression import _gain_elementalist_xp
+    _gain_elementalist_xp(engine, target, damage, "lightning")
+    from xp_progression import _gain_elemental_spell_xp
+    _gain_elemental_spell_xp(engine, "zap", damage)
     effects.apply_effect(target, engine, "shocked", duration=10, stacks=1, silent=True)
     shocked_eff = next(
         (e for e in target.status_effects if getattr(e, 'id', '') == 'shocked'), None
@@ -757,15 +1012,100 @@ def _spell_pry(engine, tx: int, ty: int) -> bool:
     return True
 
 
+def _spell_ags_charge(engine, tx: int, ty: int) -> bool:
+    """AG Sword Charge: hit an enemy exactly 3 Chebyshev tiles away for 1.5x damage.
+    If the target dies, restore 20 spec energy."""
+    target = next(
+        (e for e in engine.dungeon.get_entities_at(tx, ty)
+         if e.entity_type == "monster" and e.alive),
+        None,
+    )
+    if target is None:
+        engine.messages.append("Charge: no enemy there.")
+        return False
+    dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+    if dist != 3:
+        engine.messages.append("Charge: target must be exactly 3 tiles away!")
+        return False
+    import combat as _combat
+    base_power = _combat._compute_player_attack_power(engine)
+    boosted = int(base_power * 1.5)
+    old_power = engine.player.power
+    engine.player.power = boosted
+    engine.messages.append([
+        ("Charge! ", (255, 215, 0)),
+        (f"You lunge 3 tiles for {boosted} damage!", (255, 230, 150)),
+    ])
+    _combat.handle_attack(engine, engine.player, target)
+    engine.player.power = old_power
+    if not target.alive:
+        engine.spec_energy = min(100.0, engine.spec_energy + 20.0)
+        engine.messages.append([
+            ("Kill! ", (255, 50, 50)),
+            ("+20 spec energy restored!", (255, 215, 0)),
+        ])
+    return True
+
+
+def _spell_polarize(engine, tx: int, ty: int) -> bool:
+    """Really Old Maul Polarize: reduce adjacent enemy defense to 0 for 20 turns."""
+    target = next(
+        (e for e in engine.dungeon.get_entities_at(tx, ty)
+         if e.entity_type == "monster" and e.alive),
+        None,
+    )
+    if target is None:
+        engine.messages.append("Polarize: no enemy there.")
+        return False
+    dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+    if dist > 1:
+        engine.messages.append("Polarize: must be adjacent to target.")
+        return False
+    effects.apply_effect(target, engine, "cripple_armor", duration=20)
+    engine.messages.append([
+        ("Polarize! ", (255, 140, 40)),
+        (f"{target.name}'s defenses are crushed for 20 turns!", (255, 200, 120)),
+    ])
+    return True
+
+
+def _spell_ddd_puncture(engine, tx: int, ty: int) -> bool:
+    """Dragon Dagger Puncture: 2 rapid melee hits on an adjacent enemy.
+    Each hit resolves as a full normal attack (damage, on-hit effects, crits)."""
+    target = next(
+        (e for e in engine.dungeon.get_entities_at(tx, ty)
+         if e.entity_type == "monster" and e.alive),
+        None,
+    )
+    if target is None:
+        engine.messages.append("Puncture: no enemy there.")
+        return False
+    dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+    if dist > 1:
+        engine.messages.append("Puncture: must be adjacent to target.")
+        return False
+    engine.messages.append([
+        ("Puncture! ", (220, 80, 80)),
+        ("2 rapid strikes!", (255, 140, 100)),
+    ])
+    import combat as _combat
+    # Hit 1: full normal attack
+    _combat.handle_attack(engine, engine.player, target)
+    # Hit 2: only if target survived the first hit
+    if target.alive:
+        _combat.handle_attack(engine, engine.player, target)
+    return True
+
+
 def _spell_lesser_cloudkill(engine, tx: int, ty: int) -> bool:
-    """Lesser Cloudkill 3x3 AoE (cannot include player). Damage + debuff."""
+    """Fart: 3x3 AoE (cannot include player). Damage + Stinky debuff."""
     px, py = engine.player.x, engine.player.y
     if abs(tx - px) <= 1 and abs(ty - py) <= 1:
-        engine.messages.append("Lesser Cloudkill: can't target an area that includes yourself!")
+        engine.messages.append("Fart: can't target an area that includes yourself!")
         return False
-    bksmt = engine.player_stats.effective_book_smarts
+    tol = engine.player_stats.effective_tolerance
     swag = engine.player_stats.effective_swagger
-    damage = max(1, 25 - swag + bksmt // 2)
+    damage = max(1, 25 - swag + tol // 2)
     tiles = _get_lesser_cloudkill_affected_tiles(engine, tx, ty)
     hit_count = 0
     hit_entities = []
@@ -777,8 +1117,8 @@ def _spell_lesser_cloudkill(engine, tx: int, ty: int) -> bool:
                 effects.apply_effect(entity, engine, "lesser_cloudkill", duration=10, silent=True)
                 hit_count += 1
     engine.messages.append(
-        f"Lesser Cloudkill! {hit_count} enem{'y' if hit_count == 1 else 'ies'} hit "
-        f"for {damage} dmg and are now Smelly."
+        f"Fart! {hit_count} enem{'y' if hit_count == 1 else 'ies'} hit "
+        f"for {damage} dmg and are now Stinky."
     )
     for entity in hit_entities:
         if not entity.alive:
@@ -798,14 +1138,26 @@ def _get_lesser_cloudkill_affected_tiles(engine, tx: int, ty: int) -> list[tuple
     return tiles
 
 
+def _get_outbreak_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int, int]]:
+    """Return all non-terrain-blocked tiles in a 7x7 area centred on (tx, ty).
+    Center must be within 3 tiles of the player."""
+    px, py = engine.player.x, engine.player.y
+    dist = math.sqrt((tx - px) ** 2 + (ty - py) ** 2)
+    if dist > 3.5:
+        return []
+    tiles = []
+    for dy in range(-3, 4):
+        for dx in range(-3, 4):
+            x, y = tx + dx, ty + dy
+            if 0 <= x < DUNGEON_WIDTH and 0 <= y < DUNGEON_HEIGHT:
+                if not engine.dungeon.is_terrain_blocked(x, y):
+                    tiles.append((x, y))
+    return tiles
+
+
 def _get_wizard_bomb_bonus(engine) -> int:
-    """Return spell damage bonus from Wizard Mind-Bomb effect + total spell damage."""
-    bonus = 0
-    for effect in engine.player.status_effects:
-        if getattr(effect, 'id', '') == 'wizard_mind_bomb':
-            bonus += engine.player_stats.effective_book_smarts
-    bonus += engine.player_stats.total_spell_damage
-    return bonus
+    """Deprecated — use engine.player_stats.total_spell_damage directly."""
+    return engine.player_stats.total_spell_damage
 
 
 # ======================================================================
@@ -831,6 +1183,10 @@ def get_spell_affected_tiles(engine, spell_type: str, tx: int, ty: int) -> list[
         return []
     elif spell_type == "lesser_cloudkill":
         return _get_lesser_cloudkill_affected_tiles(engine, tx, ty)
+    elif spell_type == "graffiti_gun_fire":
+        return _get_graffiti_gun_affected_tiles(engine, tx, ty)
+    elif spell_type == "outbreak":
+        return _get_outbreak_affected_tiles(engine, tx, ty)
     return []
 
 
@@ -1022,6 +1378,9 @@ def grant_ability_charges(engine, ability_id: str, n: int, silent: bool = False)
     defn = ABILITY_REGISTRY.get(ability_id)
     if defn is None:
         return
+    # Cryomancy L4 (Glacier Mind): double charges for cold-tagged abilities
+    if "cold" in defn.tags and engine.skills.get("Cryomancy").level >= 4:
+        n *= 2
     inst = next((a for a in engine.player_abilities if a.ability_id == ability_id), None)
     if inst is None:
         inst = AbilityInstance(ability_id, defn)
@@ -1056,6 +1415,24 @@ def _consume_ability_charge(engine) -> str | None:
         # charge from each other curse ability that has charges.
         if consumed and defn and defn.is_curse:
             _curse_charge_steal(engine, inst, defn)
+        # Arcane Flux (Elementalist L3): charge preservation also negates cooldowns
+        if ability_id and getattr(engine, 'arcane_flux_active', False):
+            cd = engine.ability_cooldowns.get(ability_id, 0)
+            if cd > 0:
+                import random as _rng
+                preserve_chance = 0.10  # Arcane Flux base
+                if any(getattr(e, 'id', '') == 'muffin_buff' and not e.expired
+                       for e in engine.player.status_effects):
+                    preserve_chance += 0.50
+                if engine.dungeon.spray_paint.get(
+                        (engine.player.x, engine.player.y)) == "blue":
+                    preserve_chance += 0.25
+                if _rng.random() < preserve_chance:
+                    engine.ability_cooldowns[ability_id] = 0
+                    engine.messages.append([
+                        ("Arcane Flux! ", (220, 180, 255)),
+                        ("Cooldown negated!", (200, 255, 200)),
+                    ])
     engine.targeting_ability_index = None
     # Gatting L1: targeted ability use resets consecutive shot tracker
     engine.gatting_consecutive_target_id = None
@@ -1118,6 +1495,7 @@ def _get_usable_abilities(engine):
 
 def _handle_abilities_menu_input(engine, action):
     """Handle input while the abilities menu is open."""
+    from config import HOTBAR_KEYS
     action_type = action.get("type")
 
     if action_type in ("close_menu", "toggle_abilities"):
@@ -1127,6 +1505,37 @@ def _handle_abilities_menu_input(engine, action):
 
     usable_abilities = _get_usable_abilities(engine)
     n = len(usable_abilities)
+
+    # --- Shift+Number: directly bind cursor-selected ability to hotbar slot ---
+    if action_type == "hotbar_bind_slot" and n > 0:
+        slot = action.get("index", -1)
+        if 0 <= slot < len(engine.hotbar) and 0 <= engine.abilities_cursor < n:
+            target = usable_abilities[engine.abilities_cursor]
+            ability_id = target.ability_id
+            defn = ABILITY_REGISTRY.get(ability_id)
+            key_label = HOTBAR_KEYS[slot] if slot < len(HOTBAR_KEYS) else str(slot)
+            name = defn.name if defn else ability_id
+
+            if engine.hotbar[slot] == ability_id:
+                # Already in this slot — unbind
+                engine.hotbar[slot] = None
+                engine.messages.append([
+                    ("Unbound ", (200, 100, 100)),
+                    (name, defn.color if defn else (200, 200, 200)),
+                    (f" from [{key_label}].", (200, 100, 100)),
+                ])
+            else:
+                # Clear any existing binding for this ability
+                for i in range(len(engine.hotbar)):
+                    if engine.hotbar[i] == ability_id:
+                        engine.hotbar[i] = None
+                engine.hotbar[slot] = ability_id
+                engine.messages.append([
+                    ("Bound ", (100, 255, 100)),
+                    (name, defn.color if defn else (200, 200, 200)),
+                    (f" to [{key_label}].", (100, 255, 100)),
+                ])
+        return False
 
     # Arrow key cursor navigation
     if action_type == "move" and n > 0:
@@ -1191,6 +1600,25 @@ def _pay_rad_cost(engine, defn) -> bool:
     return free_charge
 
 
+def _check_spec_cost(engine, defn) -> bool:
+    """Check if player can afford spec_cost. Returns True if ok, False if blocked."""
+    cost = getattr(defn, 'spec_cost', 0)
+    if cost <= 0:
+        return True
+    if engine.spec_energy < cost:
+        engine.messages.append(f"{defn.name}: not enough spec energy ({int(engine.spec_energy)}/{cost})!")
+        return False
+    return True
+
+
+def _pay_spec_cost(engine, defn) -> None:
+    """Deduct spec_cost from engine.spec_energy."""
+    cost = getattr(defn, 'spec_cost', 0)
+    if cost <= 0:
+        return
+    engine.spec_energy = max(0.0, engine.spec_energy - cost)
+
+
 def _execute_ability(engine, index: int) -> bool:
     """Execute the ability at the given player_abilities index. Returns True if a turn is consumed."""
     if index < 0 or index >= len(engine.player_abilities):
@@ -1211,6 +1639,9 @@ def _execute_ability(engine, index: int) -> bool:
         return False
 
     if not _check_rad_cost(engine, defn):
+        return False
+
+    if not _check_spec_cost(engine, defn):
         return False
 
     engine.menu_state = MenuState.NONE
@@ -1237,11 +1668,32 @@ def _execute_ability(engine, index: int) -> bool:
         engine.messages.append(f"{defn.name}: aim with arrow keys, Enter to fire{range_str}. [Esc] cancel.")
         return False
 
+    _spellweaver_before(engine, defn)
     result = defn.execute(engine)
     if result:
+        _spellweaver_after(engine, defn)
         inst.consume(engine)
         if _pay_rad_cost(engine, defn):
             inst.refund_charge(defn)
+        _try_spell_echo_self(engine, defn)
+        # Arcane Flux (Elementalist L3): charge preservation also negates cooldowns
+        if getattr(engine, 'arcane_flux_active', False):
+            cd = engine.ability_cooldowns.get(inst.ability_id, 0)
+            if cd > 0:
+                import random as _rng
+                preserve_chance = 0.10
+                if any(getattr(e, 'id', '') == 'muffin_buff' and not e.expired
+                       for e in engine.player.status_effects):
+                    preserve_chance += 0.50
+                if engine.dungeon.spray_paint.get(
+                        (engine.player.x, engine.player.y)) == "blue":
+                    preserve_chance += 0.25
+                if _rng.random() < preserve_chance:
+                    engine.ability_cooldowns[inst.ability_id] = 0
+                    engine.messages.append([
+                        ("Arcane Flux! ", (220, 180, 255)),
+                        ("Cooldown negated!", (200, 255, 200)),
+                    ])
         engine.targeting_ability_index = None
         # Gatting L1: ability use resets consecutive shot tracker
         engine.gatting_consecutive_target_id = None
@@ -1252,6 +1704,9 @@ def _execute_ability(engine, index: int) -> bool:
         else:
             engine._graffiti_proc_blue()
     # result == False means targeting mode was entered; charge consumed later in _execute_spell_at.
+    # free_action tag: ability fires but doesn't consume a turn
+    if result and "free_action" in defn.tags:
+        return False
     return result
 
 
@@ -1286,6 +1741,7 @@ def _fire_adjacent_ability(engine, tx: int, ty: int) -> bool:
         return False
     fired = defn.execute_at(engine, tx, ty)
     if fired:
+        _pay_spec_cost(engine, defn)
         inst.consume(engine)
         if _pay_rad_cost(engine, defn):
             inst.refund_charge(defn)
@@ -1307,11 +1763,13 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
     A directional key places the ability on the chosen adjacent tile; Esc cancels."""
     action_type = action.get("type")
     pending = getattr(engine, 'spray_paint_pending', None)
+    egg_pending = getattr(engine, 'spider_egg_pending', None)
 
     if action_type == "close_menu":
         engine.menu_state = MenuState.NONE
         engine.targeting_ability_index = None
         engine.spray_paint_pending = None
+        engine.spider_egg_pending = None
         return False
 
     if action_type == "move":
@@ -1326,6 +1784,8 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
                 or engine.dungeon.is_terrain_blocked(tx, ty)):
             if pending:
                 engine.messages.append("Can't spray on a wall.")
+            elif egg_pending:
+                engine.messages.append("Can't hatch there — it's a wall!")
             else:
                 engine.messages.append("Fire!: can't place fire on a wall.")
             return False
@@ -1335,18 +1795,87 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
             engine.menu_state = MenuState.NONE
             _apply_spray_paint_tile(engine, tx, ty, pending)
             engine.spray_paint_pending = None
-            engine.player.energy -= ENERGY_THRESHOLD
+            engine.player.energy -= engine.get_action_cost()
             engine._run_energy_loop()
             return True
+
+        # Spider egg hatching
+        if egg_pending:
+            engine.menu_state = MenuState.NONE
+            hatched = _hatch_spider_egg(engine, tx, ty, egg_pending)
+            engine.spider_egg_pending = None
+            if hatched and engine.running and engine.player.alive:
+                engine.player.energy -= engine.get_action_cost()
+                engine._run_energy_loop()
+            return hatched
 
         engine.menu_state = MenuState.NONE
         fired = _fire_adjacent_ability(engine, tx, ty)
         if fired and engine.running and engine.player.alive:
-            engine.player.energy -= ENERGY_THRESHOLD
+            engine.player.energy -= engine.get_action_cost()
             engine._run_energy_loop()
         return fired
 
     return False
+
+
+def _hatch_spider_egg(engine, tx: int, ty: int, pending: dict) -> bool:
+    """Hatch a spider egg on the targeted adjacent tile. Consumes the egg item."""
+    from entity import Entity
+    from ai import get_initial_state
+
+    # Block if tile is occupied by a blocking entity
+    if engine.dungeon.is_blocked(tx, ty):
+        engine.messages.append("Can't hatch there — tile is blocked!")
+        return False
+
+    item_index = pending["item_index"]
+    spider = Entity(
+        x=tx, y=ty,
+        char=chr(0xE004),
+        color=(255, 255, 255),
+        name="Spider Hatchling",
+        entity_type="monster",
+        hp=10,
+        power=2,
+        defense=0,
+        ai_type="spider_hatchling",
+        speed=100,
+        is_summon=True,
+        summon_lifetime=0,
+    )
+    spider.ai_state = get_initial_state("spider_hatchling")
+    engine.dungeon.add_entity(spider)
+    engine.messages.append([
+        ("A Spider Hatchling emerges from the egg!", (100, 180, 80)),
+    ])
+
+    # Consume the egg
+    item = engine.player.inventory[item_index]
+    qty = getattr(item, "quantity", 1)
+    if qty > 1:
+        item.quantity -= 1
+    else:
+        engine.player.inventory.pop(item_index)
+
+    # Grant Arachnigga XP for hatching
+    _arachni_xp = round(50 * engine.player_stats.xp_multiplier)
+    _arachni_skill = engine.skills.get("Arachnigga")
+    _was_locked = _arachni_skill.potential_exp == 0 and _arachni_skill.real_exp == 0 and _arachni_skill.level == 0
+    engine.skills.gain_potential_exp(
+        "Arachnigga", _arachni_xp,
+        engine.player_stats.effective_book_smarts,
+        briskness=engine.player_stats.total_briskness,
+    )
+    if _was_locked:
+        engine.messages.append([
+            ("[NEW SKILL UNLOCKED] Arachnigga!", (255, 215, 0)),
+        ])
+    engine.messages.append([
+        ("Arachnigga skill: +", (100, 200, 150)),
+        (f"{_arachni_xp} XP", (255, 255, 100)),
+    ])
+    return True
 
 
 def _apply_spray_paint_tile(engine, tx: int, ty: int, pending: dict):
@@ -1368,7 +1897,7 @@ def _apply_spray_paint_tile(engine, tx: int, ty: int, pending: dict):
     else:
         item.charges -= 1
 
-    _SPRAY_COLORS = {"red": (255, 40, 40), "blue": (80, 140, 255), "green": (80, 255, 80)}
+    _SPRAY_COLORS = {"red": (255, 40, 40), "blue": (80, 140, 255), "green": (80, 255, 80), "orange": (255, 160, 40), "silver": (200, 200, 210)}
     color = _SPRAY_COLORS.get(spray_type, (200, 200, 200))
     engine.messages.append([
         ("You spray the tile ", (200, 200, 200)),
@@ -1379,3 +1908,96 @@ def _apply_spray_paint_tile(engine, tx: int, ty: int, pending: dict):
     # Graffiti XP
     bksmt = engine.player_stats.effective_book_smarts
     engine.skills.gain_potential_exp("Graffiti", 20, bksmt)
+
+
+def _get_graffiti_gun_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int, int]]:
+    """Return non-wall tiles in 3x3 area centered on (tx, ty)."""
+    tiles = []
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            x, y = tx + dx, ty + dy
+            if (0 <= x < DUNGEON_WIDTH and 0 <= y < DUNGEON_HEIGHT
+                    and not engine.dungeon.is_terrain_blocked(x, y)):
+                tiles.append((x, y))
+    return tiles
+
+
+def _execute_graffiti_gun_fire(engine, tx: int, ty: int) -> bool:
+    """Fire graffiti gun: spray 3x3 area around target tile."""
+    # Range check: Chebyshev distance 6
+    dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
+    if dist > 6 or dist == 0:
+        engine.messages.append("Out of range!")
+        return False
+    if not engine.dungeon.visible[ty, tx]:
+        engine.messages.append("Can't see that tile!")
+        return False
+
+    spell = engine.targeting_spell
+    item_index = spell["item_index"]
+    if item_index >= len(engine.player.inventory):
+        engine.menu_state = MenuState.NONE
+        engine.targeting_spell = None
+        return False
+
+    gun = engine.player.inventory[item_index]
+    loaded_id = getattr(gun, 'loaded_spray_id', None)
+    if loaded_id is None:
+        engine.messages.append("No spray loaded!")
+        engine.menu_state = MenuState.NONE
+        engine.targeting_spell = None
+        return False
+
+    from items import get_item_def
+    spray_defn = get_item_def(loaded_id)
+    spray_type = spray_defn["use_effect"]["spray_type"]
+
+    # Apply spray to 3x3 area (skip walls)
+    tiles_sprayed = 0
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            sx, sy = tx + dx, ty + dy
+            if (0 <= sx < DUNGEON_WIDTH and 0 <= sy < DUNGEON_HEIGHT
+                    and not engine.dungeon.is_terrain_blocked(sx, sy)):
+                engine.dungeon.spray_paint[(sx, sy)] = spray_type
+                tiles_sprayed += 1
+
+    # Decrement charge (Taggin' perk: Graffiti L1, 50% preserve)
+    import random as _rng
+    if engine.skills.get("Graffiti").level >= 1 and _rng.random() < 0.50:
+        engine.messages.append([
+            ("Taggin'! ", (255, 220, 80)),
+            ("Spray charge preserved!", (200, 255, 200)),
+        ])
+    else:
+        gun.loaded_spray_charges -= 1
+
+    _SPRAY_COLORS = {"red": (255, 40, 40), "blue": (80, 140, 255), "green": (80, 255, 80), "orange": (255, 160, 40), "silver": (200, 200, 210)}
+    color = _SPRAY_COLORS.get(spray_type, (200, 200, 200))
+    engine.messages.append([
+        ("Graffiti Gun sprays ", (200, 200, 200)),
+        (spray_type, color),
+        (f" across {tiles_sprayed} tiles!", (200, 200, 200)),
+    ])
+
+    # Graffiti XP
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Graffiti", 20, bksmt)
+
+    # Auto-eject empty spray
+    if gun.loaded_spray_charges <= 0:
+        gun.loaded_spray_id = None
+        gun.loaded_spray_charges = None
+        gun.loaded_spray_max_charges = None
+        gun_defn = get_item_def("graffiti_gun")
+        gun.char = gun_defn["char"]
+        gun.color = tuple(gun_defn["color"])
+        engine.messages.append([
+            ("The loaded spray can is empty!", (200, 100, 100)),
+        ])
+
+    engine.menu_state = MenuState.NONE
+    engine.targeting_spell = None
+    engine.player.energy -= engine.get_action_cost()
+    engine._run_energy_loop()
+    return True

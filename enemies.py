@@ -302,6 +302,7 @@ class MonsterTemplate:
     speed:         int               = 100
     move_cost:     int               = 0     # energy cost override for movement (0 = use ENERGY_THRESHOLD)
     attack_cost:   int               = 0     # energy cost override for attacks  (0 = use ENERGY_THRESHOLD)
+    wander_idle_chance: float        = 0.0   # 0.0-1.0: chance to idle instead of wandering each turn
 
     # ── Abilities ─────────────────────────────────────────────────────────
     special_attacks: list[SpecialAttack] = field(default_factory=list)
@@ -525,6 +526,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         ai            = AIType.ROOM_COMBAT,
         sight_radius  = 6,
         speed         = 100,
+        wander_idle_chance = 0.6,
         special_attacks = [
             SpecialAttack(
                 name         = "High Heel Kick",
@@ -571,6 +573,7 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         ai            = AIType.PASSIVE_UNTIL_HIT,
         sight_radius  = 6,
         speed         = 100,
+        wander_idle_chance = 0.6,
         on_hit_effects = [
             OnHitEffect(
                 name     = "Child Support",
@@ -2048,7 +2051,7 @@ def create_enemy(enemy_type: str, x: int, y: int):
             "duration": eff.duration,
         })
 
-    return Entity(
+    entity = Entity(
         x=x,
         y=y,
         char=tmpl.char,
@@ -2090,3 +2093,6 @@ def create_enemy(enemy_type: str, x: int, y: int):
         death_creep_tox=tmpl.death_creep_tox,
         leaves_trail=dict(tmpl.leaves_trail) if tmpl.leaves_trail else None,
     )
+    if tmpl.wander_idle_chance > 0:
+        entity.wander_idle_chance = tmpl.wander_idle_chance
+    return entity

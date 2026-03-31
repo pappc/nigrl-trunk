@@ -128,6 +128,39 @@ def create_fire(x: int, y: int, duration: int = 0) -> Entity:
     return fire
 
 
+def create_vending_machine(x: int, y: int, stock: list = None) -> Entity:
+    """A vending machine hazard. Blocks movement; bump to open shop menu.
+
+    stock: list of (item_id, strain_or_None) tuples representing items for sale.
+    """
+    vm = Entity(
+        x=x, y=y,
+        char='V',
+        color=(0, 220, 220),
+        name="Vending Machine",
+        entity_type="hazard",
+        hazard_type="vending_machine",
+        blocks_movement=True,
+    )
+    vm.vending_stock = stock or []
+    return vm
+
+
+def create_venom_pool(x: int, y: int, duration: int = 15) -> Entity:
+    """A venom pool hazard. Passable; applies 1 stack of venom per tick to entities standing on it.
+    Expires after `duration` turns."""
+    return Entity(
+        x=x, y=y,
+        char="~",
+        color=(80, 200, 60),
+        name="Venom Pool",
+        entity_type="hazard",
+        hazard_type="venom_pool",
+        blocks_movement=False,
+        hazard_duration=duration,
+    )
+
+
 def create_web(x: int, y: int) -> Entity:
     """A cobweb hazard. Passable; sticks entities that walk into it.
 

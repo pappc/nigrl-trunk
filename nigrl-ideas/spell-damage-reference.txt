@@ -1,0 +1,101 @@
+SPELL & ABILITY DAMAGE FORMULA REFERENCE
+========================================
+Last updated: 2026-03-30
+
+Legend:
+  BKS  = effective_book_smarts
+  STS  = effective_street_smarts
+  STR  = effective_strength
+  CON  = effective_constitution
+  TOL  = effective_tolerance
+  SWG  = effective_swagger
+  TSD  = total_spell_damage (permanent + temporary + equipment + WMB BKS bonus)
+  CRY  = Cryomancy skill level
+  ELEC = Electrodynamics skill level
+  RAD  = player.radiation (capped at 200)
+  DEF  = target.defense
+  ATK  = player_attack_power (weapon + STR scaling)
+  WMB  = Wizard Mind Bomb buff (adds BKS to TSD dynamically while active)
+
+
+=== SPELLS (use total_spell_damage) ===
+
+These are cast from the ability menu and benefit from ALL spell damage sources:
+Arcane Intelligence, Leftovers Well Fed, Rune Scraper, Wizard Mind Bomb, future items.
+
+Spell              | Formula                                    | Type              | File:Line
+-------------------|--------------------------------------------|-------------------|------------------
+Firebolt           | 10 + BKS + TSD                             | Single projectile | spells.py:646
+Breathe Fire       | 10 + BKS + TSD                             | Cone (5t, 90deg)  | spells.py:697
+Fireball           | 15 + BKS + TSD                             | Projectile + 2r   | spells.py:753
+Arcane Missile     | ceil(8 + BKS/2 + TSD)                      | Single target     | spells.py:673
+Ray of Frost       | rand(6,12) + BKS/2 + TSD                   | Line (10t), chan. | spells.py:590
+Zap                | 5 + BKS/2 + TSD                            | Single (4t range) | spells.py:915
+Chain Lightning    | 5 + BKS + TSD                              | Bouncing chain    | spells.py:528
+Ice Lance          | 3*CRY + BKS/2 + TSD                       | Piercing (6t)     | abilities.py:1290
+Ice Lance (shatter)| 3*CRY + BKS*2 + TSD                       | (stops on frozen) | abilities.py:1291
+Ice Nova           | rand(8,16) + TSD                           | Self AOE (4r)     | abilities.py:1475
+Shocking Grasp     | rand(1, 10+5*ELEC) + TSD                   | Adjacent 8 tiles  | abilities.py:1536
+Volt Dash          | rand(1, 10+5*ELEC) + TSD                   | Blink + line (5t) | abilities.py:1637
+Discharge (pulse)  | rand(1, 10+10*ELEC) + TSD                  | Self AOE (5r) ch. | abilities.py:1733
+Radiation Nova     | max(1, RAD/2 + TSD - DEF)                  | Self AOE (4r)     | abilities.py:1881
+Chromatic Orb      | SKILL_LEVEL * 6 + TSD                      | Single projectile | abilities.py:1846
+
+
+=== NON-SPELL ABILITIES (do NOT use total_spell_damage) ===
+
+These are melee abilities, utility, or have unique scaling. They are NOT spells.
+
+Ability            | Formula                                    | Type              | File:Line
+-------------------|--------------------------------------------|-------------------|------------------
+Fart               | max(1, 25 - SWG + TOL/2)                  | 3x3 AOE           | spells.py:1075
+Corn Dog           | 5 (armor-piercing, fixed)                  | Adjacent, stun    | spells.py:936
+Fry Shot           | max(1, CON + 2 - DEF)                      | Adjacent          | abilities.py:1053
+Bitch Slap         | 2+2*STR (female) or max(1, STR-DEF)       | Adjacent          | abilities.py:879
+Gouge              | max(1, STS - DEF)                          | Adjacent          | abilities.py:919
+Bash               | max(1, ATK-DEF)*CRIT; STR on collide      | Adjacent + KB 4t  | abilities.py:380
+Force Push         | 3 + BKS/2 (collision only)                 | Adjacent + push   | abilities.py:517
+Pickpocket         | max(1, STS/2 - DEF)                        | Adjacent          | abilities.py:957
+Toxic Bite         | max(1, STS - DEF)                          | Adjacent          | abilities.py:2201
+Whirlwind          | Standard melee attack formula              | All adjacent      | abilities.py:474
+Staff Bolt         | 5 + BKS/3                                  | Projectile        | gun_system.py:295
+
+
+=== NON-DAMAGE ABILITIES ===
+
+These apply effects but deal no direct damage on cast.
+
+Ability            | Effect                                     | Type              | File:Line
+-------------------|--------------------------------------------|-------------------|------------------
+Curse of Ham       | Applies curse_of_ham debuff                | Cone (3t, 60deg)  | spells.py:1186
+Curse of DOT       | Applies curse_dot debuff                   | Single target     | spells.py:1230
+Curse of COVID     | Applies curse_covid debuff                 | Single target     | spells.py:1260
+Ignite (spell)     | Applies ignite (2 stacks)                  | Single target     | abilities.py:863
+Polarize           | Applies cripple_armor (0 DEF, 20t)        | Adjacent          | spells.py:1017
+Oil Dump           | Creates grease tiles + 3 Greasy stacks    | AOE (3r circle)   | abilities.py:1045
+Dash               | Teleport 2 tiles                           | Cursor target     | abilities.py:699
+Shortcut           | Channel 2t, teleport to explored tile      | Cursor target     | abilities.py:735
+Freeze             | Applies frozen (5 stacks)                  | Single (5t range) | abilities.py:1362
+
+
+=== SOURCES OF total_spell_damage ===
+
+Source              | Amount                    | Duration        | How applied
+--------------------|---------------------------|-----------------|----------------------------
+Arcane Intelligence | +1 per stack              | 20 turns        | temporary_spell_damage
+Leftovers Well Fed  | +1 per stack              | varies          | temporary_spell_damage
+Rune Scraper weapon | STR/2                     | while equipped  | equipment_spell_damage
+Wizard Mind Bomb    | +BKS (dynamic)            | while buff up   | computed in TSD property
+(future items)      | varies                    | permanent       | spell_damage (permanent)
+
+
+=== NOTES ===
+
+- total_spell_damage is a property on PlayerStats that dynamically sums all sources
+- WMB bonus is computed live (reads current BKS each time), so BKS buffs apply correctly
+- Spells = cast from ability menu, is_spell=True. Melee abilities are NOT spells.
+- Staff Bolt is a weapon ranged attack, not a spell
+- Graffiti Gun shock bolt is utility (applies Shocked only), not a damage ability
+- Fart (formerly Lesser Cloudkill) is NOT a spell — does not benefit from TSD
+- Discharge is channeled (6 ticks, 3 damage pulses) — excluded from Spell Echo
+- Ray of Frost is channeled (3 ticks) — excluded from Spell Echo

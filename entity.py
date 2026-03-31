@@ -92,6 +92,7 @@ class Entity:
         self.max_hp = hp
         self.armor = 0                  # current armor
         self.max_armor = 0              # max armor (derived from equipment/effects)
+        self.temp_hp = 0                # temporary HP shield (absorbed before armor and HP)
         self.power = power
         self.defense = defense
         self.alive = True
@@ -168,20 +169,30 @@ class Entity:
         self.y += dy
 
     def take_damage(self, damage):
-        """Reduce armor first. If armor > 0, overflow damage is blocked. If armor = 0, damage goes to HP. Returns True if dead."""
+        """Absorb damage: temp HP first, then armor, then HP. Returns True if dead."""
         if self.dev_invincible:
             return False
         if any(getattr(e, 'id', None) == 'invulnerable' for e in self.status_effects):
             return False
 
-        if self.armor > 0:
-            # Armor absorbs damage; overflow is negated
-            armor_absorbed = min(self.armor, damage)
+        remaining = damage
+
+        # Temp HP absorbs first; overflow passes through
+        if self.temp_hp > 0:
+            thp_absorbed = min(self.temp_hp, remaining)
+            self.temp_hp -= thp_absorbed
+            remaining -= thp_absorbed
+
+        if remaining > 0 and self.armor > 0:
+            # Armor absorbs remaining; overflow is negated
+            armor_absorbed = min(self.armor, remaining)
             self.armor -= armor_absorbed
             hp_damage = 0
+        elif remaining > 0:
+            # No armor; remaining damage goes to HP
+            hp_damage = remaining
         else:
-            # No armor; damage goes straight to HP
-            hp_damage = damage
+            hp_damage = 0
 
         self.hp -= hp_damage
         # Floating damage number callback

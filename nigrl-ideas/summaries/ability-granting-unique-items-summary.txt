@@ -1,0 +1,94 @@
+================================================================================
+SUMMARY: ability-granting-unique-items.txt
+10 Unique Equippable Items That Grant Abilities
+================================================================================
+
+CATEGORY A — RESOURCE/CURRENCY SYSTEM ITEMS (4 items)
+
+1. Crown of the Corner Boy [Hat, +2 SWG]
+   Resource: REP — +1 per kill. Stored on engine.hat.rep_count.
+   Abilities: Corner Intimidate (3 rep: frighten nearest enemy 6t), Corner Henchman (8 rep:
+   summon ally for 20t via is_summon), Corner War Cry (all rep, min 12: stun all visible
+   enemies 1t per 4 rep spent).
+   New infrastructure: hat grants_abilities support, engine kill hook, rep_count display effect.
+
+2. The Knuckle Diary [Weapon/beating, 4 power, +1 STS]
+   Resource: ENTRIES — +1 per crit while equipped. Cap 10. Stored on weapon entity.
+   Abilities: Diary Quick Hit (2 entries: bonus adjacent attack, free action), Diary Break
+   Defense (3 entries: zeroes target defense 8t via new BrokenDefenseEffect), Diary
+   Retrospective (all entries, min 3: strike target once per entry).
+   New infrastructure: weapon grants_abilities list support, crit detection, BrokenDefenseEffect.
+
+3. The Hustle Ring [Ring, +1 STS/+1 TOL]
+   Resource: HUSTLE — +1 per tile moved. Cap 20. Stored on engine.hustle_ring_steps.
+   Abilities: Hustle Rush (6: ADJACENT_TILE, move 3 tiles passing through enemies for STR dmg),
+   Hustle Trail (10: paint last 5 walked tiles with +10 energy/tick spray for 8t), Hustle
+   Recovery (all, min 8: HealOnMove effect — 2 HP per step for duration=hustle turns).
+   New infrastructure: ring grants_abilities support, handle_move hook, move history deque,
+   hustle spray type, HustleRecoveryFlowEffect (modify_movement heals 2).
+
+4. Tap-In Talisman [Neck, 15 armor, +1 CON]
+   Resource: PAGES — +1 per time player takes HP damage. Cap 15. Stored on engine.neck.page_count.
+   Abilities: Tap Dodge Window (2 pages: 90 dodge for 2t), Tap Shield (all, min 5: temp HP = 3x
+   pages spent, cap 60), Tap Trauma Response (6 pages + 3 HP cost: +50% outgoing dmg 5t via
+   outgoing_damage_mults).
+   New infrastructure: damage-taken hook for page accumulation, DodgeWindowEffect,
+   TraumaResponseEffect (outgoing_damage_mults).
+
+CATEGORY B — SINGLE ABILITY-GRANTING ITEMS (6 items)
+
+5. Crackhead Rocket Shoes [Feet, +30 energy/tick]
+   Ability: Rocket Blast — SINGLE_ENEMY_LOS (range 8): teleport adjacent to target, deal
+   STR*2+6 collision dmg + stun 2t. 10% misfire: blast backward 3 tiles for STR self-dmg.
+   12-turn cooldown.
+
+6. Deadman's Gloves [Weapon/beating, 3 power, +1 CON]
+   Ability: Dead Man's Grip — ADJACENT: execute enemy at <=25% HP, absorb their current HP
+   as temp HP (cap 30/total 60). 8-turn cooldown. Requires Beating weapon.
+
+7. The Borrowed Watch [Ring, +2 STS]
+   Ability: Time Steal — SELF: drain 30 energy/tick from nearest enemy, add 30 to player
+   for 6 turns. On expire: player energy halved. 20-turn cooldown.
+   New infrastructure: ring grants_ability support, TimeStealActiveEffect (tick drains enemy,
+   expire halves player energy).
+
+8. Prophet's Jawbone [Weapon/beating, 5 power, +2 SWG]
+   Ability: Speak The Word — ADJACENT_TILE direction: blast line 8t, all enemies in ray
+   knocked back 2 tiles + deafened (sight_radius=0, forced WANDERING) for 6 turns.
+   18-turn cooldown.
+   New infrastructure: DeafenedEffect (stores/restores sight_radius).
+
+9. Plague Doctor Mask [Hat, 10 armor, +3 TOL, -1 FOV]
+   Ability: Miasma Cloud — SELF: apply miasma to 9 surrounding tiles (player + 8 adjacent),
+   enemies in range gain 5 toxicity/tick for 4 turns. 15-turn cooldown.
+   Meth Lab synergy: toxicity multiplies enemy incoming damage.
+   New infrastructure: hat grants_ability support, MiasmaInfectedEffect, miasma spray visual.
+
+10. Bail Bondsman's Briefcase [Weapon/beating, 4 power, 2 defense, +1 BKS/+1 SWG]
+    Ability: The Bond — SINGLE_ENEMY_LOS, 1/floor: mark a BOLO target. Any damage dealt to
+    any OTHER enemy sends 30% echo damage to the BOLO target. Lasts the floor.
+    New infrastructure: bolo_target_id engine state, combat.py echo hook, BoloMarkEffect,
+    floor-reset clearing of bolo state.
+
+SLOT DISTRIBUTION
+  Weapon (beating): items 2, 6, 8, 10
+  Feet: item 5
+  Hat: items 1, 9
+  Neck: item 4
+  Ring: items 3, 7
+
+SHARED INFRASTRUCTURE ADDITIONS
+  inventory_mgr.py: grants_abilities list support for weapon, hat, ring equip/unequip
+  engine.py: kill hook (rep/entries), damage-taken hook (pages), floor reset (BOLO)
+  combat.py: BOLO echo in _deal_damage
+  effects.py: 9 new Effect subclasses
+  engine state: 7 new state variables
+  abilities.py: 13 new AbilityDef entries
+
+DESIGN PRINCIPLES APPLIED
+  - All resource costs create meaningful spend-vs-hoard decisions
+  - All abilities reference real existing systems (soul_count pattern, existing effects,
+    existing knockback loop, is_summon, outgoing_damage_mults)
+  - Risk/reward present in every item (misfire, HP cost, energy halved on expire, etc.)
+  - Thematic urban flavor throughout (corner royalty, blunt trauma, plague street medicine)
+  - No new graphical tiles required — reuse 0xE00D/0xE00A/0xE00B with unique colors

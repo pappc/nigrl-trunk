@@ -127,30 +127,39 @@ version 0.9 (REFINEMENT) opened 3/20/2026 12:00 am
  -skill menu enhancement
  -look function
  -spray paint new tool
+ -vending machine
+ -many skills reworked
+ ---0.9.1---
+ -hot bar
+ -tyrone's penthouse
+ -New skills
+    -cryomancy
+    -electrodynamics
+    -elementalist
+-fix chains in crack den
+-unique items
+-more drinks and foods that are rarer
+    -upgraded fireball shooter
+    -blue lagoon ice nova drink
+    -many more
+-skill effects/animations
+-debuff icons
+-seeded run
+-save game feature
+-main menu
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
-look function
--unique room encounters
 -future add ability to make a hotbar to easily select abilities
--smart targeting
 -autoplay
--on death automatically start new game
--main menu
-	-fullscreen options
-	-handling game restarts
-	-save game/replay/import save
 -interactable crafting stations 
 	- meth machine
+	-joint converter
 -overhaul of skill system ie skills branch into 2 or more paths as you level up
 	-ex rolling progresses into bong packing or blunt specialization.
 	-allow for players to go down both paths of the trees (or not)
--add dev tool to generate a character right after jerome
 add snicklefritz strain
 meth lab final room
 meth lab red keycard
 meth lab specific rooms
-heal every floor?
-gun spawns
-add exp gain on using skill that deals damage equal to damage dealt. ie fireball shooter
-gains alch + magic exp
+heal every floor? no
 vaping + cigs

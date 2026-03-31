@@ -325,11 +325,12 @@ def build_mst(rooms):
 class Dungeon:
     """Represents a dungeon floor."""
 
-    def __init__(self, width, height, zone="crack_den", floor_event=None):
+    def __init__(self, width, height, zone="crack_den", floor_event=None, floor_num=0):
         self.width = width
         self.height = height
         self.zone = zone
         self.floor_event = floor_event
+        self.floor_num = floor_num
         self.tiles = [[TILE_WALL for _ in range(width)] for _ in range(height)]
         self.entities = []
         self.rooms = []
@@ -353,6 +354,7 @@ class Dungeon:
 
         self.room_tile_map: dict[tuple, int] = {}  # (x, y) -> room_index
         self.spray_paint: dict[tuple, str] = {}    # (x, y) -> spray type ("red", etc.)
+        self.grease_tiles: dict[tuple, int] = {}   # (x, y) -> turns_remaining
 
         from zone_generators import ZONE_GENERATORS
         # Use event-specific generator if available
@@ -474,6 +476,38 @@ class Dungeon:
                 if 0 <= x < self.width and 0 <= y2 < self.height:
                     self.tiles[y2][x] = TILE_FLOOR
 
+    def _carve_dogleg_corridor(self, from_point, to_point):
+        """Carve a Z-shaped corridor with two bends (three segments)."""
+        x1, y1 = from_point
+        x2, y2 = to_point
+
+        if random.choice([True, False]):
+            # H-V-H: horizontal → vertical → horizontal
+            mid_x = (x1 + x2) // 2 + random.randint(-3, 3)
+            mid_x = max(1, min(self.width - 2, mid_x))
+            for x in range(min(x1, mid_x), max(x1, mid_x) + 1):
+                if 0 <= x < self.width and 0 <= y1 < self.height:
+                    self.tiles[y1][x] = TILE_FLOOR
+            for y in range(min(y1, y2), max(y1, y2) + 1):
+                if 0 <= mid_x < self.width and 0 <= y < self.height:
+                    self.tiles[y][mid_x] = TILE_FLOOR
+            for x in range(min(mid_x, x2), max(mid_x, x2) + 1):
+                if 0 <= x < self.width and 0 <= y2 < self.height:
+                    self.tiles[y2][x] = TILE_FLOOR
+        else:
+            # V-H-V: vertical → horizontal → vertical
+            mid_y = (y1 + y2) // 2 + random.randint(-3, 3)
+            mid_y = max(1, min(self.height - 2, mid_y))
+            for y in range(min(y1, mid_y), max(y1, mid_y) + 1):
+                if 0 <= x1 < self.width and 0 <= y < self.height:
+                    self.tiles[y][x1] = TILE_FLOOR
+            for x in range(min(x1, x2), max(x1, x2) + 1):
+                if 0 <= x < self.width and 0 <= mid_y < self.height:
+                    self.tiles[mid_y][x] = TILE_FLOOR
+            for y in range(min(mid_y, y2), max(mid_y, y2) + 1):
+                if 0 <= x2 < self.width and 0 <= y < self.height:
+                    self.tiles[y][x2] = TILE_FLOOR
+
     def _spawn_staircase(self):
         """Spawn a staircase in a random non-spawn room."""
         eligible = self.rooms[1:]
@@ -577,6 +611,10 @@ class Dungeon:
     def get_monsters(self):
         """Get all monster entities."""
         return [e for e in self.entities if e.entity_type == "monster"]
+
+    def get_npcs(self):
+        """Get all NPC entities."""
+        return [e for e in self.entities if e.entity_type == "npc"]
 
     def add_entity(self, entity):
         """Add an entity to the dungeon."""

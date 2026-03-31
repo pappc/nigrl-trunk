@@ -1,0 +1,144 @@
+================================================================================
+DEEP-FRYING SKILL TREE VARIANTS — SUMMARY
+File: nigrl-ideas/deep-frying-skill-tree-variants.txt
+================================================================================
+
+10 complete L1-L10 Deep-Frying skill tree designs. All keep L1 (Fry Shot) and
+L2 (Extra Greasy) as fixed points. Each has distinct playstyle and capstone.
+
+FIXED PERKS (all trees):
+  L1 — Fry Shot (activated): CON+2-DEF dmg, 3 Greasy stacks, 15t CD. [EXISTS]
+  L2 — Extra Greasy (passive): Fried food restores +20% HP. [EXISTS]
+
+TREE OVERVIEW
+-------------
+
+TREE 1 — "THE GREASE FIRE SPECIALIST" (Pure Burst DPS)
+  Theme: Stack greasy fast → detonate via Grease Fire reaction.
+  L3: Flash Fry (passive) — 30%/50% on-hit greasy proc
+  L4: Splatter (activated) — 3x3 AOE greasy splash, CD 20t
+  L5: Ignition Point (passive) — +CON/3 Grease Fire burst bonus
+  L6: Burning Lard (activated) — 6-tile LINE, CON+TOL dmg + oil_slick trail
+  L7: Grease Trap (activated) — 1/floor, mass greasy on all visible enemies
+  L8: Full Render (passive) — Grease Fire: stacks*(2+CON/5) burst; half stacks survive
+  L9: Thermite Baste (activated) — 3 total charges, 10 greasy + CON/3 ignite, ADJACENT
+  L10: The Forbidden Deep Fry (ONCE) — floor-wide greasy+ignite all monsters, CON*5 TempHP, self-ignite
+
+TREE 2 — "THE SKILLET GENERAL" (Control / Terrain Denial)
+  Theme: Oil slick hazard placement, kiting, room geometry control.
+  L3: Spill (activated) — 3/floor, ADJACENT_TILE oil_slick placement
+  L4: Slick Floor (passive) — oil_slicks last 50% longer, slip proc on 3+ greasy
+  L5: Deep Fry Zone (activated) — 2/floor, 5x5 oil_slick zone
+  L6: Oil River (activated) — 7-tile line of oil, no damage, pure denial
+  L7: Pork Rind Armor (activated) — CON*3 TempHP, attackers 40% get greasy
+  L8: Quagmire (passive) — oil_slick now also slows, 5+ greasy = DR shred
+  L9: Flash Flood (activated) — 1/floor, entire floor oil_slick for 8t
+  L10: Grease Monolith (ONCE) — permanent floor oil, summoned Monolith with radius-3 greasy aura
+
+TREE 3 — "THE DEEP FRYER FIST" (Melee Hybrid)
+  Theme: Melee + greasy synergy; grease on player = armor; kills absorb grease.
+  L3: Oily Fists (passive) — 100% on-hit greasy to enemy (2 stacks if self-greasy >= 3)
+  L4: Grease Bath (activated) — 3 self-greasy + 10t STR/2 melee buff + on-kill heal
+  L5: Tallow Skin (passive) — +1 armor per player Greasy stack (max +10)
+  L6: Knuckle Crunch (activated) — CON+STR dmg, crit if target 3+ greasy → ignite
+  L7: Fat Render (passive) — kills absorb half enemy greasy stacks + TempHP
+  L8: Deep Fryer Stance (activated) — 3/floor, double greasy on self, -15 melee energy, kills spawn fire
+  L9: Master Butcher (passive) — greasy-enemy kills reset Fry Shot CD; +20xp per stack
+  L10: The Flesh Is The Fryer (ONCE) — 30t: every melee hit = 5 greasy+3 ignite on target; TempHP = stacks*CON
+
+TREE 4 — "THE SLOW BURN" (DOT / Attrition)
+  Theme: Persistent Ignite, Creeping Lard DOT, Greasy stacks never expire.
+  L3: Rendered Fat (passive) — bonus dmg = ignite stacks when applying greasy
+  L4: Low Simmer (passive) — Ignite +3t duration; greasy+ignite = bonus DOT per 3t
+  L5: Infused Basting (activated) — 5 greasy+3 ignite; +1 ignite per hit for 5t
+  L6: Dripping (passive) — 3 greasy stacks always survive Grease Fire
+  L7: Keep It Warm (passive) — enemy greasy stacks never expire naturally
+  L8: Creeping Lard (activated) — 2/floor, DOT starts 1dmg/t, +1 per 3 ticks, cap 20
+  L9: Pressure Cooker (passive) — greasy+ignite+CL simultaneously = enemy DEF set to 0
+  L10: Confit (ONCE) — 1 enemy: all DOTs tick twice/turn, perma-slow, death = distribute stacks
+
+TREE 5 — "THE BIG-BONED BUILD" (Tank / Sustain)
+  Theme: CON investment returns HP, armor, and healing from kills.
+  L3: Lard Up (activated) — CON/3 self-greasy + CON/2 TempHP, CD 15t
+  L4: Fat Tank (passive) — +1 armor per player Greasy stack
+  L5: Grease Is The Word (passive) — kill Greasy enemy = heal 2+stacks+CON/4 HP
+  L6: Pork Rind Armor (activated) — CON*4 TempHP, 50% attacker greasy proc, CD 20t
+  L7: Blubber (passive) — big hits (>=10% max HP) give 1 player Greasy stack (3/turn)
+  L8: Deep Fat Reserve (activated) — 2/floor, consume all player greasy: heal CON/3 per stack + DR
+  L9: The Lard Is My Shepherd (passive) — +1 SWG/kill with own greasy, every 5 greasy-kills = CON heal
+  L10: Grease Golem Form (ONCE) — 20t: greasy cap 20, 40% dmg reduction, infinite Fry Shot, expire = AOE
+
+TREE 6 — "THE SPLATTER HOUSE" (AOE Specialist)
+  Theme: Maximum coverage, multi-target Grease Fire chains, room clearing.
+  L3: Splatter (activated) — 3x3 AOE greasy + dmg, CD 20t
+  L4: Wide Splash (passive) — Fry Shot gains 3x3 splash (adjacent = CON-2 dmg + 1 greasy)
+  L5: Napalm Drop (activated) — 2/floor, radius-2 AOE: raw CON dmg + 4 greasy + oil_slick
+  L6: Chain Splatter (passive) — Grease Fire spreads 1 greasy to Chebyshev-2 neighbors; chains up to 4x
+  L7: Pressure Burst (activated) — all floor Greasy enemies take CON/2 dmg; 5+ = 3 ignite stacks
+  L8: Splatter Field (activated) — 1/floor, entire room: 3 greasy + 1 ignite all enemies
+  L9: Deep Fryer Artillery (passive) — +1 charge to 3 abilities; kills with fryer = adjacent splash
+  L10: The Big Cook (ONCE) — teleport all enemies within 5 tiles; CON*2 dmg + 5 greasy + 3 ignite each
+
+TREE 7 — "THE FAT ASSASSIN" (Boss Killer / Single-Target)
+  Theme: Maximum focus damage on one enemy; execute mechanics; Grease Fire guarantee.
+  L3: Marked Meal (activated) — mark enemy: 2x greasy stack receive, +15% dmg taken, dur 20t
+  L4: Crisped (passive) — 5+ greasy on enemy = double crit chance; crits add 2 ignite stacks
+  L5: Deep Fry Focus (activated) — 2/floor, 10t: Fry Shot = CON*2-DEF dmg, 5 stacks
+  L6: Baste and Broil (activated) — 4 greasy + CON dmg + 3 ignite in one action (guaranteed GF)
+  L7: Over Done (passive) — <30% HP enemies take 2x dmg from frying abilities (execute)
+  L8: Rendered Marrow (activated) — 4 total: 10 greasy + STR+CON unblocked dmg + reset Fry Shot CD
+  L9: Connoisseur (passive) — cold-open Fry Shot = 3x dmg + 6 greasy; guaranteed GF maximum
+  L10: The Chef's Kiss (ONCE) — 10 greasy + CON ignite (GF auto) + halve HP + 5t stun; unblockable
+
+TREE 8 — "THE SPEED COOK" (Low Cooldowns / Combo Chains)
+  Theme: Kill resets, rapid-fire abilities, momentum-based energy system.
+  L3: Quick Shot (passive) — Fry Shot CD 10 (was 15); kills reset CD to 0; 2x XP
+  L4: Hot Streak (passive) — 2 kills in 8t = Hot Streak; +5 speed/stack, max 5 stacks
+  L5: Flash Pan (activated) — ADJACENT, CON/2 dmg, 2 greasy, CD 8t; kills = +20 energy
+  L6: Turbo Baste (activated) — 5 rapid hits: CON/3 dmg + 1 greasy each; CD 20t
+  L7: Chain Cook (passive) — consecutive frying abilities within 3t = +3% dmg/stack (max +9%)
+  L8: Pressure Release (activated) — 3/floor: reset all frying CDs + +50 energy + 5t -30% energy cost
+  L9: Adrenaline Grease (passive) — applying greasy to enemy = +5 player energy
+  L10: Infinite Fryer (ONCE) — 15t: all frying CDs 0, no charges, no energy cost; +10 energy/hit
+
+TREE 9 — "THE GREASE PIT PROFESSOR" (Debuff Specialist)
+  Theme: Greasy stacks reduce enemy power, sight, actions, and healing.
+  L3: Slip Hazard (passive) — 3+ greasy = 25% chance to slip each enemy turn
+  L4: Oil Blind (activated) — enemy: halve sight_radius, +15% miss, block ALERTING; TOL/2 duration
+  L5: Slippery Slope (passive) — -1 enemy attack power per Greasy stack on them
+  L6: Dunk (activated) — ADJACENT; slow ratio=0.3 TOL turns + 4 greasy + blocks special attacks
+  L7: Grease Leak (passive) — greasy enemies transfer 1 stack to adjacent enemy on move
+  L8: Pressure Cook Them (activated) — 1/floor; debuffs +50% longer, -1 DEF per 3t (up to -6), 2x greasy stacks
+  L9: Deep Fried Constitution (passive) — 8+ greasy = Saturated (no healing, -20% dmg)
+  L10: Total Grease (ONCE) — 25t: all enemies 8 greasy/Saturated/-10 ATK; expire = all slip + CON dmg
+
+TREE 10 — "THE CHEF OF FIRE" (Pyromancy Crossover)
+  Theme: Greasy stacks count as Ignite ticks; Pyromania level boosts all mechanics.
+  L3: Flammable (passive) — each Greasy stack = 0.5 ignite dmg/tick (1.0x if Pyro >= 3)
+  L4: Grease Kindle (activated) — ADJACENT_TILE hazard: entity stepping on it = 3 greasy + 2 ignite (GF)
+  L5: Inferno Drip (passive) — applying Ignite to Greasy enemy = bonus dmg = stacks*2 immediately
+  L6: Deep Fire Harmony (passive) — GF deals +CON/2 bonus; Pyro 4+ = GF spreads 2 ignite to adjacent
+  L7: Napalm Grease (passive) — Ignite on entity atop oil_slick = immediate GF (tile consumed)
+  L8: Boiling Point (activated) — 2/floor, 10t: ignite stacks doubled, Flammable = 1.0x, +10 XP per GF
+  L9: Eternal Flame (passive) — enemy Ignite duration = 999 (permanent until death/Wet)
+  L10: The Burning Gospel (ONCE) — 10t: all enemies 5 greasy+5 ignite, fire immune, kills spawn fire tiles
+
+KEY NEW SYSTEMS REQUIRED
+  oil_slick hazard type (char='~') — Trees 1, 2, 3, 5 (low prio: oil_dump already has grease_tiles)
+  grease_kindle hazard type (char='^') — Tree 10
+  grease_monolith entity (char='O', has HP) — Tree 2
+  floor_oil_slick_turns / floor_oil_slick_permanent engine state — Trees 1, 2
+  pork_rind_active engine state — Trees 2, 5
+  Chain Splatter recursion guard (chain_splatter_depth) — Tree 6
+  fat_tank_armor in PlayerStats — Trees 3, 5
+  full_render_active in PlayerStats — Tree 1
+  Oil Blind effect (halve sight_radius) — Tree 9
+  Creeping Lard effect (+1 dmg per 3t, max 20) — Tree 4
+  Confit effect (double DOT ticks) — Tree 4
+
+RECOMMENDED IMPLEMENTATION ORDER (by complexity):
+  First:  Trees 3, 5, 7 (primarily CON scaling + TempHP + kill hooks)
+  Then:   Trees 1, 8 (Grease Fire modifier + cooldown manipulation)
+  Later:  Trees 2, 6 (terrain hazards + chain splatter)
+  Last:   Trees 4, 9, 10 (novel effect systems)
+================================================================================

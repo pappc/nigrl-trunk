@@ -33,3 +33,6 @@ class MenuState(Enum):
     LOOK_TARGETING = "look_targeting"
     LOOK_INFO = "look_info"
     SETTINGS = "settings"
+    VENDING_MACHINE = "vending_machine"
+    MIDAS_BREW = "midas_brew"
+    SHOP_ITEM = "shop_item"

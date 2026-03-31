@@ -32,7 +32,7 @@ All foods follow a declarative structure with flexible effect support.
 #       amount      : energy gained per tick
 #       duration    : number of turns
 #
-#   "hot_cheetos"   : fiery buff (grants +2 all stats, 50% melee ignite, ignites on expire)
+#   "hot_cheetos"   : fiery buff (grants +2 all stats, 50% melee ignite, ignites on expire, +10 Firebolt charges)
 #       duration    : number of turns
 #
 #   "radiation"     : adds radiation to the player (goes through rad resistance)
@@ -57,6 +57,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (200, 180, 140),
         "zones": ["crack_den"],
+        "skill": "Munching",
 
         "effects": [
             {
@@ -78,6 +79,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (255, 200, 100),
         "zones": ["crack_den", "meth_lab"],
+        "skill": "Jaywalking",
 
 
         "effects": [
@@ -97,6 +99,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (255, 140, 40),
         "zones": ["crack_den", "meth_lab"],
+        "skill": "Pyromania",
 
         "effects": [
             {"type": "heal", "amount": 50},
@@ -114,6 +117,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (220, 180, 80),
         "zones": ["crack_den", "meth_lab"],
+        "skill": "Electrodynamics",
 
 
         "effects": [
@@ -130,6 +134,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (220, 160, 60),
         "zones": ["crack_den", "meth_lab"],
+        "skill": "Beating",
 
         "effects": [
             {"type": "heal", "amount": 50},
@@ -195,62 +200,6 @@ FOOD_DEFS = {
             {"type": "grant_ability_charges", "ability_id": "gas_attack", "charges": [2, 5]},
         ],
     },
-    "altoid": {
-        "name": "Altoid",
-        "eat_length": 3,
-        "eating_effect_name": "Eating Altoid",
-        "well_fed_effect_name": "Minty Fresh",
-        "char": "f",
-        "color": (200, 240, 240),
-        "zones": ["meth_lab"],
-
-
-        "effects": [
-            {"type": "remove_toxicity", "amount": 20},
-        ],
-    },
-    "asbestos": {
-        "name": "Asbestos",
-        "eat_length": 3,
-        "eating_effect_name": "Eating Asbestos",
-        "well_fed_effect_name": "Toxic",
-        "char": "f",
-        "color": (180, 180, 160),
-        "zones": ["meth_lab"],
-
-
-        "effects": [
-            {"type": "toxicity", "amount": 20},
-        ],
-    },
-    "rad_away": {
-        "name": "Rad Away",
-        "eat_length": 3,
-        "eating_effect_name": "Drinking Rad Away",
-        "well_fed_effect_name": "Cleansed",
-        "char": "f",
-        "color": (100, 200, 255),
-        "zones": ["meth_lab"],
-
-
-        "effects": [
-            {"type": "remove_radiation", "amount": 20},
-        ],
-    },
-    "radbar": {
-        "name": "RadBar",
-        "eat_length": 3,
-        "eating_effect_name": "Eating RadBar",
-        "well_fed_effect_name": "Irradiated",
-        "char": "f",
-        "color": (100, 220, 50),
-        "zones": ["meth_lab"],
-
-
-        "effects": [
-            {"type": "radiation", "amount": 20},
-        ],
-    },
     "lightskin_beans": {
         "name": "Lightskin Beans",
         "eat_length": 10,
@@ -259,6 +208,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (160, 200, 120),
         "zones": ["crack_den", "meth_lab"],
+        "skill": "Smartsness",
 
 
         "effects": [
@@ -274,6 +224,7 @@ FOOD_DEFS = {
         "char": "f",
         "color": (255, 220, 130),
         "zones": ["crack_den", "meth_lab"],
+        "skill": "Smartsness",
 
 
         "effects": [
@@ -289,11 +240,97 @@ FOOD_DEFS = {
         "char": "f",
         "color": (220, 180, 255),
         "zones": ["crack_den", "meth_lab"],
+        "skill": ["Smacking", "Beating", "Stabbing", "Slashing"],
 
 
         "effects": [
             {"type": "heal", "amount": 50},
             {"type": "protein_powder"},
+        ],
+    },
+    "jolly_rancher": {
+        "name": "Jolly Rancher",
+        "eat_length": 3,
+        "eating_effect_name": "Sucking Jolly Rancher",
+        "well_fed_effect_name": "Phase Sugar",
+        "char": "f",
+        "color": (255, 100, 200),
+        "zones": ["crack_den", "meth_lab"],
+        "skill": "Jaywalking",
+
+        "effects": [
+            {"type": "phase_walk", "duration": 12},
+        ],
+    },
+    "carrot_cake": {
+        "name": "Carrot Cake",
+        "eat_length": 5,
+        "eating_effect_name": "Eating Carrot Cake",
+        "well_fed_effect_name": "Eagle Eye",
+        "char": "f",
+        "color": (255, 180, 80),
+        "zones": ["crack_den", "meth_lab"],
+        "skill": "Munching",
+
+        "effects": [
+            {"type": "heal", "amount": 30},
+            {"type": "eagle_eye"},
+        ],
+    },
+    "holy_wafer": {
+        "name": "Holy Wafer",
+        "eat_length": 10,
+        "eating_effect_name": "Eating Holy Wafer",
+        "well_fed_effect_name": "Sanctified",
+        "char": "f",
+        "color": (255, 255, 200),
+        "zones": ["crack_den", "meth_lab"],
+        "skill": "Munching",
+
+        "effects": [
+            {"type": "holy_wafer"},
+        ],
+    },
+    "mirror_cake": {
+        "name": "Mirror Cake",
+        "eat_length": 10,
+        "eating_effect_name": "Eating Mirror Cake",
+        "well_fed_effect_name": "Mirrored",
+        "char": "f",
+        "color": (150, 200, 255),
+        "zones": ["crack_den", "meth_lab"],
+        "skill": "Smartsness",
+
+        "effects": [
+            {"type": "grant_ability_charges", "ability_id": "mirror_entity", "charges": 3},
+        ],
+    },
+    "hard_boiled_egg": {
+        "name": "Hard Boiled Egg",
+        "eat_length": 2,
+        "eating_effect_name": "Eating Hard Boiled Egg",
+        "well_fed_effect_name": "Second Wind",
+        "char": "f",
+        "color": (255, 255, 220),
+        "zones": ["crack_den", "meth_lab"],
+        "skill": "Munching",
+
+        "effects": [
+            {"type": "hard_boiled_egg"},
+        ],
+    },
+    "yellowcake": {
+        "name": "Yellowcake",
+        "eat_length": 5,
+        "eating_effect_name": "Eating Yellowcake",
+        "well_fed_effect_name": "Critical Mass",
+        "char": "f",
+        "color": (255, 255, 80),
+        "zones": ["meth_lab"],
+
+        "effects": [
+            {"type": "radiation", "amount": 100},
+            {"type": "yellowcake_buff"},
         ],
     },
 }
@@ -350,5 +387,5 @@ def validate_food_registry():
                 assert "amount" in effect, f"Food {food_id} toxicity effect missing 'amount'"
             elif effect_type == "remove_toxicity":
                 assert "amount" in effect, f"Food {food_id} remove_toxicity effect missing 'amount'"
-            elif effect_type in ("grant_ability_charges", "cornbread_buff", "leftovers_well_fed", "protein_powder", "muffin_buff"):
+            elif effect_type in ("grant_ability_charges", "cornbread_buff", "leftovers_well_fed", "protein_powder", "muffin_buff", "phase_walk", "yellowcake_buff", "eagle_eye", "hard_boiled_egg", "holy_wafer"):
                 pass  # No extra required fields beyond "type"

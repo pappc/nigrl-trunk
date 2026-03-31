@@ -17,7 +17,11 @@ PANEL_WIDTH = 30
 
 # Dungeon dimensions
 DUNGEON_WIDTH  = MAP_WIDTH  # keep in sync with MAP_WIDTH
-DUNGEON_HEIGHT = 54
+DUNGEON_HEIGHT = 52         # reduced from 54 to make room for 2-row hotbar
+
+# Hotbar
+HOTBAR_SLOTS = 10
+HOTBAR_KEYS  = ['1','2','3','4','5','6','7','8','9','0']
 
 # Dungeon generation (defaults — zones can override via ZONE_GENERATION_PARAMS)
 ROOM_MIN_SIZE = 6

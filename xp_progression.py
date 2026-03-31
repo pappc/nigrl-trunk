@@ -182,13 +182,67 @@ def _handle_alcohol(engine, item, drink_id: str):
 
     # Apply drink-specific effects
     if drink_id == "40oz":
-        restore = engine.player.max_armor // 2
-        engine.player.armor = min(engine.player.armor + restore, engine.player.max_armor)
+        engine.player.armor = engine.player.max_armor
         effects.apply_effect(engine.player, engine, "forty_oz")
         _add_hangover_stacks(engine, 1)
 
     elif drink_id == "fireball_shooter":
         engine.grant_ability_charges("breath_fire", 3)
+        effects.apply_effect(engine.player, engine, "fireball_shooter_buff")
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "blue_lagoon":
+        engine.grant_ability_charges("ice_nova", 3)
+        effects.apply_effect(engine.player, engine, "blue_lagoon_buff")
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "limoncello":
+        engine.grant_ability_charges("shocking_grasp", 5)
+        effects.apply_effect(engine.player, engine, "limoncello_chain_shock")
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "natty_light":
+        import random as _rng
+        engine.player.hp = min(engine.player.hp + 25, engine.player.max_hp)
+        engine.messages.append(f"You crack a Natty Light. +25 HP ({engine.player.hp}/{engine.player.max_hp})")
+        effects.apply_effect(engine.player, engine, "natty_light_buff")
+        if _rng.randint(1, 6) == 1:
+            _add_hangover_stacks(engine, 1)
+            engine.messages.append([
+                ("That one hit different... ", (200, 200, 100)),
+                ("+1 hangover.", (255, 180, 80)),
+            ])
+
+    elif drink_id == "jagermeister":
+        effects.apply_effect(engine.player, engine, "jagermeister_buff")
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "butterbeer":
+        effects.apply_effect(engine.player, engine, "butterbeer_buff")
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "absinthe":
+        from ai import get_initial_state, AIState
+        reset_count = 0
+        for mon in engine.dungeon.get_monsters():
+            if not mon.alive:
+                continue
+            if not engine.dungeon.visible[mon.y, mon.x]:
+                continue
+            if getattr(mon, "ai_state", None) == AIState.CHASING:
+                mon.ai_state = get_initial_state(mon.ai_type)
+                mon.provoked = False
+                mon.absinthe_grace = 3
+                reset_count += 1
+        if reset_count > 0:
+            engine.messages.append([
+                ("The Green Fairy whispers... ", (100, 220, 100)),
+                (f"{reset_count} enemy(ies) lose interest.", (180, 255, 180)),
+            ])
+        else:
+            engine.messages.append([
+                ("The Green Fairy finds no one to calm.", (100, 220, 100)),
+            ])
         _add_hangover_stacks(engine, 2)
 
     elif drink_id == "malt_liquor":
@@ -254,6 +308,18 @@ def _handle_alcohol(engine, item, drink_id: str):
 
     elif drink_id == "speedball":
         effects.apply_effect(engine.player, engine, "speedball")
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "rainbow_rotgut":
+        effects.apply_effect(engine.player, engine, "rainbow_rotgut")
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "root_beer":
+        effects.apply_effect(engine.player, engine, "root_beer", duration=30)
+        _add_hangover_stacks(engine, 1)
+
+    elif drink_id == "sangria_40":
+        effects.apply_effect(engine.player, engine, "sangria", duration=50, stacks=1)
         _add_hangover_stacks(engine, 1)
 
     engine.messages.append([
@@ -692,6 +758,72 @@ def _gain_spell_xp(engine, ability_id: str) -> None:
             f"Arcane Intelligence! +2 spell dmg stacks ({total_stacks} total, "
             f"+{engine.player_stats.total_spell_damage} bonus spell dmg)"
         )
+
+
+# Tag → skill name mapping for elemental spell XP.
+# Add one entry per new elemental skill.
+_ELEMENTAL_TAG_TO_SKILL: dict[str, str] = {
+    "cold": "Cryomancy",
+    "lightning": "Electrodynamics",
+    "fire": "Pyromania",
+}
+
+
+def _gain_elemental_spell_xp(engine, ability_id: str, damage: int) -> None:
+    """Award elemental skill XP when a tagged spell deals damage.
+
+    Looks up the ability's tags, maps them to skills via _ELEMENTAL_TAG_TO_SKILL,
+    and grants XP = damage dealt to each matching skill.
+    """
+    if damage <= 0:
+        return
+    defn = ABILITY_REGISTRY.get(ability_id)
+    if defn is None:
+        return
+    bksmt = engine.player_stats.effective_book_smarts
+    for tag, skill_name in _ELEMENTAL_TAG_TO_SKILL.items():
+        if tag in defn.tags:
+            engine.skills.gain_potential_exp(skill_name, damage, bksmt)
+
+
+# Cross-element debuff mapping for Elementalist XP.
+# Keys = spell element, values = debuff IDs from OTHER elements that qualify.
+_CROSS_ELEMENT_DEBUFFS: dict[str, tuple[str, ...]] = {
+    "fire":      ("chill", "shocked"),
+    "cold":      ("ignite", "shocked"),
+    "lightning": ("ignite", "chill"),
+}
+
+
+def _gain_elementalist_xp(engine, target, damage: int, spell_element: str) -> None:
+    """Award Elementalist XP when an elemental spell hits a target with a cross-element debuff.
+
+    XP = half damage dealt.  Silent (no per-hit message), only unlock notification.
+    Must be called BEFORE apply_effect() for fire spells (ignite strips chill).
+    """
+    if damage <= 0 or target is None:
+        return
+    qualifying = _CROSS_ELEMENT_DEBUFFS.get(spell_element)
+    if not qualifying:
+        return
+    has_cross = any(
+        getattr(eff, 'id', '') in qualifying
+        for eff in target.status_effects
+    )
+    if not has_cross:
+        return
+
+    skill = engine.skills.get("Elementalist")
+    was_locked = skill.potential_exp == 0 and skill.real_exp == 0 and skill.level == 0
+
+    xp = max(1, round(damage * 0.5))
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Elementalist", xp, bksmt)
+
+    if was_locked:
+        engine.messages.append([
+            (f"[NEW SKILL UNLOCKED] Elementalist!", (255, 215, 0)),
+        ])
 
 
 def _gain_catchin_fades_xp(engine, damage: int) -> None:

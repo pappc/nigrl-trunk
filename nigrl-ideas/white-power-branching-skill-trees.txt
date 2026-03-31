@@ -1,0 +1,1447 @@
+WHITE POWER — 10 Branching Skill Tree Variations
+==================================================
+Design doc for the NIGRL roguelike (Crack Den / Meth Lab skill).
+These are BRANCHING trees with player-choice topology — NOT linear L1-L3.
+The player selects one branch at each split and cannot unlock the other.
+
+White Power theme reference:
+  - Swagger defense: int((effective_swagger - 8) / 2)
+    At SWG 8=0 def, 10=+1, 12=+2, 14=+3, 16=+4, 18=+5
+    So +4 SWG = +2 def; +8 SWG = +4 def; +12 SWG = +6 def
+  - Player HP: 30 + CON*10. At CON 10: 130 HP
+  - Temp HP absorbed BEFORE armor, armor before HP (Temp HP→Armor→HP)
+  - Tox damage multiplier: 1.0 + (tox/100)^0.6
+    At tox 25 = ~1.16x; tox 50 = ~1.26x; tox 100 = ~1.5x; tox 200 = ~2.0x
+  - Tox resistance: % reduction to tox gained (100% = immune for that source)
+  - Stat names: constitution, strength, street_smarts, book_smarts, tolerance, swagger
+  - Energy: 100/tick base. +30 speed = ~23% faster action rate.
+  - ChargeType options: INFINITE+cooldown, PER_FLOOR, TOTAL, ONCE, FLOOR_ONLY
+
+XP source for White Power: resisting toxicity (each point resisted = XP),
+killing enemies as a toxicity-immune entity, purging debuffs/tox from self.
+
+Current linear reference (L1-L3):
+  L1: Bleached    — +4 SWG, +20% tox resistance
+  L2: White Out   — 3/floor: gain 25 tox, +8 SWG/-25% dmg dealt for 50 turns
+  L3: Pure        — +4 SWG, double XP from tox resisted
+
+Cross-tree synergies to leverage:
+  - Chemical Warfare: tox as resource; Whitewash ability (implied); tox-damage builds
+  - Meth-Head: meth as parallel resource; speed stacking
+  - Drinking: Alco-Seltzer (remove 50 tox + floor-wide tox immunity); White Gonster (debuff purge)
+  - L Farming: Swagger synergy (both boost SWG); Armor Up interaction
+  - Mutation: rad/tox dual resistance options
+  - Alcoholism: Stash Finder provides frequent consumable supply for tox management
+
+Shape glossary:
+  Y-split (L3)        — L1, L2 trunk; branch at L3: L3a/L4a vs L3b/L4b. 6 perks, 2 capstones.
+  Diamond             — L1 shared; L2a/L2b split; L3a/L3b; L4 convergence; L5a/L5b final split.
+  Triple Fork (L4)    — L1, L2, L3 trunk; split at L4 into L4a/L4b/L4c. 6 perks, 3 capstones.
+  W-shape             — L1/L2 shared; L3/L4 dual branches; L5 convergence; L6a/L6b final split.
+  Long Trunk Y        — L1-L4 shared trunk; late branch at L5 into L5a/L5b.
+  Inverted Y          — TWO starting branches (L1a/L1b); each with L2; converge at shared L3-L4.
+  Ladder/Zigzag       — L1 shared; L2 choose A/B; L3 shared; L4 choose A/B; L5 shared capstone.
+  Trident             — L1-L2 shared; L3a/L3b/L3c split; L3a+L3b reconverge at L5; L3c stays solo.
+  Double Diamond      — L1 shared; L2 split; L3 convergence; L4 split; L5 capstone.
+  Asymmetric Y        — L1-L2 shared; split at L3: Branch A = L3a only; Branch B = L3b+L4b+L5b.
+
+New effects needed (all 10 variations combined):
+  WhiteOutEffect (existing/L2 trunk in V1), SterileFieldEffect, BlindingWhiteEffect,
+  PorcelainSkinEffect, ScourEffect, TempleEffect, DivineShieldEffect,
+  AbsolutePurityEffect, ImmaculateEffect, ImmuneWindowEffect
+
+New ability IDs (all 10 variations combined):
+  sterilize_field, bleach_bomb, pristine_shout, cleansing_wave, purge_self,
+  alabaster_skin, chalk_line, ivory_tower, void_purity, lye_bath,
+  immaculate_conception, scour_b, whitewash_aura, divine_armor, bleach_the_earth
+
+
+==========================================================================
+VARIATION 1: "THE MONUMENT" — Shield vs. Strike
+==========================================================================
+Shape: Y-split (L3)
+Fantasy: Shared trunk stacks raw Swagger to absurd levels. Split between
+  Branch A — pure stone-wall defense (temp HP shields, damage reduction)
+  Branch B — converting Swagger defense into lethal counterforce
+
+TREE DIAGRAM:
+
+    L1: Bleached
+          |
+    L2: Ivory Skin
+         / \
+        /   \
+  [BRANCH A]  [BRANCH B]
+  L3a: Porcelain  L3b: Gleaming Edge
+       |                  |
+  L4a: Untouchable   L4b: Blinding White
+   (capstone)          (capstone)
+
+TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +25% toxicity resistance.
+  Desc: "First coat. You're cleaner than them already."
+  Balance: Matches existing L1. Starting point for all Variation 1 builds.
+
+L2 — IVORY SKIN (passive)
+  Perk type: passive
+  Effect: At the start of each floor, gain Temp HP equal to your Swagger
+          stat (e.g., SWG 12 = 12 Temp HP). This Temp HP persists until
+          consumed and does not regenerate mid-floor until a new floor is
+          reached. Temp HP counts toward the Temp HP → Armor → HP
+          absorption order.
+  Desc: "Walk in wearing armor nobody can see."
+  Balance: At base SWG ~12 after L1, grants 12 Temp HP/floor. Scales
+          strongly with Swagger investment. Does not stack across floors.
+
+BRANCH A — The Wall
+
+L3a — PORCELAIN (passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +2
+  Effect: Each point of Swagger above 12 grants +1 to your Ivory Skin
+          Temp HP pool (additive with the base = SWG amount). Additionally,
+          whenever you take melee damage equal to or greater than your
+          Swagger, reduce the NEXT incoming hit by 3 (flat, once, resets
+          after triggering). Basically a reactive armor layer.
+  Desc: "They chip but they can't break through."
+  Balance: At SWG 16+: 16 base + (16-12)=4 bonus = 20 Temp HP/floor.
+          Reactive -3 hit softens spike damage.
+
+L4a — UNTOUCHABLE (activated + passive) — CAPSTONE
+  Perk type: activated + passive
+  Ability: alabaster_skin
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SELF
+  Effect: 2/floor. Activate to enter an Untouchable state for 8 turns.
+          While active: incoming melee damage is reduced by your
+          swagger_defence value a SECOND time (i.e., applied twice).
+          Also passive: if you end a floor having taken no more than 5
+          total damage (after all reductions), gain +2 permanent Swagger.
+          This permanent gain has no cap — it accumulates run-wide.
+  Desc: "2/floor. Eight turns where the math doesn't add up in their
+         favor. Keep it clean."
+  Balance: Double-swagger_defence on a SWG 16 build = -8 per hit instead
+          of -4. Against floor 3 enemies hitting for 12, that's 4 damage
+          per hit. The permanent SWG gain is a long-term run reward for
+          cautious, defensive play.
+  Synergy: L Farming's Armor Up (35% block chance) + Untouchable's
+          double swagger_defence = nearly unhittable 8-turn windows.
+
+BRANCH B — The Blade
+
+L3b — GLEAMING EDGE (passive)
+  Perk type: passive
+  Effect: Your melee attacks deal bonus damage equal to half your
+          swagger_defence value (rounded down). For example, SWG 14 =
+          swagger_defence 3, so +1 melee damage. SWG 18 = +2. SWG 24 = +4.
+          Additionally, crits refresh your Ivory Skin Temp HP by 3 points.
+  Desc: "Polish cuts just as well."
+  Balance: At accessible SWG levels (14-18), +1 to +2 melee bonus.
+          Not dramatic alone but grows with further SWG investment. Crit
+          synergy makes Street Smarts hybrid builds interesting.
+
+L4b — BLINDING WHITE (activated) — CAPSTONE
+  Perk type: activated
+  Ability: blinding_white
+  Charge type: PER_FLOOR (3/floor)
+  Target type: AOE_CIRCLE (radius 3, centered on player)
+  Effect: 3/floor. Flash a burst of blinding light. All enemies in radius 3
+          are stunned for 2 turns. For 15 turns after activation, your
+          Gleaming Edge melee bonus is TRIPLED (still based on
+          swagger_defence; at SWG 18 that's +6 extra melee damage per hit).
+  Desc: "3/floor. They never see the second hit coming."
+  Balance: 2-turn stun in AOE-3 is strong crowd control. The tripled
+          Gleaming Edge bonus is roughly +4-6 extra per hit for 15 turns.
+          Costs: no stat bonus, relies on prior Swagger investment.
+  Synergy: Street Smarts crit chance (STS*3%) — high SWG build can spare
+          some STS for crit to proc Ivory Skin Temp HP regeneration on L3b.
+
+
+==========================================================================
+VARIATION 2: "THE CONFESSOR" — Purge vs. Accumulate
+==========================================================================
+Shape: Diamond (L2 split → L4 convergence → L5 final split)
+Fantasy: Two philosophies of purity. A-path: cleanse everything, never
+  hold tox, gain power from being clean. B-path: accumulate tox then
+  purge it in one explosive moment for massive temp power.
+
+TREE DIAGRAM:
+
+       L1: White Out (revised)
+            /    \
+           /      \
+     L2a: Spotless  L2b: Loaded Barrel
+          |              |
+    L3a: Clean Slate  L3b: Pressure Cooker
+           \            /
+            \          /
+        L4: Absolution (shared convergence)
+            /    \
+           /      \
+   L5a: Grace   L5b: Eruption
+  (capstone)    (capstone)
+
+TRUNK:
+
+L1 — WHITE OUT (REVISED) (activated + stat)
+  Perk type: activated + stat
+  Stat bonus: swagger +4
+  Ability: white_out_r1
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Remove all current toxicity from yourself. Gain Temp HP
+          equal to (tox removed / 5) (e.g., 50 tox removed = 10 Temp HP).
+          For 20 turns, gain +30% toxicity resistance.
+  Desc: "Rinse. Three times a floor, whether you need it or not."
+  Note: This reimagines White Out from "gain tox" to "purge tox for shields."
+  Balance: Against ambient Meth Lab tox, this is a strong early-game survival
+          tool. Temp HP generation scales with how toxic you let yourself get.
+
+BRANCH A — The Clean Path
+
+L2a — SPOTLESS (passive)
+  Perk type: passive
+  Effect: While you have 0 toxicity: all incoming melee damage is reduced
+          by 2 (flat). Additionally, kills while at 0 tox grant +2 White
+          Power XP (in addition to normal sources). Your White Out
+          Temp HP from purging at 0 tox is still 0 — this path rewards
+          staying clean, not the purge itself.
+  Desc: "Zero tox. Zero tolerance for their nonsense."
+  Balance: -2 flat DR while clean is equivalent to 1 extra Swagger defense.
+          Incentivizes tox-avoidance over tox-accumulation.
+
+L3a — CLEAN SLATE (activated + passive)
+  Perk type: activated + passive
+  Ability: clean_slate
+  Charge type: INFINITE (40t cooldown)
+  Target type: SELF
+  Effect: 40t cooldown. Instantly reduce toxicity to 0. For the next 30
+          turns after cleaning, any tox you would gain is instead converted
+          to Temp HP at a rate of 1 Temp HP per 8 tox avoided (rounded
+          down, min 1). This makes you temporarily "immune" while banking
+          the would-be damage as a shield.
+          Passive: If you are at 0 tox when you kill an enemy that was
+          above 50 tox, that kill grants +1 TOL permanently (max +3 total).
+  Desc: "40t. Wipe the slate. Anything they throw at you goes somewhere
+         better."
+  Balance: The 40t cooldown means roughly 1 use per room fight. Perm +TOL
+          on "clean kills" makes floor-clearing at 0 tox deeply satisfying.
+
+BRANCH B — The Pressure Path
+
+L2b — LOADED BARREL (passive)
+  Perk type: passive
+  Effect: Each point of tox you are carrying above 10 grants +0.5 melee
+          damage (rounded down; cap: +15 bonus at 40 tox). This is a flat
+          pre-armour bonus additive with weapon power. You take the White
+          Power class fantasy sideways — tox is ammunition here.
+  Desc: "Fill up first. Then shoot."
+  Balance: At 40 tox the cap kicks in for +15 melee — substantial on
+          floor 2-3. The penalty: tox damage multiplier at 40 tox = ~1.22x
+          incoming. Net risk/reward is meaningful.
+
+L3b — PRESSURE COOKER (passive + activated)
+  Perk type: passive + activated
+  Ability: pressure_release
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SELF
+  Effect: Passive: Tox above 50 grants an additional +5 flat melee damage
+          (stacks with Loaded Barrel). Above 75 tox: +3 speed per 25 tox
+          (so at 100 tox: +9 speed on top of other bonuses).
+          Activated (2/floor): Vent all toxicity. Deal damage to one
+          adjacent enemy equal to (tox vented / 2) as a pure toxic slam,
+          then reduce to 0 tox. Gain 15 Temp HP from the purge.
+  Desc: "Let it build. Let it build. NOW vent it."
+  Balance: At 100 tox this is a 50-damage purge hit — exceptional for
+          mid-game. But getting to 100 tox while taking 1.5x incoming
+          damage is genuinely risky.
+
+CONVERGENCE:
+
+L4 — ABSOLUTION (stat + passive)
+  Perk type: stat
+  Stat bonus: swagger +4, tolerance +2
+  Effect: After any White Out or purge-type activation (White Out, Clean
+          Slate, Pressure Release), you gain a 10-turn Absolution window:
+          +10% dodge chance and enemies targeting you have -1 accuracy tier
+          (they miss more). This applies after both Branch A and Branch B
+          purge mechanics, unifying the paths.
+  Desc: "Either way, the moment after cleansing — they can't touch you."
+  Balance: Dodge chance stacks with existing dodge sources. The -1 accuracy
+          tier is conceptual (enemy hit roll is penalised). The convergence
+          rewards ANY purge action, making both branches feel the node.
+
+FINAL SPLIT:
+
+L5a — GRACE (passive + stat) — CAPSTONE
+  Perk type: passive + stat
+  Stat bonus: swagger +4
+  Effect: While the Absolution 10-turn window is active, your damage
+          output increases by 30% (multiplicative after all additive
+          bonuses, same pattern as Two Down Ring). Additionally, each time
+          you kill an enemy during an Absolution window, extend the window
+          by 3 turns (no cap). A clean run with frequent purges can keep
+          Absolution active almost permanently.
+  Desc: "The clean ones move faster. Hit harder. Stay clean."
+  Balance: Requires timing purges before fights. In Meth Lab's ambient
+          tox, White Out's 3/floor means 3 Absolution windows + kill
+          extensions. A 10+ kill streak inside one window is plausible.
+  Synergy: Drinking tree's Slow Metabolism doubles active drink durations —
+          if Absolution were a drink buff, it would extend. (Not the same
+          system, but Alco-Seltzer can trigger White Out / purge.)
+
+L5b — ERUPTION (activated) — CAPSTONE
+  Perk type: activated
+  Ability: eruption_wp
+  Charge type: PER_FLOOR (1/floor)
+  Target type: AOE_CIRCLE (radius 4, centered on player)
+  Effect: 1/floor. Vent ALL your toxicity in a single explosive wave.
+          Every enemy in radius 4 takes damage equal to (tox vented / 3,
+          minimum 5). Enemies within radius 2 are also stunned for 3 turns.
+          After the eruption, you gain 20 Temp HP and 8 Swagger for 30
+          turns (+4 swagger_defence). Path B's philosophy: accumulate to
+          the brink, then detonate everything.
+  Desc: "1/floor. Everything you saved up, all at once. Out there."
+  Balance: At 80 tox this deals 26 AOE damage to all enemies in radius 4.
+          Paired with Pressure Cooker's buildup mechanics, this is a room-
+          clearing nova. The stun in radius 2 ensures safety after firing.
+  Synergy: Chemical Warfare's Whitewash mechanic (half tox as shields):
+          these two cross-tree capstones both weaponize tox purge but in
+          different directions — Eruption fires outward, Whitewash inward.
+
+
+==========================================================================
+VARIATION 3: "THE BAPTISM" — Offense vs. Resistance
+==========================================================================
+Shape: Triple Fork (L4)
+Fantasy: Long shared trunk builds a fortress of Swagger and tox immunity.
+  At L4, three distinct capstones represent three extremes of purity:
+  A — absolute shield (tank everything),
+  B — tox immunity as offensive weapon (apply tox freely, immune to own),
+  C — swagger-to-offense conversion (melee is now defense)
+
+TREE DIAGRAM:
+
+    L1: Bleached
+          |
+    L2: Pristine Body
+          |
+    L3: Scoured
+         /|\
+        / | \
+       /  |  \
+  L4a:    L4b:    L4c:
+  White   Plague  Swagger
+  Marble  Carrier Strike
+(capstone)(capstone)(capstone)
+
+TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +20% toxicity resistance.
+  Desc: "First layer. Set the foundation."
+
+L2 — PRISTINE BODY (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +3, tolerance +2
+  Passive: +20% additional toxicity resistance (total 40% from L1+L2).
+          Also: debuff durations are reduced by 1 turn on you (minimum 1).
+          Counts as a "debuff reduction" passive, applies after application.
+  Desc: "Two coats. The slow rot can't find a way in."
+  Balance: 40% tox resistance is meaningful in Meth Lab ambient tox.
+          Debuff duration -1 is a minor quality-of-life for all zones.
+
+L3 — SCOURED (activated + stat)
+  Perk type: activated + stat
+  Stat bonus: constitution +3
+  Ability: scour_b
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Remove ALL toxicity and ALL debuffs from yourself
+          simultaneously. Gain 1 Temp HP per debuff stack removed (min 1
+          per debuff, counting each individual debuff as a unit). For
+          example: fear (1 stack) + 2 ignite stacks + 30 tox removed =
+          3 Temp HP gained + the tox Temp HP from purge at L1's rate.
+          This is the capstone lead-in — it gives all three branches a
+          strong pre-capstone cleaning tool.
+  Desc: "3/floor. Everything off. Start fresh."
+  Balance: Each scour gives 3-8 Temp HP typically. 3/floor is generous —
+          this is a defensive anchor for the whole tree.
+
+TRIPLE FORK:
+
+L4a — WHITE MARBLE (passive) — CAPSTONE
+  Perk type: stat + passive
+  Stat bonus: swagger +6, constitution +2
+  Effect: Permanent: Your armor value no longer degrades when you take hits
+          (it still absorbs damage — it just refills after each hit,
+          functionally making armor a permanent per-hit DR). Note: armor
+          on the floor already refills between floors; this makes it
+          refill per-HIT (permanent per-combat regeneration).
+          Additionally: if your current Swagger is 18 or higher, all
+          incoming toxicity is reduced by 50% before resistance is applied
+          (a multiplicative pre-resistance reduction).
+  Desc: "At 18 Swagger, tox bounces. Armor doesn't chip. You just... last."
+  Balance: Permanent armor regeneration is powerful but not damage-
+          reducing in a nova scenario. At SWG 18 (accessible: L1+L2+L4
+          gives +13 SWG, starts at ~8, reaches ~21): the 50% pre-resist
+          tox reduction combined with 40% resistance = taking 30% of tox
+          gains. Very tanky in Meth Lab.
+  Synergy: L Farming's Built Different (+4 SWG, +2 CON) easily pushes
+          to SWG 18+ threshold.
+
+L4b — PLAGUE CARRIER (passive) — CAPSTONE
+  Perk type: passive
+  Effect: You become immune to the toxicity damage multiplier (your own
+          tox still shows on your HUD but deals 0% additional incoming
+          damage to you). Enemies you hit apply 4 toxicity per melee hit
+          (on-hit effect, passive — no additional input required).
+          Additionally: enemy tox-based skills (e.g., Covid-26's acid
+          spit) are reflected: you take 0 tox but the enemy gains 10 tox
+          instead.
+  Desc: "You carry it. It eats them. You don't feel a thing."
+  Balance: Tox-immunity + on-hit tox application is the fantasy of being
+          a clean vessel full of poison. On floor 4+ with 8+ melee hits
+          per fight, every enemy will be moderately toxic by end of fight.
+          Cross-tree synergy with Chemical Warfare's Incubation Period
+          (+15% dmg to 3-consecutive-tox enemies) is exceptional.
+
+L4c — SWAGGER STRIKE (passive) — CAPSTONE
+  Perk type: passive
+  Effect: Your swagger_defence value is added as flat damage to every
+          melee attack (in addition to its normal defensive calculation).
+          At SWG 20 = swagger_defence 6, so every hit deals +6 bonus
+          damage. This is applied pre-armor on the enemy (additive with
+          weapon power). Additionally: killing an enemy while your Swagger
+          is above 16 grants +1 Swagger for the rest of the floor
+          (stacks up to +8 per floor, like Sniping's Dead Eye).
+  Desc: "Defense becomes offense. The same number doing two jobs."
+  Balance: Starting swagger_defence for this build at capstone: ~6 (SWG
+          20). +6 melee damage is roughly 30-50% of a floor-3-4 weapon's
+          base damage. The per-kill SWG stacking means late-floor fights
+          snowball aggressively.
+  Synergy: Drive-By tree's +3 SWG +3 STS provides a cheap 1-perk jump.
+          Sniping's Dead Eye stacks with the Swagger Strike kill bonus.
+
+
+==========================================================================
+VARIATION 4: "THE WHITEWASH" — Offense vs. Recovery
+==========================================================================
+Shape: W-shape (L1/L2 shared trunk; L3a/L4a and L3b/L4b branches;
+       L5 shared convergence; L6a/L6b final capstone split)
+Fantasy: Tox-as-resource economy. Accumulate tox deliberately, convert
+  it strategically. Two branch philosophies reconverge into a powerful
+  shared node before the final fork between offense and recovery.
+
+TREE DIAGRAM:
+
+  L1: Bleached
+        |
+  L2: White Out (original)
+      /       \
+     /         \
+ L3a: Chalk    L3b: Ivory Tower
+ Line               |
+     |          L4b: Fortify
+ L4a: Lye Bath      |
+      \             /
+       \           /
+      L5: Purification Ritual (convergence)
+           /          \
+          /            \
+   L6a: Immaculate   L6b: Void Purity
+       (capstone)     (capstone)
+
+TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +20% toxicity resistance.
+
+L2 — WHITE OUT (activated + stat)
+  Perk type: activated + stat
+  Stat bonus: swagger +2
+  Ability: white_out_v4
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Gain 25 toxicity on yourself. For 50 turns: +8 Swagger,
+          -25% damage dealt. This is the ORIGINAL White Out as trunk,
+          preserved exactly. It creates a Swagger surplus at the cost of
+          reduced offense — thematic for the diverging W branches.
+  Desc: "3/floor. Take the hit. The math gets interesting after."
+
+BRANCH A — The Offensive Tox Path
+
+L3a — CHALK LINE (passive)
+  Perk type: passive
+  Effect: While White Out is active (tox-boosted SWG state), the -25%
+          damage dealt penalty is halved to -12.5% (rounded: -12%). This
+          makes White Out a genuine offense tool, not a pure tank stance.
+          Additionally: melee hits during White Out apply 3 toxicity to
+          the target (the tox "bleeds" outward from you).
+  Desc: "Half the penalty. All the chalk."
+  Balance: Transforms White Out from a pure tank cooldown into a hybrid
+          offense/defense buff. The tox-bleed makes enemies easier for
+          Chemical Warfare cross-tree synergy.
+
+L4a — LYE BATH (activated) — BRANCH CAPSTONE
+  Perk type: activated
+  Ability: lye_bath
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 2/floor. Hurl a splash of caustic lye at a visible enemy.
+          Deals 4 + (your current tox / 6) damage (min 4, no armor
+          penetration but bypasses 50% of enemy tox resistance). The
+          target also gains 20 toxicity. If this kill the target, your
+          current tox is reduced by 30 (the satisfying "use the poison
+          to kill and flush it").
+  Desc: "2/floor. Throw what's inside you at them. Both of you come out
+         cleaner than before. Well. One of you."
+  Balance: At White Out's 25 tox: 4+(25/6)=8 damage. At 75 tox from
+          multi-stack: 4+(75/6)=16 damage + 20 enemy tox. On kill, -30 tox
+          self-reduction is useful tox management.
+
+BRANCH B — The Tank Path
+
+L3b — IVORY TOWER (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: White Out's -25% damage dealt penalty is converted to a +10%
+          damage TAKEN reduction instead (replaces the penalty entirely).
+          This path converts White Out's downside into a defense upside.
+          Also: +1 armor per 25 Swagger above 8 (so SWG 16 = +1 armor,
+          SWG 24 = +2, etc.).
+  Desc: "Flip the penalty. Build the tower."
+  Balance: +10% DR during White Out is significant on a high-Swagger tank.
+          Armor per SWG is slow scaling but permanent.
+
+L4b — FORTIFY (passive + stat)
+  Perk type: stat + passive
+  Stat bonus: constitution +3, swagger +2
+  Effect: While White Out is active, incoming toxicity gains are reduced
+          by 75% (from all sources). This means using White Out to gain
+          25 tox actually locks you near that level for the duration —
+          you can't accumulate further. Good: the 25 tox stays manageable.
+          Bad: You can't leverage Lye Bath's tox scaling. Branch B
+          commits to tank identity, Branch A to tox offense.
+  Desc: "White Out locks in 25 tox. Nothing more. Tower holds."
+
+CONVERGENCE:
+
+L5 — PURIFICATION RITUAL (activated)
+  Perk type: activated
+  Ability: purification_ritual
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF
+  Effect: 1/floor. Consume all current toxicity. Gain Temp HP equal to
+          (tox consumed / 4). Gain +1 White Power XP per 10 tox consumed.
+          For 20 turns: +6 Swagger, +20% toxicity resistance (stacks with
+          existing). This convergence node rewards both branches — Branch A
+          may have 60-80 tox to consume (large Temp HP burst), Branch B
+          will have ~25 (smaller burst but they're tankier already).
+  Desc: "1/floor. Burn it all. Come out the other side harder."
+  Balance: Branch A at 75 tox: 18 Temp HP + 7 XP + buffs. Branch B at 25
+          tox: 6 Temp HP + 2 XP + buffs. Both get value but A gets more
+          from the purge, B gets more from raw tank stats.
+
+FINAL SPLIT:
+
+L6a — IMMACULATE (passive) — CAPSTONE
+  Perk type: passive
+  Effect: Immediately after Purification Ritual fires, you enter an
+          Immaculate state for 30 turns. While Immaculate: immune to ALL
+          toxicity gain, all debuffs expire 2 turns faster per tick (not
+          just applied duration — they literally decay faster), and kills
+          grant +3 White Power XP. If you remain Immaculate until it
+          expires naturally (not cut short), gain a permanent +2 Swagger
+          and +1 Constitution (once per floor, up to +6 SWG and +3 CON
+          total per run).
+  Desc: "After the ritual, thirty turns of nothing touching you. Nothing."
+  Balance: Permanent SWG/CON accumulation is a run-length power ramp.
+          Perm +6 SWG over a 4-floor run = +3 swagger_defence. Very strong.
+
+L6b — VOID PURITY (passive) — CAPSTONE
+  Perk type: activated + passive
+  Ability: void_purity
+  Charge type: TOTAL (3 uses per run)
+  Target type: SELF
+  Effect: 3 uses per run total. Activate to enter Void Purity: for 15 turns
+          you deal 40% bonus damage (multiplicative after all additive
+          bonuses), you are immune to ALL incoming status effects (debuffs,
+          tox, rad, fear, stun, slow — all), and your Purification Ritual
+          cooldown resets. After Void Purity ends, you gain 50 toxicity
+          (the cost of absolute purity: the body rejects the void).
+  Desc: "3 per run. Fifteen turns of everything stripped away. The
+         afterward hurts but the during is forever."
+  Balance: 40% multiplicative bonus is stronger than most multipliers
+          in the game. Total-3 ensures it's reserved for boss fights and
+          key floors. The post-50-tox cost interacts with Purification
+          Ritual: you can chain Void Purity → (get 50 tox after) →
+          Purification Ritual → Immaculate/repeat.
+
+
+==========================================================================
+VARIATION 5: "THE BLEACH JOB" — Swagger Cascade vs. Tox Farm
+==========================================================================
+Shape: Inverted Y (two starting L1 branches; converge at L3; continue
+       to shared L4 capstone)
+Fantasy: You choose your entering philosophy from turn 1. The Swagger
+  path leans into defense from the start. The Tox-Cycle path deliberately
+  gains and purges tox for XP and resource. Both paths converge into
+  a shared final power.
+
+TREE DIAGRAM:
+
+  [L1a: Ivory Throne]    [L1b: White Flag]
+          |                       |
+  [L2a: Unbroken]         [L2b: Toxin Cycle]
+           \                     /
+            \                   /
+         L3: Baptism By Bleach (convergence)
+                      |
+                L4: Pure White (capstone)
+
+STARTING CHOICE (player picks one at first unlock):
+
+L1a — IVORY THRONE (stat + passive)
+  Perk type: stat
+  Stat bonus: swagger +6, constitution +1
+  Passive: +15% toxicity resistance.
+  Desc: "Start high. Start clean. Stay there."
+  Balance: +6 SWG is aggressively front-loaded. This is the best defensive
+          opening stat node in the whole skill roster (closest competitor:
+          Rolling L1's +2/+2).
+
+L1b — WHITE FLAG (activated + passive)
+  Perk type: activated + passive
+  Ability: white_flag
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Voluntarily gain 30 toxicity. Immediately gain White
+          Power XP equal to the tox gained (30 XP). For 10 turns, reduce
+          enemy aggression: enemies at less than 30 tox have a 20% chance
+          to spend their turn confused (wander action instead of attack).
+  Desc: "Surrender to it. Let them think you're done."
+  Passive: +30% toxicity resistance.
+  Balance: This path generates White Power XP quickly (90 XP/floor from
+          the ability alone, plus normal resist sources). The confusion
+          effect on low-tox enemies is a soft crowd control.
+
+SECOND TIER:
+
+L2a — UNBROKEN (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: While your Swagger is higher than your starting value at floor
+          entry (i.e., any SWG bonus has been gained this floor), incoming
+          damage from enemies is reduced by 2 flat. This counts ring
+          bonuses, ability buffs — any active SWG increase counts.
+  Desc: "Higher than you started. That's all it takes to hold."
+  Balance: Almost always active for L1a players (started at SWG 14-16+).
+          The -2 flat reduction is mild but permanent when conditions are met.
+
+L2b — TOXIN CYCLE (passive)
+  Perk type: passive
+  Effect: Each time you purge toxicity (via White Flag's consumption, White
+          Out-type abilities, or any item that removes tox), gain Temp HP
+          equal to (tox removed / 8, minimum 1). Additionally, each point
+          of tox you RESIST (via resistance %) generates 0.2 White Power XP
+          (this stacks with the base "double XP from resisted tox" pattern
+          from the old Pure perk, making this path an XP machine).
+  Desc: "Every cycle is a lesson. Every purge is a paycheck."
+  Balance: In Meth Lab with 30% ambient tox hazards and 30% resistance,
+          this generates steady trickle XP. The Temp HP per purge is a
+          meaningful healing source on the tox-cycle path.
+
+CONVERGENCE:
+
+L3 — BAPTISM BY BLEACH (activated + stat)
+  Perk type: activated + stat
+  Stat bonus: swagger +4, tolerance +2
+  Ability: baptism_cleanse
+  Charge type: PER_FLOOR (2/floor)
+  Target type: AOE_CIRCLE (radius 2, enemy-facing)
+  Effect: 2/floor. Spray bleach outward in all directions in radius 2.
+          All enemies in range gain 8 toxicity (they get the impurity you
+          shed). You simultaneously remove all toxicity from yourself.
+          Any enemy you purge tox ONTO who is already above 25 tox
+          takes 5 direct damage from the bleach contact.
+  Desc: "2/floor. Everything leaves you and lands on them. Exactly
+         as it should."
+  Balance: Both paths arrive here. L1a players likely haven't been running
+          high tox — the purge does nothing special for them but the
+          8-tox-to-enemies AOE is offensive. L1b players have been
+          cycling tox — they may arrive at convergence with 30+ tox,
+          making the purge generate Toxin Cycle Temp HP AND hit enemies
+          for 5 bonus each.
+
+CAPSTONE:
+
+L4 — PURE WHITE (passive + stat) — CAPSTONE
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +2
+  Effect: You are permanently immune to all tox gained from floor hazards
+          (crates, acid pools, toxic creep, radiation does not count).
+          Enemy active tox abilities (Toxic Slug's spit, Covid-26's acid)
+          are not covered — only passive environmental tox is blocked.
+          Additionally: after any floor where you arrive at the stairs with
+          0 toxicity, gain +1 permanent Constitution (max +4 across the run).
+          This rewards consistent purity over an entire floor.
+  Desc: "The floor can't touch you. They can try. The afterward is clean."
+  Balance: Environmental tox immunity is highly relevant in Meth Lab Zone
+          (floor 5-8 has frequent tox hazard spawns). Perm CON reward of
+          up to +40 HP across a run is substantial for tank builds.
+  Synergy: Alco-Seltzer drink (remove 50 tox + floor tox immunity) becomes
+          redundant for environmental sources after Pure White — making it
+          a candidate for selling/dismantling, freeing inventory space.
+
+
+==========================================================================
+VARIATION 6: "THE LADDER" — Zigzag Mix-and-Match
+==========================================================================
+Shape: Ladder/Zigzag (L1 shared; L2 choose A or B; L3 shared; L4 choose
+       A or B again; L5 shared capstone — four possible L2/L4 combos)
+Fantasy: Two decision points create four distinct build combinations.
+  The L2 choice sets your defensive philosophy. The L4 choice sets your
+  offensive expression. The L5 capstone rewards WHICHEVER combination
+  you chose by scaling off your actual stat/effect accumulation.
+
+TREE DIAGRAM:
+
+     L1: Bleached (shared)
+          /      \
+  L2a: Iron Skin  L2b: Tox Cache
+          \      /
+     L3: White Noise (shared)
+          /      \
+  L4a: Purge Wave  L4b: Corruption
+          \      /
+     L5: Pristine Force (shared capstone)
+
+(Four possible paths: A/A, A/B, B/A, B/B — each plays differently)
+
+SHARED TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +20% toxicity resistance.
+
+L2 CHOICE:
+
+L2a — IRON SKIN (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +2
+  Effect: Gain +2 armor at the start of each floor (stacks with equipment
+          armor but not with itself — this is a flat +2). Armor from this
+          source refills between floors as normal.
+  Desc: "Hard outside. Everything else bounces."
+  Balance: +4 SWG + +2 CON + +2 armor is a powerful defensive package.
+          This is the "hard stat" L2 choice — no ability, pure stats.
+
+L2b — TOX CACHE (passive)
+  Perk type: passive
+  Effect: Gain +30% toxicity resistance (total 50% with L1). Each point
+          of toxicity you resist (from any source) is stored in a Tox
+          Cache counter. When you reach 100 cached points, gain a
+          "Purity Charge" (visible in HUD). Charges persist across floors
+          (max 3). Purity Charges are consumed by L4 abilities or the
+          L5 capstone.
+  Desc: "Everything that couldn't hurt you gets saved up for later."
+  Balance: In Meth Lab with frequent tox hazards and 50% resistance, a
+          player generates roughly 30-60 cache per floor. 2-3 floors to
+          first charge. Purity Charges are a cross-node resource.
+
+SHARED MID-TIER:
+
+L3 — WHITE NOISE (passive + stat)
+  Perk type: stat + passive
+  Stat bonus: tolerance +2
+  Effect: Debuffs applied to you have a 15% chance to be fully negated at
+          the moment of application (not after — a pure 15% immunity roll).
+          This interacts with both branches: Iron Skin players benefit from
+          debuff protection on top of their raw stats; Tox Cache players
+          benefit because negated debuffs also count as "resisted" for
+          cache purposes (design note: negated tox counts as half the
+          amount toward cache).
+  Desc: "Most of what they throw just... doesn't land."
+  Balance: 15% chance to negate any debuff is modest but meaningful over
+          a 15-turn fight (2-3 debuffs likely blocked). Scales with number
+          of debuff sources in the zone.
+
+L4 CHOICE:
+
+L4a — PURGE WAVE (activated)
+  Perk type: activated
+  Ability: purge_wave
+  Charge type: PER_FLOOR (2/floor) + 1 use per Purity Charge consumed
+  Target type: AOE_CIRCLE (radius 3)
+  Effect: 2/floor (plus 1 extra use per Purity Charge spent from Tox
+          Cache — L2b players get bonus uses). All enemies in radius 3
+          take (your current tox / 4) damage and gain 6 toxicity. Your
+          own tox is reduced to 0 after activation.
+  Desc: "2/floor + charges. Push it out. All of it. At them."
+  Balance: With 0 tox (Iron Skin path), this is purely 6-tox-to-enemies
+          + your tox cleared. With L2b's Purity Charges, extra uses make
+          this a room-sweeping tool. At 50 tox: 12 damage + 6 tox AOE.
+
+L4b — CORRUPTION (passive)
+  Perk type: passive
+  Effect: While you have 0 toxicity: your melee attacks deal +4 bonus
+          damage. While you have 50+ toxicity: your melee attacks instead
+          deal +8 bonus damage and apply 3 tox per hit. If you have Purity
+          Charges (from L2b's Tox Cache), spending one as a free action
+          instantly sets your tox to 60 (override — useful for the 50+
+          tox bonus when you've been maintaining 0 tox clean-path).
+  Desc: "Either pole. Zero is sharp. Fifty is sharper."
+  Balance: Iron Skin + Corruption (A/B combo) = live at 0 tox for raw
+          damage, lean on -2 armor reduction for safety. Tox Cache +
+          Corruption (B/B combo) = use Charges to spike to 60 tox for
+          melee burst, then purge, rebuild. Very active play.
+
+SHARED CAPSTONE:
+
+L5 — PRISTINE FORCE (passive + stat) — CAPSTONE
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: The capstone reads your accumulated choices and scales with them:
+          - Per Iron Skin bonus armor point you have: +1 to Purge Wave
+            damage (if chosen) or +1 to melee damage while at 0 tox
+            (if Corruption chosen).
+          - Per Purity Charge you HAVE (not spent): your White Noise
+            debuff negation rises from 15% to 25%.
+          - Unconditionally: your swagger_defence value is applied a
+            second time as flat damage on the first hit you deal each turn
+            (like a "first strike" bonus). At SWG 20 = swagger_defence 6,
+            this adds +6 to the first hit per turn.
+  Desc: "Everything you built, adding up. First hit per turn hits twice as
+         hard. The rest is just finishing the job."
+  Balance: The first-hit swagger_defence bonus alone is significant (4-6
+          flat damage per turn). The scaling bonuses reward commitment to
+          each path. A/A combo (Iron Skin + Purge Wave) gets +2 Purge
+          damage from armor. B/A gets extra Purge uses. A/B gets clean-
+          path melee bonus. B/B gets charge-backed Corruption + longer
+          debuff immunity window.
+
+
+==========================================================================
+VARIATION 7: "THE TEMPLE" — Trident Topology
+==========================================================================
+Shape: Trident (L1-L2 shared trunk; L3 splits into L3a/L3b/L3c; L3a and
+       L3b reconverge at L5 while L3c stays independent to its own L5c)
+Fantasy: Three distinct branch philosophies. Two paths converge and share
+  power; the solo path is more extreme but stands alone.
+
+TREE DIAGRAM:
+
+    L1: Bleached
+          |
+    L2: White Chapel
+         /|\
+        / | \
+  L3a:  L3b:  L3c:
+ Cleanse  Deify  Martyr
+   Wall           |
+    |    |       L4c: Sacrifice
+    |    |            |
+   (reconverge at L5a/L5b)   L5c: Immolation
+                              (solo capstone)
+    L5a: Anointed  L5b: Sanctified
+    (merged capstone A) (merged capstone B)
+
+TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +20% toxicity resistance.
+
+L2 — WHITE CHAPEL (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +3, tolerance +2
+  Effect: +20% additional tox resistance (total 40%). Additionally, you
+          take 10% less damage from enemies that are currently affected
+          by any debuff YOU applied. This is a broad debuff-synergy bonus
+          that rewards being proactive about status effects.
+  Desc: "House of the pure. Everything inside it stays clean."
+
+TRIPLE BRANCH:
+
+L3a — CLEANSE WALL (activated)
+  Perk type: activated
+  Ability: cleanse_wall
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Purge all toxicity and all debuffs. Gain 5 Temp HP
+          flat (regardless of tox purged — this branch doesn't rely on
+          tox investment). For 15 turns, gain +4 Swagger and become
+          immune to fear.
+  Desc: "Clean. Every time. Three times."
+  Note: Branches to L5a/L5b.
+
+L3b — DEIFY (passive + stat)
+  Perk type: stat + passive
+  Stat bonus: constitution +3
+  Effect: While at 0 toxicity, you regenerate 1 HP every 3 turns. This
+          is a slow but persistent heal — roughly 5-6 HP per floor if
+          you maintain purity. Also: kills while at 0 tox grant +2 White
+          Power XP.
+  Desc: "Stay clean. Heal slow. Outlast everything."
+  Note: Branches to L5a/L5b.
+
+L3c — MARTYR (passive)
+  Perk type: passive
+  Effect: Voluntarily taking damage (by standing in hazards, using White
+          Out to gain tox, or having tox drain your HP) generates 1 Martyr
+          Stack per 5 HP equivalent taken (rounded down). Stacks persist
+          across floors (max 20). Each stack grants +1 melee damage (flat,
+          permanent while stacked).
+  Desc: "Every hit is a lesson. Twelve hits, twelve damage."
+  Note: This branch stays SOLO — its L4c and L5c are not shared.
+
+(L3a/L3b players skip to L5 choice below)
+
+SOLO PATH (L3c continued):
+
+L4c — SACRIFICE (activated + stat)
+  Perk type: activated + stat
+  Stat bonus: tolerance +3
+  Ability: sacrifice_wp
+  Charge type: PER_FLOOR (2/floor)
+  Target type: AOE_CIRCLE (radius 2)
+  Effect: 2/floor. Spend 25% of your current Martyr Stacks. Deal damage
+          to all enemies in radius 2 equal to (stacks spent * 3). The
+          damage is "pure" — not affected by enemy resistance or armor
+          (full pierce). You are healed for half the total damage dealt.
+  Desc: "2/floor. Spend the pain. Watch it land clean."
+  Balance: At 20 stacks, spending 5 = 15 AOE pure damage to all in
+          radius 2 and healing back 7 per enemy hit. In a 5-enemy room
+          at max stacks: 75 damage total, 37 HP healed. The stacks are
+          precious — spending recklessly means rebuilding.
+
+L5c — IMMOLATION (activated) — SOLO CAPSTONE
+  Perk type: activated
+  Ability: immolation_wp
+  Charge type: TOTAL (1 use per run)
+  Target type: AOE_CIRCLE (radius 5, centered on player)
+  Effect: 1 use per run. Spend ALL Martyr Stacks. Every enemy visible
+          (not just radius 5 — ALL visible) takes (stacks * 4) pure
+          damage. The player is healed for (stacks * 2) HP (can overheal
+          into Temp HP: excess becomes Temp HP). After Immolation, gain
+          +4 Swagger permanently.
+  Desc: "Once per run. Everything you ever took. Given back. All at once."
+  Balance: At max 20 stacks: 80 pure damage to all visible enemies + 40 HP
+          healed + Temp HP from overflow. A floor-2-4 room typically has
+          enemies with 30-60 HP — this kills most and chunks bosses hard.
+          The 1-per-run cost makes timing everything.
+
+RECONVERGED PATH (L3a/L3b → L5 choice):
+
+L5a — ANOINTED (passive + stat) — MERGED CAPSTONE
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +2
+  Effect: Cleanse Wall now triggers automatically when you fall below 30%
+          HP (once per floor, regardless of remaining Cleanse Wall charges
+          — this is a free extra proc). Deify's 0-tox HP regen is tripled
+          (1 HP every turn instead of every 3). Together: at 0 tox, regen
+          1/turn AND Cleanse Wall triggers below 30% HP as a safety net.
+  Desc: "When it matters most, the clean finds you."
+  Balance: Both L3a and L3b players benefit. L3a players gain the auto-
+          Cleanse Wall safety net. L3b players gain the tripled regen.
+          Taking both L3a and L3b is not possible — player chose ONE.
+          If they chose L3a: get auto-proc + Deify's perk doesn't apply
+          (they skipped Deify). If they chose L3b: get tripled regen +
+          Cleanse Wall auto-proc (from Anointed) activates once even
+          without having taken L3a? No — design note: Anointed's auto-
+          Cleanse Wall only works if you HAVE Cleanse Wall (L3a required).
+          Anointed is truly a "both benefit" node but in different ways
+          depending on which L3 branch was taken.
+
+L5b — SANCTIFIED (passive) — MERGED CAPSTONE
+  Perk type: passive
+  Effect: Your White Chapel bonus (10% less damage from debuffed enemies)
+          is tripled to 30% while you are at 0 toxicity. Additionally,
+          the first melee hit you receive each floor is completely negated
+          (reduced to 0 damage, with no Temp HP or armor required). This
+          is a "divine protection" one-time block per floor — the pure
+          cannot be surprised.
+  Desc: "The first hit never lands. Everything after lands on 30% less."
+  Balance: First-hit negation is powerful in permadeath contexts —
+          eliminates the "walked around a corner into an enemy" risk.
+          30% DR against debuffed enemies (you'll often be applying tox
+          via Plague Carrier builds, or enemies may be ignited by allies)
+          is effectively a permanent ~20% DR in most fights.
+
+
+==========================================================================
+VARIATION 8: "THE PURIFIER" — Double Diamond
+==========================================================================
+Shape: Double Diamond (L1 shared; L2a/L2b split; L3 convergence; L4a/L4b
+       split again; L5 final capstone)
+Fantasy: Two distinct decision points create four meaningful combinations.
+  L2 choice defines your METHOD of purity (active cleansing vs. passive
+  resistance). L4 choice defines your PAYOFF (offense or endurance).
+
+TREE DIAGRAM:
+
+         L1: Bleached (shared)
+              /        \
+       L2a: Purge     L2b: Resist
+       Protocol       Protocol
+              \        /
+         L3: White Balance (convergence)
+              /        \
+       L4a: Jade       L4b: Bone
+       Purity          Density
+              \        /
+         L5: Absolute Purity (capstone)
+
+TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +20% toxicity resistance.
+
+FIRST SPLIT:
+
+L2a — PURGE PROTOCOL (activated + passive)
+  Perk type: activated + passive
+  Ability: purge_protocol
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Instantly remove all toxicity from yourself. Gain 1 Temp
+          HP per 5 tox removed (min 1). Passive: each time you use Purge
+          Protocol, you generate a burst of "Purge Energy" — for 5 turns
+          after each purge, enemies that attack you take 4 reflected tox
+          (they hit a clean person and get dirty from the impact).
+  Desc: "Three times. Each time, they get a little of what you shed."
+  Balance: The reflected-tox-on-attacker is a unique defensive mechanic —
+          encourages enemies to keep attacking you (which they will) and
+          builds their tox passively.
+
+L2b — RESIST PROTOCOL (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: tolerance +3, constitution +2
+  Effect: +30% toxicity resistance (total 50%). Additionally, while your
+          current tox is below 15, you deal +3 melee damage and have +10%
+          dodge chance. This is a passive "purity bonus" for staying clean
+          without using abilities.
+  Desc: "Stay under fifteen. Hit harder. Move faster."
+  Balance: +3 melee + 10% dodge while clean is a strong passive reward.
+          Maintaining sub-15 tox is realistic with 50% resistance and
+          avoiding hazards. More fragile than Purge Protocol's active
+          approach.
+
+FIRST CONVERGENCE:
+
+L3 — WHITE BALANCE (passive + stat)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: Both paths benefit: the "clean threshold" for Resist Protocol
+          (below 15 tox) is now tracked as your WHITE BALANCE level. If
+          you enter this level at least once per floor, gain a stacking
+          "Balance Charge" (visible in HUD, max 5). Balance Charges are
+          consumed by L4 abilities. For Purge Protocol players: each purge
+          that brings you from 30+ tox to 0 tox also generates 1 Balance
+          Charge (active-purge generation).
+  Desc: "Either way — moments of clean are banked."
+  Balance: Charges accumulate at roughly 1-2/floor for Resist players
+          (moments of sub-15 tox) and 1-3/floor for Purge players (3 purge
+          windows, but not all will be from 30+). Designed to reach ~3-5
+          charges by final split.
+
+SECOND SPLIT:
+
+L4a — JADE PURITY (activated + passive)
+  Perk type: activated + passive
+  Ability: jade_purity
+  Charge type: PER_FLOOR (2/floor) + 1 per Balance Charge spent
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 2/floor (+ extra uses per Balance Charge spent). Target a
+          visible enemy with a focused purity blast: deal 8 + (SWG/3,
+          rounded down) direct damage bypassing armor. The target gains 15
+          toxicity (the "impurity expelled"). If you have no current
+          toxicity at time of firing, the blast deals double damage.
+          Passive: Balance Charges also add +1 SWG for rest of floor
+          when consumed (not just spent on Jade Purity — any consumption).
+  Desc: "2/floor + charges. Focused. Clean. Their problem now."
+  Balance: At SWG 20: 8 + 6 = 14 damage (28 if clean). Three Balance
+          Charges = 3 extra shots. Combined with Purge Protocol (L2a)
+          the clean bonus is frequently achievable.
+
+L4b — BONE DENSITY (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: constitution +4, swagger +2
+  Effect: Balance Charges convert to permanent HP: each charge at end of
+          floor (not consumed mid-floor) grants +2 permanent max HP
+          (tracked as a run-wide flat HP bonus, stored as perm_hp_bonus).
+          Max +20 HP per run from this source. Additionally: while you
+          have 2+ Balance Charges, incoming melee damage is reduced by 3
+          flat.
+  Desc: "Bank the clean. The body remembers. Gets thicker each floor."
+  Balance: +20 max HP over a full run is ~15% HP increase. The -3 melee
+          DR while stacked is a strong defensive passive. This is the
+          "tank endurance" L4 for players who want to outlast rather than
+          burst.
+
+FINAL CAPSTONE:
+
+L5 — ABSOLUTE PURITY (passive + activated) — CAPSTONE
+  Perk type: activated + passive
+  Ability: absolute_purity
+  Charge type: TOTAL (2 uses per run)
+  Target type: SELF
+  Effect: 2 uses per run. CONSUME ALL remaining Balance Charges. Gain:
+          - 15 Temp HP per charge consumed
+          - +4 Swagger for rest of floor per charge consumed (stacking)
+          - Immunity to ALL tox, rad, and debuff application for 30 turns
+          Passive bonus (always active): your maximum toxicity resistance
+          is uncapped. Most sources cap at 100% (full immunity) but this
+          removes the cap, meaning stacking resistance effects above 100%
+          now REFLECT tox back to attackers (1% over cap = 1% reflected).
+          At 120% tox resistance: 20% of enemy tox attacks bounce back.
+  Desc: "2 per run. The charges go into you. Thirty turns of nothing.
+         The cap is gone. What they throw, you give back."
+  Balance: The reflection mechanic for over-100% tox resistance is a
+          unique endgame effect accessible mainly in Meth Lab with multiple
+          resistance sources. The 30-turn full immunity window on a 2-per-
+          run activation is reserved for tough encounters.
+  Synergy: Chemical Warfare's Plague Carrier (enemy tox immunity + on-hit
+          tox): stacking both trees' tox immunity makes you a literal
+          toxin delivery vessel with zero personal risk.
+
+
+==========================================================================
+VARIATION 9: "THE BLEACH STORM" — Asymmetric Y
+==========================================================================
+Shape: Asymmetric Y (L1-L2 shared trunk; split at L3; Branch A = single
+       L3a capstone; Branch B = L3b + L4b + L5b capstone. Choose early
+       power vs. late power investment.)
+Fantasy: The short branch (A) is immediately powerful — take it early
+  for a big capstone right away. The long branch (B) is a slow build —
+  investing more levels for a stronger final reward. Classic risk/reward
+  of early vs. late investment.
+
+TREE DIAGRAM:
+
+    L1: Bleached
+          |
+    L2: White Out (original)
+         / \
+        /   \
+ L3a: Stainless     L3b: First Coat
+ (CAPSTONE — short)        |
+                      L4b: Second Coat
+                            |
+                      L5b: Final Coat
+                      (CAPSTONE — long)
+
+TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +25% toxicity resistance.
+
+L2 — WHITE OUT (ORIGINAL) (activated + stat)
+  Perk type: activated + stat
+  Stat bonus: swagger +2
+  Ability: white_out_v9
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Gain 25 toxicity. For 50 turns: +8 Swagger, -25%
+          damage dealt. Preserves original design for this variation.
+
+SHORT BRANCH (early power):
+
+L3a — STAINLESS (passive + stat) — SHORT CAPSTONE
+  Perk type: stat + passive
+  Stat bonus: swagger +6, tolerance +2, constitution +2
+  Effect: White Out's -25% damage penalty is REMOVED entirely. White Out
+          now only provides the +8 Swagger with NO downside. Additionally:
+          while White Out is active, enemy attacks have a 15% chance to
+          miss entirely (separate from dodge chance — this is a White Out
+          specific near-miss). The tox gained (25) is retained as a design
+          element but its penalty is gone.
+  Desc: "Short path. But what you get: White Out with no tradeoff. Three
+         times a floor. No penalty. The near-miss is just respect."
+  Balance: White Out without the damage penalty is a powerful offensive
+          enabler. At L3 (only 3 tree levels invested), this is strong —
+          justified by being the SHORT branch. The 15% miss chance during
+          White Out adds defense during the same window. Trade-off: you
+          cap out here. No L4/L5 to invest in later.
+
+LONG BRANCH (late power):
+
+L3b — FIRST COAT (passive + stat)
+  Perk type: stat + passive
+  Stat bonus: swagger +3
+  Effect: White Out's +8 Swagger bonus is increased to +12 Swagger. The
+          -25% damage penalty remains (you're still paying the full cost
+          — this branch IS the investment; the payoff comes later). Also:
+          +30% toxicity resistance (total 55% with L1).
+  Desc: "First layer. More Swagger. Still hurts but the foundation is set."
+  Balance: +12 Swagger during White Out = swagger_defence of roughly 7
+          at SWG 22. That's -7 per incoming hit, on a 3-activation-per-floor
+          basis. Defensive, but the damage penalty is a real burden.
+
+L4b — SECOND COAT (passive)
+  Perk type: passive
+  Effect: The -25% damage dealt penalty from White Out is now halved to
+          -12.5% (effectively -12%). Additionally: when White Out expires
+          naturally (runs to 0 turns remaining, not purged early), gain
+          5 Temp HP. This rewards playing White Out to its full 50-turn
+          duration rather than using cleanses.
+  Desc: "Second layer. The cost gets bearable. Let it run out, not away."
+  Balance: At this point: White Out gives +12 SWG, -12% damage, +5 Temp HP
+          on expiry. Per floor: 3 activations = up to +15 Temp HP if all
+          run to completion. Significant.
+
+L5b — FINAL COAT (passive + activated) — LONG CAPSTONE
+  Perk type: activated + passive
+  Ability: final_coat
+  Charge type: PER_FLOOR (1/floor, additional charge per White Out allowed
+               to expire naturally this floor — so up to 3/floor if all three
+               White Out windows run to completion)
+  Target type: AOE_CIRCLE (radius 3)
+  Effect: 1/floor base (up to 3/floor with expiry bonuses). Activate to
+          unleash a wave of bleaching force. All enemies in radius 3 take
+          6 + (your current Swagger / 4, rounded down) damage and their
+          attack power is reduced by 3 for 10 turns (debuffed by purity).
+          Your tox is purged. Your White Out cooldown resets immediately
+          after Final Coat activates.
+          Passive: White Out's -12% damage penalty is further reduced to
+          -6% (total after L4b). At this point: White Out costs effectively
+          nothing in offense terms.
+  Desc: "1-3/floor. Let the coats build up. Then the blast. Swing right
+         after. The penalty is down to rounding error."
+  Balance: With all three White Out activations running to completion:
+          3 Temp HP windfall + 3 Final Coat charges. At SWG 24: each
+          Final Coat hit = 6 + 6 = 12 AOE damage + -3 enemy attack for 10t.
+          Three room-clears in a floor. The -6% damage penalty is negligible.
+  Synergy: L Farming's Unfazed (SWG stacks on taking damage) — White Out's
+          extra SWG stacks with any Unfazed-sourced SWG for a massive
+          swagger_defence during the White Out window.
+
+
+==========================================================================
+VARIATION 10: "THE LONG MARCH" — Long Trunk Y (Late Split)
+==========================================================================
+Shape: Long Trunk Y (L1-L4 shared trunk; late split at L5 into two
+       capstones. 6 perks, 2 capstones. Maximum trunk investment.)
+Fantasy: A measured, patient build. The trunk is a complete toolkit by
+  itself. The split at L5 is a final expression of philosophy:
+  A — the shield (become genuinely unkillable for bursts)
+  B — the hammer (the entire Swagger stack explodes into melee)
+
+TREE DIAGRAM:
+
+     L1: Bleached
+           |
+     L2: White Out
+           |
+     L3: Pure
+           |
+     L4: Crystal White
+          / \
+         /   \
+  L5a: Alabaster  L5b: Wrathbone
+    Shield          Slam
+  (capstone)      (capstone)
+
+TRUNK:
+
+L1 — BLEACHED (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: +20% toxicity resistance.
+  Desc: "Standard foundation."
+
+L2 — WHITE OUT (ORIGINAL) (activated + stat)
+  Perk type: activated + stat
+  Stat bonus: swagger +2
+  Ability: white_out_v10
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: 3/floor. Gain 25 tox. For 50 turns: +8 Swagger, -25% dmg dealt.
+  Desc: "Original design preserved in the long trunk."
+
+L3 — PURE (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: Double XP from toxicity resisted. Also: while White Out is
+          active, the 25 tox you gained contributes 0 to your damage
+          multiplier (it exists but doesn't scale the incoming damage
+          formula for the White Out duration). This removes the tox penalty
+          during the buff window.
+  Desc: "Original Pure, plus: the tox you carry during White Out is
+         inert. You hold it without it holding you."
+  Balance: Removes the secondary downside (taking 1.16x damage from the
+          25 tox) during White Out's 50-turn window. The -25% damage dealt
+          remains as the sole tradeoff.
+
+L4 — CRYSTAL WHITE (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +3, tolerance +2
+  Effect: Permanent passive: each floor, the first source of tox you would
+          receive is entirely negated. Not resistance-based — a hard 1-hit
+          immunity that resets each floor (like Surgeon's Flush from Chemical
+          Warfare). The negated tox still counts toward White Power XP
+          as though it had been resisted. Additionally: kills while White
+          Out is active generate +3 White Power XP each (stacks with the
+          double-XP from Pure).
+  Desc: "Hard trunk. The first thing they throw: gone. The rest: yours."
+  Balance: By L4, the player has: SWG+14, +2 STS from base, 20% tox resist,
+          3/floor White Out, double XP, inert-tox-during-White-Out, and
+          first-hit tox immunity per floor. This is a fully functional
+          defensive build before the capstone split.
+
+FINAL SPLIT:
+
+L5a — ALABASTER SHIELD (activated + passive) — CAPSTONE
+  Perk type: activated + passive
+  Ability: alabaster_shield
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SELF
+  Effect: 2/floor. Activate to erect the Alabaster Shield for 15 turns.
+          While active: you are immune to ALL incoming damage and effects
+          (complete invulnerability window). However: you cannot deal
+          damage or use abilities during the Shield (you can move and
+          use items). When the Shield expires, gain Temp HP equal to
+          (damage that WOULD have hit you during the Shield, tracked but
+          nullified). This Temp HP lasts until consumed (cross-floor).
+          Passive: White Out now grants +12 Swagger (instead of +8) for
+          free (no other changes needed, overrides the +8).
+  Desc: "2/floor. Fifteen turns where they're just hitting air. You
+         add up what they almost did. Then you start again."
+  Balance: Full 15-turn invulnerability is the most powerful defensive
+          cooldown in the game. The no-damage constraint is real — pure
+          survival/repositioning use case. Temp HP from blocked damage
+          can be enormous (vs. a mob at floor 4: 5 enemies hitting 12/turn
+          for 15 turns = 900 potential = large Temp HP pool). Balanced by
+          the 2/floor cap and the no-attack constraint.
+  Synergy: Jaywalking's Dash (Dash 3 tiles instantly) works during the
+          Shield window — reposition safely during immunity.
+
+L5b — WRATHBONE SLAM (activated + passive) — CAPSTONE
+  Perk type: activated + passive
+  Ability: wrathbone_slam
+  Charge type: PER_FLOOR (3/floor)
+  Target type: AOE_CIRCLE (radius 2, player-centered)
+  Effect: 3/floor. Slam the ground. All enemies in radius 2 take damage
+          equal to your FULL Swagger stat (not swagger_defence — the whole
+          number, e.g., SWG 22 = 22 damage, ignoring armor). All enemies
+          hit are knocked back 1 tile (pushed away from player). For 15
+          turns after Wrathbone Slam, your melee damage is increased by
+          swagger_defence (the defensive value, additive with attack power).
+          Passive: White Out now lasts 75 turns instead of 50 and grants
+          +12 Swagger instead of +8 (same upgrade as Alabaster Shield but
+          applied to the offensive capstone too — both L5 choices improve
+          White Out as part of the long-trunk payoff).
+  Desc: "3/floor. Every point of Swagger is a point of damage. Radius two.
+         Watch them scatter. Then finish it up close."
+  Balance: At SWG 22: 22 AOE damage, armor-ignoring, radius 2. In a 4-enemy
+          cluster this is 88 damage total — likely killing 1-2 floor-4
+          enemies outright. The knockback prevents flanking. The melee bonus
+          afterward (swagger_defence = ~7 at SWG 22) runs for 15 turns and
+          makes each hit substantially stronger.
+  Synergy: Slashing's Whirlwind + Wrathbone Slam: Slam knocks enemies back,
+          then Whirlwind (attack all adjacent) catches the ones still in
+          range. Stabbing's Windfury (extra hit chance) during the
+          swagger_defence melee bonus window for potentially +7 on each
+          extra hit.
+
+
+==========================================================================
+SHAPE DISTRIBUTION SUMMARY
+==========================================================================
+
+V1:  Y-split (L3)        — "The Monument"   — Shield vs. Strike
+V2:  Diamond (L2→L5)     — "The Confessor"  — Purge vs. Accumulate
+V3:  Triple Fork (L4)    — "The Baptism"    — Shield / Tox Carrier / Swagger Strike
+V4:  W-shape             — "The Whitewash"  — Tox Offense vs. Tank, reconverge, split
+V5:  Inverted Y          — "The Bleach Job" — Swagger Start vs. Tox Cycle, converge
+V6:  Ladder/Zigzag       — "The Ladder"     — Mix-and-match 4 combos from 2 choices
+V7:  Trident             — "The Temple"     — Cleanse/Deify merge + Martyr solo
+V8:  Double Diamond      — "The Purifier"   — 2 splits/2 convergences; 4 combos
+V9:  Asymmetric Y        — "The Bleach Storm" — Short/early vs. Long/late investment
+V10: Long Trunk Y        — "The Long March"   — 4-level trunk; Shield or Hammer capstone
+
+10 distinct designs. 8 distinct shapes used (Y-split, Diamond, Triple Fork,
+W-shape, Inverted Y, Ladder/Zigzag, Trident, Double Diamond, Asymmetric Y,
+Long Trunk Y — all 10 shape types used, no shape used more than once).
+
+
+==========================================================================
+NEW ABILITY IDs (all 10 variations)
+==========================================================================
+
+V1: blinding_white, alabaster_skin (L4a)
+V2: white_out_r1, clean_slate, pressure_release, baptism_cleanse, eruption_wp
+V3: scour_b, immaculate_conception (marble passive)
+V4: white_out_v4, lye_bath, purification_ritual, void_purity
+V5: white_flag, baptism_cleanse (v5), pure_white_passive
+V6: purge_wave, blinding_white (v6)
+V7: cleanse_wall, sacrifice_wp, immolation_wp
+V8: purge_protocol, jade_purity, absolute_purity
+V9: white_out_v9, final_coat
+V10: white_out_v10, alabaster_shield, wrathbone_slam
+
+
+==========================================================================
+NEW EFFECT SUBCLASSES NEEDED
+==========================================================================
+
+WhiteOutEffect (revised v2: removes tox, generates temp HP, adds resist buff)
+AbsolutionWindowEffect (10t dodge+acc debuff on enemies, V2 convergence)
+AbsoluteImmaculateEffect (30t: tox immune, debuff acceleration, V2 L6a)
+IronSkinArmorEffect (floor-start temp HP = SWG, V1 L2)
+UntouchableEffect (8t: double swagger_defence, V1 L4a)
+PristineBodyPassive (debuff duration -1, V3 L2)
+PlagueCarrierEffect (tox immunity + on-hit tox aura, V3 L4b)
+WhiteNoisePassive (15%/25% debuff negate, V6 L3/L5)
+AnoointedRegenEffect (1 HP/turn at 0 tox, V7 L5a)
+MartyrStackEffect (persistent melee bonus per stack, V7 L3c)
+SacrificeEffect (stack-spend, AOE pure damage, V7 L4c)
+PurgeEnergyEffect (5t: attacker gains 4 tox on hit, V8 L2a)
+BloomChargeEffect (Balance Charge tracker, V8 L3/L4)
+AbsolutePurityActiveEffect (30t full immunity, V8 L5)
+WhiteOutExtendedEffect (75t version with +12 SWG, V10 L5)
+AlabastrShieldEffect (15t full invuln, track blocked dmg, convert to Temp HP, V10 L5a)
+WrathbonePostEffect (15t: +swagger_defence to melee, V10 L5b)
+
+
+==========================================================================
+BALANCE BENCHMARKS (reference vs. existing content)
+==========================================================================
+
+SWG progression per variation at capstone (approximate):
+  V1 Branch A (Untouchable):    SWG+13 (L1+L2+L3a+L4a stat nodes)
+  V1 Branch B (Blinding White): SWG+10 (L1+L2+L3b)
+  V3 Fork C (Swagger Strike):   SWG+13 (L1+L2+L3 trunk)
+  V10 (Long March + any L5):    SWG+18 (4-level trunk total stat)
+
+Tox resistance at key builds:
+  V5 L1a→L4 (Inverted Y clean path): 20% + base = 20% (low; relies on SWG)
+  V5 L1b→L4 (Inverted Y tox cycle):  30% + possible items = 30-50%
+  V8 B/A (Resist Protocol + Jade):    20+30 = 50%; at L5 uncapped reflective
+  V3 Trunk through L3:                40% at L3
+
+Temp HP generation per floor (approximate range):
+  V1 L2 (Ivory Skin at SWG 14):  14 Temp HP/floor
+  V2 L1 purge at 50 tox:         10 Temp HP per purge
+  V4 L5 (Purification at 80 tox): 20 Temp HP per floor activation
+  V10 L5a (Alabaster: blocked dmg tracked): 30-100 Temp HP vs. tough floor
+
+TOP 3 RECOMMENDED FOR IMPLEMENTATION:
+  1. V10 (Long March) — cleanest trunk; Long Trunk Y mirrors V10 Chemical Warfare success
+  2. V3 (Baptism) — Triple Fork with clearly distinct capstone identities
+  3. V9 (Bleach Storm) — Asymmetric Y creates memorable early vs. late tradeoff

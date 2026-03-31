@@ -1,0 +1,68 @@
+MUTATION — Branching Skill Tree Variations Summary
+===================================================
+Full doc: nigrl-ideas/mutation-branching-skill-trees.txt
+10 variations, all 10 branching shapes used (each exactly once).
+
+=== QUICK REFERENCE ===
+
+V1  FREAKSHOW         Y-split (L3)       Mutation farming; quantity over quality OR selective breeding
+V2  CHERNOBYL TANK    Diamond            Rad-as-armor; +defense per 50 rad; Branch A=safer, B=rad→HP
+V3  SPLICE AND DICE   Triple Fork        Mutation control; tier selection; 3 capstones: Combat/Balance/Splice
+V4  VOLATILE EVO      W-shape            Rad berserker; mutation=speed burst; crash damage=power
+V5  BODY HORROR       Long Trunk Y       Mutation stacking; mutation_count buffs everything retroactively
+V6  FALLOUT PROPHET   Inverted Y         Rad spreader; two origins (passive aura vs. active burst); enemy mutations
+V7  SCAR TISSUE       Ladder/Zigzag      Adaptive defense; getting hit = DR; death save capstone
+V8  YELLOWCAKE PROTO  Trident            Forced tier manipulation; Strong minimum; three-way fork (control/power/XP)
+V9  THE EXPERIMENT    Double Diamond     Streak-based RNG manipulation; one shared capstone
+V10 DARWIN AWARD      Asymmetric Y       Dual ambition; short path=fast melee scaler; long path=Perfect Organism
+
+=== NEW ENGINE STATE (all variations) ===
+mutation_count (run-wide), mutation_reroll_available (per-floor), genome_locked_stat (per-floor),
+rad_berserker_stacks (per-floor), adaptive_dr_bonus (run-wide), freak_speed_stacks (per-floor),
+last_mutation_was_good (run-wide), mutation_streak (run-wide), irradiate_splash_radius (int),
+contamination_cloud_active (bool), forced_strong_next/forced_huge_next (bool),
+mutation_xp_multiplier (float), scar_tissue_hits (run-wide), genome_splice_used (bool),
+forced_evolution_charges (per-floor)
+
+=== NEW PLAYERSTATS FIELDS ===
+rad_gain_multiplier_bonus (float), mutation_good_base_bonus (float),
+mutation_trigger_multiplier (float), mutation_tier_skip_weak (bool),
+adaptive_dr (int), mutation_melee_bonus (int), rad_to_power_ratio (float)
+
+=== NEW EFFECTS ===
+BerserkerSurgeEffect (+6 melee, +20 speed, 8t), GlowingEffect (aura, irradiates adjacent/tick),
+ContaminationCloud (3-tile aura toggle), AdaptiveShieldEffect (temp HP on floor entry),
+PrimordialRageEffect (+12 melee, -50% def, 15t), SplicedEffect (cosmetic feedback)
+
+=== NEW ABILITIES ===
+splice_reroll (FLOOR_ONLY 1), rad_burst (INFINITE cd 8t, ADJACENT), rad_pulse (PER_FLOOR 2, AOE_CIRCLE),
+inoculate_self (FLOOR_ONLY 1), genome_lock (FLOOR_ONLY 1), primal_scream (PER_FLOOR 1, AOE visible),
+contaminate_aura (INFINITE toggle), irradiate_surge (INFINITE cd 12t), forced_evolution (PER_FLOOR 1),
+absorb_rad (INFINITE cd 15t), genome_splice (ONCE per run)
+
+=== CAPSTONE ROSTER (15 capstones across 10 trees) ===
+Full Freak (V1A)         — +melee per 5 mutations, 6x trigger rate
+Apex Specimen (V1B)      — doubled good mutation bonuses, bad penalties -1
+Meltdown (V2A)           — dump all rad → AOE damage + PrimordialRage
+Rad Absorption (V2B)     — rad→HP conversion, no HP rad damage, +3 CON
+Combat Genome (V3A)      — +1 melee per mutation (multiplicative)
+Perfect Balance (V3B)    — bad Weak/Strong = only SP reward, no stat loss
+One True Splice (V3C)    — ONCE/run: perfect chosen mutation + Huge bonuses
+Speed God (V4A)          — speed buff permanent all floor, move cost 50
+Explosion Hazard (V4B)   — crash = AOE irrad explosion, stacks never decay
+Mass Accumulate (V5A)    — per-tier melee+HP bonus every mutation
+Deep Memory (V5B)        — retroactive % buff from all past mutations
+Living Reactor (V6)      — permanent contamination aura + enemy rad detonation
+Immortal Body (V7)       — scar_tissue HP/DR scaling + death save
+Huge Only (V8A solo)     — every mutation is Huge, tripled Good Huge bonuses
+Twin Towers (V8A+B conv) — converged trident: all bonuses combined + BKS rad damage
+XP Harvest (V8C solo)    — 3x mutation XP + 10% overflow to other skill trees
+Genome Complete (V9)     — Amplify Good + Negate Bad + no bad Huge + genome_splice
+Darwin Award (V10A)      — +2 melee per mutation_count (retroactive), 3x trigger rate
+Perfect Organism (V10B)  — Strong→Huge effects, bad mutations negated, genome_splice + 2x forced_evol
+
+=== RECOMMENDED FOR IMPLEMENTATION ===
+V1 Freakshow, V4 Volatile Evolution, V7 Scar Tissue, V10 Darwin Award
+(diverse playstyles: farming / berserker / tank / dual-ambition)
+Most synergy-rich: V6 Fallout Prophet (deepens Glow Up tree relationship)
+Most mechanically novel: V3 Splice and Dice (mutation tier selection UI)

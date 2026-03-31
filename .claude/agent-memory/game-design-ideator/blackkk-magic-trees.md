@@ -1,6 +1,6 @@
 ---
-name: Blackkk Magic — Skill Tree Designs (v1 and v2)
-description: All Blackkk Magic L1-L5 curse/hex tree variants, entity fields, effects, and abilities. V1 has 5 designs (A-E); V2 replaces C/D/E with 10 new designs (C-L).
+name: Blackkk Magic — Skill Tree Designs (v1, v2, and branching)
+description: All Blackkk Magic curse/hex tree variants. V1 has A-B (approved) and C-E (replaced). V2 has 10 new designs C-L. Branching doc has 5 full branching designs (Takes 1-5).
 type: project
 ---
 
@@ -8,6 +8,7 @@ type: project
 
 V1 (Designs A–E): `nigrl-ideas/blackkk-magic-skill-designs.txt` (2026-03-22)
 V2 (Designs C–L, 10 new): `nigrl-ideas/blackkk-magic-skill-designs-v2.txt` (2026-03-22)
+Branching designs (Takes 1-5): `nigrl-ideas/blackkk-magic-branching-skill-trees.txt` (2026-03-26)
 
 **USER APPROVED**: A (The Mark) and B (Writ Large) from V1.
 **REPLACED**: C (Soul Tax), D (Evil Eye), E (Jinx Juggling) — not liked.
@@ -154,3 +155,81 @@ dungeon.trap_grid: list[set[int]] (L L5)
 - Self-link as Doll (H L5) is the only self-debuff-for-power design besides Spiritual Debt.
 - Designs G, H, L need new UI states or secondary targeting prompts.
 - "No defense" damage: entity.hp -= amount directly, per established convention from V1.
+
+---
+
+## Branching Designs (Takes 1-5) — 2026-03-26
+
+Full doc: `nigrl-ideas/blackkk-magic-branching-skill-trees.txt`
+
+**Take 1 — The Detonator** (Y-split L3): Hexer (burst detonate, Sympathetic Magic melee chain)
+  vs. Plague Doctor (Pestilence spread, Patient Zero all-3-curses, Black Death miasma tiles).
+
+**Take 2 — The Gravedigger** (Diamond L2→L5): Reaper (Doom Mark 30-stack execution, Hexbomb
+  mass-spread) vs. Siphon (Soul Leech HP from cursed kills, Languish stack-drain heal).
+  Convergent L4: Requiem (detonation returns HP/4 as leech). L5 Reaper: Final Hour (auto-
+  Hexbomb at doom execution). L5 Siphon: Undying Thirst (+20% dmg 5t after drain).
+
+**Take 3 — The Inquisitor** (5 trunk → late Y): Trunk L4: Soul Conduit (20%/tick charge
+  refund). Trunk L5: Doom Clock (BKS*3 no-def every 20 curse ticks). Branch Inquisitor:
+  Witch Mark (double tick on first cursed enemy per floor), The Burning (10-turn all-Condemned).
+  Branch Occultist: Profane Decree (AOE mark, faster doom threshold), Oblivion (escalating
+  non-resetting Doom, doom inheritance on death).
+
+**Take 4 — The Witch Doctor** (triple fork L4): Trunk L4: Hex Conduit (charge-steal → Hex
+  Charge pool, max 6). Branch Effigy: Curse Detonate (3 HC cost, BKS/2 * stacks + 15 no-def
+  + 25% AOE, Effigy Doll hazard summon). Branch Voodoo: Shared Pain (reflect full melee back to
+  cursed attacker + 25% chain), Voodoo Circle (1/floor 8-turn 50% linked damage + collapse).
+  Branch Plague: Rot (+2%/5 curse ticks vulnerability), The Itch (30%/tick random
+  stun/confuse/cripple proc).
+
+**Take 5 — The Conjurer** (W-shape): Veil: Seance (LINE harvest Spectral Stacks), Cold Rite
+  (AOE haunt tiles, costs SC). Blood: Blood Tithe (5 HP per curse cast, +2 start stacks),
+  Sanguine Pact (once/floor double stacks at 50% HP). Convergent L4: Covenant of Ruin
+  (all-floor detonation, costs all SC + 15% HP, heals BKS per kill). L5a Grand Conjuring
+  (Ghost summons from Seance + haunt tiles). L5b Blood Rite (perfect Covenant restores
+  charge + Blood High free-cursing window).
+
+### New Entity Fields (Branching Designs)
+
+  doom_turns: int = 0 (Take 3 Doom Clock, all monsters)
+  is_condemned: bool = False (Take 3 Witch Mark)
+  doom_fire_count: int = 0 (Take 3 Oblivion)
+  rot_counter: int = 0 (Take 4 Plague branch)
+  miasma_curse_type: str (on miasma hazard entity, Take 1 Black Death)
+  effigy_curse_type: str (on effigy hazard entity, Take 4 Effigy Doll)
+
+### New Engine Fields (Branching Designs)
+
+  hex_charges: int = 0; hex_charges_max: int = 6 (Take 4)
+  voodoo_circle_active: bool; voodoo_circle_turns: int (Take 4)
+  spectral_stacks: int = 0 (Take 5)
+  ghost_count: int = 0 (Take 5 Grand Conjuring)
+  sanguine_pact_fired: bool = False (Take 5, reset on floor change)
+  blood_high_turns: int = 0 (Take 5 Blood Rite)
+  condemned_set_this_floor: bool = False (Take 3, reset on floor change)
+  burning_active: bool = False; burning_turns: int = 0 (Take 3 The Burning)
+
+### New Ability IDs (Branching Designs)
+
+  hexburst (Take 1 Hexer L5a), patient_zero (Take 1 Plague L5b)
+  hexbomb_reaper (Take 2 L3a), languish (Take 2 L3b)
+  the_burning (Take 3 Inquisitor L7a), profane_decree (Take 3 Occultist L6b)
+  curse_detonate (Take 4 Effigy L5a), voodoo_circle (Take 4 Voodoo L6b)
+  seance (Take 5 L2a), cold_rite (Take 5 L3a), covenant_of_ruin (Take 5 L4a)
+
+### New Effects Needed (Branching Designs)
+
+  ThirstEffect (Take 2 Siphon L5b): buff, +20% damage, +10 energy/tick, 5t
+  TempHamCurseEffect (Take 5 Cold Rite): non-floor-duration Ham variant, duration=8
+  BloodHighEffect (Take 5 Blood Rite): buff 6t, no cost on curse casts + 5 dmg redirect
+
+### Utility Helper Needed
+
+  total_curse_stacks(entity) -> int: sum of stacks from all is_curse=True effects.
+  Add to spells.py. Referenced by Hexburst, Hexbomb, Covenant of Ruin.
+
+### UI Elements Needed
+
+  Spectral Stacks display (Take 5): "SC: X/20" in stats panel, show if Seance perk.
+  Hex Charges display (Take 4): "HC: X/6" in stats panel, show if Hex Conduit perk.

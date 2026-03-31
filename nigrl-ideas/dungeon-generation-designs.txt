@@ -1,0 +1,949 @@
+DUNGEON GENERATION DESIGNS — NIGRL
+Advanced layout techniques for future zones
+Last updated: 2026-03-26
+Grid: 68x53 tiles. '#' wall, '.' floor, '+' door/opening, '~' water/special, '%' vegetation.
+==========================================================================================
+
+
+==========================================================================================
+SECTION 1 — METH LAB REFINEMENT: INDUSTRIAL LINEAR LAYOUT
+==========================================================================================
+
+CONCEPT
+-------
+The Meth Lab reads as a converted industrial building — a warehouse or commercial kitchen
+turned clandestine drug operation. The key visual: a wide central corridor (the "main line")
+with rectangular lab modules branching off both sides, like a spine with ribs. Some modules
+share walls and bleed into each other through wide openings. A few oversized rooms mark
+important waypoints: the entry loading dock, a central cook room, and an end-of-floor
+chemical storage vault. Secondary rooms nest behind the primary labs, accessible only by
+passing through them — rewarding exploration but also funnelling players into ambushes.
+
+ALGORITHM — LINEAR CHAIN WITH BRANCHING SIDE ROOMS
+---------------------------------------------------
+1. Carve the main corridor: a 3-wide horizontal hall running roughly left-to-right across
+   the map (y-centered), occupying about 80% of the horizontal span. The player enters at
+   the left end; the down-stairs appear at the right end behind the final room.
+2. Along the corridor, pick 6-10 evenly-spaced "rib attachment points" alternating above
+   and below the corridor.
+3. At each attachment point, carve a RectRoom of variable size (min 5x4, max 10x7) adjacent
+   to the corridor wall. The room is connected by punching a 2-3 tile wide gap into the
+   corridor wall (not a 1-tile door — a proper opening).
+4. For 30-40% of primary side rooms, carve an additional nested room adjacent to the far
+   wall of the primary room. The nested room has only a single gap connecting to its parent.
+5. Place 1-2 "major rooms" (12-16 wide, 8-10 tall) at the corridor's midpoint and far end.
+   These are the cook room and storage vault. They connect to the corridor via wide openings
+   (3-4 tiles) and may have interior pillar or table obstacles.
+6. No MST step — connectivity is guaranteed by the corridor itself. Optional: add 1-2
+   extra connections between adjacent side rooms that happen to share a wall, creating
+   loop paths without the main corridor.
+7. Spawns: guards cluster near the cook room and storage vault. Tweakers and chemists
+   scatter through the labs. The loading dock (entry room) has crates and loot.
+
+IMPLEMENTATION NOTES
+--------------------
+- Replace generate_crack_den() with generate_meth_lab() in zone_generators.py.
+- The main corridor is a HallRoom (horizontal, length ~54, width 3) centered vertically.
+- Side rooms are RectRoom or PillarRoom instances. Store them in dungeon.rooms as normal.
+- "Wide opening" = call _carve_rect on the shared wall segment (2-3 tiles wide) instead
+  of carve_corridor. The opening is not a door; it's just absent wall tiles.
+- Mark the entry room (rooms[0]) and the vault/cook room for special spawning logic in
+  spawn_meth_lab().
+- Nested rooms: store a parent_room_index attribute on the Room if needed by spawn logic
+  to know that the nested room is harder to access and should have better loot.
+
+
+MOCKUP 1 — BASIC LINEAR LAYOUT (32x20)
+---------------------------------------
+Entry on left, vault at right, 4 labs per side, 1 nested room (lower right).
+
+################################
+#.....+.....+.....+.....+......#
+#.Lab.+.Lab.+.Lab.+.Lab.+Vault.#
+#.....+.....+.....+....++......#
+####.##.####.####.######.#######
+#...........................#
+###.###.###...###.###########
+#.....+.....+.Cook+.....+......#
+#.Lab.+.Lab.+.Room+.Lab.+Nest..#
+#.....+.....+......+....++.....#
+################################
+
+(Cleaner version below — proper ASCII box)
+
+################################
+#...................................#
+#  +-----+  +-----+  +-----+  +---+#
+#  | Lab |  | Lab |  | Lab |  |Vlt|#
+#  |     |  |     |  |     |  |   |#
+## + ### + ### + ### + ######## + ##
+#...................................#  <- main corridor (3 wide)
+## + ### + ######## + ### + ######## ##
+#  |     |  |Cook   |  |     |  |   |#
+#  | Lab |  |Room   |  | Lab |  |Nst|#
+#  +-----+  +-------+  +-----+  +---#
+################################
+
+Rendered as actual tile grid (32 wide x 20 tall):
+
+##################################
+#.........#.........#............#
+#...Lab A..+..Lab B..+...Entry...#
+#.........#.........#............#
+#####+########+########+##########
+#..................................#
+#..........MAIN CORRIDOR...........#
+#..................................#
+#####+########+########+##########
+#...............#.................#
+#....Lab C......+....Cook Room....#
+#...............#.................#
+#################+################
+                 #................#
+                 #....Lab D (nest)#
+                 #................#
+                 ##################
+(stairs at far right end of corridor)
+
+MOCKUP 2 — STAGGERED OFFSETS (34x22)
+--------------------------------------
+Labs are not perfectly mirrored — staggered attachment points create asymmetry
+and variable sightlines down the corridor. The cook room is oversized.
+
+##################################
+#.......#..........#.............#
+#.DocK..#...Lab 1..#...Lab 2.....#
+#.......#..........#.............#
+####.####..#####.#####.####.######
+..#..#..#................................#..#..#
+..#..Main Corridor (3 wide)..............#..#..#
+..#..#..#................................#..#..#
+######.##########.##.#######.#############.####
+      #.....#.....#.........#.......#...........#
+      #.Lbx.#.Lab3#.COOK RM.#.Lab 4.#...Vault..#
+      #.....#.....#.........#.......#...........#
+      ##########.##.#########.#######.###########
+               #.....#
+               #.Nest.#  <- accessible only through Lab 3
+               #.....#
+               #######
+
+MOCKUP 3 — FULL TILE GRID (35 wide x 22 tall)
+-----------------------------------------------
+Best for readability. '+' marks 2-3-wide openings into the corridor.
+'P' marks a pillar obstacle inside the cook room.
+
+###################################
+#...............................#
+#...........DOCK................#
+#...............................#
+#####..#####..#####..#####..#####
+....#..#....#..#....#..#..........
+....#..MAIN CORRIDOR (3 wide).....
+....#..#....#..#....#..#..........
+#####..#####..#####..#####..#####
+#.....##.....##.........##.......#
+#.Lab.++.Lab.++.COOK....++.Vault.#
+#.....##.....##..P...P..##.......#
+#.....##.....##.........##.......#
+###########.##.#.........##.#######
+          #.....#
+          #.Lab.#  <- nested, accessible only through Lab B
+          #.....#
+          #######
+
+Legend for Mockup 3:
+  Dock    = entry room (west end). Crates, initial loot.
+  Main    = 3-wide corridor. Enemies patrol here.
+  Labs    = standard combat rooms, 6x5 average.
+  Cook    = 12x7. Central combat encounter. Heavy smoke effects possible.
+  Vault   = 10x6. Final room on floor. Down-stairs here. Elite guards.
+  Nested  = accessible only through Lab B. Better loot, no patrol.
+  P       = pillar/obstacle tile (TILE_WALL surrounded by TILE_FLOOR).
+  ++      = 2-tile opening (no door, just absent wall).
+
+BALANCE NOTE
+-------------
+Linear layout makes floor traversal predictable but enemy density on the main
+corridor is high — players cannot skip rooms easily. This trades exploration
+freedom for a more gauntlet-like experience, appropriate for the Meth Lab's
+dangerous-territory feel. Each floor, randomize which side (top/bottom) each lab
+appears on and vary the stagger to prevent memorization across runs.
+
+
+==========================================================================================
+SECTION 2 — CASINO: OPEN FLOOR PLAN (BSP)
+==========================================================================================
+
+CONCEPT
+-------
+The Casino is one continuous open space divided into functional zones by interior partitions
+and furniture layouts, not walls with corridors between them. You can see across the whole
+floor from most positions, which changes combat dramatically — enemies spot you from far
+away, but you can shoot across the room and plan routes visually. The floor is large and
+mostly open with clusters of tables, slots machines (represented as '#' obstacles), a bar
+at one end, and a VIP lounge behind a partial partition. Doors in the Casino are wide
+archways (3 tiles) rather than 1-tile openings.
+
+ALGORITHM — BSP + WIDE OPENINGS (Room-in-Room variant)
+--------------------------------------------------------
+Option A: Classic BSP
+1. Recursively split the dungeon bounding box by alternating horizontal/vertical cuts.
+   Stop splitting when a partition is smaller than a minimum threshold (e.g. 12x10).
+2. Each leaf partition becomes a "zone" (slot floor, card tables, bar, VIP).
+3. Carve ALL leaf partitions as floor — there are no walls between leaves except the
+   shared partition lines.
+4. On each shared partition wall, punch 2-4 wide openings (3 tiles each), leaving
+   short wall stubs between the openings. This gives the feel of open casino floor
+   while still creating meaningful sightline breaks.
+5. Interior obstacles: place clusters of 1-tile '#' pillars representing slot machines,
+   table clusters (2x1 '#' pairs), and a 1-tile bar counter in the designated bar zone.
+
+Option B: Room-in-Room (simpler to implement with existing code)
+1. Carve the entire interior as floor (one large RectRoom sized 60x45).
+2. Place interior partition "walls" — short 1-tile-thick wall stubs (3-8 tiles long)
+   that divide the space into sections without fully enclosing any zone.
+3. Add clustered obstacle groups: 2-3 tile wide clumps of wall tiles for slot machines,
+   table arrangements, etc.
+4. Place the bar as a U-shaped wall enclosure open on one side.
+5. VIP room: a small RectRoom at the back with a 3-tile opening and 1 guard.
+
+This guide presents Option B since it requires no new generator class.
+
+IMPLEMENTATION NOTES
+--------------------
+- generate_casino() in zone_generators.py: carve the master floor rect first, then
+  place interior obstacles via _carve_rect calls that SET tiles back to TILE_WALL
+  (reverse carving) to create partitions and obstacles.
+- "Obstacle clusters" for slot machines: a 2x3 block of TILE_WALL tiles.
+- The bar counter: a 10x1 strip of TILE_WALL, leaving a 2-tile gap at each end.
+- Wide archways at partition intersections: naturally formed by leaving gaps in the
+  partition stubs.
+- dungeon.rooms should still contain logical room references for spawn/loot placement.
+  Use notional sub-rooms (Rect bounding boxes over each zone) even though the floor
+  is continuous — these are spawn zones only, not carved rooms.
+- Enemy AI: wander_ambush works well here since the open floor gives long LOS.
+  Guards near the VIP room should use room_guard mode with a patrol rect.
+
+
+MOCKUP 1 — BASIC OPEN FLOOR PLAN (36x22)
+------------------------------------------
+Two partition stubs divide floor into 3 main zones. VIP room at upper right.
+Slot machines = 'S' obstacle blocks. Bar = '=' counter.
+
+######################################
+#....................................#
+#..Slot Area.......Card Tables.......#
+#..S.S.S...##.........[].[].[]...#..#
+#..S.S.S...##.......[].[].[].....#.V#
+#..S.S.S...  .......[].[].[]....+++.#
+#..........  ..............................#
+#..........##..............................#
+#..........##....................=======...#
+#.......Open Floor...............=  Bar =..#
+#..........  ................... = = = =...#
+#..........  ...............................#
+#..........##...............................#
+#..........##....Poker Tables...............#
+#....[].[].  .....[].[].[]..............[]..#
+#...[].[].[] ##...[].[].[]..............[]..#
+#....[].[].  ##.............................#
+#..........##...............................#
+#..........##...............................#
+#....................................#
+#....................................#
+######################################
+
+MOCKUP 2 — COMPRESSED BSP LAYOUT (36x22)
+------------------------------------------
+Four BSP leaves. Partitions run horizontally (top half) and vertically (bottom half).
+Wide archways marked with '+++ '.
+
+######################################
+#.............++............#
+#..Slots Zone.++.Card Zone..#
+#.S.S.S.S.....++............#
+#.S.S.S.S.++..++.[].[].[]...#
+##############  ############
+#.............++............#
+#...Bar Zone..++.VIP Lounge.#
+#.===========.++............#
+#.==.Back Bar.++.+---+......#
+#.==.========.++.|   |......#
+##############  ############
+#......................#
+#...Open Dance Floor...#
+#......................#
+######################################
+
+MOCKUP 3 — FULL DETAIL (38 wide x 24 tall)
+--------------------------------------------
+Shows slot machine clusters (2x2 '#'), card table pairs ('[]'), bar counter ('='),
+VIP alcove, and a central fountain ('~').
+
+########################################
+#......................................#
+#.Slots.....###.....Card Tables........#
+#..##.##....###...[].[].[].[].[].......#
+#..##.##....   ...[].[].[].[].[].......#
+#..##.##....###...[].[].[].[].[].......#
+#..##.##....###................................#
+#...........   ...............................#
+#...........###.....~~.....Bar.................#
+#...........###....~~~~....==========..........#
+#..........Open Floor....  ==========..........#
+#...........###....~~~~....==== Bar ==..........#
+#...........###.....~~.....==========..........#
+#...........   ................................#
+#...........###..........VIP Entrance..........#
+#...........###..........+++................#
+#..Poker.Rm.###..........#...VIP Lounge...#
+#..[].[].[].   ..........#...............#
+#..[].[].[].###..........#....(guard).....#
+#..[].[].[].###..........#...............#
+#...........   ..........#################
+########################################
+
+Legend:
+  ## = slot machine cluster (2x2 wall obstacle)
+  [] = card/poker table (1x2 wall obstacle)
+  == = bar counter (1-tile wall strip)
+  ~~ = fountain (water tile, impassable or cosmetic)
+  +++ = wide archway into VIP (3-tile gap in wall)
+  ### = partition stub (short wall, does not span full room)
+
+BALANCE NOTE
+-------------
+Open floors change the meta significantly. Ranged enemies (gun users) become
+extremely dangerous because the player cannot break LOS. Conversely, Blackkk Magic
+and gun builds shine here because of the long unobstructed lines. Melee enemies
+clump up and are easier to kite. Consider restricting the Casino to floors where
+the player is likely to have some ranged capability (floor 5+).
+
+
+==========================================================================================
+SECTION 3 — UNDERPRISON: CELLULAR AUTOMATA CAVERNS
+==========================================================================================
+
+CONCEPT
+-------
+The Underprison is below street level — part abandoned correctional facility, part natural
+cave system that broke through the old basement. The layout reads as organic rock chambers
+connected by narrow, winding passages, but with rectangular cells (the old prison cells)
+embedded in the cave walls. Cells still have bars (single-tile wall segments with a gap).
+Lighting is sparse. Dead ends are common — the player must backtrack. Some chambers are
+flooded (water tiles). The down-stairs might be at the bottom of a pit, reachable only
+after finding the right passage through the caves.
+
+ALGORITHM — CELLULAR AUTOMATA + EMBEDDED PREFAB CELLS
+-------------------------------------------------------
+Phase 1: Seed
+  Fill the dungeon with random noise: each tile is TILE_FLOOR with probability P (P=0.45).
+  Leave a 2-tile wall border at all edges.
+
+Phase 2: Smooth (5-7 iterations)
+  For each tile, count living neighbors in a 3x3 Moore neighborhood.
+  Apply rule: if count >= 5 → TILE_WALL; else → TILE_FLOOR.
+  (Classic "5-rule" automaton. Produces cave-like blobs with narrow connectors.)
+
+Phase 3: Flood-fill connectivity check
+  Find the largest connected floor region via flood fill.
+  Punch 1-tile-wide corridors between any disconnected regions and the main region.
+  This ensures the entire map is reachable. Keep these connectors as-is (do not smooth
+  them — they become the narrow winding passages).
+
+Phase 4: Embed prison cells
+  Select 4-8 random wall clusters adjacent to open cave area.
+  Carve 3x4 RectRooms (cell size) at these locations.
+  Place a 1-tile "bar" wall in the opening to each cell — a wall tile with a 1-tile gap
+  beside it (the cell door). If the cell is already accessible from the cave, place the
+  bar wall 1 tile inside the room.
+
+Phase 5: Water placement
+  For 1-2 low-lying chambers, flood fill a small area with TILE_WATER (new tile type,
+  or use existing TILE_FLOOR with a water marker). Impassable or slows movement.
+  Alternatively use cosmetic '~' floor tiles if TILE_WATER is not yet implemented.
+
+Phase 6: Register rooms
+  Flood-fill the largest cave regions and register them as CavernRoom instances
+  in dungeon.rooms so that spawn/loot logic can use them.
+
+IMPLEMENTATION NOTES
+--------------------
+- This is the most complex generator. Add generate_underprison() to zone_generators.py.
+- The CA loop runs on dungeon.tiles directly: seed → iterate → flush.
+- "Embedded cells" are carved AFTER the CA pass, so they appear as distinct rectangular
+  pockets in the organic cave wall. They will naturally contrast with the cave shape.
+- Cell bars: place TILE_WALL at (cx, cy) and leave (cx+1, cy) as TILE_FLOOR. Two bars
+  spaced 2 apart creates a classic prison cell front.
+- Flood-fill connectivity: simple BFS from the first open tile. Any floor tile not reached
+  is either isolated (wall it off) or connected via a 1-tile punch.
+- dungeon.rooms[0] = entry cave region, rooms[-1] = deepest chamber with stairs.
+- Recommended: 2-3 CA iterations for less-connected caves (more dead ends), 5-6 for more
+  open caves. Use floor_num to tune: deeper floors = fewer iterations = tighter caves.
+
+MOCKUP 1 — SHALLOW FLOOR (30x20, 5 CA iterations)
+---------------------------------------------------
+More open. Prison cells embedded in upper walls.
+
+##############################
+###...........................####
+##.............................##
+#...............................#
+#......#####.....##.....####....#
+#......#...#.....##.....#..#....#
+#....Cell..#.....##...Cell.+....#
+#......#[].+.....##.....#..#....#
+#......#####.....##.....####....#
+#...................#............#
+#.........###.......#...........#
+#.........###.......#...........#
+#.....####...#......############
+#.....#........#................#
+#.....#........#................#
+#.....#...~~~~.#.....cave...#...#
+#.....#...~~~~.#............#...#
+####..#########.#...........#...#
+   ###              ############
+   (stairs down in lower right chamber)
+
+MOCKUP 2 — DEEP FLOOR (30x20, 2 CA iterations)
+------------------------------------------------
+Tighter passages. Many dead ends. Cells are cramped pockets.
+
+##############################
+###########.#######.##########
+#.#........#.......#........##
+#.#..Cell..+.Cave..+........#
+#.#...[].#.#.......#.........#
+#########.#.#######.#.#######
+#.........#.........#.#
+#...######...#####...#.#######
+#..........#.........#.......#
+###.#.#####.###.#####.#.#####
+  #.#.#....#.#..#.....#.#
+  #.#.+Cell#.#..#...##.+.Cell#
+  #.#.#....#.#..#...##.#.....#
+  #...#####.#...#####..#.....#
+  #.........#...........#####
+  ###.#######.##########
+    #.#.......#
+    #.#...~~~~#  <- flooded chamber
+    #.#...~~~~#
+    ########.##
+         (stairs)
+
+Legend:
+  [] = debris/cot in cell (cosmetic obstacle, 1 wall tile)
+  ~~ = flooded floor (water tile)
+  +  = cell door gap (1-tile opening in bar wall)
+  .  = cave floor (carved by CA)
+
+BALANCE NOTE
+------------
+CA caves tend toward high-branching-factor layouts — many rooms but uneven connectivity.
+Dead ends should reward exploration: place guaranteed loot in dead-end pockets. The prison
+cells, being cramped, are natural one-on-one combat arenas. The flooded chambers create
+navigational puzzles if water slows movement. CA is sensitive to its seed probability P:
+lower P (0.40) = more walls, fewer connections; higher P (0.50) = large open blobs.
+
+
+==========================================================================================
+SECTION 4 — BOTANICAL WEED GARDEN: ORGANIC RING LAYOUT
+==========================================================================================
+
+CONCEPT
+-------
+The Botanical Weed Garden is a hidden greenhouse/grow-op, either rooftop or underground.
+The layout has a central hub room (the main grow tent or central irrigation hub) with
+radiating paths leading to individual garden chambers. Each chamber is a separate growing
+area — some are rectangular hydroponic bays, some are more organic outdoor-style plots.
+The paths between chambers are not straight corridors but gently curving walkways (achieved
+with diagonal or slightly irregular carving). Scattered obstacles in the garden zones
+represent planters, grow bags, and trellises. Some open areas have dense '%' vegetation
+tiles that slow movement or block vision. Water channels '~' run through some chambers.
+
+ALGORITHM — HUB AND SPOKE WITH ORGANIC SMOOTHING
+-------------------------------------------------
+Phase 1: Hub room
+  Place a CircleRoom (radius 5-6) at the approximate center of the map.
+  This is the control room / main grow station. It is always rooms[0].
+
+Phase 2: Spoke placement
+  Choose 5-8 evenly-spaced angles around the hub (e.g. 0, 45, 90, 135, 180, 225, 270, 315
+  degrees). For each spoke angle, compute a target point at distance 12-18 tiles from hub
+  center along that angle.
+
+Phase 3: Garden chambers
+  At each spoke endpoint, place a room. Alternate between:
+  - RectRoom (5x6 to 8x8) — hydroponic bay
+  - CircleRoom (radius 3-4) — organic circular garden plot
+  - DiamondRoom (radius 3) — unusual shaped plot (a nice garden shape)
+  Reject placements that overlap existing rooms (apply standard padding check).
+
+Phase 4: Spoke corridors
+  Connect each garden chamber back to the hub using the existing carve_corridor() function.
+  Additionally, add a random "wander" to the corridor: instead of a straight L-corridor,
+  pick a midpoint offset by +-2 tiles from the L-bend, creating a slightly dog-legged path.
+  This gives the walkways an organic feel without full drunk-walk complexity.
+
+Phase 5: Cross-connections
+  Connect 2-3 adjacent chamber pairs with short corridors (bypassing the hub). This
+  creates loops and prevents the hub from being the only bottleneck, giving the player
+  more tactical options for circling enemies.
+
+Phase 6: Vegetation obstacles
+  Inside each garden chamber, place 30-50% of floor tiles as '%' vegetation tiles.
+  These are TILE_FLOOR (passable) but have a special marker that: (a) blocks LOS beyond
+  1 tile (like low brush), or (b) applies a slow effect. Use a separate set or dict
+  dungeon.vegetation_tiles: set[tuple[int,int]] to track these.
+  Place them in irregular clusters (a small drunk-walk blob seeded at a random room tile).
+
+Phase 7: Water channels
+  In 1-2 chamber rooms, carve a 1-tile-wide row/column of TILE_WATER ('~') tiles as
+  an irrigation channel. These are impassable obstacles, forcing the player to navigate
+  around them.
+
+IMPLEMENTATION NOTES
+--------------------
+- generate_botanical_garden() in zone_generators.py.
+- Hub room is a CircleRoom; spoke chambers are mixed types as above.
+- The "vegetation tile" concept is new to the engine. Simplest implementation: a
+  dungeon.vegetation_tiles: set[tuple] that render.py draws as '%' instead of '.'.
+  Engine checks this set when computing LOS if the "blocks LOS" property is desired.
+  If not implementing LOS blocking immediately, vegetation can be purely cosmetic.
+- Spoke corridors: carve_corridor() already does L-shaped carving. For the organic
+  variant, call _carve_wide_corridor(from_point, midpoint_offset) then
+  _carve_wide_corridor(midpoint_offset, to_point) where midpoint_offset is the L-bend
+  location randomized by +-2. Width=1 for narrow paths, width=2 for main spokes.
+- Cross-connections between adjacent chambers: compute which pairs are within distance
+  threshold (15 tiles center-to-center) and connect 2-3 of them.
+- dungeon.rooms layout: [hub, garden1, garden2, ..., gardenN].
+  rooms[0] = hub = entry and exit point (or separate entry ante-room).
+
+MOCKUP 1 — 5-SPOKE LAYOUT (38x28)
+-----------------------------------
+Hub at center. 5 garden chambers at cardinal + diagonal positions.
+Cross-connection between east and southeast chambers.
+
+######################################
+####.....####
+###.Garden N..###
+##...%%...%%...##
+#....%%...%%....#
+#....%%...%%....#    <- vegetated garden chamber (north)
+##...............##
+ ##.........####
+  #...........#
+ ##....HUB.....##  <- central circle room
+#...............#
+##.....###.......##
+ #..../   \..####
+ ##../     \..####
+  #.Garden W.# #.Garden E.#
+  #.%%%.%%%.# #...%%%.%%. #
+  #.%%%.%%%.# #...%%%..... #
+  ###.........# ############
+      ########..###########  <- cross-connection
+      #.Garden SE.#
+      #....%%%....#
+      #.%%%.%%%.%.#
+      #...........#
+      #############
+     (stairs down here)
+
+MOCKUP 2 — FULL DETAIL (38 wide x 28 tall)
+--------------------------------------------
+All 8 spokes (north, NE, east, SE, south, SW, west, NW). Two cross-connections.
+'%' = vegetation. '~' = water channel. 'P' = planter obstacle.
+
+######################################
+###....Garden N......###
+##....%%....P....%%...##
+#.....%%...~~~...%%....#
+#.....%%...~~~...%%....#
+##.....................##
+##...######....######...##
+#..../              \....#
+#.Garden NW..HUB...Garden NE.#
+#.%%.%%%.....###.....%%%.%%.#
+#.%%.%.......###.......%.%%.#
+#.###..#......###......#..###.#
+#.###..Garden W.......Garden E.###.#
+#.###..%%%.%.%.........%.%.%%%.###.#
+#.###..%%%.%.%.........%.%.%%%.###.#
+#.###...######.........######..###.#
+#......./                    \.......#
+#.Garden SW.                .Garden SE.#
+#.%%%.%%%.%.                .%.%.%%%.#
+#.%%%.%%.%.                  .%%.%%%.#
+##.............            ..........##
+  ##....Garden S........##
+  #.....%%%.%%%.%%......#
+  #.....%.P.%%.P.%.......#
+  #.....%%%.%%%.%%......#
+  ##.......................##
+     (down stairs here)
+  ##########################
+
+Legend:
+  %  = vegetation tile (passable, cosmetic or LOS-blocking)
+  ~  = water channel (TILE_WATER, impassable)
+  P  = planter (1-tile TILE_WALL obstacle)
+  HUB = central circular room
+  ### = room walls
+
+BALANCE NOTE
+------------
+Hub-and-spoke gives the player a natural home base (the hub) to retreat to. This
+creates a push-pull dynamic: venture out down a spoke, clear the garden, retreat if
+injured. Vegetation density should be tuned per floor: early floors have sparse '%'
+tiles; deep floors have thick brush that enemies can hide in. The water channels in
+certain chambers create forced narrow-pass encounters. Consider placing the staircase
+in the chamber directly opposite the entry direction (player enters from north, stairs
+are in the south chamber) to encourage traversing the whole map.
+
+
+==========================================================================================
+SECTION 5 — TECHNIQUE REFERENCE GUIDE
+==========================================================================================
+
+Each technique is rated:
+  Difficulty: Easy / Medium / Hard / Very Hard (relative to existing NIGRL codebase)
+  Best for: which NIGRL zone type it suits
+
+---------------------------------------------------------------------
+1. RANDOM PLACEMENT + MST (CURRENT SYSTEM)
+---------------------------------------------------------------------
+Description:
+  Place rooms at random positions with overlap rejection. Connect them with a minimum
+  spanning tree (Prim's algorithm) to guarantee connectivity, then add a few extra
+  random connections to create loops. NIGRL uses 11 room shapes (Rect, L, T, Cross,
+  Circle, U, Diamond, Cavern, Hall, Oct, Pillar).
+
+How it works in NIGRL:
+  generate_crack_den() calls each room shape's carve() method, then build_mst() returns
+  index pairs, then carve_corridor() or _carve_wide_corridor() punches the connections.
+
+Pros:
+  - Highly varied output across runs; every floor feels different.
+  - Easy to tune room mix (weights per zone, per floor).
+  - MST guarantees no isolated rooms without extra complexity.
+  - Well-tested; existing code is stable and well-understood.
+
+Cons:
+  - No thematic coherence — a lab room might appear next to a pillar vault.
+  - Corridors can be long and winding, leading to exploration fatigue.
+  - "Surprise" factor decreases once the player learns the room shapes.
+
+Difficulty: Already implemented.
+Best for: Crack Den (eclectic urban building interiors, many different room uses).
+
+---------------------------------------------------------------------
+2. ROOM ACCRETION (BROGUE-STYLE)
+---------------------------------------------------------------------
+Description:
+  Begin with one room. Each new room is placed adjacent to an existing room — not at a
+  random location, but touching or overlapping the current map edge. Repeat until enough
+  rooms are placed. Corridors are minimal or nonexistent since rooms share walls.
+
+How it works:
+  For each new room, try attaching it to a random edge tile of the existing map. Reject
+  placements that overlap previously placed rooms (except the shared edge). The dungeon
+  "grows" organically from a seed room, like cells dividing.
+
+Pros:
+  - Extremely organic feel; tight interconnected layouts.
+  - Very few dead-end corridors — transitions happen through room openings.
+  - No MST required; adjacency ensures connectivity.
+  - Good pacing: player is always one room away from the next encounter.
+
+Cons:
+  - Harder to control overall map shape — can cluster heavily in one area.
+  - Requires careful overlap detection (more complex than current system).
+  - Can produce very small, cramped layouts if rooms are too large.
+  - Harder to guarantee minimum room count on small maps.
+
+Difficulty: Medium (new placement loop, new adjacency detection needed).
+Best for: Underprison (cramped, claustrophobic feel), or a future dungeon interior zone.
+
+---------------------------------------------------------------------
+3. BSP — BINARY SPACE PARTITION
+---------------------------------------------------------------------
+Description:
+  Recursively split the dungeon area into two halves (alternating horizontal/vertical cuts).
+  Continue until each partition is small enough to be a room. Carve a room in each leaf
+  partition, then connect adjacent pairs by working up the BSP tree. Produces very
+  even room distribution with guaranteed connectivity.
+
+How it works:
+  BSP node: (x1, y1, x2, y2, left_child, right_child). Split point chosen randomly within
+  the middle 50% of the partition dimension to prevent tiny slivers. Leaf nodes carve
+  rooms slightly smaller than their partition (padding 1-2 tiles). Each split node
+  connects its two children's rooms with a corridor.
+
+Pros:
+  - Very even coverage; no area of the map is left empty.
+  - Guaranteed connectivity by tree structure (no MST needed).
+  - Room sizes are naturally proportional to available space.
+  - Easy to reserve a specific quadrant (always put boss room bottom-right, etc.).
+
+Cons:
+  - Layouts can feel grid-like and regular, less surprising than random placement.
+  - All corridors are axis-aligned; no diagonal connections.
+  - Room shapes are always rectangles (or simple variants) unless you modify leaf carving.
+  - Less variety per run unless BSP split choices are heavily randomized.
+
+Difficulty: Medium (BSP tree implementation, ~80-100 lines new code).
+Best for: Casino (structured, architectural feel), corporate offices, hotel.
+
+---------------------------------------------------------------------
+4. CELLULAR AUTOMATA
+---------------------------------------------------------------------
+Description:
+  Seed the map with random floor/wall tiles, then repeatedly apply a neighbor-counting rule:
+  a tile becomes wall if it has >= N wall neighbors; otherwise becomes floor. Run 4-8
+  iterations. The result looks like natural caves — organic blobs connected by narrow
+  passages.
+
+How it works in NIGRL context:
+  Operate directly on dungeon.tiles. After CA smoothing, run a flood-fill to detect
+  disconnected cave regions and punch 1-tile corridors to join them. Register each large
+  connected region as a CavernRoom for spawn purposes.
+
+Pros:
+  - Most organic-looking output of any technique.
+  - Dead ends and alcoves arise naturally; rewards thorough exploration.
+  - Unpredictable layout; hard to memorize across runs.
+  - Cave rooms blend seamlessly into passages (no visible "room + corridor" structure).
+
+Cons:
+  - Hard to control. Connectivity fixes can create ugly 1-tile tunnels.
+  - Spawn placement is harder — no clean room centers; must use flood-fill regions.
+  - Can produce very large open areas OR very isolated pockets depending on seed.
+  - "Rooms" (for spawn logic) must be inferred post-hoc from connected regions.
+  - Might need per-zone tuning of the birth/survival rules.
+
+Difficulty: Medium-Hard (CA loop is simple, but connectivity repair and room registration
+  add complexity). ~120-150 lines new code.
+Best for: Underprison caves, sewers, outdoor ruins (not built environments).
+
+---------------------------------------------------------------------
+5. LINEAR CHAIN + BRANCHING (DESIGNED ABOVE FOR METH LAB)
+---------------------------------------------------------------------
+Description:
+  Place a main corridor running roughly left-to-right (or top-to-bottom). Attach side rooms
+  at regular intervals along both sides of the corridor. Some side rooms have secondary
+  rooms attached to them. The player must traverse the corridor from entry to exit, fighting
+  through or bypassing the side rooms.
+
+How it works:
+  Hard-code the corridor position and length. Compute N attachment points along the
+  corridor. At each point, carve a side room and punch a 2-3 tile opening into the
+  corridor wall. Optionally, add nested rooms behind 30-40% of side rooms.
+
+Pros:
+  - Very strong thematic clarity; reads as "factory" or "warehouse" immediately.
+  - Easy to guarantee a progression from entry to exit (good pacing).
+  - Side rooms create risk/reward branches: player can skip them or clear for loot.
+  - Easy to place boss rooms, locked rooms, or special encounters at specific positions.
+
+Cons:
+  - Low variety between floors; the linear structure is recognizable quickly.
+  - If the player is weak, the main corridor is inescapable — a death trap.
+  - Nested rooms can create "surprise ambush" situations where the player is surrounded.
+  - Needs per-floor variation in side room order/type to stay fresh.
+
+Difficulty: Easy (build on existing room carving + corridor code, ~60-80 new lines).
+Best for: Meth Lab, sewer tunnels, any zone with an industrial or pipeline feel.
+
+---------------------------------------------------------------------
+6. HUB AND SPOKE (DESIGNED ABOVE FOR BOTANICAL GARDEN)
+---------------------------------------------------------------------
+Description:
+  Place one central room. Radiate N corridors outward at evenly-spaced angles. Place a
+  terminal room at each spoke endpoint. Optionally add cross-connections between adjacent
+  spoke rooms to create loops. The hub serves as a safe chokepoint; the player controls
+  the pace by choosing which spoke to explore next.
+
+How it works:
+  Hub room at map center. Compute spoke endpoints using trigonometry (angle, distance).
+  Carve spoke corridors using existing carve_corridor(). Place terminal rooms at endpoints
+  using existing room shape classes.
+
+Pros:
+  - Clear visual identity; immediately readable as a hub-spoke map.
+  - Player agency: choose which spoke to attempt in any order.
+  - Hub is naturally defensible — good for tension (player retreats to hub when hurt).
+  - Cross-connections create interesting loops without sacrificing the spoke structure.
+
+Cons:
+  - The hub is a guaranteed encounter zone; players must pass through it multiple times.
+  - Spoke rooms are isolated — less emergent combat (enemies rarely leave their spoke).
+  - Trigonometry for placement can produce awkward corridor bends on some angles.
+  - Risk of spokes clustering together if the map is too small for the chosen radius.
+
+Difficulty: Medium (trigonometry for spoke endpoints, ~80-100 new lines).
+Best for: Botanical Garden, underground cult temples, sewer junction rooms, boss arenas.
+
+---------------------------------------------------------------------
+7. VORONOI REGIONS
+---------------------------------------------------------------------
+Description:
+  Scatter N "seed" points across the dungeon. Each floor tile is assigned to the nearest
+  seed point (Voronoi region). Carve each region's tiles as floor. The boundaries between
+  regions become walls. Add connections along shared boundaries.
+
+How it works:
+  For each tile (x, y), compute distance to all N seed points. Assign to nearest seed.
+  Mark boundary tiles (tiles where neighbors belong to different regions) as walls.
+  Connect adjacent region pairs by punching a gap in their shared boundary.
+
+Pros:
+  - Produces organic, irregular room shapes that are not rectangles or simple blobs.
+  - Rooms fill the entire dungeon area evenly (no wasted space).
+  - Very distinctive visual style — alien or surreal feel.
+  - Natural variation in room size based on seed point spacing.
+
+Cons:
+  - Very slow to compute naively on a 68x53 grid (N*W*H distance calculations).
+  - Room shapes are hard to predict; can produce very thin regions.
+  - Hard to place specific room types (you carve all regions first, then assign type).
+  - Less thematically clear — Voronoi shapes don't look like rooms you'd build.
+  - Connecting shared-boundary pairs adds another pass of logic.
+
+Difficulty: Hard (~150-200 new lines, plus possible performance issues).
+Best for: Alien environments, drug trip sequences, surreal dream zones.
+Not recommended for realistic NIGRL zones (Casino, Prison, Lab) due to irregular shapes.
+
+---------------------------------------------------------------------
+8. PREFAB TEMPLATES + PROCEDURAL FILLING
+---------------------------------------------------------------------
+Description:
+  Pre-design a set of hand-crafted room templates (stored as lists of strings or 2D
+  arrays). The generator picks and places templates at valid positions, then uses one
+  of the above algorithms to fill the remaining space with procedural rooms/corridors.
+  Templates can encode special tile types, enemy spawn markers, or loot positions.
+
+How it works:
+  Templates are defined as constant lists of strings (e.g. a 10x10 array of '#' and '.').
+  The generator picks 1-3 templates, places them at semi-random positions with overlap
+  rejection, marks those regions as "claimed", then runs random placement on the remaining
+  unclaimed space. Corridors connect template rooms to the procedural rooms via MST.
+
+Pros:
+  - Specific locations (boss arenas, puzzle rooms, traps) are exactly as designed.
+  - Templates can encode rich detail impossible with pure procedural methods.
+  - Reduces "same-y" feel: even a random floor always has one landmark room.
+  - Can encode lore/narrative elements (a specific lab layout, a crashed car, etc.).
+
+Cons:
+  - Requires authoring templates (manual work, but powerful for special rooms).
+  - Templates can feel out of place if the procedural rooms are very different in scale.
+  - Placement can fail if the map is crowded (need fallback to pure procedural).
+  - More code needed to parse, place, and connect templates.
+
+Difficulty: Medium (template parser is simple; placement logic reuses existing code).
+Best for: Special event floors (Haitian Daycare, boss floors), boss arenas, unique
+  landmark rooms within any zone.
+CURRENT USE: The Crack Den already uses a lighter version of this — special rooms like
+  the Dive Bar and Trap Kitchen are effectively prefab spawning patterns applied to
+  randomly-selected rooms. Full template prefabs would encode the room shape as well.
+
+---------------------------------------------------------------------
+9. WAVE FUNCTION COLLAPSE (WFC)
+---------------------------------------------------------------------
+Description:
+  WFC is a constraint-satisfaction algorithm. You define a tileset of small tiles (or
+  3x3 patterns extracted from a hand-designed sample map) and rules about which tiles
+  can be adjacent to which. The algorithm propagates these constraints across the grid,
+  collapsing each tile to a single valid type. The result is a map that statistically
+  resembles the sample input while being entirely new.
+
+How it works (simplified):
+  Each tile starts as a superposition of all possible states (wall, floor, door, etc.).
+  Pick the tile with lowest entropy (fewest valid options). Collapse it to one option.
+  Propagate: update neighbors' possibility sets based on the adjacency rules. Repeat.
+  On contradiction (a tile has zero valid options), backtrack or restart.
+
+Pros:
+  - Can reproduce highly specific visual styles from a single sample image or map.
+  - Emergent patterns: the algorithm finds valid configurations the designer never
+    explicitly specified.
+  - Unique output every run; hard to predict.
+  - Can encode very complex patterns (diagonal walls, curved rooms, etc.).
+
+Cons:
+  - Significantly more complex to implement correctly than any other technique.
+  - Requires carefully designed sample patterns or a good training map.
+  - Backtracking adds unpredictable generation time (can be slow).
+  - Connectivity is not guaranteed and must be checked/fixed post-hoc.
+  - Overkill for most NIGRL zones; best reserved for a single "showcase" zone.
+
+Difficulty: Very Hard (~300-500 lines; needs careful design of the pattern ruleset).
+Best for: A zone with a very specific repeating tile vocabulary — possibly a subway
+  system, a tiled office building, or a future "dream sequence" zone. Not recommended
+  as a first advanced generator; implement all others first.
+
+Note: A simplified "tile-rule" approach (not full WFC) can be implemented more easily:
+  define 5-10 tile "patterns" (e.g. wall-corner, hallway, T-junction) and select/compose
+  them greedily. This achieves 30% of WFC's visual quality at 10% of the code complexity.
+
+
+==========================================================================================
+QUICK COMPARISON TABLE
+==========================================================================================
+
+Technique              | Difficulty | Variety | Thematic Fit        | Zone Match
+-----------------------|------------|---------|---------------------|---------------------------
+Random Placement + MST | Done       | High    | Eclectic            | Crack Den (current)
+Room Accretion         | Medium     | High    | Organic/cramped     | Underprison cells
+BSP                    | Medium     | Medium  | Structured/regular  | Casino, office zone
+Cellular Automata      | Med-Hard   | High    | Natural/cave        | Underprison caves
+Linear Chain           | Easy       | Low     | Industrial/linear   | Meth Lab
+Hub and Spoke          | Medium     | Medium  | Radial/garden       | Botanical Garden
+Voronoi                | Hard       | High    | Alien/surreal       | Future dream zone
+Prefab + Procedural    | Medium     | Medium  | Special landmarks   | Boss floors, events
+WFC                    | Very Hard  | Very Hi | Any (style-matched) | Showpiece future zone
+
+RECOMMENDED IMPLEMENTATION ORDER FOR NIGRL:
+  1. Linear Chain — lowest effort, highest payoff for Meth Lab (next priority zone).
+  2. BSP — clean structural look for the Casino.
+  3. CA + Prefab Cells — combined for Underprison (two passes, moderate effort).
+  4. Hub and Spoke — for Botanical Garden (requires trig but is well-understood).
+  5. Room Accretion — optional alternative for any dungeon-interior zone.
+  6. Voronoi / WFC — future/experimental only.
+
+
+==========================================================================================
+APPENDIX: TILE LEGEND & NOTES ON IMPLEMENTATION IN NIGRL
+==========================================================================================
+
+TILE SYMBOLS (used in all mockups above):
+  # = TILE_WALL     (dungeon.tiles[y][x] = TILE_WALL = 0)
+  . = TILE_FLOOR    (dungeon.tiles[y][x] = TILE_FLOOR = 1)
+  + = door/opening  (just TILE_FLOOR, but called out visually as a transition point)
+  ~ = water         (new TILE_WATER; or TILE_FLOOR + dungeon.water_tiles set marker)
+  % = vegetation    (TILE_FLOOR + dungeon.vegetation_tiles set marker)
+  S = slot machine  (TILE_WALL, 1 tile, placed as interior obstacle)
+  P = pillar/planter(TILE_WALL, 1 tile)
+  [] = table        (TILE_WALL, 2-tile obstacle)
+  = = bar counter   (TILE_WALL, 1-tile strip)
+
+INTEGRATION WITH DUNGEON CLASS (dungeon.py):
+  - All generators work on dungeon.tiles directly (same as generate_crack_den does now).
+  - Register rooms in dungeon.rooms for spawn/loot to work without changes in engine.
+  - If new tile types are needed (TILE_WATER, TILE_VEGETATION), add constants to config.py
+    and handle in render.py (color/char mapping) and engine.py (collision/effect checks).
+  - dungeon.room_tile_map, dungeon.room_tile_map inverse: update these after generation
+    so that corridor tile detection still works correctly.
+  - The entry room (rooms[0]) convention: ALWAYS keep this; spawn/loot code assumes
+    rooms[0] is where the player starts and skips it for monster spawning.
+
+RECOMMENDED ROOM SIZE RANGES (for new zones to fit 68x53 grid):
+  Small room:       4x4 to 6x6       (cell, closet, alcove)
+  Standard room:    6x5 to 10x8      (lab, garden chamber, prison block)
+  Large room:       10x8 to 16x10    (cook room, casino zone, main cavern)
+  Hub room:         radius 4-6 circle (10x10 to 14x14 bounding box)
+  Main corridor:    length 50-56, width 3 (for Linear Chain layout)
+  Max rooms on map: 10-16 (current Crack Den range); new zones may use fewer, larger rooms.

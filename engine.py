@@ -97,7 +97,20 @@ class GameEngine:
         {"label": "Borderless 1440p",      "flags": "borderless", "width": 2560, "height": 1440},
     ]
 
-    def __init__(self):
+    def __init__(self, seed=None):
+        # --- Seed (for reproducible runs) ---
+        if seed is None:
+            # Generate a random 10-char alphanumeric seed for display
+            _chars = "1346789ABCDEFGHIJKLMNPQRTUVWXY"
+            seed = "".join(random.choice(_chars) for _ in range(10))
+        random.seed(seed)
+        self.seed = seed
+
+        # Reset cached per-game state in loot generation
+        from loot import generate_floor_loot
+        if hasattr(generate_floor_loot, '_guaranteed_weapon_floor'):
+            del generate_floor_loot._guaranteed_weapon_floor
+
         # --- Render callback (set by main loop for mid-turn rendering) ---
         self.render_callback = None
         self.tcod_context = None  # set by main loop
@@ -127,7 +140,7 @@ class GameEngine:
         self._roll_floor_events()
 
         # --- Dungeon ---
-        self.dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT)
+        self.dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, floor_num=0)
         self.dungeons[0] = self.dungeon
 
         # --- Player ---
@@ -144,6 +157,7 @@ class GameEngine:
         )
 
         self.player_stats = PlayerStats()
+        self.player_stats._player = self.player        # back-ref for total_spell_damage WMB check
         self.player.stats = self.player_stats          # expose stats to AI condition functions
         self.player.max_hp = self.player_stats.max_hp
         self.player.hp = self.player_stats.max_hp
@@ -177,6 +191,8 @@ class GameEngine:
         self._perk_popup_return_state: MenuState = MenuState.NONE  # menu to return to after popup
         self.death_screen_cursor: int = 0  # 0 = Restart, 1 = Quit
         self.destroy_confirm_cursor: int = 0  # 0 = No (default), 1 = Yes
+        self.midas_cursor: int = 0
+        self._midas_brew_item = None
         self.restart_requested: bool = False
         self.entered_meth_lab: bool = False  # unlocks toxicity display on char sheet
         self.skills_cursor: int = 0        # selected skill row (0-14)
@@ -205,6 +221,7 @@ class GameEngine:
         self.neck: Entity | None = None  # neck slot (only one)
         self.feet: Entity | None = None  # feet slot (only one)
         self.hat: Entity | None = None   # hat slot (only one)
+        self._best_chain_armor_this_floor: int = 0  # anti-exploit: tracks best chain equipped this floor
         self.equipment_cursor: int = 0  # indexes into flat occupied-slot list (weapon → neck → feet → hat → rings)
 
         # --- Sublevel state ---
@@ -229,6 +246,8 @@ class GameEngine:
         self.targeting_spell: dict | None = None
         self.targeting_ability_index: int | None = None  # ability whose charge to consume on fire
         self.spray_paint_pending: dict | None = None     # {"item_index": int, "spray_type": str}
+        self.spider_egg_pending: dict | None = None      # {"item_index": int}
+        self.graffiti_gun_loading: bool = False
         self.last_targeted_enemy = None  # Entity ref: last enemy targeted by any cursor targeting
 
         # --- Entity targeting state (f-key target select) ---
@@ -247,8 +266,16 @@ class GameEngine:
         self.abilities_cursor: int = 0
         self.ability_cooldowns: dict[str, int] = {}  # ability_id -> turns remaining
         self.crit_multiplier: int = 2  # base crit damage multiplier (Crit+ perk increases this)
+        self._spellweaver_last_spell: str | None = None  # ability_id of last spell cast
+        self._spellweaver_last_turn: int = -99           # turn number of last spell cast
         self.move_cost_reduction: int = 0  # energy refunded per actual move step (Air Jordans perk)
         self._player_just_moved: bool = False  # True when the last handle_move did real movement
+        self._last_action_was_attack: bool = False  # set True when a melee/gun attack resolves
+        self.player_move_cost: int = ENERGY_THRESHOLD     # energy spent per move action
+        self.player_attack_cost: int = ENERGY_THRESHOLD   # energy spent per attack action
+        self.action_cost_mult: float = 1.0               # multiplier on all player action costs (Stride buff)
+        self._titan_blood_available: bool = True          # Titan's Blood Ring: can proc this floor
+        self._titan_blood_was_above_25: bool = True       # Titan's Blood Ring: player was above 25% HP
 
         # --- Gun system state ---
         self.primary_gun: str | None = None       # "sidearm" or "weapon" slot name
@@ -260,12 +287,37 @@ class GameEngine:
         self.gatting_consecutive_count: int = 0                # Gatting L1 stacking bonus
         self.gun_ability_active: dict | None = None  # active gun ability spec during GUN_TARGETING
         self.gun_jammed: bool = False  # True when gun is jammed; must clear before firing
+        self.staff_firing: dict | None = None  # active staff info during GUN_TARGETING
+        self.arcane_flux_active: bool = False  # Elementalist L3: charge preservation applies to cooldowns
         self.snipers_mark_target_id: str | None = None  # instance_id of marked target
         self.dead_eye_swagger_gained: int = 0              # Sniping L2: swagger gained this floor
         self.unfazed_swagger_gained: int = 0               # L Farming L3: swagger gained this floor
 
+        # --- Spec energy system (spec weapon special attacks) ---
+        self.spec_energy: float = 0.0       # 0–100; drained by spec abilities, restored passively
+        self._spec_energy_counter: int = 0  # ticks since last spec regen
+
+        # --- Electrodynamics L5: Static Reserve charge regen timer ---
+        self._static_reserve_timer: int = 0
+
         # --- Mutation system ---
         self.mutation_log: list[dict] = []
+
+        # --- Vending machine state ---
+        self.vending_machine: object = None     # Entity ref: active vending machine
+        self.vending_cursor: int = 0            # cursor in vending menu
+
+        # --- Shop item state (Tyrone's Penthouse) ---
+        self.shop_item_entity: object = None    # Entity ref: shop item being inspected
+
+        # --- Hotbar state ---
+        from config import HOTBAR_SLOTS
+        self.hotbar: list[str | None] = [None] * HOTBAR_SLOTS  # ability_id per slot
+
+        # --- Channeling state ---
+        # Active channel: {"ability_id": str, "turns_remaining": int, "params": dict}
+        # params holds ability-specific data (e.g. direction for Ray of Frost)
+        self._channel: dict | None = None
 
         # --- Look mode state ---
         self.look_cursor: list[int] = [0, 0]
@@ -277,6 +329,8 @@ class GameEngine:
         self.dev_item_list: list[str] = []      # flat sorted list of item_ids for spawn picker
         self.dev_item_cursor: int = 0           # cursor position in spawn picker
         self.dev_item_scroll: int = 0           # scroll offset for spawn picker
+        self.dev_item_search: str = ""          # search filter for spawn picker
+        self.dev_item_filtered: list[str] = []  # filtered item list based on search
         self.dev_floor_cursor: int = 0          # cursor position in floor teleport picker
         self.dev_skill_cursor: int = 0          # cursor position in skill level-up picker
         self.dev_skill_scroll: int = 0          # scroll offset for skill level-up picker
@@ -293,6 +347,7 @@ class GameEngine:
             "open_perks_menu": self._action_open_perks_menu,
             "toggle_abilities": self._action_toggle_abilities,
             "select_item": self._action_select_item,
+            "select_action": self._action_hotbar_use,
             "close_menu": self._action_close_menu,
             "quit": self._action_quit,
             "descend_stairs": self._action_descend_stairs,
@@ -327,6 +382,9 @@ class GameEngine:
             MenuState.LOOK_TARGETING: self._handle_look_targeting,
             MenuState.LOOK_INFO: self._handle_look_info,
             MenuState.SETTINGS: self._handle_settings_input,
+            MenuState.VENDING_MACHINE: self._handle_vending_machine_input,
+            MenuState.MIDAS_BREW: self._handle_midas_brew_input,
+            MenuState.SHOP_ITEM: self._handle_shop_item_input,
         }
 
     # ------------------------------------------------------------------
@@ -373,6 +431,57 @@ class GameEngine:
         self.event_bus.on("entity_died", self._on_death_graffiti_heal)
         self.event_bus.on("entity_died", self._on_death_graffiti_xp)
         self.event_bus.on("entity_died", self._on_black_widow_death)
+        self.event_bus.on("entity_died", self._on_kill_fireball_charge)
+        self.event_bus.on("entity_died", self._on_kill_sangria_extend)
+        self.event_bus.on("entity_died", self._on_kill_venom_pool)
+        self.event_bus.on("entity_died", self._on_kill_staff_charge)
+        self.event_bus.on("entity_died", self._on_kill_victory_rush)
+        self.event_bus.on("entity_died", self._on_kill_berserk)
+        self.event_bus.on("entity_died", self._on_kill_corpse_explosion)
+        self.event_bus.on("entity_died", self._on_kill_curse_voodoo_drop)
+
+    def _on_kill_berserk(self, entity, killer=None):
+        """Berserker's Ring: on melee kill, apply independent +4 STR for 10 turns."""
+        if entity.entity_type != "monster" or killer != self.player:
+            return
+        if not self._last_action_was_attack:
+            return
+        # Check if any equipped ring has the berserkers_ring tag
+        has_ring = any(
+            r is not None and "berserkers_ring" in (get_item_def(r.item_id) or {}).get("tags", [])
+            for r in self.rings
+        )
+        if not has_ring:
+            return
+        import effects as _eff
+        berserk = _eff.BerserkEffect(duration=10)
+        berserk.apply(self.player, self)
+        self.player.status_effects.append(berserk)
+        # Count active stacks
+        stack_count = sum(1 for e in self.player.status_effects if getattr(e, 'id', '') == 'berserk')
+        self.messages.append([
+            ("Berserk! ", (255, 80, 40)),
+            (f"+4 STR for 10 turns (x{stack_count})", (255, 180, 100)),
+        ])
+
+    def _on_kill_curse_voodoo_drop(self, entity, killer=None):
+        """Blackkk Magic L4 (Dark Covenant): 25% chance to drop a Voodoo Doll when a cursed enemy dies."""
+        if entity.entity_type != "monster" or killer != self.player:
+            return
+        if self.skills.get("Blackkk Magic").level < 4:
+            return
+        # Check if the enemy had a curse effect
+        if not any(getattr(e, 'is_curse', False) for e in entity.status_effects):
+            return
+        if random.random() >= 0.25:
+            return
+        from items import create_item_entity
+        kwargs = create_item_entity("voodoo_doll", entity.x, entity.y)
+        self.dungeon.add_entity(Entity(**kwargs))
+        self.messages.append([
+            ("Dark Covenant! ", (140, 60, 180)),
+            (f"The {entity.name} dropped a Voodoo Doll.", (200, 160, 255)),
+        ])
 
     def _on_black_widow_death(self, entity, killer=None):
         """When a Black Widow dies, cleanse all venom effects from the player."""
@@ -391,15 +500,248 @@ class GameEngine:
                 (f"{cleansed} venom effect(s) cleansed!", (200, 255, 200)),
             ])
 
+    def _on_kill_fireball_charge(self, entity, killer=None):
+        """Pyromania L6: killing an enemy with 5+ ignite stacks grants +1 Fireball charge."""
+        if killer is not self.player:
+            return
+        pyro = self.skills.get("Pyromania")
+        if not pyro or pyro.level < 6:
+            return
+        ignite_eff = next((e for e in entity.status_effects
+                           if getattr(e, 'id', '') == 'ignite'), None)
+        if ignite_eff and ignite_eff.stacks >= 5:
+            self.grant_ability_charges("fireball", 1, silent=False)
+            self.messages.append([
+                ("Inferno Kill! ", (255, 100, 20)),
+                ("+1 Fireball charge!", (255, 200, 60)),
+            ])
+
+    def _on_kill_sangria_extend(self, entity, killer=None):
+        """Sangria 40: killing an enemy extends Sangria buff by 20 turns."""
+        if killer is not self.player:
+            return
+        sangria = next(
+            (e for e in self.player.status_effects if getattr(e, 'id', '') == 'sangria'),
+            None,
+        )
+        if sangria:
+            sangria.extend_on_kill(self)
+
+    def _on_kill_venom_pool(self, entity, killer=None):
+        """Arachnigga L3 — Toxic Bite: enemies that die while venomed leave a Venom Pool."""
+        if entity.entity_type != "monster":
+            return
+        if self.skills.get("Arachnigga").level < 3:
+            return
+        has_venom = any(getattr(e, 'id', '') == 'venom' for e in entity.status_effects)
+        if not has_venom:
+            return
+        from hazards import create_venom_pool
+        # Don't spawn if a venom pool already exists at this tile
+        if any(getattr(h, 'hazard_type', None) == 'venom_pool'
+               for h in self.dungeon.get_entities_at(entity.x, entity.y)):
+            return
+        self.dungeon.add_entity(create_venom_pool(entity.x, entity.y))
+        self.messages.append([
+            ("The ", (200, 200, 200)),
+            (f"{entity.name}", (200, 200, 220)),
+            ("'s venom pools on the ground!", (80, 200, 60)),
+        ])
+
+    def _on_kill_staff_charge(self, entity, killer=None):
+        """Any enemy death: +1 charge to all staves (equipped + inventory), cap 99."""
+        if entity.entity_type != "monster":
+            return
+        from items import get_item_def
+        staves = []
+        # Check equipped weapon
+        weapon = self.equipment.get("weapon")
+        if weapon:
+            wdefn = get_item_def(weapon.item_id)
+            if wdefn and wdefn.get("staff_element"):
+                staves.append(weapon)
+        # Check inventory
+        for item in self.player.inventory:
+            idefn = get_item_def(item.item_id)
+            if idefn and idefn.get("staff_element"):
+                staves.append(item)
+        for staff in staves:
+            if getattr(staff, 'charges', None) is not None:
+                staff.charges = min(99, staff.charges + 1)
+
+    def _on_kill_victory_rush(self, entity, killer=None):
+        """Kill with a beating weapon: +1 Victory Rush charge (max 1)."""
+        if entity.entity_type != "monster" or killer != self.player:
+            return
+        vr = next((a for a in self.player_abilities if a.ability_id == "victory_rush"), None)
+        if vr is None:
+            return
+        # Check if wielding a beating weapon
+        from items import get_item_def, weapon_matches_type
+        weapon = self.equipment.get("weapon")
+        if weapon:
+            wdefn = get_item_def(weapon.item_id)
+            if not wdefn or not weapon_matches_type(wdefn, "beating"):
+                return
+        else:
+            # Unarmed counts as smacking, not beating
+            return
+        if vr.charges_remaining < 1:
+            vr.charges_remaining = 1
+            self.messages.append([
+                ("Victory Rush: ", (255, 200, 50)),
+                ("+1 charge!", (200, 255, 100)),
+            ])
+
+    def _on_kill_corpse_explosion(self, entity, killer=None):
+        """Infected L4: Corpse Explosion. Enemies killed during Zombie Rage explode."""
+        if entity.entity_type != "monster":
+            return
+        if self.skills.get("Infected").level < 4:
+            return
+        # Must have Zombie Rage active
+        if not any(getattr(e, 'id', '') == 'zombie_rage' for e in self.player.status_effects):
+            return
+
+        import math
+        from combat import add_infection
+
+        # Track chain depth for escalating infection cost
+        depth = getattr(self, '_corpse_chain_depth', 0)
+        self._corpse_chain_depth = depth + 1
+
+        # Explosion damage: 30% of dead enemy's max HP
+        raw_dmg = max(1, int(entity.max_hp * 0.30))
+
+        # Hit all enemies in Euclidean radius 3
+        targets_hit = []
+        for ent in list(self.dungeon.entities):
+            if ent.entity_type != "monster" or not ent.alive or ent is entity:
+                continue
+            dx = ent.x - entity.x
+            dy = ent.y - entity.y
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist <= 3.0:
+                actual_dmg = max(1, raw_dmg - ent.defense)
+                ent.take_damage(actual_dmg)
+                targets_hit.append((ent, actual_dmg))
+
+        if targets_hit:
+            # Infection gain: 2 base + 2 per chain depth
+            infection_gain = 2 + 2 * depth
+            add_infection(self, self.player, infection_gain)
+
+            names = ", ".join(f"{t.name} ({d})" for t, d in targets_hit)
+            self.messages.append([
+                ("Corpse Explosion! ", (200, 80, 50)),
+                (f"{entity.name} explodes! {names}", (220, 150, 100)),
+                (f" (+{infection_gain} infection)", (120, 200, 50)),
+            ])
+
+            # Check for Infection Nova trigger
+            if (self.player.infection >= self.player.max_infection
+                    and not any(getattr(e, 'id', '') == 'hollowed_out'
+                                for e in self.player.status_effects)):
+                self._trigger_infection_nova()
+
+            # Emit entity_died for explosion kills → chains
+            for ent, _dmg in targets_hit:
+                if not ent.alive:
+                    self.event_bus.emit("entity_died", entity=ent, killer=self.player)
+
+        self._corpse_chain_depth = depth  # restore
+
+    def _trigger_infection_nova(self):
+        """Infection Nova: STR×3 damage + 2t stun in Euclidean radius 5. Reset to 50 infection."""
+        import math
+        import effects
+
+        str_val = self.player_stats.effective_strength
+        nova_dmg = str_val * 3
+        px, py = self.player.x, self.player.y
+        hit_count = 0
+
+        targets_killed = []
+        for ent in list(self.dungeon.entities):
+            if ent.entity_type != "monster" or not ent.alive:
+                continue
+            dx = ent.x - px
+            dy = ent.y - py
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist <= 5.0:
+                actual_dmg = max(1, nova_dmg - ent.defense)
+                ent.take_damage(actual_dmg)
+                if ent.alive:
+                    effects.apply_effect(ent, self, "stun", duration=2, silent=True)
+                else:
+                    targets_killed.append(ent)
+                hit_count += 1
+
+        # Reset infection to 50 and apply Hollowed Out
+        self.player.infection = 50
+        effects.apply_effect(self.player, self, "hollowed_out")
+
+        self.messages.append([
+            ("INFECTION NOVA! ", (255, 50, 50)),
+            (f"{nova_dmg} damage to {hit_count} enemies! Infection reset to 50.", (255, 180, 100)),
+        ])
+
+        # Emit entity_died for nova kills (can chain more explosions)
+        for ent in targets_killed:
+            self.event_bus.emit("entity_died", entity=ent, killer=self.player)
+
     def _on_entity_damaged(self, entity, raw_damage, hp_damage):
-        """Callback for floating damage numbers (monsters only)."""
+        """Callback for floating damage numbers, Titan's Blood, and Outbreak echo."""
+        if entity == self.player and hp_damage > 0:
+            self._check_titan_blood_proc()
+
+        # Outbreak echo: if damaged entity has Outbreak, echo 30% to other marked enemies
+        if (entity.entity_type == "monster" and hp_damage > 0
+                and not getattr(self, '_outbreak_echoing', False)):
+            has_outbreak = any(getattr(e, 'id', '') == 'outbreak'
+                              for e in entity.status_effects)
+            if has_outbreak:
+                self._process_outbreak_echo(entity, hp_damage)
+
         if self.sdl_overlay is None or entity == self.player:
             return
         amount = hp_damage if hp_damage > 0 else raw_damage
         self.sdl_overlay.add_floating_text(entity.x, entity.y, str(amount), (255, 80, 80))
 
+    def _process_outbreak_echo(self, source, hp_damage):
+        """Echo 30% of damage to other Outbreak-marked enemies within radius 3 of source.
+        Each enemy echoes at most once per event (guard flag prevents chain echoing)."""
+        import math
+        echo_dmg = max(1, int(hp_damage * 0.30))
+        self._outbreak_echoing = True  # prevent echo from triggering more echoes
+        try:
+            killed = []
+            for ent in list(self.dungeon.entities):
+                if (ent is source or ent.entity_type != "monster"
+                        or not ent.alive):
+                    continue
+                if not any(getattr(e, 'id', '') == 'outbreak'
+                           for e in ent.status_effects):
+                    continue
+                dx = ent.x - source.x
+                dy = ent.y - source.y
+                dist = math.sqrt(dx * dx + dy * dy)
+                if dist <= 3.0:
+                    actual = max(1, echo_dmg - ent.defense)
+                    ent.take_damage(actual)
+                    if not ent.alive:
+                        killed.append(ent)
+            # Emit entity_died for echo kills (can trigger Corpse Explosion)
+            for ent in killed:
+                self.event_bus.emit("entity_died", entity=ent, killer=self.player)
+        finally:
+            self._outbreak_echoing = False
+
     def _on_entity_healed(self, entity, amount):
-        """Callback for floating heal numbers."""
+        """Callback for floating heal numbers + Titan's Blood tracking."""
+        if entity == self.player and self.player.max_hp > 0:
+            if self.player.hp > self.player.max_hp * 0.25:
+                self._titan_blood_was_above_25 = True
         if self.sdl_overlay is None:
             return
         self.sdl_overlay.add_floating_text(entity.x, entity.y, str(amount), (80, 255, 80))
@@ -442,6 +784,14 @@ class GameEngine:
 
     def _on_entity_died(self, entity, killer=None):
         """Universal death handler — removes entity and bookkeeps kills."""
+        # Death save: check for effects that prevent death (e.g. Hard Boiled Egg)
+        if entity == self.player:
+            for eff in list(entity.status_effects):
+                if hasattr(eff, "on_death_save") and eff.on_death_save(entity, self):
+                    return  # Death prevented — skip all death processing
+            # Straw Hat death save (checked after consumable effects like Hard Boiled Egg)
+            if self._straw_hat_death_save():
+                return
         self.dungeon.remove_entity(entity)
         # Clear aggro references pointing at a dying summon
         if getattr(entity, "is_summon", False):
@@ -450,6 +800,9 @@ class GameEngine:
                     m.aggro_target = None
         if entity.entity_type == "monster" and not getattr(entity, "is_summon", False):
             self.kills += 1
+            # Amulet of Equivalent Exchange: +1 soul per kill
+            if self.neck and "amulet_ee" in (get_item_def(self.neck.item_id) or {}).get("tags", []):
+                self.neck.soul_count = getattr(self.neck, "soul_count", 0) + 1
             # Trigger the floor alarm (first_kill_happened flag).
             if not self.dungeon.first_kill_happened:
                 self.dungeon.first_kill_happened = True
@@ -771,6 +1124,9 @@ class GameEngine:
     def handle_chemist_vial(self, monster):
         return combat.handle_chemist_vial(self, monster)
 
+    def handle_chemist_ranged(self, monster):
+        return combat.handle_chemist_ranged(self, monster)
+
     def _sac_spider_web_shot(self, monster):
         """Sac Spider ranged attack: shoot web at player's tile, spawn cobweb, apply webbed."""
         from hazards import create_web
@@ -811,6 +1167,14 @@ class GameEngine:
     # FOV helper
     # ------------------------------------------------------------------
 
+    def get_action_cost(self, base: int | None = None) -> int:
+        """Return action energy cost with stride multiplier applied."""
+        if base is None:
+            base = ENERGY_THRESHOLD
+        if self.action_cost_mult != 1.0:
+            return int(base * self.action_cost_mult)
+        return base
+
     def _compute_fov(self):
         """Recompute FOV and log messages for any newly revealed landmarks."""
         self.dungeon.compute_fov(self.player.x, self.player.y, self.fov_radius)
@@ -832,6 +1196,35 @@ class GameEngine:
         elif spray == "green":
             self.player_stats.tile_defense_bonus = 4
 
+    def _update_sleeper_stacks(self):
+        """Update Sleeper Agent weapon stacks based on whether player moved."""
+        weapon = self.equipment["weapon"]
+        if weapon is None:
+            return
+        wdefn = get_item_def(weapon.item_id)
+        if not wdefn or "sleeper_agent" not in wdefn.get("tags", []):
+            return
+
+        if getattr(self, '_player_moved_this_turn', False):
+            old_stacks = getattr(weapon, "sleeper_stacks", 0)
+            weapon.sleeper_stacks = 0
+            if old_stacks > 0:
+                self.player.status_effects = [
+                    e for e in self.player.status_effects
+                    if getattr(e, 'id', '') != 'sleeper_agent'
+                ]
+                self.messages.append([
+                    ("Sleeper Agent stacks lost!", (180, 80, 255)),
+                ])
+        else:
+            old_stacks = getattr(weapon, "sleeper_stacks", 0)
+            if old_stacks < 10:
+                weapon.sleeper_stacks = old_stacks + 1
+                effects.apply_effect(
+                    self.player, self, "sleeper_agent",
+                    stacks=weapon.sleeper_stacks, silent=True
+                )
+
     # ------------------------------------------------------------------
     # Main action dispatch
     # ------------------------------------------------------------------
@@ -841,6 +1234,7 @@ class GameEngine:
         if not action:
             return False
 
+        self._player_moved_this_turn = False
         action_type = action.get("type")
 
         # After death, only allow death screen navigation
@@ -871,6 +1265,10 @@ class GameEngine:
                 self.menu_state = self._perk_popup_return_state
                 self._perk_popup_return_state = MenuState.NONE
             return False
+
+        # --- Dev item search: intercept ALL input before other handlers ---
+        if self.menu_state == MenuState.DEV_ITEM_SELECT:
+            return self._handle_dev_item_select_input(action) or False
 
         # --- Skills / Char sheet toggles (block other menus) ---
         if action_type == "toggle_skills":
@@ -967,18 +1365,43 @@ class GameEngine:
                 return result
             return False
 
+        # --- Cancel channel on any non-wait action ---
+        if self._channel is not None and action_type != "wait":
+            self._channel_end("Channel cancelled.")
+
         # --- Normal gameplay dispatch ---
         handler = self._gameplay_handlers.get(action_type)
         if not handler:
             return False
 
+        self._last_action_was_attack = False
         result = handler(action)
 
         # Energy tick: player spends energy, then run ticks until player can act again
         if result and self.running and self.player.alive:
-            self.player.energy -= ENERGY_THRESHOLD
-            if action_type == "move" and self._player_just_moved and self.move_cost_reduction > 0:
-                self.player.energy += self.move_cost_reduction
+            # Determine action cost based on type
+            if self._last_action_was_attack:
+                cost = self.player_attack_cost
+            elif action_type == "move" and self._player_just_moved:
+                self._player_moved_this_turn = True
+                cost = self.player_move_cost
+                if self.move_cost_reduction > 0:
+                    cost = max(0, cost - self.move_cost_reduction)
+                # Momentum (Jaywalking L6): consume 1 stack for free move
+                momentum = next(
+                    (e for e in self.player.status_effects if getattr(e, 'id', '') == 'momentum'),
+                    None,
+                )
+                if momentum and momentum.stacks > 0:
+                    cost = 0
+                    momentum.stacks -= 1
+                    if momentum.stacks <= 0:
+                        momentum.duration = 0  # mark for removal
+            else:
+                cost = ENERGY_THRESHOLD
+            if self.action_cost_mult != 1.0:
+                cost = int(cost * self.action_cost_mult)
+            self.player.energy -= cost
             self._run_energy_loop()
 
         return result
@@ -994,6 +1417,7 @@ class GameEngine:
           3. Effects tick once per energy cycle (duration counts down by 1).
         The loop exits when the player has accumulated enough energy to act again.
         """
+        self._update_sleeper_stacks()
         while True:
             if not self.player.alive or not self.running:
                 break
@@ -1007,9 +1431,8 @@ class GameEngine:
                 )
                 if fear:
                     self._fear_flee(fear)
-                    self.player.energy -= ENERGY_THRESHOLD
-                    if self._player_just_moved and self.move_cost_reduction > 0:
-                        self.player.energy += self.move_cost_reduction
+                    fear_cost = max(0, min(self.player_move_cost, ENERGY_THRESHOLD) - self.move_cost_reduction)
+                    self.player.energy -= fear_cost
                     # Stay in loop — player doesn't get to act
                     continue
 
@@ -1030,10 +1453,11 @@ class GameEngine:
                 break  # normal: return control to player
 
             monsters = list(self.dungeon.get_monsters())
+            npcs = list(self.dungeon.get_npcs())
             tick_data = prepare_ai_tick(self.player, self.dungeon, monsters)
 
-            # 1. Distribute energy to all living entities
-            for entity in [self.player] + monsters:
+            # 1. Distribute energy to all living entities (including NPCs)
+            for entity in [self.player] + monsters + npcs:
                 if not entity.alive:
                     continue
                 gain = float(entity.speed)
@@ -1073,13 +1497,51 @@ class GameEngine:
                         cost = getattr(monster, "attack_cost", 0) or ENERGY_THRESHOLD
                     elif action_type == "move":
                         cost = getattr(monster, "move_cost", 0) or ENERGY_THRESHOLD
+                        # Silver spray paint: slip monsters on entry
+                        if self.dungeon.spray_paint.get((monster.x, monster.y)) == "silver":
+                            if not any(getattr(e, 'id', '') == 'slipped' for e in monster.status_effects):
+                                effects.apply_effect(monster, self, "slipped", silent=True)
                     else:
                         cost = ENERGY_THRESHOLD
                     monster.energy -= cost
 
+            # 2b. Process NPCs that have enough energy
+            for npc in npcs:
+                if npc.alive and npc.energy >= ENERGY_THRESHOLD:
+                    do_ai_turn(npc, self.player, self.dungeon, self, **tick_data)
+                    npc.energy -= ENERGY_THRESHOLD
+
             # 3. Tick status effects once per energy cycle
             self.turn += 1
             effects.tick_all_effects(self.player, self)
+
+            # Loitering (Jaywalking L5): track consecutive idle turns
+            loiter = next(
+                (e for e in self.player.status_effects if getattr(e, 'id', '') == 'loitering_tracker'),
+                None,
+            )
+            if loiter is not None:
+                player_acted = self._player_just_moved or self._last_action_was_attack
+                if player_acted:
+                    loiter.idle_turns = 0
+                else:
+                    loiter.idle_turns += 1
+                    if loiter.idle_turns >= 3:
+                        loiter.idle_turns = 0
+                        # Grant untargetable
+                        effects.apply_effect(self.player, self, "loitering_untargetable", silent=True)
+                        # Reset all chasing monsters to IDLE
+                        from ai import AIState
+                        reset_count = 0
+                        for m in self.dungeon.get_monsters():
+                            if m.alive and getattr(m, 'ai_state', None) == AIState.CHASING:
+                                m.ai_state = AIState.IDLE
+                                reset_count += 1
+                        self.messages.append([
+                            ("Loitering! ", (180, 220, 255)),
+                            (f"You fade from notice. {reset_count} enemy(ies) lose track of you.", (150, 200, 255)),
+                        ])
+
             for monster in monsters:
                 if monster.alive:
                     effects.tick_all_effects(monster, self)
@@ -1104,11 +1566,74 @@ class GameEngine:
                 if not self.player.alive:
                     self.event_bus.emit("entity_died", entity=self.player, killer=None)
 
+            # Rosary passive: grant Divine Shield every 10 turns without one
+            if self.neck is not None and "rosary" in (get_item_def(self.neck.item_id) or {}).get("tags", []):
+                self._rosary_timer = getattr(self, '_rosary_timer', 0) + 1
+                has_ds = any(getattr(e, 'id', '') == 'divine_shield' for e in self.player.status_effects)
+                if not has_ds:
+                    if self._rosary_timer >= 10:
+                        effects.apply_effect(self.player, self, "divine_shield", silent=True)
+                        self.messages.append([
+                            ("The Rosary glows... ", (212, 175, 55)),
+                            ("Divine Shield granted!", (255, 255, 150)),
+                        ])
+                        self._rosary_timer = 0
+                else:
+                    self._rosary_timer = 0  # reset while shield is active
+            else:
+                self._rosary_timer = 0
+
+            # Flagellant's Mask: 1-5 self-damage per turn (can't kill), 10% chance to purge a debuff
+            if self.hat is not None and "flagellant" in (get_item_def(self.hat.item_id) or {}).get("tags", []):
+                dmg = random.randint(1, 5)
+                self.player.hp = max(1, self.player.hp - dmg)
+                if random.random() < 0.10:
+                    debuffs = [e for e in self.player.status_effects if e.category == "debuff"]
+                    if debuffs:
+                        target_debuff = random.choice(debuffs)
+                        debuff_name = target_debuff.display_name
+                        self.player.status_effects = [e for e in self.player.status_effects if e is not target_debuff]
+                        target_debuff.expire(self.player, self)
+                        self.messages.append([
+                            ("Penance! ", (180, 50, 50)),
+                            (f"-{dmg} HP. {debuff_name} cleansed!", (200, 150, 150)),
+                        ])
+
+            # Thinking Cap: consume 1 skill point, grant 2 real XP to a random unlocked skill
+            if self.hat is not None and "thinking_cap" in (get_item_def(self.hat.item_id) or {}).get("tags", []):
+                if self.skills.skill_points >= 1:
+                    unlocked = [s for s in self.skills.unlocked() if not s.is_maxed()]
+                    if unlocked:
+                        target_skill = random.choice(unlocked)
+                        self.skills.skill_points -= 1
+                        levels_gained = target_skill.add_real_exp(2)
+                        for lvl in range(target_skill.level - levels_gained + 1, target_skill.level + 1):
+                            self.messages.append(f"{target_skill.name} reached level {lvl}!")
+                            self._apply_perk(target_skill.name, lvl)
+
             # Tick ability cooldowns
             for key in list(self.ability_cooldowns):
                 self.ability_cooldowns[key] -= 1
                 if self.ability_cooldowns[key] <= 0:
                     del self.ability_cooldowns[key]
+
+            # Spec energy regen: +10 every 30 ticks when a spec weapon is equipped
+            if self._has_spec_weapon():
+                self._spec_energy_counter += 1
+                if self._spec_energy_counter >= 30:
+                    self._spec_energy_counter = 0
+                    if self.spec_energy < 100.0:
+                        self.spec_energy = min(100.0, self.spec_energy + 10.0)
+
+            # Static Reserve: regen Chain Lightning charges
+            if hasattr(self, '_static_reserve_timer'):
+                self._static_reserve_timer += 1
+                if self._static_reserve_timer >= 50:
+                    self._static_reserve_timer = 0
+                    cl = next((a for a in self.player_abilities if a.ability_id == "chain_lightning"), None)
+                    if cl and cl.charges_remaining < 3:
+                        cl.charges_remaining += 1
+                        self.messages.append([("Static Reserve: ", (200, 200, 255)), ("+1 Chain Lightning charge.", (255, 240, 80))])
 
             # Tick rad bomb crystals
             self._tick_rad_bomb_crystals(monsters)
@@ -1120,6 +1645,11 @@ class GameEngine:
                 for hazard in self.dungeon.get_entities_at(entity.x, entity.y):
                     ht = getattr(hazard, "hazard_type", None)
                     if ht == "fire":
+                        # Pyromania L3 (Neva Burn Out): player immune to fire tiles
+                        if entity == self.player:
+                            pyro = self.skills.get("Pyromania")
+                            if pyro and pyro.level >= 3:
+                                break
                         effects.apply_effect(entity, self, "ignite", silent=True)
                         break
                     elif ht == "toxic_creep":
@@ -1134,6 +1664,11 @@ class GameEngine:
                             self.messages.append(f"The acid burns you for {dmg} damage!")
                         if not entity.alive:
                             self.event_bus.emit("entity_died", entity=entity, killer=None)
+                        break
+                    elif ht == "venom_pool":
+                        effects.apply_effect(entity, self, "venom", duration=10, stacks=1, silent=True)
+                        if entity == self.player:
+                            self.messages.append("The venom pool poisons you!")
                         break
                     elif ht == "web" and entity != self.player:
                         # All spiders walk through webs unaffected
@@ -1155,6 +1690,28 @@ class GameEngine:
                             )
                         break
 
+            # 4a. Orange spray paint: damage entities standing on orange tiles
+            _graffiti_lvl = self.skills.get("Graffiti").level
+            for entity in [self.player] + monsters:
+                if not entity.alive:
+                    continue
+                if self.dungeon.spray_paint.get((entity.x, entity.y)) == "orange":
+                    dmg = 5 + 2 * _graffiti_lvl
+                    entity.take_damage(dmg)
+                    if entity == self.player:
+                        self._gain_catchin_fades_xp(dmg)
+                        self.messages.append(f"Orange paint burns you for {dmg} damage!")
+                    else:
+                        # Graffiti XP: damage dealt
+                        adjusted_xp = round(dmg * self.player_stats.xp_multiplier)
+                        self.skills.gain_potential_exp(
+                            "Graffiti", adjusted_xp,
+                            self.player_stats.effective_book_smarts,
+                            briskness=self.player_stats.total_briskness,
+                        )
+                    if not entity.alive:
+                        self.event_bus.emit("entity_died", entity=entity, killer=self.player if entity != self.player else None)
+
             # 4b. Tick timed hazards (decrement duration, remove expired)
             for hazard in list(self.dungeon.entities):
                 if getattr(hazard, "entity_type", None) != "hazard":
@@ -1164,6 +1721,37 @@ class GameEngine:
                     hazard.hazard_duration -= 1
                     if hazard.hazard_duration <= 0:
                         self.dungeon.remove_entity(hazard)
+
+            # 4c. Grease tile effects: apply greasy stacks + damage, tick timers
+            if self.dungeon.grease_tiles:
+                con = self.player_stats.effective_constitution
+                df_level = self.skills.get("Deep-Frying").level
+                grease_dmg = con // 3 + df_level // 2
+                for entity in [self.player] + monsters:
+                    if not entity.alive:
+                        continue
+                    pos = (entity.x, entity.y)
+                    if pos not in self.dungeon.grease_tiles:
+                        continue
+                    if entity == self.player:
+                        # Player capped at 3 greasy stacks from grease tiles
+                        existing = next((e for e in entity.status_effects if getattr(e, 'id', '') == 'greasy'), None)
+                        current_stacks = existing.stacks if existing else 0
+                        if current_stacks < 3:
+                            effects.apply_effect(entity, self, "greasy", duration=50, stacks=1, silent=True)
+                    else:
+                        # Enemies get +1 greasy stack and take damage
+                        effects.apply_effect(entity, self, "greasy", duration=50, stacks=1, silent=True)
+                        if grease_dmg > 0:
+                            entity.take_damage(grease_dmg)
+                            if not entity.alive:
+                                self.event_bus.emit("entity_died", entity=entity, killer=self.player)
+                # Tick grease tile timers
+                expired = [pos for pos, t in self.dungeon.grease_tiles.items() if t <= 1]
+                for pos in expired:
+                    del self.dungeon.grease_tiles[pos]
+                for pos in self.dungeon.grease_tiles:
+                    self.dungeon.grease_tiles[pos] -= 1
 
             # 5. Radiation mutation check
             if self.player.alive:
@@ -1184,8 +1772,65 @@ class GameEngine:
         return self.handle_move(action["dx"], action["dy"])
 
     def _action_wait(self, _action):
-        """Consume a turn without performing any action."""
+        """Consume a turn without performing any action.
+        If channeling, continue the channel instead."""
+        if self._channel is not None:
+            return self._channel_tick()
         return True
+
+    def start_channel(self, ability_id: str, turns: int, params: dict):
+        """Begin channeling an ability. The first tick fires immediately;
+        subsequent ticks fire when the player presses Wait."""
+        self._channel = {
+            "ability_id": ability_id,
+            "turns_remaining": turns,
+            "params": params,
+        }
+
+    def _channel_tick(self) -> bool:
+        """Fire one tick of the active channel. Returns True (turn consumed)."""
+        ch = self._channel
+        if ch is None:
+            return True
+        ability_id = ch["ability_id"]
+        params = ch["params"]
+
+        # Fire the channeled effect
+        if ability_id == "ray_of_frost":
+            from spells import _ray_of_frost_beam
+            dx, dy = params["dx"], params["dy"]
+            _ray_of_frost_beam(self, dx, dy)
+
+        if ability_id == "discharge":
+            from abilities import _discharge_tick
+            tick_num = params["tick_num"]
+            _discharge_tick(self, tick_num)
+            params["tick_num"] = tick_num + 1
+
+        ch["turns_remaining"] -= 1
+        if ch["turns_remaining"] <= 0:
+            self._channel_end("Channel complete.")
+        else:
+            self.messages.append([
+                ("Channeling... ", (100, 200, 255)),
+                (f"{ch['turns_remaining']} turn(s) remaining. Wait to continue.", (180, 200, 220)),
+            ])
+        return True
+
+    def _channel_end(self, reason: str = "Channel ended."):
+        """End the active channel."""
+        if self._channel is not None:
+            self._channel = None
+            self.messages.append([(reason, (180, 180, 200))])
+
+    def _channel_interrupt_on_damage(self):
+        """Called when the player takes damage while channeling.
+        25% chance to break the channel."""
+        if self._channel is None:
+            return
+        import random as _rng
+        if _rng.random() < 0.25:
+            self._channel_end("Your channel is interrupted by the hit!")
 
     def _action_open_log(self, _action):
         self.menu_state = MenuState.LOG
@@ -1285,6 +1930,8 @@ class GameEngine:
                 if any(k.startswith(p) for p in ("minor_ring_", "greater_ring_", "divine_ring_", "advanced_ring_", "chain_", "jordans_"))
             ]
             self.dev_item_list = sorted(static_ids) + sorted(generated_ids)
+            self.dev_item_search = ""
+            self.dev_item_filtered = self.dev_item_list[:]
             self.dev_item_cursor = 0
             self.dev_item_scroll = 0
             self.menu_state = MenuState.DEV_ITEM_SELECT
@@ -1422,17 +2069,80 @@ class GameEngine:
         self._sort_inventory()
         self.messages.append("[DEV] Meth Lab Kit applied! Skills, items, and equipment added.")
 
+    def _dev_item_apply_search(self):
+        """Filter dev_item_list by search string, matching item name or id."""
+        if not self.dev_item_search:
+            self.dev_item_filtered = self.dev_item_list[:]
+        else:
+            query = self.dev_item_search.lower()
+            filtered = []
+            for item_id in self.dev_item_list:
+                defn = get_item_def(item_id)
+                name = defn.get("name", item_id).lower() if defn else item_id.lower()
+                if query in name or query in item_id.lower():
+                    filtered.append(item_id)
+            self.dev_item_filtered = filtered
+        self.dev_item_cursor = 0
+        self.dev_item_scroll = 0
+
     def _handle_dev_item_select_input(self, action):
-        """Handle input in the dev item spawn picker."""
+        """Handle input in the dev item spawn picker with search."""
         action_type = action.get("type")
-        n = len(self.dev_item_list)
+        items = self.dev_item_filtered
+        n = len(items)
 
         if action_type == "close_menu":
+            self.dev_item_search = ""
             self.menu_state = MenuState.DEV_MENU
             return False
 
         if action_type == "open_dev_menu":
+            self.dev_item_search = ""
             self.menu_state = MenuState.NONE
+            return False
+
+        # Typing: map all key-bound actions back to characters for search
+        _ACTION_TO_CHAR = {
+            "toggle_skills": "s", "open_char_sheet": "c", "open_equipment": "e",
+            "drop_item": "d", "fire_gun": "f", "start_entity_targeting": "r",
+            "toggle_abilities": "a", "open_bestiary": "b", "open_perks_menu": "p",
+            "open_log": "l", "wait": ".", "item_use": " ", "look": ";",
+            "autoexplore": "/", "toggle_firing_mode": "\t",
+            "swap_primary_gun": "f", "reload_gun": "r", "destroy_item": "d",
+        }
+        if action_type == "raw_char":
+            ch = action.get("char", "")
+            if ch:
+                self.dev_item_search += ch
+                self._dev_item_apply_search()
+            return False
+
+        if action_type in _ACTION_TO_CHAR:
+            ch = _ACTION_TO_CHAR[action_type]
+            if ch.isalnum() or ch in ".-_ ":
+                self.dev_item_search += ch
+                self._dev_item_apply_search()
+            return False
+
+        if action_type == "select_item":
+            idx = action.get("index", 0)
+            from config import INVENTORY_KEYS
+            if 0 <= idx < len(INVENTORY_KEYS):
+                self.dev_item_search += INVENTORY_KEYS[idx].lower()
+                self._dev_item_apply_search()
+            return False
+
+        if action_type == "select_action":
+            num = action.get("index", -1)
+            if 0 <= num <= 9:
+                self.dev_item_search += str(num)
+                self._dev_item_apply_search()
+            return False
+
+        if action_type == "skills_backspace":
+            if self.dev_item_search:
+                self.dev_item_search = self.dev_item_search[:-1]
+                self._dev_item_apply_search()
             return False
 
         if action_type == "move":
@@ -1443,8 +2153,8 @@ class GameEngine:
             return False
 
         if action_type == "confirm_target":
-            if self.dev_item_list:
-                item_id = self.dev_item_list[self.dev_item_cursor]
+            if items:
+                item_id = items[self.dev_item_cursor]
                 entity = Entity(**create_item_entity(item_id, 0, 0))
                 self.player.inventory.append(entity)
                 self._sort_inventory()
@@ -1452,6 +2162,7 @@ class GameEngine:
                 defn = get_item_def(item_id)
                 name = defn.get("name", item_id) if defn else item_id
                 self.messages.append(f"[DEV] Added {name} to inventory.")
+            self.dev_item_search = ""
             self.menu_state = MenuState.DEV_MENU
             return False
 
@@ -1534,7 +2245,7 @@ class GameEngine:
 
         if target_floor not in self.dungeons:
             event_id = self.get_floor_event(target_floor)
-            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key, floor_event=event_id)
+            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key, floor_event=event_id, floor_num=zone_floor)
             if new_dungeon.rooms:
                 x, y = new_dungeon.rooms[0].center()
                 self.player.x = x
@@ -1626,22 +2337,48 @@ class GameEngine:
         self.menu_state = MenuState.LOOK_TARGETING
         return False
 
+    # Settings menu layout: display modes + actions
+    SETTINGS_ACTIONS = [
+        {"label": "Save Game", "action": "save_game"},
+        {"label": "Save & Exit to Menu", "action": "exit_to_menu"},
+    ]
+
     def _handle_settings_input(self, action):
         """Handle input for the settings/display menu."""
         action_type = action.get("type")
         if action_type == "close_menu":
             self.menu_state = MenuState.NONE
             return False
+        n_display = len(self.DISPLAY_MODES)
+        n_total = n_display + len(self.SETTINGS_ACTIONS)
         if action_type == "move":
             dy = action.get("dy", 0)
             if dy != 0:
-                n = len(self.DISPLAY_MODES)
-                self.settings_cursor = (self.settings_cursor + dy) % n
+                self.settings_cursor = (self.settings_cursor + dy) % n_total
             return False
         if action_type in ("confirm_target", "item_use"):
-            self._apply_display_mode(self.settings_cursor)
+            if self.settings_cursor < n_display:
+                self._apply_display_mode(self.settings_cursor)
+            else:
+                act_idx = self.settings_cursor - n_display
+                act = self.SETTINGS_ACTIONS[act_idx]
+                if act["action"] == "save_game":
+                    self._do_save_game()
+                elif act["action"] == "exit_to_menu":
+                    self._do_save_game()
+                    self.running = False
             return False
         return False
+
+    def _do_save_game(self):
+        """Save the game to disk."""
+        from save_system import save_game
+        try:
+            save_game(self)
+            self.messages.append([("Game saved.", (100, 255, 100))])
+        except Exception as e:
+            self.messages.append([("Save failed: ", (255, 100, 100)), (str(e), (255, 200, 200))])
+        self.menu_state = MenuState.NONE
 
     def _apply_display_mode(self, index: int):
         """Apply a display mode preset by changing the SDL window."""
@@ -1744,6 +2481,39 @@ class GameEngine:
                         parts.append((eff.display_name, color))
                     lines.append(parts)
 
+                # Status icon legend (matches SDL overlay icons)
+                _ICON_MAP = {
+                    'chill':        ('C', (100, 180, 255), 'Chill'),
+                    'shocked':      ('S', (255, 255, 60),  'Shocked'),
+                    'ignite':       ('I', (255, 120, 30),  'Ignite'),
+                    'stun':         ('!', (255, 255, 255), 'Stunned'),
+                    'fear':         ('F', (180, 80, 255),  'Feared'),
+                    'snipers_mark': ('M', (255, 60, 60),   "Sniper's Mark"),
+                }
+                icon_parts = []
+                for eff in e.status_effects:
+                    eff_id = getattr(eff, 'id', '')
+                    entry = _ICON_MAP.get(eff_id)
+                    if entry:
+                        letter, lcolor, label = entry
+                        icon_parts.append((letter, lcolor, label))
+                rad = getattr(e, 'radiation', 0)
+                if rad > 0:
+                    rc = (255, 60, 60) if rad >= 150 else (255, 255, 60) if rad >= 75 else (60, 255, 60)
+                    icon_parts.append(('R', rc, f'Radiation ({rad})'))
+                tox = getattr(e, 'toxicity', 0)
+                if tox > 0:
+                    tc = (255, 60, 60) if tox >= 100 else (255, 255, 60) if tox >= 50 else (60, 255, 60)
+                    icon_parts.append(('T', tc, f'Toxicity ({tox})'))
+                if icon_parts:
+                    legend = [("  Icons: ", C_LABEL)]
+                    for j, (letter, lcolor, label) in enumerate(icon_parts):
+                        if j > 0:
+                            legend.append((" ", C_INFO))
+                        legend.append((letter, lcolor))
+                        legend.append((f"={label}", C_INFO))
+                    lines.append(legend)
+
                 title = e.name
 
             elif e.entity_type == "item":
@@ -1840,6 +2610,11 @@ class GameEngine:
         if name == "Black Eye":
             self.messages.append("  [Black Eye] Unarmed attacks now have a 10% chance to stun enemies!")
 
+        if name == "Victory Rush":
+            self.grant_ability("victory_rush")
+            self.grant_ability_charges("victory_rush", 1)
+            self.messages.append("  [Victory Rush] Gain 1 charge. Kills grant charges. Activate for lucky crit + 25% heal!")
+
         if name == "Bash":
             self.grant_ability("bash")
             self.messages.append("  [Bash] You learn to send enemies flying with your beating weapon!")
@@ -1851,6 +2626,10 @@ class GameEngine:
         if name == "Gouge":
             self.grant_ability("gouge")
             self.messages.append("  [Gouge] You learn to gouge enemies with your blade!")
+
+        if name == "Whirlwind":
+            self.grant_ability("whirlwind")
+            self.messages.append("  [Whirlwind] Slash all adjacent enemies at once!")
 
         if name == "Fire!":
             self.grant_ability("place_fire")
@@ -1865,16 +2644,21 @@ class GameEngine:
             self.grant_ability("ignite_spell")
             self.messages.append("  [Ignite] You can now ignite enemies from a distance!")
 
-        if name == "Force Be With You":
-            self.grant_ability("force_push")
-            self.messages.append("  [Force Be With You] You can now force push adjacent enemies!")
+        if name == "Spell Retention":
+            self.messages.append("  [Spell Retention] 15% chance to preserve spell charges on cast!")
+
+        if name == "Spell Echo":
+            self.messages.append("  [Spell Echo] 15% chance for spells to fire again at 50% damage! Can chain!")
+
+        if name == "Spellweaver":
+            self.messages.append("  [Spellweaver] Alternate between different spells for +30% damage!")
 
         if name == "Throw Bottle":
             self.grant_ability_charges("throw_bottle", 1)
 
         if name == "Air Jordans":
-            self.move_cost_reduction += 5
-            self.messages.append("  [Air Jordans] Your kicks feel lighter. Move cost -5 energy.")
+            self.move_cost_reduction += 10
+            self.messages.append("  [Air Jordans] Your kicks feel lighter. Move cost -10 energy.")
 
         if name == "Dash":
             self.grant_ability("dash")
@@ -1884,17 +2668,93 @@ class GameEngine:
             self.player.speed += 10
             self.messages.append(f"  [Airer Jordans] Your speed increases. (+10 speed, now {self.player.speed})")
 
+        if name == "Shortcut":
+            self.grant_ability("shortcut")
+            self.messages.append("  [Shortcut] Target an explored tile to recall there after 2 turns! 2/floor.")
+
+        if name == "Loitering":
+            effects.apply_effect(self.player, self, "loitering_tracker", silent=True)
+            self.messages.append("  [Loitering] Stand still 3 turns to become untargetable and reset enemy aggro!")
+
+        if name == "Momentum":
+            self.messages.append("  [Momentum] 40% on melee hit: gain a free move stack!")
+
+        if name == "Charged Up":
+            self.player.speed += 10
+
+        if name == "Volt Dash":
+            self.grant_ability("volt_dash")
+            self.messages.append("  [Volt Dash] Blink through enemies in a bolt of lightning! 4/floor.")
+
+        if name == "Discharge":
+            self.grant_ability("discharge")
+            self.messages.append("  [Discharge] Channel a devastating electrical storm! 25t cooldown.")
+
+        if name == "Elemental Staves":
+            import random as _rng
+            # Grant one staff matching the highest elemental skill (random on tie)
+            elem_skills = [
+                ("Pyromania", "staff_of_fire", "Staff of Fire"),
+                ("Cryomancy", "staff_of_ice", "Staff of Ice"),
+                ("Electrodynamics", "staff_of_lightning", "Staff of Lightning"),
+            ]
+            best_level = max(self.skills.get(s).level for s, _, _ in elem_skills)
+            tied = [(sid, sname) for s, sid, sname in elem_skills
+                    if self.skills.get(s).level == best_level]
+            staff_id, staff_name = _rng.choice(tied)
+            self._add_item_to_inventory(staff_id)
+            self.messages.append(f"  [Elemental Staves] You receive a {staff_name}! Equip it and press F to fire.")
+
+        if name == "Chromatic Orb":
+            self.grant_ability("chromatic_orb")
+            self.messages.append("  [Chromatic Orb] Hurl a random-element orb! Damage scales with elemental skill levels. 20t cooldown.")
+
+        if name == "Arcane Flux":
+            self.arcane_flux_active = True
+            self.messages.append("  [Arcane Flux] +10% charge preservation. Charge preservation now also negates spell cooldowns!")
+
+        if name == "Static Reserve":
+            self.grant_ability_charges("chain_lightning", 3)
+            self._static_reserve_timer = 0
+            self.messages.append("  [Static Reserve] +3 Chain Lightning charges. Regen 1 charge every 50 turns while below 3.")
+
         if name == "Bleached":
             self.player_stats.tox_resistance += 20
             self.messages.append("  [Bleached] +20% toxicity resistance.")
+
+        if name == "Whitewash":
+            self.grant_ability("whitewash")
+            self.messages.append("  [Whitewash] 1/floor: consume half your toxicity as temp HP.")
 
         if name == "Fry Shot":
             self.grant_ability("fry_shot")
             self.messages.append("  [Fry Shot] You can now hurl hot grease at enemies within 4 tiles!")
 
-        if name == "Slow Metabolism":
-            self.grant_ability("slow_metabolism")
-            self.messages.append("  [Slow Metabolism] You can now double the duration of your active drink buffs (2/floor)!")
+        if name == "Oil Dump":
+            self.grant_ability("oil_dump")
+            self.messages.append("  [Oil Dump] Dump oil in a radius-3 area. Enemies get greased, floor becomes a grease pool!")
+
+        if name == "Hair of the Dog":
+            self.messages.append("  [Hair of the Dog] 30% chance for drink buffs to reapply when they expire!")
+
+        if name == "Liquid Courage":
+            self.messages.append("  [Liquid Courage] +10% melee damage and +3% crit per drink stack while drinking!")
+
+        if name == "Chop Shop":
+            ps = self.player_stats
+            ps.swagger += 2
+            ps._base["swagger"] = ps.swagger
+            ps.street_smarts += 2
+            ps._base["street_smarts"] = ps.street_smarts
+            self.messages.append("  [Chop Shop] +2 Swagger, +2 Street Smarts.")
+
+        if name == "Nigga Armor":
+            ps = self.player_stats
+            ps.swagger += 2
+            ps._base["swagger"] = ps.swagger
+            ps.street_smarts += 2
+            ps._base["street_smarts"] = ps.street_smarts
+            self.messages.append("  [Nigga Armor] +2 Swagger, +2 Street Smarts.")
 
         if name == "Pickpocket":
             self.grant_ability("pickpocket")
@@ -1964,6 +2824,36 @@ class GameEngine:
             self.grant_ability("curse_of_covid")
             self.messages.append("  [Curse of COVID] You learn a plague curse that irradiates and poisons enemies! 3/floor.")
 
+        if name == "Dark Covenant":
+            # Set all existing curse abilities to 6 charges immediately
+            for inst in self.player_abilities:
+                defn = ABILITY_REGISTRY.get(inst.ability_id)
+                if defn and defn.is_curse:
+                    new_max = defn.max_charges + 3
+                    if defn.charge_type in (ChargeType.PER_FLOOR, ChargeType.FLOOR_ONLY):
+                        inst.floor_charges_remaining = new_max
+                    elif defn.charge_type in (ChargeType.TOTAL, ChargeType.ONCE):
+                        inst.charges_remaining = new_max
+            self.messages.append("  [Dark Covenant] All curses now have 6 charges per floor! Cursed enemies may drop Voodoo Dolls.")
+
+        if name == "Freeze":
+            self.grant_ability("freeze")
+            self.messages.append("  [Freeze] Freeze a visible enemy solid! 5 stacks of Frozen. 5/floor.")
+
+        if name == "Ice Lance":
+            self.grant_ability("ice_lance")
+            self.messages.append("  [Ice Lance] Piercing frost projectile. Shatters frozen enemies for massive damage! 10-turn cooldown.")
+
+        if name == "Glacier Mind":
+            ps = self.player_stats
+            ps.book_smarts += 5
+            ps._base["book_smarts"] = ps.book_smarts
+            self.messages.append("  [Glacier Mind] +5 Book Smarts. Cold spell charges are doubled!")
+
+        if name == "Ice Barrier":
+            self.grant_ability("ice_barrier")
+            self.messages.append("  [Ice Barrier] Consume Chill stacks from nearby enemies to gain Temp HP! 3/floor.")
+
         if name == "Web Trail":
             self.grant_ability("web_trail")
             self.messages.append("  [Web Trail] You are immune to webs and can leave cobwebs in your wake! 3/floor.")
@@ -1971,6 +2861,24 @@ class GameEngine:
         if name == "Summon Spider":
             self.grant_ability("summon_spiderling")
             self.messages.append("  [Summon Spider] Hatch spiderlings on adjacent tiles! They guard and bite. 5/floor.")
+
+        if name == "Toxic Bite":
+            self.grant_ability("toxic_bite")
+            self.messages.append("  [Toxic Bite] Bite enemies for STS damage + 2 Venom stacks! Venomed kills leave Venom Pools. 6/floor.")
+
+        # Graffiti: every perk grants a random spray paint
+        if skill_name == "Graffiti":
+            import random as _rng
+            _SPRAY_TABLE = ["red_spray_paint", "blue_spray_paint", "green_spray_paint", "orange_spray_paint", "silver_spray_paint"]
+            chosen = _rng.choice(_SPRAY_TABLE)
+            self._add_item_to_inventory(chosen)
+            from items import ITEM_DEFS
+            spray_name = ITEM_DEFS[chosen]["name"]
+            self.messages.append(f"  [Graffiti] You find a {spray_name} in your pocket!")
+
+        if name == "Living Canvas":
+            self._add_item_to_inventory("graffiti_gun")
+            self.messages.append("  [Living Canvas] You receive a Graffiti Gun! Load spray cans and paint at range.")
 
         if name == "Purge":
             self.grant_ability("purge")
@@ -1989,6 +2897,23 @@ class GameEngine:
             ps._base["strength"] = ps.strength
             self.grant_ability("zombie_stare")
             self.messages.append("  [Zombie Stare] +2 Strength. Stare down enemies to stun and fear them! 15t cooldown.")
+
+        if name == "Corpse Explosion":
+            self.messages.append("  [Corpse Explosion] Enemies killed during Zombie Rage now explode! Chain kills push infection — hit 100 for an Infection Nova.")
+
+        if name == "Hunger":
+            ps = self.player_stats
+            ps.strength += 2
+            ps._base["strength"] = ps.strength
+            ps.constitution += 2
+            ps._base["constitution"] = ps.constitution
+            self.player.max_hp += 20
+            self.player.heal(20)
+            self.messages.append("  [Hunger] +2 STR, +2 CON. Purge now grants Hunger (heal on hit). Zombie Stare upgraded to 90° cone! Infection cost: 8.")
+
+        if name == "Outbreak":
+            self.grant_ability("outbreak")
+            self.messages.append("  [Outbreak] Target a 7×7 area — enemies become linked. Damage echoes between them! 30t cooldown.")
 
     def _handle_log_input(self, action):
         """Handle input while the log menu is open. UP/DOWN scroll; anything else closes."""
@@ -2033,6 +2958,32 @@ class GameEngine:
         if 0 <= index < len(self.player.inventory):
             self._open_item_menu(index)
         return False
+
+    def _action_hotbar_use(self, action):
+        """Use a hotbar-bound ability or item, or fall through to inventory selection."""
+        slot = action.get("index", -1)
+        if 0 <= slot < len(self.hotbar) and self.hotbar[slot] is not None:
+            binding = self.hotbar[slot]
+
+            if binding.startswith("item:"):
+                # Item binding — find first matching item in inventory and use it
+                item_id = binding[5:]
+                for i, ent in enumerate(self.player.inventory):
+                    if ent.item_id == item_id:
+                        from inventory_mgr import _use_item
+                        _use_item(self, i)
+                        return False
+                # Item not in inventory anymore — silently ignore
+                return False
+
+            # Ability binding
+            for i, inst in enumerate(self.player_abilities):
+                if inst.ability_id == binding:
+                    return self._execute_ability(i)
+            # Ability not found (was removed) — silently ignore
+            return False
+        # No hotbar binding — fall through to inventory item selection (original behavior)
+        return self._action_select_item(action)
 
     def _action_close_menu(self, _action):
         if self.menu_state == MenuState.NONE:
@@ -2090,7 +3041,7 @@ class GameEngine:
 
         if next_floor not in self.dungeons:
             event_id = self.get_floor_event(next_floor)
-            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key, floor_event=event_id)
+            new_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=zone_key, floor_event=event_id, floor_num=zone_floor)
             if new_dungeon.rooms:
                 x, y = new_dungeon.rooms[0].center()
                 # Find a free tile if center is blocked (e.g. table on it)
@@ -2148,10 +3099,34 @@ class GameEngine:
             self.unfazed_swagger_gained = 0
 
         # Reset per-floor ability charges
+        cryo_double = self.skills.get("Cryomancy").level >= 4
+        dark_covenant = self.skills.get("Blackkk Magic").level >= 4
         for inst in self.player_abilities:
             defn = ABILITY_REGISTRY.get(inst.ability_id)
             if defn:
                 inst.reset_floor(defn)
+                # Cryomancy L4 (Glacier Mind): double per-floor charges for cold abilities
+                if cryo_double and "cold" in defn.tags:
+                    if defn.charge_type == ChargeType.PER_FLOOR:
+                        inst.floor_charges_remaining = defn.max_charges * 2
+                # Blackkk Magic L4 (Dark Covenant): +3 per-floor charges for curse abilities
+                if dark_covenant and defn.is_curse:
+                    if defn.charge_type in (ChargeType.PER_FLOOR, ChargeType.FLOOR_ONLY):
+                        inst.floor_charges_remaining += 3
+
+        # Reset reload-per-floor counters on equipped guns
+        for gun_slot in ("weapon", "sidearm"):
+            gun = self.equipment.get(gun_slot)
+            if gun and hasattr(gun, 'reloads_this_floor'):
+                gun.reloads_this_floor = 0
+
+        # Reset Titan's Blood Ring
+        self._titan_blood_available = True
+        self._titan_blood_was_above_25 = self.player.hp > self.player.max_hp * 0.25
+
+        # Throw Bottle: +1 charge per floor (only if ability unlocked)
+        if any(a.ability_id == "throw_bottle" for a in self.player_abilities):
+            self.grant_ability_charges("throw_bottle", 1)
 
         # Clear floor-duration effects (Green Drank, Five Loco, Protein Powder, etc.)
         for eff in list(self.player.status_effects):
@@ -2170,8 +3145,14 @@ class GameEngine:
         # Reset temporary spell damage
         self.player_stats.temporary_spell_damage = 0
 
-        # Refill armor at floor start
+        # Refill armor at floor start and reset chain armor tracker
         self.player.armor = self.player.max_armor
+        self._best_chain_armor_this_floor = 0
+        if self.neck:
+            from items import get_item_def
+            neck_defn = get_item_def(self.neck.item_id)
+            if neck_defn:
+                self._best_chain_armor_this_floor = neck_defn.get("armor_bonus", 0)
 
         # Abandoning L2: Anotha Motha — spawn 5 extra items on the new floor (zones only)
         if zone_type == "zone" and self.skills.get("Abandoning").level >= 2:
@@ -2198,10 +3179,23 @@ class GameEngine:
             self.messages.append(f"You enter {display_name}.")
         if zone_type == "pseudozone":
             self.messages.append(f"{display_name}")
+            if zone_key == "tyrones_penthouse":
+                self.messages.append([
+                    ("Tyrone: ", (255, 215, 0)),
+                    ("Welcome to the Penthouse. Watch your fingers — buy whatever you want.", (220, 220, 220)),
+                ])
         else:
             self.messages.append(
                 f"You descend deeper... ({display_name} - Floor {zone_floor + 1}/{zone_total})"
             )
+
+        # Auto-save on floor entry
+        try:
+            from save_system import save_game
+            save_game(self)
+        except Exception:
+            pass  # don't block gameplay if save fails
+
         return True
 
     def _enter_sublevel(self, sublevel_key: str):
@@ -2456,8 +3450,11 @@ class GameEngine:
         if tx == px and ty == py:
             return []  # already there
 
-        # A* path to the target
+        # A* path to the target — mark blocking hazards as impassable
         cost = np.array(dungeon.tiles, dtype=np.int8)
+        for e in dungeon.entities:
+            if e.entity_type == "hazard" and e.blocks_movement:
+                cost[e.y, e.x] = 0
         astar = tcod.path.AStar(cost=cost)
         raw_path = astar.get_path(py, px, ty, tx)
         if not raw_path:
@@ -2503,9 +3500,8 @@ class GameEngine:
 
         # Consume energy and let monsters act (unlike auto-travel, explore is real-time)
         if result and self.running and self.player.alive:
-            self.player.energy -= ENERGY_THRESHOLD
-            if self._player_just_moved and self.move_cost_reduction > 0:
-                self.player.energy += self.move_cost_reduction
+            move_cost = max(0, self.player_move_cost - self.move_cost_reduction)
+            self.player.energy -= move_cost
             self._run_energy_loop()
 
         # Check if player died or game ended during energy loop
@@ -2603,6 +3599,18 @@ class GameEngine:
         """Handle player movement using spatial index."""
         self._player_just_moved = False
 
+        # Slipped check — must stand up before moving/attacking
+        slip_effect = next(
+            (e for e in self.player.status_effects if getattr(e, 'id', '') == 'slipped'),
+            None,
+        )
+        if slip_effect:
+            self.player.status_effects.remove(slip_effect)
+            self.messages.append([
+                ("You get back on your feet!", (200, 200, 210)),
+            ])
+            return True  # turn consumed standing up
+
         # Web escape check — must break free before moving
         web_effect = next(
             (e for e in self.player.status_effects if getattr(e, 'id', '') == 'web_stuck'),
@@ -2625,6 +3633,25 @@ class GameEngine:
                 (f"({web_effect.escape_attempts}/{web_effect.max_attempts})", (150, 150, 150)),
             ])
             return True  # turn consumed
+
+        # Check if player is channeling Shortcut
+        shortcut_eff = next(
+            (e for e in self.player.status_effects if getattr(e, 'id', '') == 'shortcut_channel'),
+            None
+        )
+        if shortcut_eff:
+            self.player.status_effects.remove(shortcut_eff)
+            self.messages.append([
+                ("Shortcut cancelled! ", (255, 150, 100)),
+                ("You moved.", (200, 150, 150)),
+            ])
+
+        # Root Beer: player is rooted and cannot move (can still attack adjacent)
+        if any(getattr(e, 'id', '') == 'root_beer' for e in self.player.status_effects):
+            self.messages.append([
+                ("You are rooted! You can't move.", (140, 100, 50)),
+            ])
+            return False
 
         # Check if player is eating food
         eating_effect = next(
@@ -2651,11 +3678,26 @@ class GameEngine:
         new_x = self.player.x + dx
         new_y = self.player.y + dy
 
+        # Phase Walk: allow walking through walls (but not off-map)
+        has_phase = any(getattr(e, 'id', '') == 'phase_walk'
+                        for e in self.player.status_effects)
+        if has_phase and self.dungeon.is_terrain_blocked(new_x, new_y):
+            # Allow wall movement, but check bounds
+            if not (0 <= new_x < self.dungeon.width and 0 <= new_y < self.dungeon.height):
+                return False
+            self._player_just_moved = True
+            self.dungeon.move_entity(self.player, new_x, new_y)
+            self._compute_fov()
+            self._pickup_items_at(new_x, new_y)
+            self._gain_jaywalking_xp()
+            return True
+
         # Check for blocking entity (wall, monster, crate hazard, etc.)
         if self.dungeon.is_blocked(new_x, new_y):
             target = self.dungeon.get_blocking_entity_at(new_x, new_y)
             if target and target.entity_type == "monster" and not getattr(target, "is_summon", False):
                 self.handle_attack(self.player, target)
+                self._last_action_was_attack = True
                 return True
             elif target and getattr(target, "hazard_type", None) == "crate":
                 self._smash_crate(target)
@@ -2663,6 +3705,12 @@ class GameEngine:
             elif target and getattr(target, "hazard_type", None) == "deep_fryer":
                 self._open_deep_fryer()
                 return False  # no turn consumed — just opens menu
+            elif target and getattr(target, "hazard_type", None) == "vending_machine":
+                self._open_vending_machine(target)
+                return False  # no turn consumed — just opens menu
+            elif target and getattr(target, "hazard_type", None) == "shop_item":
+                self._open_shop_item(target)
+                return False  # no turn consumed — just opens popup
             elif target and getattr(target, "hazard_type", None) == "door":
                 self._try_unlock_door(target)
                 return True
@@ -2673,7 +3721,16 @@ class GameEngine:
         for entity in self.dungeon.get_entities_at(new_x, new_y):
             if entity.entity_type == "monster" and getattr(entity, "alive", True) and not getattr(entity, "is_summon", False):
                 self.handle_attack(self.player, entity)
+                self._last_action_was_attack = True
                 return True
+
+        # Rooted check — can't move but attacks above still work
+        rooted = any(getattr(e, 'id', '') == 'root_beer' for e in self.player.status_effects)
+        if rooted:
+            self.messages.append([
+                ("Your legs have become roots!", (140, 100, 50)),
+            ])
+            return False  # no turn consumed — just blocked
 
         # Move player through spatial index
         old_x, old_y = self.player.x, self.player.y
@@ -2718,6 +3775,8 @@ class GameEngine:
                 # Stash Finder (Alcoholism L3): 15% chance to find a random bottle
                 if self.skills.get("Alcoholism").level >= 3 and random.random() < 0.15:
                     self._stash_finder_proc()
+                # Ring of Intimidation: fear enemies whose max HP <= 30% of player max HP
+                self._intimidation_ring_proc(room_idx)
 
         # Child Support debuff: drain $1 per step
         for effect in self.player.status_effects:
@@ -2745,6 +3804,14 @@ class GameEngine:
                     ])
                 break
 
+        # Silver spray paint: slip on entry
+        if self.dungeon.spray_paint.get((new_x, new_y)) == "silver":
+            if not any(getattr(e, 'id', '') == 'slipped' for e in self.player.status_effects):
+                effects.apply_effect(self.player, self, "slipped", silent=True)
+                self.messages.append([
+                    ("You slip on the silver paint!", (200, 200, 210)),
+                ])
+
         # Recompute FOV
         self._compute_fov()
 
@@ -2760,12 +3827,18 @@ class GameEngine:
                     self.picked_up_items.add(entity.instance_id)
                     self._gain_item_skill_xp("Stealing", entity.item_id)
                     self._sticky_fingers_check(entity.item_id)
-                # Try to merge into an existing stack (skip charged items — each is unique)
-                if is_stackable(entity.item_id) and getattr(entity, "charges", None) is None:
+                # Try to merge into an existing stack
+                # Charged items (e.g. greasy food) stack if charges and prefix match
+                if is_stackable(entity.item_id):
+                    e_charges = getattr(entity, "charges", None)
+                    e_max = getattr(entity, "max_charges", None)
+                    e_prefix = getattr(entity, "prefix", None)
                     existing = next(
                         (i for i in self.player.inventory
                          if i.item_id == entity.item_id and i.strain == entity.strain
-                         and getattr(i, "charges", None) is None),
+                         and getattr(i, "charges", None) == e_charges
+                         and getattr(i, "max_charges", None) == e_max
+                         and getattr(i, "prefix", None) == e_prefix),
                         None,
                     )
                     if existing:
@@ -2841,11 +3914,136 @@ class GameEngine:
         return inventory_mgr._deep_fry_selected(self)
 
     # ------------------------------------------------------------------
+    # Vending Machine
+    # ------------------------------------------------------------------
+
+    def _open_vending_machine(self, vm_entity):
+        """Open the vending machine shop menu."""
+        from menu_state import MenuState
+        stock = getattr(vm_entity, "vending_stock", [])
+        if not stock:
+            self.messages.append("The vending machine is empty.")
+            return
+        self.vending_machine = vm_entity
+        self.vending_cursor = 0
+        self.menu_state = MenuState.VENDING_MACHINE
+
+    def _handle_vending_machine_input(self, action):
+        from menu_state import MenuState
+        from items import get_item_value, get_item_def
+        action_type = action.get("type")
+
+        if action_type == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.vending_machine = None
+            return False
+
+        stock = getattr(self.vending_machine, "vending_stock", [])
+        if not stock:
+            self.menu_state = MenuState.NONE
+            self.vending_machine = None
+            return False
+
+        if action_type == "move":
+            dy = action.get("dy", 0)
+            if dy != 0:
+                self.vending_cursor = (self.vending_cursor + dy) % len(stock)
+            return False
+
+        if action_type in ("confirm_target", "item_use"):
+            item_id, strain = stock[self.vending_cursor]
+            price = get_item_value(item_id, strain=strain)
+            if self.cash < price:
+                self.messages.append(f"Not enough cash! Need ${price}, have ${self.cash}.")
+                return False
+            self.cash -= price
+            self._add_item_to_inventory(item_id, strain=strain)
+            defn = get_item_def(item_id) or {}
+            name = defn.get("name", item_id)
+            self.messages.append([
+                ("Bought ", (100, 255, 100)),
+                (name, defn.get("color", (255, 255, 255))),
+                (f" for ${price}.", (100, 255, 100)),
+            ])
+            stock.pop(self.vending_cursor)
+            if not stock:
+                self.messages.append("The vending machine is now empty.")
+                self.menu_state = MenuState.NONE
+                self.vending_machine = None
+            elif self.vending_cursor >= len(stock):
+                self.vending_cursor = len(stock) - 1
+            return False
+
+        return False
+
+    # ------------------------------------------------------------------
+    # Shop item (Tyrone's Penthouse)
+    # ------------------------------------------------------------------
+
+    def _open_shop_item(self, entity):
+        """Open the shop item buy/cancel popup."""
+        from menu_state import MenuState
+        self.shop_item_entity = entity
+        self.menu_state = MenuState.SHOP_ITEM
+
+    def _handle_shop_item_input(self, action):
+        """Handle input for the shop item popup: Enter=buy, Esc=cancel."""
+        from menu_state import MenuState
+        from items import get_item_def
+        action_type = action.get("type")
+
+        if action_type == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.shop_item_entity = None
+            return False
+
+        if action_type in ("confirm_target", "item_use"):
+            entity = self.shop_item_entity
+            if entity is None:
+                self.menu_state = MenuState.NONE
+                return False
+            item_id = getattr(entity, "item_id", None)
+            price = getattr(entity, "shop_price", 0)
+            if self.cash < price:
+                self.messages.append(f"Not enough cash! Need ${price}, have ${self.cash}.")
+                self.menu_state = MenuState.NONE
+                self.shop_item_entity = None
+                return False
+            # Purchase
+            self.cash -= price
+            self._add_item_to_inventory(item_id)
+            defn = get_item_def(item_id) or {}
+            name = defn.get("name", item_id)
+            self.messages.append([
+                ("Bought ", (100, 255, 100)),
+                (name, defn.get("color", (255, 255, 255))),
+                (f" for ${price}.", (100, 255, 100)),
+            ])
+            # Remove item entity from the map
+            if entity in self.dungeon.entities:
+                self.dungeon.entities.remove(entity)
+            self.menu_state = MenuState.NONE
+            self.shop_item_entity = None
+            return False
+
+        return False
+
+    # ------------------------------------------------------------------
     # Combat
     # ------------------------------------------------------------------
 
     def _compute_str_bonus(self, weapon_item):
         return combat._compute_str_bonus(self, weapon_item)
+
+    def _has_spec_weapon(self) -> bool:
+        """Check if player has a spec weapon equipped in weapon or sidearm slot."""
+        for slot in ["weapon", "sidearm"]:
+            item = self.equipment.get(slot)
+            if item:
+                defn = get_item_def(item.item_id)
+                if defn and "spec_weapon" in defn.get("tags", []):
+                    return True
+        return False
 
     def _compute_player_attack_power(self):
         return combat._compute_player_attack_power(self)
@@ -2982,6 +4180,9 @@ class GameEngine:
 
     def _handle_examine_input(self, action):
         return inventory_mgr._handle_examine_input(self, action)
+
+    def _handle_midas_brew_input(self, action):
+        return inventory_mgr._handle_midas_brew_input(self, action)
 
     def _handle_destroy_confirm_input(self, action):
         return inventory_mgr._handle_destroy_confirm_input(self, action)
@@ -3187,6 +4388,9 @@ class GameEngine:
     def _spell_breath_fire(self, tx: int, ty: int) -> bool:
         return spells._spell_breath_fire(self, tx, ty)
 
+    def _spell_fireball(self, tx: int, ty: int) -> bool:
+        return spells._spell_fireball(self, tx, ty)
+
     def _get_cone_tiles(self, cx: int, cy: int, dir_x: float, dir_y: float, range_dist: int = 5):
         return spells._get_cone_tiles(self, cx, cy, dir_x, dir_y, range_dist)
 
@@ -3198,6 +4402,15 @@ class GameEngine:
 
     def _spell_pry(self, tx: int, ty: int) -> bool:
         return spells._spell_pry(self, tx, ty)
+
+    def _spell_ags_charge(self, tx: int, ty: int) -> bool:
+        return spells._spell_ags_charge(self, tx, ty)
+
+    def _spell_polarize(self, tx: int, ty: int) -> bool:
+        return spells._spell_polarize(self, tx, ty)
+
+    def _spell_ddd_puncture(self, tx: int, ty: int) -> bool:
+        return spells._spell_ddd_puncture(self, tx, ty)
 
     def _spell_lesser_cloudkill(self, tx: int, ty: int) -> bool:
         return spells._spell_lesser_cloudkill(self, tx, ty)
@@ -3235,6 +4448,25 @@ class GameEngine:
 
     def _get_ray_of_frost_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
         return spells._get_ray_of_frost_affected_tiles(self, tx, ty)
+
+    def _get_outbreak_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
+        return spells._get_outbreak_affected_tiles(self, tx, ty)
+
+    def _get_zombie_stare_affected_tiles(self, tx: int, ty: int) -> list[tuple[int, int]]:
+        """Return affected tiles for Zombie Stare. Cone at L5+, single tile otherwise."""
+        if self.skills.get("Infected").level >= 5:
+            import math
+            dx = tx - self.player.x
+            dy = ty - self.player.y
+            if dx == 0 and dy == 0:
+                return []
+            dist = math.sqrt(dx * dx + dy * dy)
+            return spells._get_cone_tiles(
+                self, self.player.x, self.player.y,
+                dx / dist, dy / dist,
+                range_dist=3, half_angle_deg=45, min_spread=0,
+            )
+        return [(tx, ty)]
 
     # ------------------------------------------------------------------
     # Ability system
@@ -3334,10 +4566,10 @@ class GameEngine:
         if vv:
             _apply_virulent_vodka_tox(self, target, damage, vv.stacks)
 
-    def _check_glow_up_proc(self, target):
-        """Glow Up L3: 20% chance on any player damage to apply 100 radiation to target."""
+    def _check_decontamination_proc(self, target):
+        """Decontamination L3: 20% chance on any player damage to apply 100 radiation to target."""
         if (target.entity_type != "monster" or not target.alive
-                or self.skills.get("Glow Up").level < 3):
+                or self.skills.get("Decontamination").level < 3):
             return
         import random as _rng
         if _rng.random() < 0.20:
@@ -3392,10 +4624,10 @@ class GameEngine:
                 if target is not None:
                     _apply_virulent_vodka_tox(self, target, dmg, vv_eff.stacks)
 
-        # Glow Up L3: proc on each damaged target
+        # Decontamination L3: proc on each damaged target
         for mid, (target, dmg) in per_target_dmg.items():
             if target is not None:
-                self._check_glow_up_proc(target)
+                self._check_decontamination_proc(target)
 
         # Mana Drink: heal based on total damage
         if mana_eff and total_dmg > 0:
@@ -3438,8 +4670,9 @@ class GameEngine:
         return xp_progression._gain_jaywalking_xp(self)
 
     _STASH_FINDER_DRINKS = [
-        "40oz", "fireball_shooter", "malt_liquor", "homemade_hennessy",
-        "steel_reserve", "mana_drink", "five_loco",
+        "40oz", "natty_light", "jagermeister", "butterbeer", "fireball_shooter",
+        "blue_lagoon", "absinthe", "malt_liquor", "homemade_hennessy", "steel_reserve",
+        "mana_drink", "five_loco",
     ]
 
     def _stash_finder_proc(self):
@@ -3453,6 +4686,99 @@ class GameEngine:
             (f"You found a {name} stashed in the room!", (200, 180, 120)),
         ])
 
+    def _check_titan_blood_proc(self):
+        """Titan's Blood Ring: activate Titan Form on crossing below 25% HP."""
+        if not self._titan_blood_available or not self._titan_blood_was_above_25:
+            return
+        if self.player.max_hp <= 0:
+            return
+        ratio = self.player.hp / self.player.max_hp
+        if ratio >= 0.25:
+            return
+        # Crossed below 25% — check if ring is equipped
+        from items import get_item_def
+        has_ring = False
+        for ring in self.rings:
+            if ring is not None:
+                defn = get_item_def(ring.item_id)
+                if defn and "titan_blood" in defn.get("tags", []):
+                    has_ring = True
+                    break
+        if not has_ring:
+            return
+        self._titan_blood_available = False
+        self._titan_blood_was_above_25 = False
+        effects.apply_effect(self.player, self, "titan_form", duration=20)
+        self.messages.append([
+            ("TITAN FORM! ", (255, 50, 50)),
+            ("+50 temp HP, +50% melee damage, 25% stun chance for 20 turns!", (255, 180, 180)),
+        ])
+
+    def _straw_hat_death_save(self) -> bool:
+        """Straw Hat: negate killing blow, revive at 50% HP, teleport to room 0, destroy hat."""
+        from items import get_item_def
+        hat = self.hat
+        if hat is None:
+            return False
+        defn = get_item_def(hat.item_id)
+        if not defn or "straw_hat" not in defn.get("tags", []):
+            return False
+        # Revive
+        self.player.hp = self.player.max_hp // 2
+        self.player.alive = True
+        # Teleport to spawn room (room 0)
+        import random as _rng
+        room = self.dungeon.rooms[0]
+        tiles = room.floor_tiles(self.dungeon)
+        free = [(x, y) for x, y in tiles if not self.dungeon.is_blocked(x, y)]
+        if not free:
+            free = tiles
+        tx, ty = _rng.choice(free)
+        self.dungeon.move_entity(self.player, tx, ty)
+        self._compute_fov()
+        # Destroy the hat
+        self.hat = None
+        from inventory_mgr import _refresh_ring_stat_bonuses
+        _refresh_ring_stat_bonuses(self)
+        self.messages.append([
+            ("The Straw Hat glows! ", (220, 200, 80)),
+            ("You are saved from death!", (255, 255, 100)),
+        ])
+        self.messages.append([
+            ("The Straw Hat crumbles to dust...", (180, 160, 80)),
+        ])
+        return True
+
+    def _intimidation_ring_proc(self, room_idx: int) -> None:
+        """Ring of Intimidation: fear all enemies in the room whose max HP <= 30% of player max HP."""
+        from items import get_item_def
+        has_ring = False
+        for ring in self.rings:
+            if ring is not None:
+                defn = get_item_def(ring.item_id)
+                if defn and "intimidation_ring" in defn.get("tags", []):
+                    has_ring = True
+                    break
+        if not has_ring:
+            return
+        threshold = self.player.max_hp * 0.30
+        feared = []
+        for ent in self.dungeon.entities:
+            if ent.entity_type != "monster" or not getattr(ent, "alive", True):
+                continue
+            if self.dungeon.get_room_index_at(ent.x, ent.y) != room_idx:
+                continue
+            if ent.max_hp <= threshold:
+                effects.apply_effect(ent, self, "fear", duration=15,
+                                     source_x=self.player.x, source_y=self.player.y)
+                feared.append(ent.name)
+        if feared:
+            names = ", ".join(feared)
+            self.messages.append([
+                ("Intimidation! ", (200, 50, 50)),
+                (f"{names} cower in fear!", (220, 180, 180)),
+            ])
+
     def _gain_abandoning_xp(self) -> None:
         return xp_progression._gain_abandoning_xp(self)
 
@@ -3461,6 +4787,9 @@ class GameEngine:
 
     def _gain_catchin_fades_xp(self, damage: int) -> None:
         return xp_progression._gain_catchin_fades_xp(self, damage)
+
+    def _gain_elementalist_xp(self, target, damage: int, spell_element: str) -> None:
+        return xp_progression._gain_elementalist_xp(self, target, damage, spell_element)
 
     def _gain_spell_xp(self, ability_id: str) -> None:
         xp_progression._gain_spell_xp(self, ability_id)
@@ -3500,8 +4829,8 @@ class GameEngine:
             ])
 
     def _smoking_proc_on_hit(self):
-        """Smoking L2: 10% chance when hit to auto-smoke a random joint from inventory."""
-        if not hasattr(self, 'skills') or self.skills.get("Smoking").level < 2:
+        """Smoking L3: 10% chance when hit to auto-smoke a random joint from inventory."""
+        if not hasattr(self, 'skills') or self.skills.get("Smoking").level < 3:
             return
         import random as _rng
         if _rng.random() >= 0.10:

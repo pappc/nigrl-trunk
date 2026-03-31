@@ -1,0 +1,97 @@
+GUN REFERENCE TABLE
+===================
+
+SIDEARM GUNS (small class — sidearm slot only)
+-----------------------------------------------
+
+Decimator (UNIQUE)
+  Damage: missing HP    Range: 6    Ammo: heavy    Mag: 1    Reload: free
+  Accurate: 100% hit / 50 energy    Fast: 100% hit / 50 energy
+  AOE: target    Special: 1 reload per floor, damage = player's missing HP
+
+Ruger Mark V
+  Damage: 6-8    Range: 4    Ammo: light    Mag: 10    Reload: free
+  Accurate: 90% hit / 60 energy    Fast: 65% hit / 30 energy
+  AOE: target    Special: none (basic starter pistol)
+
+Glizzy-19
+  Damage: 11-15    Range: 5    Ammo: light    Mag: 15/17/19/24/33    Reload: free
+  Accurate: 75% hit / 70 energy    Fast: 60% hit / 50 energy
+  AOE: target    Special: random mag size on spawn, grants Double Tap ability
+
+UZI
+  Damage: 8-10    Range: 5    Ammo: light    Mag: 32    Reload: 80 energy
+  Accurate: 60% hit / 60 energy    Fast: 40% hit / 35 energy
+  AOE: cone 30deg, 3-4 ammo/shot    Special: spray fire, drum mag
+
+Sawed Off
+  Damage: 10-25    Range: 4    Ammo: medium    Mag: 2    Reload: 50 energy
+  Accurate: 60% hit / 110 energy    Fast: 50% hit / 90 energy
+  AOE: cone 90deg, 5 projectiles    Special: wide spread shotgun blast
+
+Tec-9
+  Damage: 9-14    Range: 5    Ammo: light    Mag: 20    Reload: 60 energy
+  Accurate: 70% hit / 35 energy    Fast: 50% hit / 20 energy
+  AOE: target    Special: 18% jam chance (100 energy to clear), grants Spray and Pray
+
+
+WEAPON-SLOT GUNS (medium/large class — weapon slot only)
+---------------------------------------------------------
+
+HV Express
+  Damage: 6-8    Range: 8    Ammo: light    Mag: 5    Reload: 100 energy
+  Accurate: 90% hit / 80 energy    Fast: 70% hit / 45 energy
+  AOE: target    Special: +2 damage per consecutive hit on same target (stacking)
+
+AR-14
+  Damage: 12-32    Range: 6    Ammo: medium    Mag: 30    Reload: 100 energy
+  Accurate: 90% hit / 65 energy    Fast: 70% hit / 50 energy
+  AOE: line    Special: grants Spray ability
+
+M16
+  Damage: 15-28    Range: 6    Ammo: medium    Mag: 30    Reload: 100 energy
+  Accurate: 70% hit / 70 energy    Fast: 50% hit / 50 energy
+  AOE: line    Special: grants Burst ability
+
+RPG
+  Damage: 40-50    Range: 10    Ammo: heavy    Mag: 1    Reload: 150 energy
+  Accurate: 90% hit / 100 energy    Fast: 60% hit / 80 energy
+  AOE: circle radius 2    Special: explosive area damage
+
+Cruiser 500
+  Damage: 18-22    Range: 5    Ammo: medium    Mag: 8    Reload: 200 energy
+  Accurate: 80% hit / 100 energy    Fast: 60% hit / 80 energy
+  AOE: cone 90deg, 5 projectiles    Special: combat shotgun, slow reload
+
+Draco
+  Damage: 15-35    Range: 6    Ammo: medium    Mag: 30    Reload: 60 energy
+  Accurate: 60% hit / 70 energy    Fast: 40% hit / 40 energy
+  AOE: line    Special: fast reload, widest damage variance
+
+
+AMMO TYPES
+----------
+  Light  — pistols, SMGs (Ruger, Glizzy, UZI, Tec-9, HV Express)
+  Medium — rifles, shotguns (AR-14, M16, Sawed Off, Cruiser 500, Draco)
+  Heavy  — explosives, special (RPG, Decimator)
+
+
+KEY ITEM DEFINITION FIELDS
+---------------------------
+  gun_class        "small" = sidearm only, "medium"/"large" = weapon slot only
+  base_damage      (min, max) tuple — random roll per shot
+  gun_range        max Chebyshev distance for targeting
+  ammo_type        "light", "medium", or "heavy"
+  mag_size         rounds before reload needed
+  reload_speed     energy cost to reload (0 = free action)
+  firing_modes     dict with "accurate" and "fast" sub-dicts, each has "hit" (%) and "energy" (cost)
+  aoe_type         "target" (single), "cone" (spread), "line" (piercing), "circle" (explosive)
+  cone_angle       degrees for cone AOE (30 = narrow, 90 = wide)
+  ammo_per_shot    (min, max) rounds consumed per fire action (cone guns)
+  projectiles      number of pellets for cone/spread guns
+  consecutive_bonus  +N damage per consecutive hit on same target
+  jam_chance       % chance to jam per shot (0 = never jams)
+  jam_clear_cost   energy cost to clear a jam
+  mag_size_options list of possible mag sizes (random on spawn)
+  reload_per_floor max reloads allowed per floor
+  grants_ability   ability ID granted while gun is equipped

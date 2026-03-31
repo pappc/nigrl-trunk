@@ -1,0 +1,1686 @@
+================================================================================
+ABILITY-GRANTING UNIQUE ITEMS (BATCH 2) — RESOURCE/CURRENCY SYSTEMS
+13 Unique Equippable Items
+NIGRL Roguelike — Design Document
+================================================================================
+
+Research Foundation
+-------------------
+- Existing resource/currency items (Batch 1): Crown of the Corner Boy (rep/kills, hat),
+  Knuckle Diary (entries/crits, weapon), Hustle Ring (hustle/moves, ring),
+  Tap-In Talisman (pages/damage-taken, neck). No duplicates from those patterns.
+- soul_count pattern: attribute on item entity, synced via tick hook in display effect,
+  incremented via engine.event_bus "entity_died" handler.
+- grants_abilities currently wired for neck; grants_ability wired for weapon/sidearm/feet.
+  Hat, ring, and weapon grants_abilities require inventory_mgr.py extension (mirror neck).
+- ChargeType patterns used: INFINITE + ability_cooldowns (cooldown), PER_FLOOR + max_charges,
+  TOTAL, ONCE. For resource items: INFINITE + runtime cost check is the standard.
+- TargetTypes: SELF, SINGLE_ENEMY_LOS, LINE_FROM_PLAYER, AOE_CIRCLE, ADJACENT, ADJACENT_TILE.
+- Damage absorption order: temp_hp → armor → hp.
+- Gun ammo types: light / medium / heavy. Classes: small=sidearm, medium/large=weapon.
+- Status effects with lifecycle hooks: modify_incoming_damage, on_player_melee_hit,
+  modify_energy_gain, before_turn, modify_movement, tick, apply, expire.
+- outgoing_damage_mults: list of floats, product is the multiplier. Append on apply, pop on expire.
+- Entity fields: toxicity, radiation, infection, meth, temp_hp, armor, hp.
+- Player stats: constitution, strength, book_smarts, street_smarts, tolerance, swagger.
+- ability_cooldowns: {ability_id: turns_remaining}, ticked per energy loop turn.
+- Slot coverage (Batch 1 used): weapon/beating x4, feet x1, hat x2, neck x1, ring x2.
+  This batch MUST cover: sidearm (gun), weapon (gun), stabbing x2, slashing x1, ring x1+,
+  neck x1+, feet x1, hat x1, new beating x1. No plain rings with no resource this batch.
+
+================================================================================
+ITEM 1: The Toll Collector
+Slot: Neck | Char: $ | Color: (60, 200, 100) dirty green
+================================================================================
+
+CONCEPT SUMMARY
+A padded money belt worn under the jacket — the kind a street-level operator uses to keep
+their float safe. Every dollar you spend (on vending machines, trades, or item use) drops
+a toll token in the belt. Spend those tokens on three abilities: bribe a single enemy to
+stop fighting, throw your weight around to suppress every visible enemy's energy, or cash
+out the entire belt on a burst of temporary max-HP and speed.
+
+The design captures the street economy fantasy: your spending power translates directly into
+battlefield leverage. Richer playthroughs that invest in vending machines and crafting
+accumulate tokens quickly; cash-poor runs must fight smarter.
+
+ITEM DEFINITION (items.py ITEM_DEFS entry)
+  "toll_collector": {
+      "name": "The Toll Collector",
+      "char": "$",
+      "color": (60, 200, 100),
+      "category": "equipment",
+      "subcategory": "neck",
+      "equip_slot": "neck",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 10,
+      "stat_bonus": {"tolerance": 1, "swagger": 1},
+      "tags": ["toll_collector", "unique"],
+      "name_gradient": [(60, 200, 100), (30, 120, 50), (200, 255, 100)],
+      "grants_abilities": ["toll_bribe", "toll_suppress", "toll_cashout"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: TOKENS (cash spent tally)
+- Stored as: engine.neck.token_count (int attribute set on item entity, same as soul_count)
+- Accumulation: +1 token per $10 spent (or fraction thereof) on vending machines, crafting,
+  or any engine.cash deduction while belt is equipped.
+  - Tracked in engine.py: in `_spend_cash()` helper or any site that reduces self.cash
+    (vending machine purchase, crafting cost, etc.) — add:
+    if self.neck and "toll_collector" in (get_item_def(self.neck.item_id) or {}).get("tags", []):
+        self.neck.token_count = getattr(self.neck, "token_count", 0) + spent_amount // 10
+- Max tokens: 20. Display via new "token_count" visual effect (same pattern as soul_count).
+- Tokens persist across floors; reset to 0 on unequip.
+
+DISPLAY EFFECT (effects.py)
+  class TokenCountEffect(Effect):
+      id = "token_count"; category = "buff"; priority = 0
+      def __init__(self, **kwargs): kwargs.pop("duration", None); super().__init__(duration=9999, **kwargs); self.tokens = 0
+      def tick(self, entity, engine):
+          neck = engine.neck
+          if neck and "toll_collector" in (get_item_def(neck.item_id) or {}).get("tags", []):
+              self.tokens = getattr(neck, "token_count", 0)
+      @property
+      def display_name(self): return f"Tokens: {self.tokens}"
+
+ABILITY 1: Toll Bribe
+  ability_id: "toll_bribe"
+  name: "Toll Bribe"
+  description: "Spend 4 tokens. A visible enemy suddenly 'has somewhere else to be.' Apply Fear (source=player, duration=10t) to the nearest visible non-boss enemy."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 4 tokens
+  Execute logic:
+    - Check token_count >= 4
+    - Find nearest visible living monster NOT flagged engine.player_stats (i.e. not is_boss)
+    - Apply FearEffect(duration=10, source_x=engine.player.x, source_y=engine.player.y) to it
+    - Deduct 4 tokens
+    - Message: [("Toll Bribe! ", (60, 200, 100)), ("[name] has somewhere to be. ", (200, 255, 150)), ("(-4 tokens)", (180, 180, 180))]
+  Notes: FearEffect already exists. "Non-boss" check: getattr(entity, "is_boss", False) == False.
+
+ABILITY 2: Toll Suppress
+  ability_id: "toll_suppress"
+  name: "Toll Suppress"
+  description: "Spend 7 tokens. Every visible enemy loses 40 energy immediately. The collector asserts dominance."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 7 tokens
+  Execute logic:
+    - Check token_count >= 7
+    - For every living monster m where engine.dungeon.visible[m.y, m.x]:
+        m.energy = max(0.0, m.energy - 40.0)
+    - Deduct 7 tokens
+    - Message: [("Toll Suppress! ", (60, 200, 100)), ("Every visible enemy loses 40 energy. ", (200, 255, 150)), ("(-7 tokens)", (180, 180, 180))]
+  Balance: 40 energy = just under half a turn (threshold=100). Delays all visible enemies by
+  roughly half a turn. With 7 tokens this is a mid-stack spend during dangerous multi-enemy rooms.
+
+ABILITY 3: Toll Cashout
+  ability_id: "toll_cashout"
+  name: "Toll Cashout"
+  description: "Spend ALL tokens (min 12). Gain 3 temp HP and +8 energy/tick per token spent. Effect lasts until floor change."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL tokens (minimum 12)
+  Execute logic:
+    - Check token_count >= 12
+    - total = engine.neck.token_count
+    - engine.player.temp_hp = min(engine.player.temp_hp + total * 3, 80)
+    - Apply new effect "toll_cashout_buff" (floor_duration=True):
+        apply: engine.player_stats.equipment_energy_per_tick += total * 8
+        expire: engine.player_stats.equipment_energy_per_tick -= stored_bonus
+    - Set token_count = 0
+    - Message: [("CASHOUT! ", (255, 255, 60)), (f"+{total*3} temp HP, +{total*8} energy/tick until floor end. ", (200, 255, 200)), (f"(-{total} tokens)", (180, 180, 180))]
+  Balance: 12 tokens = 36 temp HP + 96 energy/tick (nearly double speed). 20 tokens = 60 temp
+  HP + 160 energy/tick (nearly triple speed). High payoff for committing a full spending run.
+  New effect "toll_cashout_buff" stores the bonus amount and reverses it on expire.
+
+BALANCE OVERVIEW:
+- Tokens at $10 each: a $50 vending purchase = 5 tokens, a $120 crafting session = 12 tokens.
+- Bribe at 4 is accessible mid-floor after a single vending machine visit.
+- Suppress at 7 is a crowd control panic button for multi-enemy rooms.
+- Cashout at 12+ is the big power play for deep cash investment runs.
+- +10 armor + +1 TOL + +1 SWG make it competitive as a defensive neck piece.
+- Tradeoff: you spend money to get tokens; spending money on other things (healing items,
+  crafting) is already valuable. This neck competes with cash utility.
+
+IMPLEMENTATION NOTES:
+- engine.py: all sites that reduce engine.cash must call a helper
+  _spend_cash(amount) that increments neck.token_count = getattr(neck, "token_count", 0) + amount // 10
+- inventory_mgr.py: on neck equip, set neck.token_count = 0. On unequip, reset to 0.
+- effects.py: TokenCountEffect (display), TollCashoutBuffEffect (floor_duration, stores/reverses energy bonus).
+- abilities.py: three new AbilityDef entries.
+- New engine state: none required beyond token_count on item entity.
+
+SYNERGIES & INTERACTIONS:
+- Vending machine runs + Drinking skill: natural synergy for cash-heavy builds.
+- Crafting-heavy runs (Deep-Frying tree): crafting gold costs generate tokens.
+- Combined with Steal (Stealing skill): stealing cash doesn't generate tokens (only spending does),
+  creating an interesting asymmetry — hoarders who spend get more utility.
+
+================================================================================
+ITEM 2: The Tox Budget
+Slot: Ring | Char: 0xE00A | Color: (100, 220, 80) sickly green
+================================================================================
+
+CONCEPT SUMMARY
+A chunky plastic ring molded in the shape of a biohazard symbol, filled with some kind of
+glowing fluid. You keep a running "tox budget" — every point of toxicity you personally
+accumulate charges the ring. Spend that budget to weaponize your own poisoning: vent a tox
+cloud, spike your fists with toxin for a few hits, or do the really insane thing and detonate
+the whole budget as a massive AoE wave.
+
+The ring rewards the Meth Lab build that actively takes toxicity hits as a resource rather
+than a liability. The design is intentionally high-risk: you must be toxified to use it.
+
+ITEM DEFINITION
+  "tox_budget_ring": {
+      "name": "The Tox Budget",
+      "char": chr(0xE00A),
+      "color": (100, 220, 80),
+      "category": "equipment",
+      "subcategory": "ring",
+      "equip_slot": "ring",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "stat_bonus": {"tolerance": 2},
+      "tags": ["tox_budget_ring", "unique"],
+      "name_gradient": [(100, 220, 80), (40, 100, 30), (200, 255, 100)],
+      "grants_abilities": ["tox_vent", "tox_spike_fist", "tox_detonation"],
+      "zones": ["meth_lab"],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: TOX BUDGET (accumulated toxicity tally)
+- Stored as: engine.tox_budget_ring_budget (int), separate from actual player toxicity.
+  Accumulation: each time engine.player.toxicity increases by any amount while ring is equipped,
+  add that increase to engine.tox_budget_ring_budget.
+  Tracked in: engine.py or combat.py in the function that calls add_toxicity(engine, player, amount) —
+  wrap: if ring equipped, budget += amount.
+- Max budget: 200. Display via new "tox_budget_count" effect (visual only, pattern: soul_count).
+- Budget does NOT decrease when the player's actual toxicity decreases (toxicity removal does
+  NOT reduce budget — budget only moves up).
+- Budget resets to 0 on ring unequip.
+
+ABILITY 1: Tox Vent
+  ability_id: "tox_vent"
+  name: "Tox Vent"
+  description: "Spend 30 budget. Vent a tox cloud — apply 25 toxicity to all enemies within 3 tiles. Also instantly reduces your own toxicity by 20."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 30 budget
+  Execute logic:
+    - Check tox_budget_ring_budget >= 30
+    - For all monsters within Chebyshev distance 3 of player:
+        add_toxicity(engine, monster, 25)  — use existing add_toxicity helper
+    - engine.player.toxicity = max(0, engine.player.toxicity - 20)  — vent also clears some
+    - engine.tox_budget_ring_budget -= 30
+    - Message: [("Tox Vent! ", (100, 220, 80)), ("25 tox to nearby enemies; -20 your tox. ", (200, 255, 150)), ("(-30 budget)", (180, 180, 180))]
+  Balance: 30 budget requires accumulating 30 tox. The vent both damages enemies and gives small
+  tox relief, making it a risk-management tool.
+
+ABILITY 2: Tox Spike Fist
+  ability_id: "tox_spike_fist"
+  name: "Tox Spike Fist"
+  description: "Spend 50 budget. Your next 4 melee hits each apply 15 toxicity to the target. Combines with enemy tox damage multiplier."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 50 budget
+  Execute logic:
+    - Check tox_budget_ring_budget >= 50
+    - Apply new effect "tox_spike_fist_buff" (duration based on charges=4):
+        on_player_melee_hit hook: add_toxicity(engine, defender, 15); decrement internal charge counter;
+        when charges reach 0: expire immediately.
+    - engine.tox_budget_ring_budget -= 50
+    - Message: [("Tox Spike Fist! ", (100, 220, 80)), ("Next 4 melee hits apply 15 tox. ", (200, 255, 150)), ("(-50 budget)", (180, 180, 180))]
+  New effect needed: ToxSpikeFistEffect — duration=30 (max window), internal charges=4,
+  on_player_melee_hit applies add_toxicity and counts down charges; forced expire when charges=0.
+
+ABILITY 3: Tox Detonation
+  ability_id: "tox_detonation"
+  name: "Tox Detonation"
+  description: "Spend ALL budget (min 80). Detonate the ring — deal damage equal to budget/4 to ALL visible enemies. Your own toxicity jumps by 30. Budget consumed entirely."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL budget (minimum 80)
+  Execute logic:
+    - Check tox_budget_ring_budget >= 80
+    - total = engine.tox_budget_ring_budget
+    - damage = total // 4  (e.g. 80 budget = 20 dmg, 200 budget = 50 dmg)
+    - For all visible living monsters m:
+        deal_damage(engine, damage, m) — unresisted (ignore defense: deal via m.take_damage(damage) directly,
+        or subtract defense for more fairness — designer choice; recommended: subtract monster defense)
+        Actually use: actual_dmg = max(1, damage - m.defense); m.take_damage(actual_dmg); event_bus if dead.
+    - add_toxicity(engine, engine.player, 30)  — detonation backfires slightly
+    - engine.tox_budget_ring_budget = 0
+    - Message: [("TOX DETONATION! ", (100, 255, 80)), (f"{damage} damage to all visible enemies! ", (180, 255, 150)), ("+30 your tox. ", (255, 150, 50)), (f"(-{total} budget)", (180, 180, 180))]
+  Balance: 200 budget = 50 damage to all visible enemies. Floor-boss room scenario.
+  The +30 tox backfire is thematic and keeps the budget machine running.
+
+BALANCE OVERVIEW:
+- Requires Meth Lab zone or heavy tox exposure to be useful at all.
+- Tox Vent at 30 is available after moderate tox damage — a consistent spend option.
+- Tox Spike Fist rewards melee builds that are already taking tox damage.
+- Tox Detonation at 200 budget is a massive nuke but requires surviving 200 tox worth of hits.
+- +2 TOL and "zones": ["meth_lab"] signal this is zone-specific late-game gear.
+
+IMPLEMENTATION NOTES:
+- Ring grants_ability/grants_abilities: requires inventory_mgr.py ring equip/unequip support.
+- engine.py or combat.py: wrap all add_toxicity(engine, engine.player, amount) calls to also
+  increment engine.tox_budget_ring_budget when ring equipped.
+- effects.py: ToxSpikeFistEffect (on_player_melee_hit, charge counter, force-expire at 0 charges);
+  ToxBudgetCountEffect (display only, syncs from engine.tox_budget_ring_budget).
+- abilities.py: three new AbilityDef entries.
+- New engine state: tox_budget_ring_budget (int, default 0, reset on unequip).
+
+SYNERGIES & INTERACTIONS:
+- Toxic Slug, Sludge Amalgam enemies: deal heavy tox to player, accelerating budget generation.
+- White Power tox inversion trees: taking tox is already rewarded by those perks — double synergy.
+- Chemical Warfare skill tree: tox-building playstyle.
+
+================================================================================
+ITEM 3: The Spellbook Strap
+Slot: Neck | Char: + | Color: (130, 80, 220) purple
+================================================================================
+
+CONCEPT SUMMARY
+A wide leather shoulder strap taken from an old satchel, scrawled with arcane symbols in
+ballpoint pen and chalk marker. Every spell or ability you cast adds an "inscription" to the
+strap. Spend inscriptions on empowered spell procs: reset a random ability's cooldown, trigger
+a free chain cast, or dump the whole strap for a surge of raw spell damage.
+
+This is the magic-user item — it rewards builds that invest in Blackkk Magic, Pyromania,
+Cryomancy, Electrodynamics, and any ability-heavy skill. It creates a spell-loop engine.
+
+ITEM DEFINITION
+  "spellbook_strap": {
+      "name": "The Spellbook Strap",
+      "char": "+",
+      "color": (130, 80, 220),
+      "category": "equipment",
+      "subcategory": "neck",
+      "equip_slot": "neck",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"book_smarts": 1, "street_smarts": 1},
+      "tags": ["spellbook_strap", "unique"],
+      "name_gradient": [(130, 80, 220), (200, 120, 255), (80, 40, 160)],
+      "grants_abilities": ["inscription_recharge", "inscription_chain", "inscription_surge"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: INSCRIPTIONS (spells/abilities cast tally)
+- Stored as: engine.neck.inscription_count (int attribute on item entity)
+- Accumulation: +1 inscription per ability used while strap is equipped.
+  Tracked in: abilities.py AbilityInstance.consume() — after consuming a charge, check:
+    engine = <passed in> — add check: if engine.neck and "spellbook_strap" in tags: neck.inscription_count += 1
+  Alternatively: in engine.py's ability-use dispatch, after an ability fires.
+- Max inscriptions: 15. Display via new "inscription_count" effect (visual only).
+- Inscriptions persist across floors; reset on unequip.
+
+ABILITY 1: Inscription Recharge
+  ability_id: "inscription_recharge"
+  name: "Inscription Recharge"
+  description: "Spend 3 inscriptions. Wipe one random ability off its cooldown immediately."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 3 inscriptions
+  Execute logic:
+    - Check inscription_count >= 3
+    - Find all ability_ids currently in engine.ability_cooldowns (i.e. on cooldown)
+    - If none: message "No abilities on cooldown." return without consuming cost.
+    - Pick random one from that list
+    - del engine.ability_cooldowns[chosen_id]
+    - Deduct 3 inscriptions
+    - Message: [("Inscription Recharge! ", (130, 80, 220)), (f"{chosen_id.replace('_',' ').title()} refreshed! ", (200, 180, 255)), ("(-3 inscriptions)", (180, 180, 180))]
+  Notes: This is the workhorse — consistent value as long as you have cooldown abilities.
+  Edge case: if no cooldown abilities exist, ability should message gracefully and not consume cost.
+
+ABILITY 2: Inscription Chain
+  ability_id: "inscription_chain"
+  name: "Inscription Chain"
+  description: "Spend 6 inscriptions. The last spell you cast fires again automatically at a random visible enemy. Free action — does not use a turn."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 6 inscriptions
+  Execute logic:
+    - Check inscription_count >= 6
+    - Check engine._last_ability_fired_id (new engine state: str, set when any ability fires)
+    - If no last ability: message "No ability to chain." return without cost.
+    - Re-execute the last ability's execute function:
+        Find a random visible living monster for targeted abilities
+        For SELF-type abilities: refire on player tile
+        For targeted types: auto-pick random visible monster as (tx, ty)
+        Special case: if the re-fired ability would consume charges, those ARE consumed normally.
+    - This does NOT cost a turn (engine.player_attacked_this_turn set to False after, or use
+      player_free_action pattern)
+    - Deduct 6 inscriptions BEFORE the refire
+    - Message: [("Inscription Chain! ", (130, 80, 220)), (f"{last_name} chains to [target]! ", (200, 180, 255)), ("(-6 inscriptions)", (180, 180, 180))]
+  New engine state: engine._last_ability_fired_id (str|None, updated after every ability use).
+
+ABILITY 3: Inscription Surge
+  ability_id: "inscription_surge"
+  name: "Inscription Surge"
+  description: "Spend ALL inscriptions (min 9). Gain +5 spell damage per inscription spent until floor change. Activates immediately."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL inscriptions (minimum 9)
+  Execute logic:
+    - Check inscription_count >= 9
+    - total = engine.neck.inscription_count
+    - bonus = total * 5
+    - engine.player_stats.add_temporary_spell_damage(bonus)
+    - Apply new effect "inscription_surge_buff" (floor_duration=True, bonus_stored=bonus):
+        expire: engine.player_stats.add_temporary_spell_damage(-bonus_stored)
+    - engine.neck.inscription_count = 0
+    - Message: [("INSCRIPTION SURGE! ", (200, 150, 255)), (f"+{bonus} spell damage until floor end. ", (180, 255, 200)), (f"(-{total} inscriptions)", (180, 180, 180))]
+  Balance: 9 inscriptions = +45 spell damage. 15 inscriptions = +75 spell damage.
+  This is a dominant late-game spend for a mage who's been casting all floor.
+
+BALANCE OVERVIEW:
+- Inscription accumulates at 1/cast — fast for ability-heavy builds, slow for melee-only.
+- Recharge at 3 is a frequent use; great for fireball, gouge, dash builds.
+- Chain at 6 is the burst option: doubling an AOE or a big spell hit.
+- Surge at 9 is the commitment play: dump the buffer and go nuclear for a whole floor.
+- +1 BKS + +1 STS make it viable for any build; not purely locked to casters.
+
+IMPLEMENTATION NOTES:
+- abilities.py: in AbilityInstance.consume(), add optional engine parameter. Check for strap.
+  OR: in engine.py's ability dispatch, after a successful fire, increment inscription_count.
+- engine.py: add engine._last_ability_fired_id (str|None). Set in ability dispatch after fire.
+- effects.py: InscriptionSurgeBuff (floor_duration=True, stores bonus, reverses on expire).
+  InscriptionCountEffect (display only, syncs from neck.inscription_count each tick).
+- abilities.py: three new AbilityDef entries.
+- New engine state: engine._last_ability_fired_id.
+- inventory_mgr.py neck unequip: reset neck.inscription_count = 0.
+
+SYNERGIES & INTERACTIONS:
+- Fireball + Chain: chains fireball to a random second target for free.
+- Blackkk Magic + Surge: Blackkk Magic at L5 casts multiple spells per turn; strap fills fast.
+- Gouge + Recharge: fight starts, gouge, inscription_recharge resets gouge immediately.
+- Deep-Frying: fry_shot is an ability, contributes to inscription count.
+
+================================================================================
+ITEM 4: Cracked Sawed-Off
+Slot: Sidearm (small gun) | Char: ) | Color: (160, 120, 80) worn wood
+================================================================================
+
+CONCEPT SUMMARY
+A cut-down double-barrel shotgun that looks like it survived a fire and two car crashes. Each
+shot you fire fills a "breach count" — the gun remembers every cartridge you've burned
+through. Spend breach to unlock two tactical abilities: feed shells into a bone-breaking point
+blank blast, or unload your entire breach count as a spread of ricochets that bounce between
+all enemies in range.
+
+ITEM DEFINITION
+  "cracked_sawed_off": {
+      "name": "Cracked Sawed-Off",
+      "char": ")",
+      "color": (160, 120, 80),
+      "category": "equipment",
+      "subcategory": "gun",
+      "class": "small",
+      "equip_slot": "sidearm",
+      "ammo_type": "light",
+      "mag_size": 2,
+      "base_damage": 10,
+      "num_shots": 2,
+      "aoe_type": "target",
+      "base_hit_chance": 80,
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "tags": ["cracked_sawed_off", "unique"],
+      "name_gradient": [(160, 120, 80), (220, 160, 80), (160, 120, 80)],
+      "grants_ability": "sawed_off_mangle",
+      "zones": ["crack_den"],
+      "use_verb": None,
+      "use_effect": None,
+  }
+  NOTE: grants_ability currently wired for sidearm slot. Only one ability here (single-grant
+  item), but the resource system is tracked via engine state and used in execute.
+
+RESOURCE: BREACH COUNT (total shots fired)
+- Stored as: engine.sawed_off_breach (int)
+- Accumulation: +1 per shot fired with this gun while equipped as sidearm.
+  Tracked in gun_system.py after _award_gun_skill_xp: check if sidearm is cracked_sawed_off, increment.
+- Breach count is permanent (never resets, never caps) — it's a lifetime fired-shots tally.
+  Display: engine state shows in gun info tooltip as "Breach: [N]".
+- Does NOT reset per floor; persists until gun is unequipped.
+
+SECOND ABILITY MECHANISM:
+Since grants_ability only supports one ID, we add a second ability through a different mechanic:
+The gun grants ONE ability (sawed_off_mangle). A second ability (sawed_off_ricochet) is unlocked
+when breach_count >= 20 (displayed as "Breach unlocks RICOCHET at 20" in gun info).
+The execute for sawed_off_mangle checks breach to determine which behavior fires,
+OR we extend sidearm to support grants_abilities list (recommended approach for future items).
+Simplest approach for this item: one ability (sawed_off_mangle) with a branch inside execute.
+
+ABILITY 1: Sawed-Off Mangle
+  ability_id: "sawed_off_mangle"
+  name: "Sawed-Off Mangle"
+  description: "Spend 8 breach for a point-blank double-barrel blast. Deal 2x base gun damage + STR bonus to an adjacent enemy. Also applies Bleeding (3 dmg/turn, 6 turns). No accuracy roll."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: 8 breach (engine.sawed_off_breach >= 8)
+  Execute logic:
+    - Confirm sidearm is cracked_sawed_off
+    - Check engine.sawed_off_breach >= 8
+    - Deal (base_damage * 2) + str_bonus to adjacent target — bypass accuracy (point blank)
+    - Apply BleedingEffect(duration=6, amount=3) to target
+    - Consume 2 ammo from gun (or 1 if only 1 remains)
+    - Deduct 8 breach
+    - Message: [("MANGLE! ", (220, 100, 60)), (f"{target.name} takes {dmg} dmg + bleeding! ", (255, 180, 120)), ("(-8 breach)", (180, 180, 180))]
+
+ABILITY 2: Sawed-Off Ricochet (unlocks at breach >= 20 PERMANENTLY)
+  ability_id: "sawed_off_ricochet"
+  name: "Sawed-Off Ricochet"
+  description: "Available when breach >= 20 total shots fired. Spend 20 breach — fire 6 ricochet pellets that each bounce to a random visible enemy. Each pellet deals base_damage/2."
+  Implementation: If engine.sawed_off_breach >= 20, display a second ability in the list.
+  For implementation simplicity: use a separate AbilityDef "sawed_off_ricochet" that is
+  GRANTED separately via engine.grant_ability("sawed_off_ricochet") in the sidearm equip hook
+  — call this grant only after first time breach >= 20 is detected in the increment hook.
+  ChargeType: INFINITE
+  Execute logic:
+    - Check engine.sawed_off_breach >= 20
+    - Fire 6 pellets at random visible enemies (up to 3 hits per target; apply ceil(6/2)=3 cap)
+    - Each pellet deals max(1, base_damage // 2 - target.defense) damage
+    - Apply outgoing_damage_mult product to each pellet
+    - Consume 2 ammo from gun
+    - Deduct 20 breach
+    - Message: [("RICOCHET STORM! ", (220, 160, 60)), ("6 pellets spray the room! ", (255, 200, 120)), ("(-20 breach)", (180, 180, 180))]
+
+BALANCE:
+- Base stats: 10 dmg x2 shots light ammo sidearm — competitive with existing 9mm (~8 dmg).
+- Mangle at 8 breach is accessible early (fire 8 times), but costs ammo.
+- Ricochet at 20 breach requires significant investment and is a AoE nuke.
+- The permanent breach counter means this item gets stronger over the run as you fire it.
+
+IMPLEMENTATION NOTES:
+- gun_system.py: after awarding gun skill XP, check for sawed_off tag, increment engine.sawed_off_breach.
+- engine.py: add engine.sawed_off_breach (int, 0 by default). Reset on sidearm unequip.
+  After each increment, check: if breach >= 20 and "sawed_off_ricochet" not yet granted: grant it.
+- abilities.py: two new AbilityDef entries.
+- effects.py: BleedingEffect already exists.
+- inventory_mgr.py: on sidearm unequip, reset engine.sawed_off_breach = 0, revoke ricochet ability.
+
+================================================================================
+ITEM 5: Accumulator
+Slot: Weapon (medium gun, weapon slot) | Char: = | Color: (80, 160, 255) electric blue
+================================================================================
+
+CONCEPT SUMMARY
+A cobbled-together energy pistol made from a modified taser, phone batteries, and vape pen
+components — the kind of thing you'd find in a Meth Lab toolbox. Each shot builds an internal
+charge, and the more charged you get, the more devastating your abilities. Spend charge on an
+overloaded single-target blast, a chain-lightning burst between multiple enemies, or one
+all-or-nothing emp that drains all visible enemies' energy.
+
+ITEM DEFINITION
+  "accumulator_gun": {
+      "name": "Accumulator",
+      "char": "=",
+      "color": (80, 160, 255),
+      "category": "equipment",
+      "subcategory": "gun",
+      "class": "medium",
+      "equip_slot": "weapon",
+      "ammo_type": "medium",
+      "mag_size": 6,
+      "base_damage": 7,
+      "num_shots": 1,
+      "aoe_type": "target",
+      "base_hit_chance": 85,
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "tags": ["accumulator_gun", "unique"],
+      "name_gradient": [(80, 160, 255), (160, 220, 255), (80, 160, 255)],
+      "grants_abilities": ["acc_overload", "acc_chain_lightning", "acc_emp_pulse"],
+      "zones": ["meth_lab"],
+      "use_verb": None,
+      "use_effect": None,
+  }
+  NOTE: grants_abilities as a list on weapon slot requires inventory_mgr.py extension.
+
+RESOURCE: CHARGE (shots fired tally, per-floor)
+- Stored as: engine.accumulator_charge (int), RESETS EACH FLOOR to 0.
+- Accumulation: +2 charge per shot fired with Accumulator while equipped.
+  The charge rate is higher per shot because gun has low mag (6) and reloads reset combat rhythm.
+  Tracked in gun_system.py after skill XP award: check for accumulator_gun tag, += 2.
+- Max charge: 24 (12 shots worth). Display via "acc_charge_display" visual effect.
+- Floor reset: engine.accumulator_charge = 0 on floor transition.
+
+ABILITY 1: Acc Overload
+  ability_id: "acc_overload"
+  name: "Overload"
+  description: "Spend 8 charge. Fire a supercharged round at a target in LOS — damage is base_damage + charge_at_time_of_use (max 24 bonus). Does NOT consume ammo."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  Cost: 8 charge
+  Execute logic:
+    - Check engine.accumulator_charge >= 8
+    - bonus_dmg = engine.accumulator_charge  (use current total, not the spent amount)
+    - total_dmg = max(1, 7 + bonus_dmg - target.defense)
+    - Deal total_dmg to target (via entity death event handling)
+    - Deduct 8 charge
+    - Message: [("OVERLOAD! ", (80, 160, 255)), (f"{target.name} takes {total_dmg} dmg! ", (160, 220, 255)), ("(-8 charge)", (180, 180, 180))]
+  Balance: At 8 charge = 7+8=15 bonus dmg (minus defense). At 24 charge = 7+24=31 dmg.
+  Incentivizes building charge before spending for maximum damage.
+
+ABILITY 2: Acc Chain Lightning
+  ability_id: "acc_chain_lightning"
+  name: "Chain Lightning"
+  description: "Spend 14 charge. Fire a bolt that chains between up to 4 visible enemies. Each chain deals base_damage * 0.75 (decreasing per jump). Applies 3-turn slow to each hit."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  Cost: 14 charge
+  Execute logic:
+    - Check engine.accumulator_charge >= 14
+    - Start from targeted enemy (tx, ty), chain to nearest visible enemies in succession
+    - Max 4 jumps total (including initial target)
+    - Damage per jump: base_damage * 0.75^(jump_index) [1.0, 0.75, 0.56, 0.42...] * outgoing_mult
+    - Apply SlowEffect(duration=3, ratio=0.5) to each hit enemy
+    - Deduct 14 charge
+    - Message: [("CHAIN LIGHTNING! ", (80, 160, 255)), (f"Bolt chains {hits} times! ", (200, 220, 255)), ("(-14 charge)", (180, 180, 180))]
+  Existing SlowEffect is already registered.
+
+ABILITY 3: Acc EMP Pulse
+  ability_id: "acc_emp_pulse"
+  name: "EMP Pulse"
+  description: "Spend ALL charge (min 18). Every visible enemy's energy drops to 0. Your own energy also drops to 0. Full floor commitment."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL charge (minimum 18)
+  Execute logic:
+    - Check engine.accumulator_charge >= 18
+    - For every living visible monster: m.energy = 0.0
+    - engine.player.energy = 0.0  (player ALSO loses their energy — real tradeoff)
+    - engine.accumulator_charge = 0
+    - Message: [("EMP PULSE! ", (80, 200, 255)), ("All visible enemies' energy wiped — and yours. ", (160, 255, 255)), (f"(-{total} charge)", (180, 180, 180))]
+  Balance: Best used when monsters are about to act — buys a full round of free movement.
+  Dumping your own energy is the cost. Resets the turn order; neutral in a vacuum.
+
+BALANCE:
+- 6-round medium gun is competitive with existing medium guns (smg, auto, etc.)
+- Charge caps at 24 (12 shots = 2 magazines). Refills during a floor via reloads.
+- Overload is the consistent single-target nuke (available after 4 shots).
+- Chain Lightning is the crowd-clear at 14 charge.
+- EMP at 18+ is the floor-panic button with a steep personal cost.
+
+IMPLEMENTATION NOTES:
+- gun_system.py: after skill XP award, check for accumulator_gun tag, engine.accumulator_charge += 2.
+- engine.py: add engine.accumulator_charge (int, 0). Reset to 0 on floor transition.
+- inventory_mgr.py: add grants_abilities list support to weapon equip/unequip (mirror neck).
+  On weapon unequip: revoke all abilities from grants_abilities list, reset engine.accumulator_charge.
+- effects.py: AccChargeDisplayEffect (display only, syncs from engine.accumulator_charge).
+- abilities.py: three new AbilityDef entries.
+
+SYNERGIES & INTERACTIONS:
+- Electrodynamics skill tree: chain lightning builds on electro theme.
+- Gatting/Sniping: charges from firing work with both modes.
+- EMP + Gatting fast-fire mode: dump mag to max charge, then EMP for a clean room reset.
+
+================================================================================
+ITEM 6: The Scar Ledger
+Slot: Weapon (stabbing) | Char: | | Color: (200, 80, 80) dried blood red
+================================================================================
+
+CONCEPT SUMMARY
+A narrow stiletto blade with notches filed along the spine — one notch for every enemy hit
+that hit you back. The weapon records reciprocal violence: you accumulate "debts" whenever an
+enemy lands a blow on you while you're holding this blade. Spend debts to punish enemies for
+the audacity of hurting you. Three abilities: a guaranteed crit reprisal, a lifesteal spike
+on your next hit, or a full debt discharge that deals every hit-back as bonus damage at once.
+
+ITEM DEFINITION
+  "scar_ledger": {
+      "name": "The Scar Ledger",
+      "char": "|",
+      "color": (200, 80, 80),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "stabbing",
+      "base_damage": 6,
+      "power_bonus": 6,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"street_smarts": 1},
+      "str_scaling": {"type": "tiered", "divisor": 2},
+      "tags": ["scar_ledger", "unique"],
+      "name_gradient": [(200, 80, 80), (100, 30, 30), (220, 120, 120)],
+      "grants_abilities": ["debt_reprisal", "debt_lifesteal", "debt_discharge"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: DEBTS (hit-back counter)
+- Stored as: engine.equipment["weapon"].debt_count (attribute on weapon entity instance)
+- Accumulation: +1 debt each time the player takes HP damage from any melee enemy hit while
+  Scar Ledger is equipped (tracked via entity._on_damage_callback path in engine.py).
+  Specifically: in the player damage-taken hook, check if weapon is "scar_ledger", increment.
+  NOTE: gun hits, DOT, and self-damage do NOT increment debts — only direct melee hits from enemies.
+- Max debts: 12. Display via "debt_count" visual effect (same pattern as soul_count).
+- Debts persist across floors; reset on unequip.
+
+ABILITY 1: Debt Reprisal
+  ability_id: "debt_reprisal"
+  name: "Debt Reprisal"
+  description: "Spend 2 debts. Your next attack against an adjacent enemy is a guaranteed crit — no roll needed. Activates immediately (the attack is the ability action)."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: 2 debts
+  Execute logic (execute_at with target entity):
+    - Check debt_count >= 2
+    - Deal melee attack to target: compute normal attack power; multiply by engine.crit_multiplier
+      (no crit roll — guaranteed). Apply all on-hit effects.
+    - Deduct 2 debts
+    - Message: [("REPRISAL! ", (200, 80, 80)), (f"Guaranteed crit: {target.name} takes {dmg}! ", (255, 160, 160)), ("(-2 debts)", (180, 180, 180))]
+  NOTE: normal attack cost (ENERGY_THRESHOLD) is spent — this is not a free action.
+
+ABILITY 2: Debt Lifesteal
+  ability_id: "debt_lifesteal"
+  name: "Debt Lifesteal"
+  description: "Spend 4 debts. Your next melee hit drains 50% of damage dealt back as HP. Active for 3 turns or until it procs once."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 4 debts
+  Execute logic:
+    - Check debt_count >= 4
+    - Apply new effect "debt_lifesteal_buff" (duration=3, proc_count=1):
+        on_player_melee_hit: heal player by damage * 0.5 (rounded up), decrement proc_count; expire if 0
+    - Deduct 4 debts
+    - Message: [("Debt Lifesteal! ", (200, 80, 80)), ("Next hit heals 50% of damage dealt. ", (255, 160, 160)), ("(-4 debts)", (180, 180, 180))]
+  New effect needed: DebtLifestealEffect — duration=3, on_player_melee_hit heals floor(dmg*0.5),
+  auto-expires after first proc.
+
+ABILITY 3: Debt Discharge
+  ability_id: "debt_discharge"
+  name: "Debt Discharge"
+  description: "Spend ALL debts (min 5). Deal bonus damage to an adjacent enemy equal to debts * 4. Unresisted. Entirely consumes all debts."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: ALL debts (minimum 5)
+  Execute logic (execute_at with target entity):
+    - Check debt_count >= 5
+    - total = engine.equipment["weapon"].debt_count
+    - bonus_dmg = total * 4  (5 debts = 20 bonus dmg; 12 debts = 48 bonus dmg)
+    - Deal bonus_dmg directly via target.take_damage(bonus_dmg) — unresisted, bypasses defense.
+    - Normal attack action cost applies.
+    - If target dies: emit entity_died event.
+    - Set debt_count = 0
+    - Message: [("DEBT DISCHARGE! ", (200, 80, 80)), (f"{total} debts unleashed — {bonus_dmg} unresisted damage! ", (255, 180, 180)), (f"(-{total} debts)", (180, 180, 180))]
+  Balance: 12 debts = 48 unresisted damage. Floor bosses and elite enemies will fill the ledger fast.
+
+BALANCE:
+- 6+STR tiered stabbing weapon — competitive with standard mid-game stabs.
+- +1 STS raises crit chance, synergizes with Reprisal's guaranteed crit.
+- Debts at 1/hit reward the glass-cannon risk: you take damage, you punch back harder.
+- Lifesteal proc sustains through a tough fight without needing items.
+- Discharge is a one-shot KO option for tough single targets.
+
+IMPLEMENTATION NOTES:
+- engine.py: in player damage-taken pathway (after _on_damage_callback), check:
+  if weapon is scar_ledger and damage source is melee enemy:
+      weapon.debt_count = getattr(weapon, "debt_count", 0) + 1
+  Tracking melee vs other damage: the damage-taken hook receives an optional "source" entity;
+  check if source is a living monster entity adjacent to player.
+- inventory_mgr.py: weapon grants_abilities extension. On unequip: reset weapon.debt_count = 0.
+- effects.py: DebtLifestealEffect, DebtCountEffect (display).
+- abilities.py: three AbilityDef entries.
+
+SYNERGIES & INTERACTIONS:
+- Stabbing skill tree + high crit chance: Debt Reprisal is free with high STS.
+- Tank builds (high CON, armor): take lots of hits, fill debt fast, punch back massively.
+- Tap-In Talisman (Batch 1): also triggers on damage-taken. Double-defensive resource builds.
+
+================================================================================
+ITEM 7: The Griot's Knife
+Slot: Weapon (slashing) | Char: / | Color: (220, 180, 60) brass
+================================================================================
+
+CONCEPT SUMMARY
+A curved kitchen knife with a worn wooden handle, the blade etched with tiny scenes of street
+life. The Griot tells the story of every fight — each time you apply a status effect to an
+enemy, the blade logs a "verse." Spend verses to amplify ongoing effects, infect multiple
+targets, or deliver a finale that triggers every active debuff on your current target at once.
+
+ITEM DEFINITION
+  "griots_knife": {
+      "name": "The Griot's Knife",
+      "char": "/",
+      "color": (220, 180, 60),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "slashing",
+      "base_damage": 5,
+      "power_bonus": 5,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"book_smarts": 1, "tolerance": 1},
+      "str_scaling": {"type": "tiered", "divisor": 2},
+      "on_hit_bleed": {"chance": 0.35, "amount": 2, "duration": 4},
+      "tags": ["griots_knife", "unique"],
+      "name_gradient": [(220, 180, 60), (160, 100, 20), (255, 220, 100)],
+      "grants_abilities": ["verse_amplify", "verse_spread", "verse_finale"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: VERSES (status effect applications)
+- Stored as: engine.equipment["weapon"].verse_count (attribute on weapon entity)
+- Accumulation: +1 verse each time the player successfully applies a status effect to any enemy
+  while the Griot's Knife is equipped.
+  Tracked in: effects.py apply_effect() function — after a successful application to a non-player
+  entity, check if player weapon has "griots_knife" tag and increment verse_count.
+- Max verses: 10. Display via "verse_count" visual effect (same pattern).
+- Verses persist across floors; reset on unequip.
+
+ABILITY 1: Verse Amplify
+  ability_id: "verse_amplify"
+  name: "Verse Amplify"
+  description: "Spend 3 verses. Double the remaining duration of all status effects currently on a single adjacent enemy."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: 3 verses
+  Execute logic (execute_at with target entity):
+    - Check verse_count >= 3
+    - For each effect e in target.status_effects:
+        if not e.floor_duration: e.duration = e.duration * 2
+    - Deduct 3 verses
+    - Message: [("Verse Amplify! ", (220, 180, 60)), (f"All effects on {target.name} doubled! ", (255, 220, 150)), ("(-3 verses)", (180, 180, 180))]
+  Balance: Works with bleed, slow, stun, fear, DOT, confuse — any timed effect on a single target.
+
+ABILITY 2: Verse Spread
+  ability_id: "verse_spread"
+  name: "Verse Spread"
+  description: "Spend 6 verses. Copy all status effects from a targeted enemy to all other enemies within 3 tiles. Each copied effect starts fresh at its original duration."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: 6 verses
+  Execute logic (execute_at with target entity):
+    - Check verse_count >= 6
+    - Take snapshot of target.status_effects list (copy effect type + init params)
+    - For all monsters m within Chebyshev distance 3 of player (not including original target):
+        For each effect in snapshot: apply_effect(m, engine, effect.id, **recreated_kwargs)
+    - Deduct 6 verses
+    - Message: [("Verse Spread! ", (220, 180, 60)), (f"All effects on {target.name} spread to {count} nearby enemies! ", (255, 220, 150)), ("(-6 verses)", (180, 180, 180))]
+  Implementation note: spreading effects means re-applying via apply_effect with the same id and
+  approximate params. For simplicity: copy type and use default init params (or current duration).
+
+ABILITY 3: Verse Finale
+  ability_id: "verse_finale"
+  name: "Verse Finale"
+  description: "Spend ALL verses (min 5). Trigger every status effect on a single adjacent enemy simultaneously — each ticks once immediately for free. Also deal a bonus hit for each effect triggered."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: ALL verses (minimum 5)
+  Execute logic (execute_at with target entity):
+    - Check verse_count >= 5
+    - effects_list = list(target.status_effects)
+    - count = len(effects_list)
+    - For each effect e in effects_list: call e.tick(target, engine) immediately
+    - bonus_damage = count * 3  (3 damage per effect triggered)
+    - Deal bonus_damage unresisted to target (target.take_damage(bonus_damage))
+    - If target dies: emit entity_died
+    - total_spent = engine.equipment["weapon"].verse_count
+    - Set verse_count = 0
+    - Message: [("VERSE FINALE! ", (255, 220, 60)), (f"{count} effects triggered + {bonus_damage} bonus dmg on {target.name}! ", (255, 240, 150)), (f"(-{total_spent} verses)", (180, 180, 180))]
+  Balance: requires stacking multiple effects on one target. Deep combo potential with poison,
+  bleed, slow, stun builds. 5 effects triggered = 5 free ticks + 15 bonus damage.
+
+BALANCE:
+- 5+STR tiered slashing + 35% bleed on-hit means the knife itself applies debuffs.
+- +1 BKS supports magic hybrid; +1 TOL is mild.
+- Verse accumulation at 1 per effect application: bleed on-hit + ability debuffs fills fast.
+- Amplify and Spread are mid-combat tools; Finale is the execute finisher.
+
+IMPLEMENTATION NOTES:
+- effects.py apply_effect(): add check — if effect is applied to a non-player entity and
+  engine.equipment["weapon"] has "griots_knife" tag: increment weapon.verse_count.
+- inventory_mgr.py: grants_abilities for weapon slot, reset verse_count on unequip.
+- abilities.py: three AbilityDef entries.
+
+SYNERGIES & INTERACTIONS:
+- Gouge + Verse Amplify: double gouge duration for an extended stun window.
+- Snipers Mark + Finale: snipers mark effect ticks, triggering its bonus.
+- Toxic builds + Spread: spread toxicity to all nearby enemies.
+- Pyromania ignite + Finale: triggers fire stacks.
+
+================================================================================
+ITEM 8: The Respect Knucks
+Slot: Weapon (beating) | Char: { | Color: (255, 200, 60) gold chrome
+================================================================================
+
+CONCEPT SUMMARY
+Brass knuckles with "RSPT" embossed on each ring — the word RESPECT spread across four
+fingers. Each consecutive melee hit (same target, back-to-back) builds a "respect" counter.
+The chain resets if you miss, switch targets, or get hit. Spend the respect stack on three
+abilities tied to the knucks' combo: extend the chain damage, terrorize the room, or
+unleash an all-or-nothing haymaker that uses your entire combo streak.
+
+ITEM DEFINITION
+  "respect_knucks": {
+      "name": "The Respect Knucks",
+      "char": "{",
+      "color": (255, 200, 60),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "beating",
+      "base_damage": 5,
+      "power_bonus": 5,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"strength": 1, "swagger": 1},
+      "str_scaling": {"type": "tiered", "divisor": 2},
+      "tags": ["respect_knucks", "unique"],
+      "name_gradient": [(255, 200, 60), (200, 100, 20), (255, 230, 100)],
+      "grants_abilities": ["knucks_extend", "knucks_intimidate_all", "knucks_haymaker"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: RESPECT CHAIN (consecutive hits on same target)
+- Stored as: engine.respect_knucks_chain (int), engine.respect_knucks_target_id (str|None)
+- Accumulation: +1 per successful melee hit against the same consecutive target.
+  Tracked in: engine.py melee attack handler (after handle_attack returns hit=True):
+    if weapon is respect_knucks and target.instance_id == respect_knucks_target_id:
+        engine.respect_knucks_chain += 1
+    else:
+        engine.respect_knucks_chain = 1
+    engine.respect_knucks_target_id = target.instance_id
+- Chain resets to 0 if: player misses an attack, player takes damage, player switches targets,
+  player uses any non-attack action.
+- Max chain display: 10. After 10, chain continues accumulating but capped for display.
+- Chain resets on target death (the respect was paid; chain goes to 0 and target_id clears).
+
+ABILITY 1: Knucks Extend
+  ability_id: "knucks_extend"
+  name: "Knucks Extend"
+  description: "Spend 3 chain. Your next attack with these knucks deals +3 bonus damage per chain remaining after spending. Activates on the next hit."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 3 chain
+  Execute logic:
+    - Check respect_knucks_chain >= 3
+    - remaining = respect_knucks_chain - 3
+    - Apply new effect "knucks_extend_buff" (duration=3, bonus=remaining*3):
+        on_player_melee_hit: deal extra hit (player.take_damage(bonus) bypassed, just message; OR
+        add bonus to next attack's damage: override on_player_melee_hit to add bonus_dmg to damage,
+        fire once and expire)
+    - engine.respect_knucks_chain -= 3
+    - Message: [("Knucks Extend! ", (255, 200, 60)), (f"Next hit deals +{remaining*3} bonus dmg. ", (255, 230, 130)), ("(-3 chain)", (180, 180, 180))]
+  New effect: KnucksExtendBuff — on first on_player_melee_hit proc, add stored bonus to damage; expire.
+
+ABILITY 2: Knucks Intimidate All
+  ability_id: "knucks_intimidate_all"
+  name: "Intimidate All"
+  description: "Spend 6 chain. Every visible enemy with fewer than 30 current HP is frightened for 5 turns. Your chain drops to 0."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 6 chain
+  Execute logic:
+    - Check respect_knucks_chain >= 6
+    - count = 0
+    - For every living visible monster m with m.hp < 30:
+        apply FearEffect(duration=5, source_x=player.x, source_y=player.y) to m
+        count += 1
+    - engine.respect_knucks_chain = 0
+    - Message: [("INTIMIDATE ALL! ", (255, 200, 60)), (f"{count} weakened enemies flee! ", (255, 230, 130)), ("(-6 chain)", (180, 180, 180))]
+  Balance: targets only low-HP enemies — useful as a combat cleanup / zone control.
+
+ABILITY 3: Knucks Haymaker
+  ability_id: "knucks_haymaker"
+  name: "Haymaker"
+  description: "Spend ALL chain (min 5). One massive punch to an adjacent enemy. Damage = base * 1.5 per chain point spent. Chain is entirely consumed."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: ALL chain (minimum 5)
+  Execute logic (execute_at with target entity):
+    - Check respect_knucks_chain >= 5
+    - total_chain = engine.respect_knucks_chain
+    - base_atk = compute normal melee attack power
+    - haymaker_dmg = max(1, int(base_atk * 1.5 * total_chain) - target.defense)
+    - target.take_damage(haymaker_dmg); emit entity_died if dead
+    - engine.respect_knucks_chain = 0
+    - engine.respect_knucks_target_id = None
+    - Message: [("HAYMAKER! ", (255, 200, 60)), (f"{total_chain}x1.5 combo: {target.name} takes {haymaker_dmg} dmg! ", (255, 240, 160)), (f"(-{total_chain} chain)", (180, 180, 180))]
+  Balance: 5 chain = 7.5x base atk. 10 chain = 15x base atk. Devastating but requires not using
+  abilities mid-chain. At 10 chain with 12 base atk = 180 raw minus defense.
+
+BALANCE:
+- Requires consecutive hits on same target — rewards disciplined target focus.
+- 5+STR tiered beating — solid weapon in its own right.
+- +1 STR, +1 SWG: synergizes with attack power and defense.
+- Chain reset on damage-taken creates risk: tanking to keep chain going is dangerous.
+- Synergizes with Gouge (stun target, build chain while they can't escape).
+
+IMPLEMENTATION NOTES:
+- engine.py: add engine.respect_knucks_chain (int, 0) and engine.respect_knucks_target_id (str|None).
+  In melee attack handler, after hit confirmed: check weapon tag and update chain/target.
+  Reset chain to 0 when: player misses, player takes damage, player switches targets, turn-skip.
+- effects.py: KnucksExtendBuff (on_player_melee_hit bonus, auto-expires after one proc).
+- abilities.py: three AbilityDef entries.
+- inventory_mgr.py: grants_abilities on weapon; reset chain and target on unequip.
+
+SYNERGIES & INTERACTIONS:
+- Gouge ability: stun a target, build chain safely, then Haymaker.
+- Beating skill tree: combo bonuses from skill perks stack with chain mechanics.
+- Crown of the Corner Boy (Batch 1): both are combat-aggression items, synergy in kill-count builds.
+
+================================================================================
+ITEM 9: The Dodge Ledger
+Slot: Feet | Char: chr(0xE00B) | Color: (180, 100, 220) purple
+================================================================================
+
+CONCEPT SUMMARY
+A pair of battered high-tops with the soles worn smooth and the laces mismatched — the shoes
+of someone who has slipped too many punches to count. Every time you dodge an attack, the
+shoes log an "evasion." Spend evasions on three abilities: ghost past an enemy's attack
+entirely (temporary invulnerability), trigger a burst of speed using pent-up avoidance, or
+convert a massive evasion stack into permanent dodge chance.
+
+ITEM DEFINITION
+  "dodge_ledger_shoes": {
+      "name": "The Dodge Ledger",
+      "char": chr(0xE00B),
+      "color": (180, 100, 220),
+      "category": "equipment",
+      "subcategory": "feet",
+      "equip_slot": "feet",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"street_smarts": 1},
+      "energy_per_tick": 0,
+      "tags": ["dodge_ledger_shoes", "unique"],
+      "name_gradient": [(180, 100, 220), (100, 50, 160), (220, 160, 255)],
+      "grants_ability": "evasion_ghost",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+  NOTE: grants_ability (single) wired for feet slot. Two more abilities require either:
+  (a) extend feet slot to grants_abilities list (recommended), or
+  (b) encode the second and third as branches within evasion_ghost's execute.
+  Recommended: extend feet to grants_abilities list in inventory_mgr.py.
+
+RESOURCE: EVASIONS (dodge counter)
+- Stored as: engine.dodge_ledger_evasions (int)
+- Accumulation: +1 evasion each time the player successfully dodges an enemy attack.
+  Tracked in: engine.py or combat.py dodge resolution path — after the dodge roll succeeds,
+  check if feet item has "dodge_ledger_shoes" tag, increment engine.dodge_ledger_evasions.
+- Max evasions: 15. Display via "evasion_count" visual effect.
+- Evasions persist across floors; reset on unequip.
+
+ABILITY 1: Evasion Ghost
+  ability_id: "evasion_ghost"
+  name: "Evasion Ghost"
+  description: "Spend 3 evasions. Gain invulnerability for 2 turns — all damage reduced to 0. The ledger remembers every dodge."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 3 evasions
+  Execute logic:
+    - Check engine.dodge_ledger_evasions >= 3
+    - Apply InvulnerableEffect(duration=2) — existing "invulnerable" effect id (check effects.py;
+      if not present, create new InvulnerableEffect that sets duration=2 and zeroes all incoming dmg)
+    - Deduct 3 evasions
+    - Message: [("Evasion Ghost! ", (180, 100, 220)), ("Invulnerable for 2 turns! ", (220, 180, 255)), ("(-3 evasions)", (180, 180, 180))]
+  Check if "invulnerable" effect exists in effects.py. If not: new InvulnerableEffect with
+  modify_incoming_damage returning 0 for duration.
+
+ABILITY 2: Evasion Burst
+  ability_id: "evasion_burst"
+  name: "Evasion Burst"
+  description: "Spend 6 evasions. Gain +50 energy immediately and +20 energy/tick for 8 turns. Converts avoidance into aggression."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 6 evasions
+  Execute logic:
+    - Check engine.dodge_ledger_evasions >= 6
+    - engine.player.energy = min(engine.player.energy + 50, 200)  (cap at double threshold)
+    - Apply new effect "evasion_burst_buff" (duration=8):
+        apply: engine.player_stats.equipment_energy_per_tick += 20
+        expire: engine.player_stats.equipment_energy_per_tick -= 20
+    - Deduct 6 evasions
+    - Message: [("Evasion Burst! ", (180, 100, 220)), ("+50 energy now + 20 energy/tick for 8 turns. ", (220, 180, 255)), ("(-6 evasions)", (180, 180, 180))]
+
+ABILITY 3: Evasion Inscribe
+  ability_id: "evasion_inscribe"
+  name: "Evasion Inscribe"
+  description: "Spend ALL evasions (min 8). Permanently increase base dodge chance by 1% per evasion spent. Inscribed permanently — survives unequip."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL evasions (minimum 8)
+  Execute logic:
+    - Check engine.dodge_ledger_evasions >= 8
+    - total = engine.dodge_ledger_evasions
+    - perm_bonus = total  (1% per evasion; 8 evasions = +8% permanent dodge)
+    - engine.player_stats.dodge_chance = min(90, engine.player_stats.dodge_chance + perm_bonus)
+      Modify base dodge_chance (permanent) — NOT via temporary bonus.
+    - engine.dodge_ledger_evasions = 0
+    - Message: [("Evasion Inscribed! ", (180, 100, 220)), (f"+{perm_bonus}% permanent dodge chance! ", (220, 180, 255)), (f"(-{total} evasions)", (180, 180, 180))]
+  Balance: 8 evasions = +8% dodge. 15 evasions = +15% dodge. Dodge starts at 0%, max at 90%.
+  This is genuinely run-altering — getting 15 permanent dodge chance mid-run is powerful.
+  High-dodge builds can stack this multiple times per run (reset and rebuild).
+
+BALANCE:
+- Requires dodge_chance to be meaningful — requires investment in dodge or the Stealing skill.
+- Pure dodge builds (Stealing tree + this item) become a resource-generating loop.
+- +1 STS gives +3% base crit, synergizes with being a quick-footed combatant.
+- Ghost is the emergency button (3 evasions for full 2-turn immunity).
+- Inscribe is the run-defining payoff for committed dodge builds.
+
+IMPLEMENTATION NOTES:
+- engine.py or combat.py: in dodge resolution, check feet item tag. increment engine.dodge_ledger_evasions.
+- inventory_mgr.py: extend feet slot to support grants_abilities list. On unequip: revoke all three.
+  Reset engine.dodge_ledger_evasions = 0 on unequip.
+- effects.py: EvasionBurstBuff (duration-based energy/tick), InvulnerableEffect if not existing.
+- abilities.py: three AbilityDef entries.
+- New engine state: engine.dodge_ledger_evasions.
+
+SYNERGIES & INTERACTIONS:
+- Stealing skill tree (dodge perks): high base dodge = faster evasion generation.
+- The Borrowed Watch (Batch 1 ring): temporarily increases dodge chance during Time Steal.
+- Tap-In Talisman (Batch 1): different resources from same defensive posture — can combine.
+
+================================================================================
+ITEM 10: The Block Party
+Slot: Ring | Char: 0xE00A | Color: (200, 200, 200) chrome gray
+================================================================================
+
+CONCEPT SUMMARY
+A big chrome-plated ring with a flat top like a knuckle plate — the kind you'd use in a
+block fight. Every point of damage your armor absorbs gets "partied" — logged in the ring
+as blocked damage. The more hits you weather, the more block party you've accrued. Spend
+block party on punishing counter-attacks, temporary armor spikes, or a room-wide taunt that
+draws all enemies to you.
+
+ITEM DEFINITION
+  "block_party_ring": {
+      "name": "The Block Party",
+      "char": chr(0xE00A),
+      "color": (200, 200, 200),
+      "category": "equipment",
+      "subcategory": "ring",
+      "equip_slot": "ring",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "stat_bonus": {"swagger": 2},
+      "tags": ["block_party_ring", "unique"],
+      "name_gradient": [(200, 200, 200), (150, 150, 150), (240, 240, 255)],
+      "grants_abilities": ["block_counter", "block_spike", "block_taunt"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: BLOCK PARTY (armor-absorbed damage)
+- Stored as: engine.block_party_ring_blocked (int)
+- Accumulation: each time player.armor absorbs damage (armor_absorbed > 0 in entity.take_damage),
+  increment engine.block_party_ring_blocked by armor_absorbed amount.
+  Tracked in: entity.py take_damage OR engine.py (via _on_damage_callback);
+  cleanest path: in engine.py's armor damage hook, check if any ring has "block_party_ring" tag.
+- Max: 50. Display via "block_party_count" visual effect.
+- Resets on ring unequip.
+
+ABILITY 1: Block Counter
+  ability_id: "block_counter"
+  name: "Block Counter"
+  description: "Spend 10 block party. Counter an adjacent enemy for your full attack power plus block_party_spent/5 bonus damage. Interrupt — 60% energy cost instead of full."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: 10 block party
+  Execute logic:
+    - Check engine.block_party_ring_blocked >= 10
+    - base_atk = compute player attack power (normal)
+    - bonus = 10 // 5  (= 2; uses the spent amount, not full reserve)
+    - total_dmg = max(1, base_atk + bonus - target.defense)
+    - target.take_damage(total_dmg); emit entity_died if needed
+    - Deduct 10 block party
+    - Action cost: 60 energy (override standard 100 via explicit engine.player.energy -= 60 deduction)
+    - Message: [("Block Counter! ", (200, 200, 200)), (f"{target.name} takes {total_dmg} dmg (60 energy)! ", (220, 220, 255)), ("(-10 block party)", (180, 180, 180))]
+  NOTE: 60 energy cost implementation — after the ability fires, set a flag or directly adjust
+  the energy deduction. Simplest: deduct 60 from player.energy instead of normal 100 after execute.
+
+ABILITY 2: Block Spike
+  ability_id: "block_spike"
+  name: "Block Spike"
+  description: "Spend 20 block party. Gain (block_party_spent/4) armor for 6 turns. Armor absorbs damage before HP."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 20 block party
+  Execute logic:
+    - Check engine.block_party_ring_blocked >= 20
+    - spike_armor = 20 // 4  (= 5)
+    - Apply new effect "block_spike_buff" (duration=6, armor_amount=spike_armor):
+        apply: engine.player.armor += armor_amount; engine.player.max_armor = max(engine.player.max_armor, engine.player.armor)
+        expire: engine.player.armor = max(0, engine.player.armor - armor_amount)
+    - Deduct 20 block party
+    - Message: [("Block Spike! ", (200, 200, 200)), (f"+{spike_armor} armor for 6 turns! ", (220, 220, 255)), ("(-20 block party)", (180, 180, 180))]
+
+ABILITY 3: Block Taunt
+  ability_id: "block_taunt"
+  name: "Block Taunt"
+  description: "Spend ALL block party (min 30). Every non-boss monster in the dungeon switches to CHASING you immediately. In return: gain 5 temp HP per enemy taunted."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL block party (minimum 30)
+  Execute logic:
+    - Check engine.block_party_ring_blocked >= 30
+    - count = 0
+    - For all living non-boss monsters in engine.dungeon.entities:
+        Set m.ai_state = AIState.CHASING
+        Set m.is_chasing = True
+        count += 1
+    - temp_gain = count * 5
+    - engine.player.temp_hp = min(engine.player.temp_hp + temp_gain, 80)
+    - engine.block_party_ring_blocked = 0
+    - Message: [("BLOCK TAUNT! ", (200, 200, 200)), (f"Every enemy in the dungeon comes for you! +{temp_gain} temp HP! ", (220, 220, 255)), (f"(-{total} block party)", (180, 180, 180))]
+  Balance: high risk — you're deliberately summoning the entire floor. High reward — temp HP
+  scales with how many enemies you aggro. Best used when you want to control fight timing.
+
+BALANCE:
+- Requires armor to generate any resource — incentivizes armor stacking.
+- +2 SWG adds defense, which contributes to having armor in the first place (via items, effects).
+- Block Counter at 60 energy cost = more efficient than normal attack, rewarding defensive play.
+- Block Taunt is the ultimate high-risk room-clear setup — pull everyone to you on your terms.
+
+IMPLEMENTATION NOTES:
+- entity.py take_damage or engine.py: after armor absorb calculation (armor_absorbed > 0),
+  check if any ring has "block_party_ring" tag, increment engine.block_party_ring_blocked.
+- inventory_mgr.py: grants_abilities for ring equip/unequip. Reset on unequip.
+- effects.py: BlockSpikeBuffEffect (apply/expire manage armor), BlockPartyCountEffect (display).
+- abilities.py: three AbilityDef entries.
+- New engine state: engine.block_party_ring_blocked.
+
+SYNERGIES & INTERACTIONS:
+- Tap-In Talisman (Batch 1): both respond to taking damage; defensive doubling.
+- Armor stacking builds (artifact neck items + heavy armor): maximize block party generation.
+- Gouge + Taunt: stun one, taunt all, Gouge someone during the swarm.
+
+================================================================================
+ITEM 11: The Canteen
+Slot: Hat | Char: chr(0xE00D) | Color: (100, 160, 240) faded blue
+================================================================================
+
+CONCEPT SUMMARY
+A battered military-surplus canteen strapped to a backwards cap with a zip tie. Every time
+you eat food while wearing this hat, you add a "serving" to the canteen. Spend servings on
+abilities that play off your diet: a surge of hot-food energy, a concentrated nutrient injection
+that temporarily boosts all stats, or a dump of everything in the canteen as a massive HoT burst.
+
+ITEM DEFINITION
+  "the_canteen": {
+      "name": "The Canteen",
+      "char": chr(0xE00D),
+      "color": (100, 160, 240),
+      "category": "equipment",
+      "subcategory": "hat",
+      "equip_slot": "hat",
+      "power_bonus": 0,
+      "defense_bonus": 1,
+      "armor_bonus": 0,
+      "stat_bonus": {"constitution": 1},
+      "tags": ["canteen_hat", "unique"],
+      "name_gradient": [(100, 160, 240), (60, 100, 180), (160, 220, 255)],
+      "grants_abilities": ["canteen_surge", "canteen_boost", "canteen_cleanse"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: SERVINGS (food eaten tally)
+- Stored as: engine.hat.serving_count (attribute on hat entity, same pattern as soul_count)
+- Accumulation: +1 serving every time the player completes eating a food item while hat is equipped.
+  Tracked in: engine.py / foods.py food-completion handler (where food effects apply on finish) —
+  check if engine.hat has "canteen_hat" tag, increment hat.serving_count.
+- Max servings: 12. Display via "serving_count" visual effect.
+- Servings persist across floors; reset on unequip.
+
+ABILITY 1: Canteen Surge
+  ability_id: "canteen_surge"
+  name: "Canteen Surge"
+  description: "Spend 2 servings. Gain +40 energy immediately and activate a 3-turn hot-food boost: +10 energy/tick."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 2 servings
+  Execute logic:
+    - Check serving_count >= 2
+    - engine.player.energy = min(engine.player.energy + 40, 200)
+    - Apply new effect "canteen_surge_buff" (duration=3):
+        apply: engine.player_stats.equipment_energy_per_tick += 10
+        expire: engine.player_stats.equipment_energy_per_tick -= 10
+    - Deduct 2 servings
+    - Message: [("Canteen Surge! ", (100, 160, 240)), ("+40 energy + 10 energy/tick for 3 turns! ", (160, 220, 255)), ("(-2 servings)", (180, 180, 180))]
+
+ABILITY 2: Canteen Boost
+  ability_id: "canteen_boost"
+  name: "Canteen Boost"
+  description: "Spend 5 servings. All 6 stats temporarily increase by +1 for 12 turns. The full meal."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 5 servings
+  Execute logic:
+    - Check serving_count >= 5
+    - Apply StatModEffect-like logic: temporarily buff all 6 stats by +1 for 12 turns.
+      Cleanest approach: apply new "canteen_boost_buff" effect (duration=12):
+        apply: for stat in ["constitution","strength","book_smarts","street_smarts","tolerance","swagger"]:
+                   engine.player_stats.add_temporary_stat_bonus(stat, 1)
+        expire: for stat in [...]: engine.player_stats.add_temporary_stat_bonus(stat, -1)
+    - Deduct 5 servings
+    - Message: [("Canteen Boost! ", (100, 160, 240)), ("All stats +1 for 12 turns. ", (160, 220, 255)), ("(-5 servings)", (180, 180, 180))]
+  New effect: CanteenBoostEffect — apply/expire manage temp bonuses for all 6 stats.
+
+ABILITY 3: Canteen Cleanse
+  ability_id: "canteen_cleanse"
+  name: "Canteen Cleanse"
+  description: "Spend ALL servings (min 6). Instantly heal HP equal to 8x servings spent. Remove all debuffs. All your toxicity is cleared."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL servings (minimum 6)
+  Execute logic:
+    - Check serving_count >= 6
+    - total = engine.hat.serving_count
+    - engine.player.hp = min(engine.player.hp + total * 8, engine.player.max_hp)
+    - Remove all debuff effects from engine.player.status_effects:
+        for eff in list(engine.player.status_effects):
+            if eff.category == "debuff": eff.duration = 0; call eff.expire(engine.player, engine)
+        engine.player.status_effects = [e for e in engine.player.status_effects if not e.expired]
+    - engine.player.toxicity = 0
+    - engine.hat.serving_count = 0
+    - Message: [("CANTEEN CLEANSE! ", (100, 160, 240)), (f"+{total*8} HP, all debuffs removed, toxicity cleared! ", (180, 255, 220)), (f"(-{total} servings)", (180, 180, 180))]
+  Balance: 6 servings = 48 HP heal (significant). 12 servings = 96 HP heal (near-full CON10 bar).
+  Full cleanse + tox removal makes this a clutch survival item for a well-fed run.
+
+BALANCE:
+- Requires active food usage — incentivizes Munching skill tree investment.
+- +1 CON + 1 defense makes it useful as headgear regardless.
+- Surge at 2 servings is available after eating just 2 foods — low bar, consistent.
+- Cleanse at 6+ is the emergency save that requires full dietary commitment.
+
+IMPLEMENTATION NOTES:
+- engine.py or foods.py: in food completion handler, check engine.hat for "canteen_hat" tag,
+  increment hat.serving_count.
+- inventory_mgr.py: hat grants_abilities support (already needed for Batch 1 Crown item).
+  On unequip: reset hat.serving_count = 0.
+- effects.py: CanteenSurgeBuff, CanteenBoostEffect (all-stat buff), ServingCountEffect (display).
+- abilities.py: three AbilityDef entries.
+
+SYNERGIES & INTERACTIONS:
+- Munching skill tree: faster food consumption, more servings.
+- Deep-Frying: creates food items; deep-frying then eating is a resource loop.
+- Cleanse at high servings + Tap-In Talisman: massive recovery turn from two defensive items.
+
+================================================================================
+ITEM 12: The Rad Dial
+Slot: Ring | Char: 0xE00A | Color: (100, 255, 100) radioactive green
+================================================================================
+
+CONCEPT SUMMARY
+A radiation dosimeter badge converted into a ring — the kind of badge nuclear workers wear,
+except this one has been jury-rigged to channel rad energy rather than just measure it. Every
+point of radiation you accumulate charges the Rad Dial. Spend that charge to irradiate enemies,
+accelerate your mutations, or do the stupid brilliant thing — detonate yourself in a rad burst
+that reshapes the battlefield.
+
+ITEM DEFINITION
+  "rad_dial_ring": {
+      "name": "The Rad Dial",
+      "char": chr(0xE00A),
+      "color": (100, 255, 100),
+      "category": "equipment",
+      "subcategory": "ring",
+      "equip_slot": "ring",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "stat_bonus": {"tolerance": 1},
+      "tags": ["rad_dial_ring", "unique"],
+      "name_gradient": [(100, 255, 100), (40, 160, 40), (180, 255, 180)],
+      "grants_abilities": ["rad_irradiate", "rad_accelerate", "rad_burst"],
+      "zones": ["meth_lab"],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: RAD DIAL CHARGE (radiation accumulated this run)
+- Stored as: engine.rad_dial_charge (int)
+- Accumulation: +1 charge per 5 radiation gained while ring is equipped.
+  Tracked in: engine.py add_radiation() or wherever engine.player.radiation increases —
+  check for ring tag, dial_charge += gained_radiation // 5.
+  (Or simpler: +1 dial charge per radiation gain event regardless of amount — one per event.)
+  Recommended: +1 charge per add_radiation event, regardless of amount. Capped at 30.
+- Max charge: 30. Display via "rad_dial_display" visual effect.
+- Charge persists across floors; resets on unequip.
+
+ABILITY 1: Rad Irradiate
+  ability_id: "rad_irradiate"
+  name: "Rad Irradiate"
+  description: "Spend 5 charge. Blast a single visible enemy with 40 radiation instantly. In Meth Lab zone: high radiation multiplies enemy damage taken."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  Cost: 5 charge
+  Execute logic (execute_at with tx, ty):
+    - Check engine.rad_dial_charge >= 5
+    - Apply add_radiation(engine, target_monster, 40) — if function exists for monsters,
+      else target.radiation = min(getattr(target, "radiation", 0) + 40, 500)
+    - Deduct 5 charge
+    - Message: [("Rad Irradiate! ", (100, 255, 100)), (f"{target.name} blasted with 40 radiation! ", (180, 255, 180)), ("(-5 charge)", (180, 180, 180))]
+  Balance: direct radiation to enemies uses the Meth Lab zone toxicity-damage-multiplier
+  equivalent for enemies. Effective in Meth Lab, less so in Crack Den.
+
+ABILITY 2: Rad Accelerate
+  ability_id: "rad_accelerate"
+  name: "Rad Accelerate"
+  description: "Spend 12 charge. Force an immediate mutation check at triple the normal probability. Your radiation is unaffected. Mutations can be good or bad."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 12 charge
+  Execute logic:
+    - Check engine.rad_dial_charge >= 12
+    - Directly call engine's mutation check with a forced high probability:
+        Import and call trigger_mutation(engine, force_prob=1.0)  — force it to happen
+        (OR: call engine._try_mutation() if that function exists, or directly invoke
+        mutations.mutate_player(engine) — whatever the mutation system entry point is)
+    - Deduct 12 charge
+    - Message: [("Rad Accelerate! ", (100, 255, 100)), ("Forced mutation! ", (200, 255, 200)), ("(-12 charge)", (180, 180, 180))]
+  Tradeoff: 67% bad / 33% good polarity. Spending 12 charge to gamble on a mutation is a risk.
+  The key is that you can farm this if you have a safe radiation source and want to chase good mutations.
+
+ABILITY 3: Rad Burst
+  ability_id: "rad_burst"
+  name: "Rad Burst"
+  description: "Spend ALL charge (min 20). Detonate in a 4-tile radiation wave. Deal charge/3 damage and apply 30 radiation to ALL entities within 4 tiles (including yourself). Floor everything in the room."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL charge (minimum 20)
+  Execute logic:
+    - Check engine.rad_dial_charge >= 20
+    - total = engine.rad_dial_charge
+    - damage = total // 3  (20 charge = ~6 dmg; 30 charge = 10 dmg — low damage, high rad)
+    - For all entities within Chebyshev 4 of player (monsters AND player):
+        if entity is monster: deal max(1, damage - entity.defense) damage; add_radiation(entity, 30)
+        if entity is player: engine.player.radiation += 30 (no HP damage; rad is the punishment)
+    - engine.rad_dial_charge = 0
+    - Message: [("RAD BURST! ", (100, 255, 100)), (f"4-tile radius — {damage} dmg + 30 rad to all nearby! +30 to yourself. ", (180, 255, 180)), (f"(-{total} charge)", (180, 180, 180))]
+  Balance: damage is intentionally low; the threat is mutation acceleration for everything in the
+  burst radius. The player gains 30 rad (charges the ring back slightly). High-chaos ability.
+
+BALANCE:
+- Zone-locked to meth_lab where radiation matters most.
+- +1 TOL only — deliberately lean stats so the resource system is the value.
+- Charge is tied to radiation gain events — builds naturally in rad-heavy environments.
+- Accelerate at 12 charge is the key use: force mutations on demand, good or bad.
+- Rad Burst is the kamikaze play: flood the room with rad, trigger mutations on enemies too.
+
+IMPLEMENTATION NOTES:
+- engine.py / mutations.py: wherever radiation increases (add_radiation or equivalent), check ring tag,
+  increment engine.rad_dial_charge (capped at 30).
+- effects.py: RadDialDisplayEffect (display only, syncs each tick).
+- abilities.py: three AbilityDef entries.
+- For Rad Accelerate: need to identify the mutation system entry point (mutations.py).
+  The function that processes mutation checks per tick can be called directly with a force flag.
+- New engine state: engine.rad_dial_charge.
+- inventory_mgr.py: ring grants_abilities; reset charge on unequip.
+
+SYNERGIES & INTERACTIONS:
+- Mutation skill tree (all branching designs): deep rad/mutation build makes Rad Dial central.
+- Rad Bomb ability (Nuclear Research L4): already in game, stacks with Irradiate.
+- White Power tox inversion: different stat; no direct crossover, but both are zone-specific.
+
+================================================================================
+ITEM 13: The Floor Tracker
+Slot: Feet | Char: chr(0xE00B) | Color: (200, 160, 80) worn yellow
+================================================================================
+
+CONCEPT SUMMARY
+Chunky work boots with a step counter zip-tied to the laces. The Tracker logs every new room
+you step into for the first time. New rooms, new threats, new territory — and each exploration
+token lets you call on that accumulated scouting knowledge. Three abilities: reveal the entire
+current floor, deploy a lurker that scouts ahead, or cash all exploration into a stat spike.
+
+The Tracker is the explorer's item. It rewards moving forward through the dungeon rather than
+camping in one room and farming. It creates a tension between spending tokens on utility (reveal)
+or saving for the stat burst.
+
+ITEM DEFINITION
+  "floor_tracker_boots": {
+      "name": "The Floor Tracker",
+      "char": chr(0xE00B),
+      "color": (200, 160, 80),
+      "category": "equipment",
+      "subcategory": "feet",
+      "equip_slot": "feet",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"street_smarts": 1, "book_smarts": 1},
+      "energy_per_tick": 20,
+      "tags": ["floor_tracker_boots", "unique"],
+      "name_gradient": [(200, 160, 80), (140, 100, 40), (255, 210, 120)],
+      "grants_ability": "tracker_reveal",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+  NOTE: Extend feet to grants_abilities list in inventory_mgr.py (same work needed for Dodge
+  Ledger). Three abilities here — requires that extension.
+
+RESOURCE: EXPLORED ROOMS (new room entries)
+- Stored as: engine.floor_tracker_rooms (int), engine.floor_tracker_rooms_visited (set of room indices)
+- Accumulation: +1 token per NEW room entered (room_index not yet in rooms_visited set).
+  Tracked in: engine.py handle_move — after player moves, check which room they're in
+  (engine.dungeon.get_room_at(x, y) or equivalent). If it's a new room_index not in the set:
+    if boots equipped: engine.floor_tracker_rooms += 1; rooms_visited.add(room_index)
+  The visited set resets each floor (new floor = fresh exploration).
+- Max: 10 (maximum rooms on a floor). Display via "tracker_rooms_display" effect.
+- Rooms visited set resets on floor change; token count is CUMULATIVE ACROSS THE RUN
+  (exploration tracks are permanent run-wide — the boots remember the whole journey).
+
+ABILITY 1: Tracker Reveal
+  ability_id: "tracker_reveal"
+  name: "Tracker Reveal"
+  description: "Spend 3 room tokens. Mark the entire current floor as explored — all rooms revealed on the map. Staircase location shown."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 3 room tokens (engine.floor_tracker_rooms >= 3)
+  Execute logic:
+    - Check engine.floor_tracker_rooms >= 3
+    - Set engine.dungeon.explored[:] = True (or equivalent — mark all tiles as explored)
+      This reveals the full map layout without granting FOV (you can see the map but not entities).
+    - Deduct 3 tokens
+    - Message: [("Tracker Reveal! ", (200, 160, 80)), ("Entire floor mapped. ", (255, 210, 120)), ("(-3 rooms)", (180, 180, 180))]
+  Balance: 3 rooms is achievable on any floor. Reveal is a quality-of-life utility spend.
+
+ABILITY 2: Tracker Scout
+  ability_id: "tracker_scout"
+  name: "Tracker Scout"
+  description: "Spend 6 room tokens. Deploy a temporary Scout summon that wanders the floor for 20 turns, auto-exploring. All tiles it passes near become explored."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 6 room tokens
+  Execute logic:
+    - Check engine.floor_tracker_rooms >= 6
+    - Spawn a new "scout" entity: char='s', color=(200,160,80), entity_type="monster",
+      is_summon=True, summon_lifetime=20, ai_type="wander_ambush" but never attacks,
+      sight_radius=4, hp=1 (no combat), speed=120 (faster than player)
+    - Engine modification: when the scout moves, mark explored tiles within its sight_radius.
+      (Simplest: override in ai.py, or add a flag "reveals_tiles_on_move" to entity)
+    - Deduct 6 tokens
+    - Message: [("Tracker Scout deployed for 20 turns! ", (200, 160, 80)), ("(-6 rooms)", (180, 180, 180))]
+  New entity field: reveals_tiles_on_move (bool) — if True, when entity moves, mark all tiles
+  within sight_radius as explored.
+
+ABILITY 3: Tracker Surge
+  ability_id: "tracker_surge"
+  name: "Tracker Surge"
+  description: "Spend ALL room tokens (min 7). Gain +1 to ALL stats per 2 room tokens spent, lasting until floor end. Knowledge is power."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL tokens (minimum 7)
+  Execute logic:
+    - Check engine.floor_tracker_rooms >= 7
+    - total = engine.floor_tracker_rooms
+    - bonus_per_stat = total // 2  (7 tokens = +3; 10 tokens = +5)
+    - Apply new effect "tracker_surge_buff" (floor_duration=True, bonus=bonus_per_stat):
+        apply: for stat in all 6 stats: engine.player_stats.add_temporary_stat_bonus(stat, bonus)
+        expire: for stat in all 6 stats: engine.player_stats.add_temporary_stat_bonus(stat, -bonus)
+    - engine.floor_tracker_rooms = 0
+    - Message: [("TRACKER SURGE! ", (200, 160, 80)), (f"+{bonus_per_stat} ALL stats until floor end! ", (255, 210, 120)), (f"(-{total} rooms)", (180, 180, 180))]
+  Balance: 7 tokens (+3 all stats) requires exploring 7 rooms before spending — approximately the
+  whole floor before boss room. 10 tokens = +5 all stats = massive temporary power spike.
+  This is the ultimate commitment to running the full floor before converting.
+
+BALANCE:
+- +20 energy/tick is meaningful (+23% speed) even ignoring abilities.
+- +1 STS + +1 BKS are strong together (crit chance + XP gain).
+- Rooms reset each floor; tokens are permanent — incentivizes consistent floor exploration.
+- Tracker vs Dodge Ledger (Item 9): different playstyle. Tracker rewards movement; Ledger rewards combat.
+
+IMPLEMENTATION NOTES:
+- engine.py handle_move: detect room transitions. If new room, check boots tag, increment tokens.
+  Room detection: engine.dungeon has a room list — check which room contains the player's position.
+  Add engine.floor_tracker_rooms_visited: set[int] reset on floor transition.
+- inventory_mgr.py: extend feet grants_abilities; on unequip reset engine.floor_tracker_rooms = 0
+  and engine.floor_tracker_rooms_visited = set().
+- effects.py: TrackerSurgeBuff (floor_duration, all-stat apply/expire), TrackerRoomsDisplay.
+- entity.py: add reveals_tiles_on_move (bool, default False) field.
+- ai.py: when entity with reveals_tiles_on_move=True moves, mark explored tiles.
+- abilities.py: three AbilityDef entries.
+- New engine state: engine.floor_tracker_rooms, engine.floor_tracker_rooms_visited (reset per floor).
+
+SYNERGIES & INTERACTIONS:
+- Jaywalking skill tree (fast movement): more movement = faster room discovery.
+- Autoexplore: auto-explore fills in rooms, generating tokens passively.
+- Canteen (Item 11) + Floor Tracker: two exploration-rewarding items, complementary themes.
+- Deep floors (4+): more rooms = more tokens per floor = bigger surges.
+
+================================================================================
+SLOT DISTRIBUTION SUMMARY
+================================================================================
+
+  Neck:            Item 1 (Toll Collector), Item 3 (Spellbook Strap)
+  Ring:            Item 2 (Tox Budget), Item 10 (Block Party), Item 12 (Rad Dial)
+  Sidearm (gun):   Item 4 (Cracked Sawed-Off)
+  Weapon (gun):    Item 5 (Accumulator)
+  Weapon (stab):   Item 6 (Scar Ledger)
+  Weapon (slash):  Item 7 (Griot's Knife)
+  Weapon (beat):   Item 8 (Respect Knucks)
+  Feet:            Item 9 (Dodge Ledger), Item 13 (Floor Tracker)
+  Hat:             Item 11 (The Canteen)
+
+  Totals: 2 neck, 3 rings, 2 guns (1 sidearm + 1 weapon), 3 melee weapons, 2 feet, 1 hat
+
+================================================================================
+RESOURCE ACCUMULATION — NO DUPLICATES CHECK
+================================================================================
+
+  Cash spent              → Toll Collector (tokens)        — NEW
+  Toxicity accumulated    → Tox Budget (budget)            — NEW (vs Tap-In damage)
+  Abilities cast          → Spellbook Strap (inscriptions) — NEW
+  Shots fired (lifetime)  → Cracked Sawed-Off (breach)     — NEW
+  Shots fired (per floor) → Accumulator (charge)           — NEW
+  Melee damage received   → Scar Ledger (debts)            — NEW (vs Tap-In HP damage)
+  Status effects applied  → Griot's Knife (verses)         — NEW
+  Consecutive hits        → Respect Knucks (chain)         — NEW
+  Dodges                  → Dodge Ledger (evasions)        — NEW (vs Hustle moves)
+  Armor absorbed          → Block Party (blocked damage)   — NEW
+  Food eaten              → The Canteen (servings)         — NEW
+  Radiation accumulated   → Rad Dial (rad charge)          — NEW
+  Rooms explored          → Floor Tracker (room tokens)    — NEW
+
+  Batch 1 resources (no duplicates):
+  Kills → Crown of the Corner Boy
+  Crits → Knuckle Diary
+  Tiles moved → Hustle Ring
+  HP damage taken → Tap-In Talisman
+
+================================================================================
+SHARED NEW INFRASTRUCTURE
+================================================================================
+
+INVENTORY MGR (inventory_mgr.py)
+  - Extend grants_abilities list support to: weapon equip/unequip, feet equip/unequip, ring equip/unequip, hat equip/unequip
+  - (Batch 1 already needed hat and ring; Batch 2 needs feet + full confirmation of all four)
+
+ENGINE STATE (engine.py)
+  New attributes added by this batch:
+    engine.floor_tracker_rooms (int, 0)
+    engine.floor_tracker_rooms_visited (set, reset per floor)
+    engine.dodge_ledger_evasions (int, 0)
+    engine.block_party_ring_blocked (int, 0)
+    engine.tox_budget_ring_budget (int, 0)
+    engine.accumulator_charge (int, 0, reset per floor)
+    engine.sawed_off_breach (int, 0)
+    engine.rad_dial_charge (int, 0)
+    engine.respect_knucks_chain (int, 0)
+    engine.respect_knucks_target_id (str|None, None)
+    engine._last_ability_fired_id (str|None, None)
+
+EFFECTS (effects.py) — NEW EFFECT SUBCLASSES
+  TokenCountEffect (display, syncs token_count)
+  TollCashoutBuffEffect (floor_duration, energy_per_tick apply/expire)
+  ToxBudgetCountEffect (display, syncs tox_budget)
+  ToxSpikeFistEffect (on_player_melee_hit, charge counter, auto-expire)
+  InscriptionCountEffect (display, syncs inscription_count)
+  InscriptionSurgeBuff (floor_duration, spell_damage apply/expire)
+  AccChargeDisplayEffect (display, syncs accumulator_charge)
+  DebtCountEffect (display, syncs debt_count)
+  DebtLifestealEffect (on_player_melee_hit, one-shot proc)
+  VerseCountEffect (display, syncs verse_count)
+  KnucksExtendBuff (on_player_melee_hit bonus, auto-expire)
+  EvasionCountEffect (display, syncs evasion count)
+  EvasionBurstBuff (duration, energy_per_tick apply/expire)
+  InvulnerableEffect (if not existing: modify_incoming_damage returns 0)
+  BlockPartyCountEffect (display, syncs blocked damage)
+  BlockSpikeBuffEffect (duration, armor apply/expire)
+  ServingCountEffect (display, syncs serving_count)
+  CanteenSurgeBuff (duration, energy_per_tick apply/expire)
+  CanteenBoostEffect (duration, all-6-stat apply/expire)
+  RadDialDisplayEffect (display, syncs rad_dial_charge)
+  TrackerRoomsDisplay (display, syncs room tokens)
+  TrackerSurgeBuff (floor_duration, all-6-stat apply/expire)
+
+ABILITIES (abilities.py) — 36 NEW AbilityDef ENTRIES
+  (3 per item x 13 items; 1 item has 2 — 1 granted via breach unlock) = ~38 total
+
+ENTITY (entity.py)
+  reveals_tiles_on_move: bool = False  (for Floor Tracker Scout summon)
+
+================================================================================
+BALANCE BENCHMARKS
+================================================================================
+
+  Reference HP: 30 + CON*10. At CON 10: 130 HP. Most enemies floor 1-2: 27-47 HP.
+  Reference damage: enemy floor 1-2: 4-8 dmg. Player typical: 6-14 dmg.
+  Crit chance: STS*3%. At STS 10 = 30%.
+  Energy: 100/tick base. +20 energy/tick = ~17% faster. +50 energy/tick = ~33% faster.
+
+  Item-by-item balance assessment:
+  - Toll Collector: Cashout at max (20 tokens) = 60 temp HP + 160 energy/tick for 1 floor = strong but requires $200+ spending.
+  - Tox Budget: Detonation at 200 budget = 50 dmg AoE. Requires surviving 200 tox accumulation = high risk.
+  - Spellbook Strap: Surge at 15 inscriptions = +75 spell damage. Fireball base is ~15-25; +75 is roughly 4-5x. Very strong, but requires 15 casts.
+  - Cracked Sawed-Off: Ricochet at 20 breach = 6 x (10/2 = 5 dmg each) = 30 total spread damage. Competitive with other AoE guns.
+  - Accumulator: EMP at 18+ charge wipes all energy at cost of player energy. Neutral-to-positive.
+  - Scar Ledger: Discharge at 12 debts = 48 unresisted. At floor 2 enemy HP ~40 = one-shot range.
+  - Griot's Knife: Finale at 5 effects = 15 bonus damage + 5 free ticks. Each bleed tick = 2 dmg so ~10 extra. Combined ~25 total = significant.
+  - Respect Knucks: Haymaker at 10 chain = 10 * 1.5 * (base_atk ~12) = 180 raw. This is extremely high — reduce multiplier or chain cap to 7 for balance.
+    REVISED: Haymaker damage = base_atk + (chain * 3) — e.g. 10 chain = 12 + 30 = 42 minus defense = ~35. More reasonable.
+  - Dodge Ledger: Inscribe at 15 = +15% permanent dodge. At STS 8 dodge = 0% base; +15 = 15% permanent. Modest but stacks.
+  - Block Party: Taunt at 30 = pull all enemies, +5 temp HP per. On floor with 10 enemies = 50 temp HP. High risk warrants.
+  - Canteen: Cleanse at 12 = 96 HP heal + debuff clear + tox remove. Near-full heal. Requires 12 foods eaten — possible but investment-heavy.
+  - Rad Dial: Burst at 30 = 10 dmg + 30 rad to all in 4 tiles. The mutation acceleration is the real value.
+  - Floor Tracker: Surge at 10 rooms = +5 all stats. At CON+5 = +50 max HP, STS+5 = +15% crit. Temporary but powerful.
+================================================================================
+END OF DOCUMENT
+================================================================================

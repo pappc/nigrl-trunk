@@ -1,0 +1,46 @@
+SUMMARY: tyrone-penthouse-features.txt
+Brainstorm — 12 feature ideas for Tyrone's Penthouse (zone hub between Crack Den and Meth Lab)
+
+FEATURES AT A GLANCE
+--------------------
+1.  Big Mama (NPC) — Mama's Kitchen: 3 exclusive foods for cash; Rat Poison Gumbo (+tox resistance), Nuclear Nachos (+rad, +mutation polarity), Penthouse Plate (big heal+HoT)
+2.  Prof. Cracksworth (NPC) — Skill Tutor: pay cash to convert potential_exp -> real_exp bypassing BKS conversion rate; one skill per visit; self-balancing (low BKS benefits most)
+3.  Daquan (NPC) — Gun Bench: mag extension (+3), suppressor (no alert propagation), speed loaders (instant reload consumables)
+4.  Smooth Carl (NPC) — Faction Broker: buy +500 Aldor or Scryer reputation for $50 each; $90 for both; directly preps Meth Lab faction system
+5.  Tyrone's Vanity (object) — Stat Mirror: one-time free stat redistribution; same total, just rebalanced; helpful for fixing bad CON roll before Meth Lab's harder damage
+6.  Shooting Range (object) — 3 practice targets; auto-grants +300 Gatting / +150 Sniping XP on first approach; gun shots on targets grant double XP
+7.  Tyrone's Safe (object) — Stash Box: deposit items/cash; retrieved at Meth Lab floor 1; Tyrone takes 20% cash cut; enables cross-floor supply planning
+8.  Dr. Irrad (NPC) — Mutation Clinic: Micro-Dose (+40 rad $20), Stable Isotope (+40 rad + mutation_insurance flag $35), Rad Flush (-60 rad $15)
+9.  Tyrone's Cabinet (object) — Floor Bar: 3 of 6 exclusive drinks per run; standouts: 40-Ounce of Resilience (temp tox resist, floor duration), Gold Bottle ($50, +1 all stats permanent), Purple Promise (+1 perm swagger)
+10. Bulletin Board (object) — Intel Cards: 3 of 8 cards revealed per run; each explains one Meth Lab mechanic (tox, rad/mutations, factions, purger, etc.); read-only, free
+11. Blackjack Table (object) — Gambling: simplified win/loss vs house; STS stat gives edge; 3 rounds per visit; consolation push gives consumable
+12. Repentance Pew (object) — One Last Prayer: interact once; 60% nothing, 30% Blessed buff (floor-dur, -1 dmg taken, +5% crit), 10% permanent +1 random stat
+
+KEY NEW ENGINE STATE REQUIRED
+------------------------------
+engine.cracksworth_tutored (bool), engine.mirror_used (bool), engine.range_bonus_claimed (bool),
+engine.stash_cash (int), engine.stash_items (list[str]), engine.stash_delivered (bool),
+engine.mutation_insurance (bool), engine.dr_irrad_visited (bool), engine.bar_stock (list[str]),
+engine.intel_cards (list[str]), engine.blackjack_rounds_played (int), engine.pew_used (bool),
+engine.smooth_carl_used (bool)
+
+KEY NEW PLAYERSTAT FIELDS REQUIRED
+------------------------------------
+PlayerStats.mutation_insurance used via engine flag (not on PlayerStats directly)
+PlayerStats.tox_resistance += 10 (Rat Poison Gumbo) — already exists
+PlayerStats.good_mutation_base_bonus += 0.10 (Nuclear Nachos) — already exists
+PlayerStats.good_mutation_multiplier += 0.15 (Nuclear Nachos) — already exists
+
+PRIORITY ORDER
+--------------
+Tier 1 (simplest/highest value): Big Mama, Bulletin Board, Floor Bar, Mutation Clinic
+Tier 2 (new UI): Stat Mirror, Stash Box, Prof. Cracksworth
+Tier 3 (most code surface): Daquan, Smooth Carl, Shooting Range, Blackjack, Pew
+
+NOTABLE CROSS-SYNERGIES
+------------------------
+- Nuclear Nachos + Dr. Irrad Stable Isotope: enter Meth Lab at 90 rad + insurance = guaranteed good mutation early
+- Blackjack win + Gold Bottle: gambling funds premium drink; STS builds thrive
+- Cracksworth Meth-Head perk + Rat Poison Gumbo: double tox resistance on entry
+- Stat Mirror AFTER Repentance Pew: redistribute total that now includes the bonus stat point
+- Stash Box + Mama's Kitchen: buy 2x Penthouse Plates, stash one for floor 1 delivery

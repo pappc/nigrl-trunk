@@ -28,9 +28,10 @@ ZONE_LOOT_CONFIG = {
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab": {
-        "consumable": {"per_floor": (12, 14)},
-        "tool":       {"per_floor": (0, 2)},
-        "equipment":  {"per_floor": (1, 4)},
+        "consumable":      {"per_floor": (12, 14)},
+        "meth_consumable": {"per_floor": (9, 10)},
+        "tool":            {"per_floor": (0, 2)},
+        "equipment":       {"per_floor": (1, 4)},
     },
     "casino_botanical": {  # TODO: tune budgets for casino + botanical garden zone
         "consumable": {"per_floor": (4, 8)},
@@ -100,7 +101,6 @@ ZONE_CONSUMABLE_TABLES = {
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab": [
         ("weed_product", 1, ["Smoking", "Rolling"]),
-        ("blue_meth", 0.5, "Meth-Head"),
         ("food", 1.5, "Munching"),
         ("meth_lab_drink", 1, ["Alcoholism", "Drinking"]),
     ],
@@ -111,16 +111,32 @@ ZONE_CONSUMABLE_TABLES = {
 # Secondary drinks table — rolled when drinks is selected
 DRINKS_SUBTABLE = [
     ("40oz", 4),
+    ("natty_light", 4),
     ("fireball_shooter", 4),
+    ("blue_lagoon", 4),
+    ("jagermeister", 3),
+    ("butterbeer", 3),
+    ("absinthe", 3),
     ("malt_liquor", 4),
     ("wizard_mind_bomb", 4),
     ("homemade_hennessy", 4),
     ("steel_reserve", 4),
-    ("speedball", 4),
+    ("speedball", 3),
+    ("rainbow_rotgut", 4),
+    ("limoncello", 4),
+    ("root_beer", 3),
     ("purple_drank", 1),
     ("blue_drank", 1),
     ("red_drank", 1),
     ("green_drank", 1),
+    # Kool-Aid — rare permanent stat drinks
+    ("red_kool_aid", 0.5),
+    ("blue_kool_aid", 0.5),
+    ("purple_kool_aid", 0.5),
+    ("green_kool_aid", 0.5),
+    ("orange_kool_aid", 0.5),
+    ("yellow_kool_aid", 0.5),
+    ("midas_brew", 1),
 ]
 
 # Secondary weed product table — rolled when weed_product is selected
@@ -133,6 +149,7 @@ WEED_PRODUCT_SUBTABLE = [
 # Secondary meth lab drink table — rolled when meth_lab_drink is selected
 METH_LAB_DRINK_SUBTABLE = [
     # Meth lab unique drinks
+    ("sparkling_water", 1),
     ("mana_drink", 5),
     ("virulent_vodka", 5),
     ("five_loco", 5),
@@ -140,31 +157,56 @@ METH_LAB_DRINK_SUBTABLE = [
     ("alco_seltzer", 5),
     ("dead_shot_daiquiri", 5),
     ("platinum_reserve", 5),
-    # Crack den drinks
-    ("40oz", 5),
+    # Crack den drinks — common carryovers
+    ("40oz", 2),
+    ("malt_liquor", 2),
+    ("steel_reserve", 2),
+    ("rainbow_rotgut", 2),
+    ("limoncello", 2),
+    # Crack den drinks — uncommon carryovers
     ("fireball_shooter", 2),
-    ("malt_liquor", 5),
+    ("blue_lagoon", 2),
+    ("absinthe", 2),
     ("wizard_mind_bomb", 2),
     ("homemade_hennessy", 2),
-    ("steel_reserve", 5),
     ("speedball", 2),
+    ("natty_light", 2),
+    ("butterbeer", 2),
+    ("jagermeister", 2),
+    ("root_beer", 2),
     # Dranks
     ("purple_drank", 1),
     ("blue_drank", 1),
     ("red_drank", 1),
     ("green_drank", 1),
+    ("midas_brew", 1),
+    # Kool-Aid
+    ("red_kool_aid", 0.5),
+    ("blue_kool_aid", 0.5),
+    ("purple_kool_aid", 0.5),
+    ("green_kool_aid", 0.5),
+    ("orange_kool_aid", 0.5),
+    ("yellow_kool_aid", 0.5),
+]
+
+# Secondary meth consumable table — rolled when meth_consumable is selected
+METH_CONSUMABLE_SUBTABLE = [
+    ("blue_meth", 5, "Meth-Head"),
+    ("altoid", 3, "White Power"),
+    ("asbestos", 3, "Chemical Warfare"),
+    ("rad_away", 3, "Decontamination"),
+    ("radbar", 3, "Nuclear Research"),
 ]
 
 ZONE_TOOL_TABLES = {
     "crack_den": [
         ("grinder",        1),
         ("fry_daddy",      1),
-        ("bic_torch",      1),
-        ("pack_of_cones",  1),
+        ("pack_of_cones",  3),
         ("spray_paint",    1),
     ],
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
-    "meth_lab":         [("grinder", 1), ("fry_daddy", 1), ("xl_bic_torch", 1), ("pack_of_cones", 1), ("spray_paint", 1)],
+    "meth_lab":         [("grinder", 1), ("fry_daddy", 1), ("pack_of_cones", 3), ("spray_paint", 1), ("graffiti_gun", 0.3)],
     "casino_botanical": [],   # TODO
     "the_underprison":  [],   # TODO
 }
@@ -174,35 +216,44 @@ SPRAY_PAINT_COLORS = [
     "red_spray_paint",
     "blue_spray_paint",
     "green_spray_paint",
+    "orange_spray_paint",
+    "silver_spray_paint",
 ]
 
 ZONE_FOOD_TABLES = {
     "crack_den": [
         ("chicken", 3),
-        ("instant_ramen", 3),
+        ("instant_ramen", 1),
         ("hot_cheetos", 3),
         ("cornbread", 3),
         ("corn_dog", 3),
         ("lightskin_beans", 3),
         ("protein_powder", 1),
         ("muffin", 1),
+        ("jolly_rancher", 1),
+        ("mirror_cake", 1),
+        ("holy_wafer", 0.5),
+        ("hard_boiled_egg", 0.5),
+        ("carrot_cake", 1),
     ],
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     "meth_lab": [
-        ("instant_ramen", 2, "Meth-Head"),
-        ("cornbread", 2, "Smartsness"),
+        ("instant_ramen", 2),
+        ("cornbread", 2),
         ("corn_dog", 2),
         ("hot_cheetos", 2),
-        ("lightskin_beans", 2, "Smartsness"),
-        ("muffin", 3, "Smartsness"),
-        ("protein_powder", 3, "Smacking"),
-        ("altoid", 5, "White Power"),
-        ("asbestos", 5, "Chemical Warfare"),
-        ("rad_away", 5, "Glow Up"),
-        ("radbar", 5, "Nuclear Research"),
+        ("lightskin_beans", 2),
+        ("muffin", 3),
+        ("protein_powder", 3),
         ("jell_o", 3, "Smartsness"),
         ("meatball_sub", 3, "Smartsness"),
         ("heinz_baked_beans", 3, "Smartsness"),
+        ("jolly_rancher", 1),
+        ("mirror_cake", 1),
+        ("holy_wafer", 1),
+        ("hard_boiled_egg", 1),
+        ("carrot_cake", 1),
+        ("yellowcake", 1, "Nuclear Research"),
     ],
     "casino_botanical": [],   # TODO
     "the_underprison":  [],   # TODO
@@ -216,7 +267,7 @@ ZONE_FOOD_TABLES = {
 ZONE_EQUIPMENT_CONFIG = {
     "crack_den": {
         "type_weights":      [("weapon", 3), ("ring", 4), ("neck", 3), ("feet", 2), ("hat", 1)],
-        "weapon_type_weights": [("beating", 1, "Beating"), ("stabbing", 1, "Stabbing")],
+        "weapon_type_weights": [("beating", 5, "Beating"), ("stabbing", 5, "Stabbing"), ("slashing", 1, "Slashing")],
         "ring_tier_weights": [("minor", 8), ("greater", 1)],
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
@@ -527,6 +578,8 @@ def pick_random_consumable(zone: str, player_stats=None) -> tuple:
             item_id = _weighted_pick(food_table, None, use_skill_weighting=False)
     elif item_id == "weed_product":
         item_id = _weighted_pick(WEED_PRODUCT_SUBTABLE, None, use_skill_weighting=False)
+    elif item_id == "meth_consumable":
+        item_id = _weighted_pick(METH_CONSUMABLE_SUBTABLE, None, use_skill_weighting=False)
 
     strain = _pick_strain(zone, player_stats) if item_id in _STRAIN_ITEMS else None
     return (item_id, strain)
@@ -585,9 +638,19 @@ def generate_floor_loot(zone, floor_num, player_skills=None, player_stats=None):
                 # Special case: weed_product picks from weed subtable
                 elif item_id == "weed_product":
                     item_id = _weighted_pick(WEED_PRODUCT_SUBTABLE, player_skills, use_skill_weighting=True)
+                # Special case: meth_consumable picks from meth consumable subtable
+                elif item_id == "meth_consumable":
+                    item_id = _weighted_pick(METH_CONSUMABLE_SUBTABLE, player_skills, use_skill_weighting=True)
 
                 strain  = _pick_strain(zone, player_stats) if item_id in _STRAIN_ITEMS else None
                 result.append((item_id, strain))
+
+    # Meth consumables — skill-weighted, own budget
+    if "meth_consumable" in config:
+        lo, hi = config["meth_consumable"]["per_floor"]
+        for _ in range(random.randint(lo, hi)):
+            item_id = _weighted_pick(METH_CONSUMABLE_SUBTABLE, player_skills, use_skill_weighting=True)
+            result.append((item_id, None))
 
     # Tools — no skill weighting
     if "tool" in config:

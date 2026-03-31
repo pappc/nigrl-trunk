@@ -1,0 +1,111 @@
+================================================================================
+SUMMARY: ability-granting-batch2-currency.txt
+13 Unique Equippable Items — Resource/Currency Systems (Batch 2)
+================================================================================
+
+All 13 items track a different resource from gameplay, with 2-3 abilities each.
+No resources duplicate Batch 1 (kills, crits, moves, damage-taken).
+
+ITEM 1: The Toll Collector [Neck, 10 armor, +1 TOL/+1 SWG]
+  Resource: TOKENS — +1 per $10 spent (vending, crafting). Stored on engine.neck.token_count.
+  Abilities: Toll Bribe (4: Fear nearest visible enemy 10t), Toll Suppress (7: all visible
+  enemies lose 40 energy), Toll Cashout (all, min 12: temp HP + energy/tick scaling til floor end).
+
+ITEM 2: The Tox Budget [Ring, +2 TOL, zones: meth_lab]
+  Resource: TOX BUDGET — +1 per tox point accumulated. Stored on engine.tox_budget_ring_budget.
+  Abilities: Tox Vent (30: 25 tox to all enemies within 3 tiles + -20 own tox),
+  Tox Spike Fist (50: next 4 melee hits apply 15 tox each via ToxSpikeFistEffect on_player_melee_hit),
+  Tox Detonation (all, min 80: AOE damage = budget/4 to visible enemies + 30 tox to self).
+
+ITEM 3: The Spellbook Strap [Neck, +1 BKS/+1 STS]
+  Resource: INSCRIPTIONS — +1 per ability used. Stored on engine.neck.inscription_count.
+  Abilities: Inscription Recharge (3: wipe random ability off cooldown), Inscription Chain
+  (6: refire last ability at random visible enemy, free action), Inscription Surge (all, min 9:
+  +5 permanent spell damage per inscription until floor end).
+
+ITEM 4: Cracked Sawed-Off [Sidearm/small gun, 10 dmg, 2 shots, light ammo]
+  Resource: BREACH — +1 per shot fired (lifetime). Stored on engine.sawed_off_breach.
+  Abilities: Sawed-Off Mangle (8: point-blank 2x dmg + Bleeding 6t, ADJACENT),
+  Sawed-Off Ricochet (20: unlocks at 20 breach — 6 ricochets at random visible enemies, each
+  deal base/2 dmg, up to 3 hits per target).
+
+ITEM 5: Accumulator [Weapon/medium gun, 7 dmg, 6 mag, medium ammo, zones: meth_lab]
+  Resource: CHARGE — +2 per shot fired, RESETS PER FLOOR. Max 24. engine.accumulator_charge.
+  Abilities: Overload (8: SINGLE_ENEMY_LOS, 7 + current_charge bonus dmg, no ammo cost),
+  Chain Lightning (14: SINGLE_ENEMY_LOS, bolt chains 4 targets at 0.75x decay + Slow 3t each),
+  EMP Pulse (all, min 18: all visible enemies AND player drop to 0 energy).
+
+ITEM 6: The Scar Ledger [Weapon/stabbing, 6 power, +1 STS, STR tiered]
+  Resource: DEBTS — +1 per melee hit received. Stored on weapon entity. Max 12.
+  Abilities: Debt Reprisal (2: guaranteed crit ADJACENT attack), Debt Lifesteal (4: next melee
+  hit returns 50% dmg as HP via DebtLifestealEffect), Debt Discharge (all, min 5: ADJACENT
+  target takes debts*4 unresisted damage).
+
+ITEM 7: The Griot's Knife [Weapon/slashing, 5 power, +1 BKS/+1 TOL, 35% bleed on-hit]
+  Resource: VERSES — +1 per status effect applied. Stored on weapon entity. Max 10.
+  Abilities: Verse Amplify (3: ADJACENT, double duration of all effects on target),
+  Verse Spread (6: ADJACENT, copy all effects from target to enemies within 3 tiles),
+  Verse Finale (all, min 5: ADJACENT, tick each effect immediately + 3 bonus dmg per effect).
+
+ITEM 8: The Respect Knucks [Weapon/beating, 5 power, +1 STR/+1 SWG, STR tiered]
+  Resource: CHAIN — +1 per consecutive hit on same target; resets on miss/target switch/hit taken.
+  Stored on engine.respect_knucks_chain. Max display 10.
+  Abilities: Knucks Extend (3: next hit deals +(chain-3)*3 bonus dmg via KnucksExtendBuff),
+  Intimidate All (6: Fear all visible enemies with <30 HP for 5t, chain resets),
+  Haymaker (all, min 5: ADJACENT, damage = base + chain*3, chain consumed).
+  NOTE: Haymaker formula revised from raw multiplier to base + chain*3 for balance.
+
+ITEM 9: The Dodge Ledger [Feet, +1 STS]
+  Resource: EVASIONS — +1 per successful dodge. Stored on engine.dodge_ledger_evasions.
+  Abilities: Evasion Ghost (3: InvulnerableEffect 2t), Evasion Burst (6: +50 energy now +
+  20 energy/tick 8t via EvasionBurstBuff), Evasion Inscribe (all, min 8: permanently increase
+  base dodge_chance by 1% per evasion spent — run-persistent perm bonus).
+
+ITEM 10: The Block Party [Ring, +2 SWG]
+  Resource: BLOCK PARTY — +1 per armor point absorbed. Stored on engine.block_party_ring_blocked.
+  Abilities: Block Counter (10: ADJACENT, full attack at 60 energy cost instead of 100),
+  Block Spike (20: +5 armor for 6t via BlockSpikeBuffEffect), Block Taunt (all, min 30:
+  ALL enemies in dungeon switch to CHASING immediately + 5 temp HP per enemy taunted).
+
+ITEM 11: The Canteen [Hat, 1 defense, +1 CON]
+  Resource: SERVINGS — +1 per food eaten to completion. Stored on engine.hat.serving_count.
+  Abilities: Canteen Surge (2: +40 energy now + 10 energy/tick 3t), Canteen Boost (5: all 6
+  stats +1 for 12t via CanteenBoostEffect), Canteen Cleanse (all, min 6: heal 8 HP per serving
+  + remove all debuffs + clear toxicity).
+
+ITEM 12: The Rad Dial [Ring, +1 TOL, zones: meth_lab]
+  Resource: RAD DIAL CHARGE — +1 per radiation gain event. Max 30. engine.rad_dial_charge.
+  Abilities: Rad Irradiate (5: SINGLE_ENEMY_LOS, blast target with 40 radiation), Rad
+  Accelerate (12: force immediate mutation check at 100% probability), Rad Burst (all, min 20:
+  4-tile radius, charge/3 dmg + 30 rad to all entities including player, self gets +30 rad).
+
+ITEM 13: The Floor Tracker [Feet, +20 energy/tick, +1 STS/+1 BKS]
+  Resource: ROOM TOKENS — +1 per NEW room entered this floor. Cumulative run-wide.
+  engine.floor_tracker_rooms + engine.floor_tracker_rooms_visited (set, resets per floor).
+  Abilities: Tracker Reveal (3: mark entire floor as explored on map), Tracker Scout (6: spawn
+  Scout summon with reveals_tiles_on_move=True, lifetime 20t), Tracker Surge (all, min 7:
+  +1 all stats per 2 tokens spent til floor end via TrackerSurgeBuff).
+
+SLOT DISTRIBUTION
+  Neck:     1 (Toll Collector), 3 (Spellbook Strap)
+  Ring:     2 (Tox Budget), 10 (Block Party), 12 (Rad Dial)
+  Sidearm:  4 (Cracked Sawed-Off) — small gun, light ammo
+  Weapon:   5 (Accumulator) — medium gun, medium ammo
+  Stab:     6 (Scar Ledger)
+  Slash:    7 (Griot's Knife)
+  Beat:     8 (Respect Knucks)
+  Feet:     9 (Dodge Ledger), 13 (Floor Tracker)
+  Hat:      11 (The Canteen)
+
+NEW INFRASTRUCTURE (cumulative, Batch 2)
+  11 new engine state variables
+  ~36 new AbilityDef entries
+  23 new Effect subclasses (display + functional)
+  1 new entity.py field (reveals_tiles_on_move)
+  Feet + ring grants_abilities support in inventory_mgr.py
+  gun_system.py: 2 hooks for breach/charge tracking
+  effects.py apply_effect: 1 hook for verse_count tracking
+  engine.py: cash spend hook (tokens), tox gain hook (budget), food finish hook (servings),
+    armor absorb hook (block party), radiation gain hook (rad dial), dodge hook (evasions),
+    move hook (floor tracker rooms), melee hit hook (scar ledger debts, knucks chain)
+================================================================================

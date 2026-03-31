@@ -1,0 +1,603 @@
+SPRAY PAINT DESIGNS V3 — 5 REPLACEMENT COLORS
+===============================================
+NIGRL roguelike | Design document
+
+Purpose: Replace the 5 rejected V2 paints (Yellow, Purple, Pink, Brown,
+White) with new designs. The 5 approved V2 paints (Gold, Teal, Lime, Grey,
+Rad) remain unchanged and are not repeated here.
+
+Rejection reasons for the original 5:
+  Yellow  — too similar to Blue (+5 STS); dual-stat felt redundant
+  Purple  — confusion CC too similar to Silver (which already skips turns)
+  Pink    — flat max HP bonus is passive and uninteresting
+  Brown   — move-cost slow not impactful enough
+  White   — pure information tile with no combat numbers
+
+Design goals for replacements:
+  - At least one meaningful risk/reward tradeoff
+  - No overlap with existing 10 paints or approved V2 set
+  - At least one paint that interacts with spells/abilities
+  - At least one paint that interacts with the energy system
+  - Each must create genuine placement decisions ("do I paint here or save it?")
+  - All exam popup lines max 46 characters
+
+Full roster for reference (what must NOT be overlapped):
+  Red     — enemy on tile: +25% damage taken
+  Blue    — player on tile: +5 STS; 25% ability charge preserve
+  Green   — player on tile: +4 Defense
+  Orange  — all entities: 5+2*Graffiti dmg/turn
+  Silver  — entry: slipped (turn skip + 50% melee vuln)
+  Gold    — kill on tile: +$5 cash
+  Teal    — player on tile: +20% skill XP
+  Lime    — enemy: tox/turn; player: small tox/turn
+  Grey    — enemy on tile: -(1+Graffiti) outgoing damage
+  Rad     — enemy: rad/turn; player: rad/turn (Meth Lab)
+
+
+============================
+PAINT 11 — CRIMSON
+============================
+Item ID:    crimson_spray_paint
+Name:       Crimson Spray Paint
+RGB:        (210, 35, 65)
+Render bg (visible):   (100, 12, 25)
+Render bg (explored):  (50, 6, 12)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 45
+
+Effect:
+  Player on tile — melee attacks heal the player for 20% of damage dealt
+  (rounded up, minimum 1 HP if any damage was dealt).
+  Healing applies AFTER damage resolution, once per melee hit.
+  This is vampiric healing tied to the tile, not the weapon.
+  Enemy on tile — no effect.
+  AOE/gun attacks do NOT trigger the heal; melee only.
+
+Design rationale:
+  No existing paint provides healing. Crimson fills this gap cleanly.
+  It rewards standing your ground in melee, complementing Green (+4 Defense)
+  and working against Orange (which punishes staying put). Placement on a
+  chokepoint creates a "kill zone" where the player sustains through attrition.
+  The 20% rate means killing a 25-HP enemy restores 5 HP — meaningful but not
+  broken; the player still needs incoming damage to be manageable.
+
+  Risk: to get the healing, you must remain adjacent to enemies. If you step
+  off to retreat, you lose the leech. Encourages greedy positioning decisions.
+
+Scale with Graffiti:
+  Suggested: heal_pct = 15 + 5*Graffiti_Lvl percent.
+  L0: 15%; L1: 20%; L2: 25%; L3: 30%.
+  Cap at 30% to prevent trivializing tanky builds.
+
+Synergies:
+  Green + Crimson (adjacent tiles): place Green on the approach tile and
+  Crimson on your fighting tile — you gain defense AND lifesteal.
+  Red + Crimson: red tiles amplify damage dealt; hitting a red-tile enemy
+  from your crimson tile means more damage landed = larger heal (20% of
+  the amplified number).
+  CON-heavy builds: high HP ceiling absorbs spikes; Crimson fills it back up.
+  Strength builds: high weapon damage = large heal per swing.
+
+Examine popup lines (max 46 chars):
+  "Spray a tile crimson."
+  "While standing here, melee hits"
+  "heal you for 20% of damage dealt."
+  "(Scales with Graffiti level.)"
+
+Implementation notes:
+  Hook into combat.py perform_attack or engine._do_player_melee_hit,
+  immediately after damage is applied to the target.
+  Pattern:
+    if engine.dungeon.spray_paint.get((engine.player.x, engine.player.y)) == "crimson":
+        heal_pct = 0.15 + 0.05 * engine.skills.get("Graffiti").level
+        heal_amt = max(1, math.ceil(damage_dealt * heal_pct))
+        engine.player.hp = min(engine.player.hp + heal_amt, engine.player.max_hp)
+        engine.messages.append(f"Crimson paint: healed {heal_amt} HP!")
+  Check only player-vs-monster melee path (not gun fire, not AOE spell,
+  not entity-on-entity combat). The existing pattern for on_player_melee_hit
+  hook in Effect can be studied, but a direct call in the melee branch is simpler.
+  No new Effect class needed — inline check in the melee damage path.
+
+Balance notes:
+  At L0 (15%): enemy with 30 HP in 4 hits at ~8 dmg each = ~5 HP healed.
+  Minor sustain against 1 enemy; weaker than a bandage but free if placed.
+  At L3 (30%): same scenario = ~10 HP healed. Covers ~1/10 of a
+  typical floor's incoming damage. Not overpowering.
+  The tile is consumed (it's spray paint, not a permanent feature), so
+  the player cannot paint the whole dungeon crimson.
+
+
+============================
+PAINT 12 — COPPER
+============================
+Item ID:    copper_spray_paint
+Name:       Copper Spray Paint
+RGB:        (195, 115, 45)
+Render bg (visible):   (95, 55, 15)
+Render bg (explored):  (47, 27, 7)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 40
+
+Effect:
+  Player on tile — energy gain per tick is increased by +30 (from base 100
+  to effectively 130; i.e., ~23% faster action rate while standing here).
+  Enemy on tile — energy gain per tick is reduced by -20 (from base 100
+  to effectively 80; ~20% slower action rate while standing here).
+  Both effects apply simultaneously if both are on the tile (impossible for
+  the same tile, but two entities each get their own modifier).
+
+  This is a direct energy-system interaction — the first tile of this kind.
+
+Design rationale:
+  Every other CC or speed interaction in the game is delivered via status
+  effects (speedball, slowed, chill, etc.). Copper is the only tile that
+  mechanically alters the energy accumulation rate in real time, without
+  applying a named effect. This makes it feel like a spatial, positional
+  advantage rather than a consumable buff.
+
+  For the player: standing on copper means you get roughly one extra action
+  every 4 turns. In a 10-turn fight this adds up to 2 extra actions — a
+  significant tempo advantage that rewards holding the tile.
+
+  For enemies: an enemy standing on copper (e.g., in a doorway you just
+  painted) fires its attacks and moves 20% slower. Weaker than Silver (which
+  skips a turn entirely) but applies to ALL time spent there, not just entry.
+
+  Risk/Reward: the player loses the copper bonus the moment they retreat.
+  Enemies that move off the tile immediately regain full speed. The tile
+  rewards commitment from both sides.
+
+Scale with Graffiti:
+  Player energy bonus: +20 + 5*Graffiti_Lvl per tick.
+  L0: +20; L1: +25; L2: +30; L3: +35.
+  Enemy energy penalty: -15 - 5*Graffiti_Lvl per tick.
+  L0: -15; L1: -20; L2: -25; L3: -30.
+
+Synergies:
+  Silver + Copper: paint Silver at the approach tile (enemy slips and loses
+  a turn on entry), then Copper on your fighting tile (you act faster while
+  they're slower). Two-tile speed control system.
+  Orange + Copper: if you can tolerate standing on Orange (with high HP),
+  Copper lets you deal with enemies faster, reducing the window you take
+  orange damage. High risk, high reward combo.
+  Speedball / RatRace buffs: already give +100 speed. Copper stacks
+  additively — further padding a speed-focused build's advantage.
+
+Examine popup lines (max 46 chars):
+  "Spray a tile copper."
+  "Player on tile: +30 energy/tick"
+  "(acts ~23% faster)."
+  "Enemy on tile: -20 energy/tick"
+  "(acts ~20% slower)."
+
+Implementation notes:
+  In the _run_energy_loop energy distribution phase (engine.py), where
+  entities accumulate energy each tick:
+    graffiti_lvl = self.skills.get("Graffiti").level
+    player_bonus = 20 + 5 * graffiti_lvl
+    enemy_penalty = 15 + 5 * graffiti_lvl
+    for entity in all_entities_including_player:
+        spray = self.dungeon.spray_paint.get((entity.x, entity.y))
+        if spray == "copper":
+            if entity == self.player:
+                gain += player_bonus
+            else:
+                gain = max(0, gain - enemy_penalty)
+  This executes in the same block as Meth-Head meth energy bonus and
+  other per-tick energy modifiers. Use the same pattern.
+  No new Effect or PlayerStats field needed.
+
+Balance notes:
+  +30 energy out of a 100-threshold is significant but not game-breaking;
+  the player still can't outrun a fast enemy indefinitely. The penalty side
+  (-20 on enemies) is softer than Brown's old +50 move cost, but applies to
+  ALL actions (attacks and moves) rather than just movement. Functionally
+  more interesting while being less punishing in isolation.
+
+
+============================
+PAINT 13 — COBALT
+============================
+Item ID:    cobalt_spray_paint
+Name:       Cobalt Spray Paint
+RGB:        (35, 75, 210)
+Render bg (visible):   (12, 28, 100)
+Render bg (explored):  (6, 14, 50)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 45
+
+Effect:
+  Player on tile — two simultaneous bonuses:
+    1. +4 to player_stats.spell_damage_bonus while standing here.
+       (Applies to all abilities that use spell_damage scaling: Blackkk Magic,
+        Pyromancy, Cryomancy, Electrodynamics, Nuclear Research, etc.)
+    2. Ability charge refund chance increased from 25% to 50%.
+       (Blue paint grants 25% refund; Cobalt supersedes this, granting 50%
+        if the player is on Cobalt instead. Only one tile applies at a time.)
+  Enemy on tile — no effect.
+
+Design rationale:
+  Blue paint rewards STS/ability users with a passive stat bonus and a 25%
+  charge refund. Cobalt is the "deep caster" version: it doesn't give raw
+  stats but dramatically improves spell output and sustainability. For a
+  Blackkk Magic or Nuclear Research build, cobalt is the best possible
+  fighting tile. It doesn't help melee or gun users at all — a genuine
+  build-dependent tile whose value varies wildly by player archetype.
+
+  The 50% charge refund means a PER_FLOOR ability used from this tile
+  statistically lasts twice as long. Correctly placed before a boss floor
+  or a dense room, it extends the player's ability window significantly.
+
+  The spell_damage_bonus interacts with book_smarts scaling in spells.py
+  (where spell_damage feeds into final damage). At BKS 10 with +4 spell_damage,
+  a fireball dealing 20 base now deals 24 — a 20% boost.
+
+Scale with Graffiti:
+  spell_damage bonus = 3 + Graffiti_Lvl.
+  L0: +3; L1: +4; L2: +5; L3: +6.
+  Charge refund stays flat at 50% — it replaces Blue's 25%, not stacks.
+
+Synergies:
+  Blue + Cobalt: Blue on the approach tile (STS boost while moving up),
+  Cobalt on the fighting tile (spell damage + 50% refund while standing).
+  Two-tile caster layout: use Blue to enhance targeting/STS-checks, then
+  cast from Cobalt for maximum damage.
+  Teal + Cobalt (adjacent tiles): Teal grants +20% XP while Cobalt buffs
+  spells. If a spell earns Blackkk Magic XP on kill (already implemented),
+  standing on Teal while having just painted Cobalt at the kill tile amplifies
+  the XP gained from each kill.
+
+Examine popup lines (max 46 chars):
+  "Spray a tile cobalt."
+  "Player on tile: +4 spell damage."
+  "Ability charge refund: 50%"
+  "(replaces Blue paint's 25%)."
+
+Implementation notes:
+  In _update_tile_stat_bonuses (engine.py):
+    elif spray == "cobalt":
+        graffiti_lvl = self.skills.get("Graffiti").level
+        self.player_stats.tile_spell_damage_bonus = 3 + graffiti_lvl
+  New PlayerStats field: tile_spell_damage_bonus: int = 0
+  This field should be summed into player_stats.spell_damage wherever
+  spell_damage is read in spells.py.
+  Reset to 0 when player steps off (same pattern as tile_defense_bonus).
+
+  For the 50% charge refund: the existing Blue-paint charge refund is in
+  engine.py wherever ability charges are consumed. It currently reads:
+    if spray == "blue" and random.random() < 0.25: refund charge
+  Extend this to:
+    if spray in ("blue", "cobalt"):
+        threshold = 0.50 if spray == "cobalt" else 0.25
+        if random.random() < threshold: refund charge
+  No new Effect class needed.
+
+Balance notes:
+  +4 spell_damage is meaningful for spell builds (comparable to a
+  +4-STR weapon giving ~2 extra melee damage after scaling). For non-
+  casters, the tile is worthless — which is the intended tradeoff.
+  50% charge refund is strong for TOTAL abilities but note that most
+  abilities have INFINITE or PER_FLOOR charges; the 50% only matters for
+  the latter. At most this doubles a PER_FLOOR ability's effective uses.
+  Since few enemies will ever stand on cobalt, it has no enemy interaction
+  cost — it is a purely player-facing buff tile, balanced by being build-gated.
+
+
+============================
+PAINT 14 — VIOLET
+============================
+Item ID:    violet_spray_paint
+Name:       Violet Spray Paint
+RGB:        (150, 45, 195)
+Render bg (visible):   (70, 15, 90)
+Render bg (explored):  (35, 7, 45)
+Tool charges: 8
+Zones: crack_den, meth_lab
+Value: 50
+
+Effect (RISK/REWARD — both edges are sharp):
+  Player on tile — melee attacks deal +(3 + Graffiti_Lvl) bonus damage.
+  Player on tile — all enemies that successfully hit the player from an
+  adjacent tile deal +3 bonus damage on each strike (enemies gain a flat
+  +3 to their final damage output while the player stands on violet).
+  Enemy on tile — no separate effect (the enemy bonus applies only when
+  they are adjacent to the player who is ON violet, not when the enemy
+  stands on it themselves).
+
+  Summary: you hit harder, but so does anyone adjacent to you.
+
+Design rationale:
+  This is the explicit risk/reward tile. The player voluntarily enters a
+  "berserker stance" by standing on violet. The tile punishes hesitation:
+  if you don't kill enemies quickly, the accumulated incoming damage will
+  punish you for staying. The payoff for skilled play is consistent
+  extra melee damage per swing; the cost is every surrounded enemy piles
+  on harder.
+
+  Unlike Orange (which damages the player passively), Violet only hurts you
+  when an enemy successfully lands a melee hit. If you have high Swagger
+  (defense), the enemy's +3 may be partially mitigated. If you have a stun
+  weapon or crowd control, you can neutralize the risk by keeping enemies
+  stunned. This rewards CC-combo play over straight tanking.
+
+  8 charges (not 10) — the escalated risk and power justify reduced supply.
+
+Scale with Graffiti:
+  Player melee damage bonus = 3 + Graffiti_Lvl.
+  L0: +3; L1: +4; L2: +5; L3: +6.
+  Enemy melee damage bonus stays flat at +3 — the risk does not increase
+  as the player levels up (reward scales, cost stays constant).
+
+Synergies:
+  Green + Violet (adjacent tiles): paint Green at one adjacent tile and use
+  it as a "safe retreat" — fall back to Green for defense when low HP,
+  advance to Violet for the damage boost when healthy.
+  Crimson + Violet on different positions: fight from Crimson to leech
+  health back against a single target, move to Violet for burst damage
+  on elite enemies.
+  Slashing weapons (bleeding): rapid multi-hit attacks compound the bonus
+  damage per swing, making bleeding stacks AND violet bonus both apply.
+  Stun abilities: stun an adjacent enemy so they can't counterattack while
+  on Violet. Reaps the damage bonus with zero risk window.
+
+Examine popup lines (max 46 chars):
+  "Spray a tile violet."
+  "Player on tile: +(3+Graffiti)"
+  "melee damage."
+  "Risk: adjacent enemies deal"
+  "+3 damage back each hit."
+
+Implementation notes:
+  PLAYER DAMAGE BONUS:
+  In combat.py _compute_player_attack_power or the final damage calc before
+  applying to the target:
+    if engine.dungeon.spray_paint.get((engine.player.x, engine.player.y)) == "violet":
+        graffiti_lvl = engine.skills.get("Graffiti").level
+        attack_power += (3 + graffiti_lvl)
+
+  ENEMY DAMAGE BONUS:
+  In the monster-attacks-player branch of perform_attack in combat.py,
+  after the base damage is computed, before defense is subtracted:
+    spray = engine.dungeon.spray_paint.get((engine.player.x, engine.player.y))
+    if spray == "violet":
+        # Check that attacker is adjacent (Chebyshev distance == 1)
+        dx = abs(attacker.x - engine.player.x)
+        dy = abs(attacker.y - engine.player.y)
+        if max(dx, dy) <= 1:
+            damage += 3
+  The adjacency check prevents ranged or long-reach monsters from
+  benefiting from the violet bonus (only melee-range attackers get the +3).
+
+  No new Effect class or PlayerStats field needed.
+  PlayerStats could optionally carry a tile_melee_damage_bonus: int = 0
+  for cleaner access — add to _update_tile_stat_bonuses if preferred.
+
+Balance notes:
+  +3-6 player melee damage is significant (floor 1-2 enemies have 15-30 HP;
+  this cuts 1-2 extra turns off a fight). The +3 enemy bonus averages
+  ~1.5 extra damage per hit after typical defense (swagger_defence ~1-2).
+  Net: violet is positive EV against single enemies but risky against packs.
+  8 charges limits total floor coverage; the player must decide where
+  violet matters most (boss rooms, tight corridors, difficult encounters).
+
+
+============================
+PAINT 15 — RUST
+============================
+Item ID:    rust_spray_paint
+Name:       Rust Spray Paint
+RGB:        (170, 75, 30)
+Render bg (visible):   (80, 32, 8)
+Render bg (explored):  (40, 16, 4)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 35
+
+Effect:
+  Enemy on tile — each turn the enemy stands on the rust tile, they receive
+  the "rusted" status effect (stacks with itself, max 10 stacks).
+  Each stack of "rusted" reduces the enemy's effective defense by 1
+  (minimum 0 defense). Stacks are permanent for the floor — they do NOT
+  expire when the enemy leaves the tile.
+  Player on tile — no effect. The player is immune to rust.
+
+  Summary: parking enemies on rust gradually strips their armor,
+  then all future damage to them — from weapons, spells, DoTs, orange paint,
+  anything — deals more because defense is zero.
+
+Design rationale:
+  This is the "siege" tile — it rewards patient, methodical play. Against
+  a 0-defense enemy, the player's base attack power hits for full value,
+  and abilities/DoTs deal their complete output. The tile doesn't do any
+  damage itself; it just degrades the target.
+
+  Tactically, the player wants to lure the enemy onto rust, do something
+  else for several turns while the rust stacks build, then finish with
+  high-damage attacks. Pairs brilliantly with silver (slip enemy on rust =
+  enemy can't move for a turn, eats 1-2 free rust stacks).
+
+  Unlike Red (+25% damage directly), rust is a PERMANENT debuff that
+  compounds over time. Against a boss with 5 defense, it takes 5 turns
+  on the tile to strip armor. Against a normal enemy with 2 defense,
+  2 turns and they're wide open. The payoff is long-term but reliable.
+
+Scale with Graffiti:
+  Stack rate: applies (1 + Graffiti_Lvl // 2) stacks per turn on tile.
+  L0: 1 stack/turn; L1: 1; L2: 2 stacks/turn; L3: 2; L4: 3; etc.
+  At L2 Graffiti, rust strips a 4-defense enemy in 2 turns instead of 4.
+
+Synergies:
+  Silver + Rust: silver slips the enemy (skip a turn). While they're
+  slipped and frozen in place, they absorb 1-2 rust stacks for free.
+  Orange + Rust: orange deals 5+2*Graffiti per turn. Against a de-armored
+  enemy (rust has cleared their defense), orange's DoT hits for full base
+  damage with no mitigation — enemies evaporate faster.
+  Red + Rust: enemy standing on red tile takes +25% damage from all sources,
+  AND has reduced defense from rust. Two-tile setup that creates a kill zone:
+  lure enemy from rust (strip defense) onto red (amplify damage), then burst.
+  Lime + Rust (Meth Lab): lime stacks tox (amplifies incoming damage
+  multiplicatively). Rust removes defense (linear damage increase). Both
+  together make enemies hit-squishes even on high-HP Meth Lab enemies.
+  High-Strength builds: STR scaling on weapons benefits most from 0-defense
+  enemies since the full power value lands.
+
+New Status Effect Required: "rusted"
+  id = "rusted"
+  category = "debuff"
+  display_name = "Rusted"
+  duration: floor_duration = True (persists until floor end, not turn-count)
+  stacks: int — each stack represents -1 defense.
+  max_stacks = 10
+  on_reapply: existing.stacks = min(existing.stacks + new.stacks, 10)
+  modify_incoming_damage: not applicable (defense reduction is applied
+    at the attacker-calculates-damage step, not via incoming damage hook)
+
+  Implementation approach for defense reduction:
+  In combat.py _compute_player_attack_power or perform_attack, when
+  computing the defender's effective defense:
+    rusted_eff = next((e for e in defender.status_effects
+                       if getattr(e, 'id', '') == 'rusted'), None)
+    rust_penalty = rusted_eff.stacks if rusted_eff else 0
+    effective_defense = max(0, defender.defense - rust_penalty)
+  Use effective_defense instead of defender.defense in the damage formula.
+
+  Per-tick rust application in the energy loop (alongside orange paint block):
+    graffiti_lvl = self.skills.get("Graffiti").level
+    rust_stacks_per_turn = 1 + graffiti_lvl // 2
+    for monster in monsters:
+        if not monster.alive: continue
+        if self.dungeon.spray_paint.get((monster.x, monster.y)) == "rust":
+            effects.apply_effect(monster, self, "rusted",
+                                 stacks=rust_stacks_per_turn,
+                                 floor_duration=True, silent=True)
+
+Examine popup lines (max 46 chars):
+  "Spray a tile rust."
+  "Enemies on tile: -1 defense/turn"
+  "(stacks up to -10, permanent"
+  "until floor end)."
+  "Player is immune."
+
+Files requiring changes for all 5 new paints:
+
+items.py:
+  5 new ITEM_DEFS entries: crimson, copper, cobalt, violet, rust spray paint.
+  Add to _spray_descs dict for examine popup.
+
+render.py:
+  5 new elif branches for visible + explored tile background colors (2 blocks).
+
+engine.py:
+  _update_tile_stat_bonuses:
+    cobalt — tile_spell_damage_bonus = 3 + graffiti_lvl
+    violet — tile_melee_damage_bonus = 3 + graffiti_lvl (optional field)
+    crimson — no stat field needed (hook is in melee hit path)
+  Per-tick entity loop (alongside orange block):
+    rust — apply "rusted" effect stacks to enemies on tile
+  Energy distribution phase (alongside Meth-Head meth block):
+    copper — player_energy_bonus += (20 + 5*graffiti_lvl) per tick
+             enemy_energy -= (15 + 5*graffiti_lvl) per tick
+  Ability charge refund: extend blue check to include cobalt at 50%.
+  _SPRAY_TABLE: update to include all 15 paints (5 original +
+    5 approved V2 + 5 V3 replacements).
+
+combat.py:
+  Player melee damage:
+    violet — add (3 + graffiti_lvl) to attack_power when player on violet
+    crimson — after hit, heal ceil(dmg * heal_pct)
+  Enemy damage to player:
+    violet — if player on violet AND attacker is adjacent, add +3 to dmg
+    rust — when computing defender.defense, subtract rusted.stacks (min 0)
+
+effects.py:
+  RustedEffect: floor_duration=True, stacks field, on_reapply stacks up
+    to 10. The effect itself has no tick damage or duration modification;
+    it is a pure metadata holder for the defense-reduction read in combat.py.
+
+stats.py (PlayerStats):
+  tile_spell_damage_bonus: int = 0
+  (Optional) tile_melee_damage_bonus: int = 0
+  Integrate into spell_damage and attack_power reads respectively.
+  Both reset to 0 in _update_tile_stat_bonuses when player steps off.
+
+
+============================
+COMBO SYNERGIES (V3 PAINTS)
+============================
+
+Crimson + Violet (sequential tiles):
+  Two tiles, two styles. Stand on Crimson against groups (leech helps
+  survive multi-hit trades). Advance to Violet for single-target burst
+  (bonus damage kills faster, acceptable risk vs 1 enemy).
+
+Copper + Silver:
+  Paint Silver at the corridor entrance (enemy slips on entry, loses a
+  turn). Paint Copper on your fighting tile. While slipped enemy can't
+  act, you're accumulating energy faster than normal. By the time they
+  stand up, you may have already acted twice.
+
+Cobalt + Red:
+  Caster build setup. Red tile on the enemy's likely approach position
+  (all damage to them increased 25%). Cast spells from Cobalt (+4-6 spell
+  damage, 50% charge refund). Every cast from Cobalt hitting an enemy on
+  Red is amplified by both sources: spell_damage increase AND 25% amp.
+
+Rust + Orange + Lime (Meth Lab triple):
+  Three adjacent tiles forming a gauntlet. Enemy walks through Lime (tox
+  stack up, damage multiplier grows), gets lured onto Rust (defense stripped
+  over 3-4 turns), then pushed or lured onto Orange (full DoT with no defense
+  mitigation and tox-multiplied). Against a boss with 5+ defense and 100+ HP,
+  this three-tile system can reduce effective HP by 50%+ before the player
+  even draws a weapon.
+
+Violet + Stabbing skill:
+  Stabbing grants crit chance (street_smarts * 3%). Violet adds flat damage
+  per swing. A crit from Violet multiplies the full (base + violet bonus)
+  damage. A MEGA CRIT (Sniping L3) multiplies by 4x. At Graffiti L3: crit
+  damage = (base_atk + 6) * 4. Against a dearmored enemy (rust): massive.
+
+
+============================
+BALANCE OVERVIEW
+============================
+
+Power ranking (these 5 vs existing 10):
+
+Tier 1 (premium, strategic):
+  Rust — long-term payoff; transforms fights against armored enemies.
+  Violet — highest risk/reward; rewards skilled play, punishes greed.
+
+Tier 2 (strong, build-relevant):
+  Copper — energy system manipulation; consistently valuable for any build.
+  Crimson — sustain in melee; powerful for weapon builds, weak for casters.
+
+Tier 3 (build-gated):
+  Cobalt — nearly useless for non-casters, strong for spell builds.
+
+Graffiti unlock table update:
+  _SPRAY_TABLE = [
+      # Original 5
+      "red_spray_paint", "blue_spray_paint", "green_spray_paint",
+      "orange_spray_paint", "silver_spray_paint",
+      # Approved V2 (kept)
+      "gold_spray_paint", "teal_spray_paint", "lime_spray_paint",
+      "grey_spray_paint",
+      # Rad: meth_lab only — lower unlock weight recommended
+      # V3 Replacements
+      "crimson_spray_paint", "copper_spray_paint", "cobalt_spray_paint",
+      "violet_spray_paint", "rust_spray_paint",
+  ]
+  14 paints in unlock table (Rad excluded or added separately with
+  lower weight since it is thematically Meth Lab exclusive and carries
+  self-damage risk unsuitable for random grant to unprepared players).
+
+Charges:
+  10 charges: crimson, copper, cobalt, rust (standard)
+   8 charges: violet (reflects higher risk/power, reduced supply forces choices)
+
+Value: crimson=45, copper=40, cobalt=45, violet=50, rust=35
+  (Rust is cheap — its power is delayed and setup-dependent; no immediate
+   payoff if the enemy doesn't stand on it.)

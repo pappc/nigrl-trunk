@@ -77,7 +77,7 @@ def place_monster(engine: GameEngine, dx: int = 2, dy: int = 0, hp: int = 300) -
 def test_fireball_shooter_grants_breathe_fire():
     """
     Drinking a Fireball Shooter should add breath_fire to player abilities
-    with 3 floor charges.
+    with 3 total charges (persist across floors).
     """
     engine = make_engine()
 
@@ -91,46 +91,46 @@ def test_fireball_shooter_grants_breathe_fire():
         "breath_fire ability must exist after drinking Fireball Shooter"
 
     defn = ABILITY_REGISTRY["breath_fire"]
-    assert defn.charge_type == ChargeType.FLOOR_ONLY, \
-        "breath_fire must be FLOOR_ONLY charge type"
+    assert defn.charge_type == ChargeType.TOTAL, \
+        "breath_fire must be TOTAL charge type"
 
-    assert inst.floor_charges_remaining == 3, (
-        f"Expected 3 floor charges after Fireball Shooter, got {inst.floor_charges_remaining}"
+    assert inst.charges_remaining == 3, (
+        f"Expected 3 charges after Fireball Shooter, got {inst.charges_remaining}"
     )
     assert inst.can_use(), "breath_fire should be usable after granting 3 charges"
 
-    print(f"[OK] Fireball Shooter grants breath_fire: {inst.floor_charges_remaining} floor charges")
+    print(f"[OK] Fireball Shooter grants breath_fire: {inst.charges_remaining} total charges")
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Wizard Mind Bomb after Fireball Shooter → 6 floor charges (not 3)
+# Test 2: Wizard Mind Bomb after Fireball Shooter → 5 total charges (3 + 2)
 # ---------------------------------------------------------------------------
 
 def test_wizard_mind_bomb_stacks_breathe_fire_charges():
     """
-    Drinking Wizard Mind Bomb after Fireball Shooter should NOT add more breath_fire charges.
-    Only Fireball Shooter grants breath_fire; Wizard Mind Bomb boosts spell charges, not breath_fire.
-    Result: 3 (from fireball only) floor charges total.
+    Drinking Wizard Mind Bomb after Fireball Shooter adds +2 to breath_fire charges.
+    breath_fire is a TOTAL-charge spell (is_spell=True), so WMB's generic +2 applies.
+    Result: 5 (3 from fireball + 2 from WMB) total charges.
     """
     engine = make_engine()
 
     drink(engine, "fireball_shooter")
     inst = get_breath_fire(engine)
-    assert inst.floor_charges_remaining == 3, \
-        "Sanity check: 3 floor charges after Fireball Shooter"
+    assert inst.charges_remaining == 3, \
+        "Sanity check: 3 charges after Fireball Shooter"
 
     drink(engine, "wizard_mind_bomb")
 
     inst = get_breath_fire(engine)
-    # Wizard Mind Bomb does NOT grant breath_fire charges
-    assert inst.floor_charges_remaining == 3, (
-        f"Expected 3 floor charges (fireball only) after both drinks, got {inst.floor_charges_remaining}"
+    # Wizard Mind Bomb adds +2 charges to all active spells including breath_fire
+    assert inst.charges_remaining == 5, (
+        f"Expected 5 charges (3 fireball + 2 WMB) after both drinks, got {inst.charges_remaining}"
     )
 
     print(
         f"[OK] After Fireball Shooter + Wizard Mind Bomb: "
-        f"{inst.floor_charges_remaining} floor charges "
-        f"(Wizard Mind Bomb does not add breath_fire charges)"
+        f"{inst.charges_remaining} total charges "
+        f"(3 from Fireball Shooter + 2 from Wizard Mind Bomb)"
     )
 
 
@@ -179,11 +179,11 @@ def test_wizard_mind_bomb_effect_is_applied():
 
 def test_breathe_fire_damage_formula():
     """
-    Breathe Fire damage formula: 20 + effective_book_smarts + wizard_bomb_bonus
+    Breathe Fire damage formula: 10 + effective_book_smarts + wizard_bomb_bonus
     where wizard_bomb_bonus = effective_book_smarts (if buff active) or 0.
 
-    Without buff: damage = 20 + bksmt
-    With buff:    damage = 20 + (bksmt + 5) + (bksmt + 5)  [+5 from WMB temp bonus]
+    Without buff: damage = 10 + bksmt
+    With buff:    damage = 10 + (bksmt + 5) + (bksmt + 5)  [+5 from WMB temp bonus]
 
     We fix book_smarts = 5 for determinism.
     """
@@ -201,7 +201,7 @@ def test_breathe_fire_damage_formula():
     assert hit, "Breathe Fire should hit the monster placed 2 tiles away"
 
     damage_no_buff = hp_before - m_no_buff.hp
-    expected_no_buff = 20 + fixed_bs  # 25
+    expected_no_buff = 10 + fixed_bs  # 15
     assert damage_no_buff == expected_no_buff, (
         f"Without buff: expected {expected_no_buff} damage, got {damage_no_buff}"
     )
@@ -227,13 +227,13 @@ def test_breathe_fire_damage_formula():
 
     damage_with_buff = hp_before2 - m_buff.hp
     # _get_wizard_bomb_bonus() returns effective_book_smarts when buff is active
-    expected_with_buff = 20 + effective_bs + effective_bs  # 20 + 10 + 10 = 40
+    expected_with_buff = 10 + effective_bs + effective_bs  # 10 + 10 + 10 = 30
     assert damage_with_buff == expected_with_buff, (
         f"With buff: expected {expected_with_buff} damage, got {damage_with_buff}"
     )
     print(
         f"[OK] Breathe Fire (Wizard Mind Bomb active): {damage_with_buff} damage "
-        f"(expected {expected_with_buff}: 20 base + {effective_bs} bksmt + {effective_bs} WMB bonus)"
+        f"(expected {expected_with_buff}: 10 base + {effective_bs} bksmt + {effective_bs} WMB bonus)"
     )
     print(
         f"     Damage increase from buff: +{damage_with_buff - damage_no_buff} "

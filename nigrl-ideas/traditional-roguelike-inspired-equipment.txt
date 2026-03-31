@@ -1,0 +1,1620 @@
+================================================================================
+NIGRL — TRADITIONAL ROGUELIKE-INSPIRED LEGENDARY EQUIPMENT
+================================================================================
+Items 41-50 of the legendary equipment series.
+Design theme: each item has a SPECIFIC traditional roguelike artifact or mechanic
+as its ancestor. The roguelike source, original mechanic, and NIGRL translation
+are documented per item.
+
+Design conventions (same as items 1-40):
+- All items are unique (one per run), not generated from procedural tables.
+- All stat names use canonical PlayerStats keys:
+    constitution, strength, book_smarts, street_smarts, tolerance, swagger
+- "armor" = point-absorb pool. "defense" = flat damage reduction from swagger formula.
+- New effects follow @register / lifecycle hook architecture (effects.py).
+- New abilities follow ABILITY_REGISTRY pattern (abilities.py).
+- PER_FLOOR X = ChargeType.PER_FLOOR, max_charges=X.
+- Negative stat_bonus values are valid (see Dead Weight, Rat King Shiv precedents).
+
+================================================================================
+ITEMS 41-50 — BATCH 5 (Traditional Roguelike Mechanics Translated to NIGRL)
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 41 — WEAPON
+--------------------------------------------------------------------------------
+ITEM ID:         "cold_snap"
+NAME:            Cold Snap
+SLOT:            weapon (equip_slot: "weapon")
+CHAR:            /
+COLOR:           (120, 200, 255)  -- pale cold blue, like winter light on metal
+SUBCATEGORY:     weapon
+WEAPON TYPE:     stabbing
+VALUE:           0
+ZONES:           crack_den floor 2-4. Appears in a "Cold Storage" room event — a
+                 room with an ASCII freezer unit (graphical tile or 'U' character
+                 drawn on the wall) and frost decorations. The knife is embedded
+                 in a block of ice (flavor text entity that the player bumps to
+                 claim the weapon). Room spawns at 10% on floors 2-4.
+                 Alternate obtain: dropped by any "Cryo" enemy variant (if added)
+                 OR found if the player currently has 5+ stacks of Chill effect
+                 active when a new floor generates.
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  NetHack — Frost Brand (artifact long sword)
+  In NetHack, Frost Brand is a +3 artifact sword aligned to none-neutral that
+  deals extra cold damage to non-cold-resistant enemies, melts ice, freezes pools
+  of water on the floor, and grants cold resistance while wielded. Its key
+  mechanical identity is the COLD RESISTANCE INTRINSIC — the weapon teaches the
+  wielder to resist cold simply by using it. Cold damage bypasses normal
+  damage reduction. The weapon's "melting" behavior (interacting with ice pools
+  and fire) represents ENVIRONMENTAL PHYSICS in the roguelike world.
+
+  The secondary inspiration is DCSS Frostbite: an unrandart staff that creates
+  freezing clouds on the tiles of enemies it kills, leaving hazardous terrain.
+
+TRANSLATION TO NIGRL:
+  Cold Snap deals bonus chill-branded damage (adds Chill stacks on every hit,
+  not just on certain procs). The wielder passively builds cold resistance over
+  the course of the run. On killing blow, the dead enemy's tile becomes a "Frost
+  Patch" hazard that slows enemies who walk over it. This creates environmental
+  battlefield control from kills — the fantasy of turning the dungeon cold as you
+  fight through it.
+
+STAT PROPERTIES:
+  base_damage:   8
+  str_req:       5
+  reach:         1
+  str_scaling:   {"type": "tiered", "divisor": 2}   -- +1 per 2 STR above 5
+  defense_bonus: 0
+  armor_bonus:   0
+
+SPECIAL PROPERTY — "Frost Brand" (passive):
+  New field: "cold_snap_weapon": True
+  New engine state:
+    engine.cold_snap_chill_immunity_stacks: int = 0  -- tracks kills for resist buildup
+
+  COMPONENT A — Chill Brand (passive, always-on while equipped):
+    Every successful melee hit applies 1 stack of the "chill" effect to the target.
+    Duration: 8 turns (doubled from the normal 10 via Time Served if equipped, or
+    standard application otherwise).
+    This fires regardless of other on-hit effects and does NOT cost additional
+    damage; the cold is inherent to the blade.
+    Chill effect (existing): each stack reduces energy gain by 15% multiplicatively.
+    At 3 chill stacks: enemy acts at ~61% of normal speed.
+    The chill application also grants Cryomancy XP (10 per stack, as per the
+    existing ChillEffect.apply hook — the weapon simply causes the apply hook to
+    fire more often).
+    Message on first chill of combat: [pale blue] "The blade bites cold."
+
+  COMPONENT B — Cold Resistance Buildup (passive, cumulative per-run):
+    Each time the player kills an enemy with Cold Snap as the equipped weapon:
+      engine.cold_snap_chill_immunity_stacks += 1
+    At each threshold (tracked via engine.cold_snap_chill_immunity_stacks):
+      5 kills:  player gains "cold_adapted" passive — incoming Chill effects applied
+                to the player have their duration halved (rounded down).
+                Message: "The cold no longer bites like it used to."
+      10 kills: player also gains -50% Chill stack application (enemies have only 50%
+                chance to apply Chill to the player when they would normally do so).
+                Message: "You are becoming the cold."
+      20 kills: full Chill immunity — Chill effects cannot be applied to the player
+                at all. Message: [bright blue] "You ARE the cold."
+    These thresholds persist for the run (do NOT reset on new floor).
+    Implement: engine.cold_snap_chill_immunity_stacks tracked in GameEngine.__init__.
+    In the Chill effect apply/on_reapply hooks, add a check for the immunity level
+    if the target is the player.
+
+  COMPONENT C — Frost Patch On Kill (passive, environmental):
+    When the player kills an enemy with Cold Snap equipped:
+      Spawn a "frost_patch" hazard entity on the dead enemy's tile.
+      frost_patch properties:
+        entity_type: "hazard", hazard_type: "frost_patch"
+        char: '.' (or use existing floor tile but tinted; simpler: a '~' char)
+        color: (150, 200, 255) -- icy blue
+        blocks_movement: False
+        duration_turns: 15  (tracked internally, destroyed after 15 turns)
+        effect: any entity (player or monster) that ENDS its turn on a frost_patch
+                tile receives 1 stack of Chill (duration 5 turns). This fires in
+                the _run_energy_loop hazard-check step, same as fire tile ignite.
+                The player is immune once cold_snap_chill_immunity_stacks >= 20.
+    Message on spawn: "The corpse freezes the ground solid."
+    Note: frost patches do NOT stack on the same tile. If a frost patch already
+    exists at a location, the new kill's patch is skipped.
+
+IMPLEMENTATION NOTES:
+  - Chill on hit: in handle_attack() after hit confirmed, if weapon is
+    "cold_snap_weapon": call apply_effect(target, engine, "chill", duration=8, stacks=1).
+    This is UNCONDITIONAL (every hit, not a chance-based proc).
+  - Frost patch spawn: in the "entity_died" event handler in engine.py, if
+    equipped weapon has "cold_snap_weapon" and killer is player: create a new
+    entity with hazard_type="frost_patch" at entity.x, entity.y. Add to dungeon.
+  - Frost patch tick: in _run_energy_loop hazard-check step (same location as fire
+    ignite check), iterate frost patch entities, check if any entity stands on that
+    tile, apply Chill duration 5 stacks 1. Check player immunity level first.
+  - Frost patch expiry: add a duration_turns counter to the frost_patch entity
+    (entity.hazard_duration = 15). Decrement each full energy loop cycle. Remove
+    when reaches 0 (dungeon.entities.remove(entity)).
+  - cold_adapted / Chill immunity: in ChillEffect.apply() and ChillEffect.on_reapply():
+    if entity == engine.player: check immunity level. At 5 kills: halve duration
+    before appending. At 10 kills: 50% chance to skip apply entirely. At 20 kills:
+    always skip.
+
+FLAVOR TEXT:
+  "You started bringing the cold with you. At some point it stopped
+  being a problem and started being a tool."
+
+SYNERGIES:
+  - Cryomancy skill: Chill-on-hit every attack is the best Cryomancy XP source in
+    the game. At 3 hits per enemy × N enemies per floor, potential XP is enormous.
+    Cryomancy perks (Freeze threshold, enhanced slow) compound with this.
+  - Two Down Ring (item 21): Chill is a debuff. Against a chilled enemy (1+ stack),
+    adding a second debuff from any source (ignite, stun) immediately activates the
+    x1.5 damage multiplier. Cold Snap naturally primes this.
+  - Time Served neck (item 29): doubles Chill duration from 8 to 16 turns per hit.
+    At 3 hits, enemy has 3 Chill stacks lasting 16 turns — nearly guaranteed
+    extreme slow for the entire room encounter.
+  - Electrodynamics / shocked: Chill + shocked stacked is a classic dual-debuff setup.
+    Cold Snap applies the Chill; any electric source adds Shocked; Two Down fires.
+  - Frost patches as map denial: in corridor-heavy rooms, frost patches narrow enemy
+    paths; any enemy moving toward the player must pass through a chilling tile.
+    Effective passive crowd control without using any ability charges.
+
+BALANCE:
+  - Chill-on-hit is more reliable than a proc-based chill (all existing chill sources
+    are percentage-based). This makes Cold Snap the definitive Cryomancy weapon.
+    Balanced by the relatively low base damage (8) compared to endgame weapons.
+  - The Chill resistance buildup takes 20 kills — approximately 2 floors of combat
+    before full immunity. Until then, the player is still vulnerable to enemy chill.
+  - Frost patches persist 15 turns and affect 1-4 additional enemies in typical
+    fights. This is moderate environmental control but not overpowering on a per-
+    patch basis.
+  - str_scaling divisor 2 is standard; the weapon scales normally, not exceptionally.
+
+--------------------------------------------------------------------------------
+ITEM 42 — WEAPON
+--------------------------------------------------------------------------------
+ITEM ID:         "one_for_one"
+NAME:            One For One
+SLOT:            weapon (equip_slot: "weapon")
+CHAR:            /
+COLOR:           (240, 60, 60)   -- arterial red, the color of a very bad deal
+SUBCATEGORY:     weapon
+WEAPON TYPE:     beating
+VALUE:           0
+ZONES:           Both zones. Appears in a "Pawn Shop Back Room" event (a hidden
+                 room behind a locked door that requires either Stealing L2+ or
+                 dealing 20 damage to the door entity). The bat rests on the back
+                 counter. Alternatively: dropped by the final enemy killed on any
+                 floor if the player has EXACTLY 1 HP at the time of the kill.
+                 Message: "You held on. It noticed."
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  NetHack — Stormbringer (chaotic runesword with sentience)
+  Stormbringer is the most dangerous artifact in NetHack: it drains levels from
+  everything it hits, including tame (friendly) creatures. It is SENTIENT — it
+  sometimes attacks on its own without the player's input. The famous warning is
+  that Stormbringer will attack your pets if they are adjacent. The drain-life
+  mechanic means every hit, regardless of whether you intended it, permanently
+  weakens the target. The weapon does what it wants. You merely hold it.
+
+  Secondary inspiration: Angband's "hunger" weapons, which consume the wielder's
+  food satiation faster to power their enhanced abilities.
+
+TRANSLATION TO NIGRL:
+  "One For One" deals double damage to every target — and double damage to the
+  player every time the player is hit while wielding it. The weapon is perfectly
+  balanced in the most dangerous way: every hit doubled, every hit taken doubled.
+  It also "awakens" periodically and takes an autonomous action (attacks an
+  adjacent enemy on its own without costing a player turn), analogous to
+  Stormbringer's sentient aggression. But when it awakens, it is equally likely
+  to drain the player's health instead.
+
+STAT PROPERTIES:
+  base_damage:   10
+  str_req:       8
+  reach:         1
+  str_scaling:   {"type": "tiered", "divisor": 2}
+  defense_bonus: 0
+  armor_bonus:   0
+
+SPECIAL PROPERTY — "The Price" (passive, always-on):
+  New field: "one_for_one_weapon": True
+  New engine state:
+    engine.one_for_one_awaken_timer: int = 0  -- counts down to next autonomous act
+
+  COMPONENT A — Double Damage Mirror:
+    OUTGOING: All player melee hits with this weapon deal double damage.
+      In _compute_player_attack_power(), if weapon is "one_for_one_weapon":
+      atk_power *= 2 (applied AFTER all additive bonuses, BEFORE defense reduction).
+      This doubles crit multipliers' base (e.g., a 2x crit becomes 4x effective
+      because the base is already doubled — 10 damage becomes 20, then 4x crit = 80).
+      The weapon IS NOT compatible with Windfury's extra hit (the autonomous nature
+      of the weapon means it does not participate in bonus proc chains — Windfury's
+      extra hit does NOT double via One For One; only the initial attack doubles).
+      Implement: in handle_attack() Windfury check, add a guard: if weapon is
+      "one_for_one_weapon", skip the Windfury roll.
+
+    INCOMING: Every time the player takes melee damage from any enemy while wielding
+      this weapon, that damage is DOUBLED before being applied.
+      In deal_damage() or the damage pipeline targeting the player: if engine
+      equipment["weapon"] item_id is "one_for_one_weapon": damage_taken *= 2.
+      This applies to MELEE hits only (not DoT, not gun fire, not self-damage, not
+      hazard effects). Check by flagging the damage source in deal_damage().
+      Specifically: add an optional `melee_source: bool = False` parameter to
+      deal_damage(). Monster melee attacks pass melee_source=True. The double-
+      incoming only fires when melee_source=True.
+      At floor 1-2 enemy damage of 5-8: wielding this weapon means 10-16 incoming.
+      At floor 3-4 enemy damage of 10-15: wielding means 20-30 incoming per hit.
+      This is the most severe cost of any legendary weapon.
+
+  COMPONENT B — Sentience (autonomous action, occurs every 12 turns):
+    engine.one_for_one_awaken_timer decrements by 1 each full energy loop tick.
+    (Not per player action — per energy tick. At 100 energy/tick base: 12 ticks ≈
+    1200 energy units ≈ ~12 player turns before the first awakening.)
+    When engine.one_for_one_awaken_timer reaches 0:
+      Reset timer: engine.one_for_one_awaken_timer = 12.
+      Roll: random.choice(["attack", "drain"])
+
+      IF "attack":
+        The weapon autonomously attacks a random adjacent enemy (Chebyshev 1).
+        If no adjacent enemy: nothing happens.
+        Damage = base_damage + str_scaling (same formula, but NOT doubled — the
+        weapon's own violence is its natural output, not amplified).
+        No player turn consumed. No crit. No Windfury.
+        Message: [red pulse] "One For One acts on its own! ([enemy] takes X damage!)"
+
+      IF "drain":
+        The weapon turns inward. The player takes damage equal to base_damage //2
+        (5 at base_damage 10). This is not melee_source damage (no doubling loop).
+        Message: [dark red] "One For One drinks from you. (-{dmg} HP)"
+        If this kills the player: emit entity_died.
+
+    The timer persists across floors (it is a run-level internal clock, reset only
+    if the weapon is unequipped and re-equipped, which resets to 12).
+
+IMPLEMENTATION NOTES:
+  - Double outgoing: in _compute_player_attack_power() AFTER all additive bonuses,
+    check if weapon item_id is "one_for_one_weapon": multiply total atk_power by 2.
+  - Double incoming: in deal_damage() — add melee_source flag. When True and player
+    is the defender and one_for_one is equipped: damage_taken *= 2.
+  - Monster melee calls to deal_damage must pass melee_source=True. Check existing
+    attack paths in engine.py and combat.py to tag appropriately.
+  - Sentience timer: increment/decrement in _run_energy_loop at a reliable point
+    (once per full loop cycle, not per entity action). When timer hits 0: resolve
+    and reset.
+  - The autonomous attack is NOT a player action — it does not trigger handle_attack
+    hooks, Windfury, blood stacks, etc. It calls entity.take_damage(dmg) directly
+    with a death check.
+  - Windfury guard: add check in handle_attack() Windfury section.
+
+FLAVOR TEXT:
+  "Everything you put in, it gives back. To whoever's closest.
+  Sometimes that's them. Sometimes that's you."
+
+SYNERGIES:
+  - Dead Man's Ring (item 6): the ring's 25% survival proc becomes essential when
+    taking doubled incoming melee. The Low HP threshold (+25% outgoing, -2 incoming)
+    helps offset the doubling cost partially.
+  - Blood Pact Ring (item 15): doubled incoming damage means blood stacks accumulate
+    at double speed (each hit adds 2x the damage to blood stacks). This converts
+    the weapon's downside into the ring's resource.
+  - Constitution builds: higher max HP absorbs doubled hits. CON 12 = 150 max HP;
+    30-60 damage per hit still leaves survival windows.
+  - One For One + Dead Weight neck: the doubled-damage-out is multiplied again by
+    Dead Weight's inverted swagger bonus. Stack glass cannon mechanics.
+  - Anti-synergy: any healing or HoT build. If you take 30 incoming damage per hit,
+    OG Kush healing (50-70 HP) covers 1-2 hits. The math is tight.
+  - Anti-synergy: Windfury (explicitly disabled), multiple-hit builds.
+
+BALANCE:
+  - Double outgoing is the most powerful single damage multiplier in the game. At
+    10 base + 5 STR scaling + any additive bonuses: 30 damage * 2 = 60 per hit.
+    With crit: 60 * 2 = 120. This is a one-shot threshold for most enemies.
+  - Double incoming is the most severe penalty in the game. At Meth Lab floor 2
+    enemies hitting for 10-15: wielding means 20-30 per hit. Without armor/defense,
+    a CON 8 player (110 max HP) dies in 4-5 hits.
+  - The sentience drain (5 damage every 12 turns) adds ~1 HP per turn of passive
+    drain on average. Over a 60-turn floor: ~25 damage from the weapon itself.
+  - Net assessment: for skilled players, One For One converts every fight into a
+    one-shot-or-die scenario. Against enemies that can be killed in 1-2 hits, it
+    is overwhelmingly efficient. Against anything durable (bosses), it is a gamble.
+
+--------------------------------------------------------------------------------
+ITEM 43 — WEAPON
+--------------------------------------------------------------------------------
+ITEM ID:         "silver_service"
+NAME:            Silver Service
+SLOT:            weapon (equip_slot: "weapon")
+CHAR:            /
+COLOR:           (215, 215, 235)  -- bright silver-white with a faint blue cast
+SUBCATEGORY:     weapon
+WEAPON TYPE:     stabbing
+VALUE:           0
+ZONES:           crack_den only. Appears in a "Church Hall" room event — a room
+                 with pew-like ASCII furniture and a donation box entity that the
+                 player can smash for 5-20 cash. The knife sits on the altar table.
+                 Church Hall spawns at 8% on any floor. Alternate: the knife
+                 appears guaranteed in any run where the player has smoked all 13
+                 available strains at least once (a "seen all vice" condition —
+                 tracked via engine.strains_smoked_set: set). In this case it
+                 spawns on floor 4 as a "divine reward" in a beam-of-light event.
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  NetHack — Grayswandir (lawful artifact silver saber)
+  Grayswandir is a +5 silver saber that does DOUBLE DAMAGE versus most monsters
+  (specifically because of its enchantment doubling property) and grants hallucination
+  resistance. The most mechanically interesting aspect is its SILVER DAMAGE property:
+  it does extra damage against beings sensitive to silver (demons, undead, were-
+  creatures, shapeshifters). In ADOM, silver weapons similarly bypass certain
+  monster natural DR. Silver = alignment-aware damage that hits some things harder
+  based on their NATURE rather than their armor.
+
+  Secondary inspiration: ADOM's precrowning mechanic — artifacts that appear based
+  on the player's piety/alignment history, not random luck. The "Church Hall" and
+  "smoked all strains" conditions are alignment-flavor unlock conditions.
+
+TRANSLATION TO NIGRL:
+  Silver Service deals bonus damage against enemies with HIGH SWAGGER — the urbane,
+  image-conscious, swaggering enemy types. It "cuts through the performance."
+  The knife tracks the player's swagger stat and grants a percentage of it as bonus
+  damage, meaning LOW-swagger players wielding it are punished (anti-synergy with
+  the blade's own silver purpose: you need to be someone of substance to make it
+  work). It also grants halluicination resistance (Grayswandir's secondary effect),
+  translated as immunity to the "confuse" debuff.
+
+STAT PROPERTIES:
+  base_damage:   9
+  str_req:       6
+  reach:         1
+  str_scaling:   {"type": "tiered", "divisor": 2}  -- +1 per 2 STR above 6
+  defense_bonus: 0
+  armor_bonus:   0
+  bonus_crit_mult: 1                                -- +1x crit mult
+
+SPECIAL PROPERTY — "Silver Edge" (passive):
+  New field: "silver_service_weapon": True
+
+  COMPONENT A — Silver Damage vs. High-Swagger Enemies:
+    On every successful hit, check if the target's effective swagger is >= 8:
+      silver_bonus = int(engine.player_stats.effective_swagger / 2)
+      -- At player swagger 8: +4 bonus damage.
+      -- At player swagger 12: +6 bonus damage.
+      -- At player swagger 16 (with buffs): +8 bonus damage.
+    This bonus damage is TRUE DAMAGE (bypasses defense): target.hp -= silver_bonus
+    directly (after deal_damage resolves the base hit).
+    Message: [bright silver] "Silver cuts true! (+{silver_bonus})"
+    vs. LOW-swagger targets (swagger < 8):
+      Silver damage bonus is REVERSED: the weapon deals 2 LESS effective damage
+      (subtract 2 from atk_power for targets with swagger < 8).
+      The blade is disdainful of easy prey. Low-swagger enemies deserve a lesser cut.
+      Message: nothing (the penalty is silent — the player must observe it).
+
+  COMPONENT B — Confuse Immunity (passive, always-on):
+    While Silver Service is equipped, the player CANNOT receive the "confuse" debuff.
+    Any application of "confuse" to the player is blocked.
+    Implement: in apply_effect() for "confuse" targeting the player, check if weapon
+    is "silver_service_weapon"; if so, skip application.
+    Message if confuse is blocked: "The Silver Service keeps your mind clear."
+    Note: "confuse" currently exists in effects.py as ConfuseEffect.
+
+  COMPONENT C — Strain Synergy (passive):
+    If the player has smoked any strain this floor (tracked via a flag:
+    engine.smoked_this_floor: bool, set True when any strain use_effect fires):
+      The silver_bonus above is increased by +2 flat for the remainder of that floor.
+      This represents the "vices clarify rather than cloud" Grayswandir theme.
+      Flag resets on new floor in engine._on_new_floor().
+
+IMPLEMENTATION NOTES:
+  - Silver bonus check: in handle_attack() after deal_damage, if weapon is
+    "silver_service_weapon": check target's swagger (entity.base_stats.get("swagger",
+    8) for monsters). If >= 8: compute silver_bonus, add strain bonus if applicable,
+    call target.take_damage(silver_bonus) with death check. If < 8: subtract 2 from
+    atk_power BEFORE the deal_damage call (modify in the atk_power computation block).
+  - Confuse immunity: in apply_effect() caller with the entity == engine.player check,
+    before applying ConfuseEffect: check weapon item_id.
+  - Swagger of enemies: MonsterTemplate base_stats may not always include swagger.
+    Default to swagger 8 for any monster without an explicit swagger stat.
+    High-swagger enemy types (faction leaders, Scryer/Aldor commanders, Ugly Stripper)
+    will have base_stats swagger >= 10 and be prime targets.
+  - engine.smoked_this_floor: bool added to GameEngine.__init__ and reset in
+    _on_new_floor(). Set True in item_effects.py when any "smoke" use_verb item fires.
+
+FLAVOR TEXT:
+  "Silver doesn't lie about what it cuts. The flashy ones feel it most."
+
+SYNERGIES:
+  - High-swagger builds (swagger 12+, crown + rings): Silver Service deals 6-8
+    true silver damage per hit. Combined with the +1 crit mult, this is extremely
+    powerful against high-swagger boss-tier enemies.
+  - Rolling L3+ (Spectral Paper, Connoisseur branching): smoking strains triggers
+    the +2 strain bonus on silver damage. A smoking-heavy build stacks silver damage
+    throughout the floor.
+  - Stabbing L3 Windfury: extra hits = extra silver true damage procs.
+  - Meth Lab high-swagger faction enemies (Aldor, Scryer officers): these enemies
+    likely have high swagger as their faction identity. Silver Service is optimal
+    against them.
+  - Anti-synergy: Dead Weight neck (-4 swagger): deliberately lowering swagger
+    reduces the silver bonus significantly. Cannot run both.
+  - Anti-synergy: Any Cryomancy / Chill build against low-swagger enemies
+    (Tweakers, etc.) — the -2 penalty on low-swagger targets makes Silver Service
+    underperform against the most common floor-1 enemies.
+
+BALANCE:
+  - Silver true damage (4-8) is significant but requires high player swagger.
+    A starting swagger-8 character gains +4 true per hit — roughly equivalent to
+    having a permanently applied "shocked 1 stack" bonus on every hit.
+  - At swagger 12 and with smoking bonus: +6 + 2 = 8 true damage per hit.
+    Against a Tweaker (15 HP, no swagger): -2 penalty means the knife deals
+    7 base instead of 9. Against high-swagger targets: 17+ per hit. The
+    weapon has very clear intended targets and punishes unfocused use.
+  - Confuse immunity is purely defensive and cannot be valued offensively.
+    Its value grows with the number of confusion-inflicting enemies encountered.
+
+--------------------------------------------------------------------------------
+ITEM 44 — NECK
+--------------------------------------------------------------------------------
+ITEM ID:         "neck_magicbane"
+NAME:            Magicbane Chain
+SLOT:            neck (equip_slot: "neck")
+CHAR:            "
+COLOR:           (160, 80, 220)   -- deep arcane violet
+SUBCATEGORY:     neck
+VALUE:           0
+ZONES:           Both zones. Only spawns if the player has the Blackkk Magic or
+                 Negromancy skill >= L2 AND currently has at least one ability with
+                 zero charges remaining (an exhausted ability — the chain finds
+                 those whose reserves are spent). Appears in a "Pawn of Magic" room
+                 event on floors 2-4: a room with candles and arcane ASCII symbols.
+                 Room spawns at 12% when both conditions are met.
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  NetHack — Magicbane (neutral artifact athame)
+  Magicbane is the most mechanically complex weapon in NetHack. On each hit it has
+  a 2/5 chance to trigger a random magical effect: probing (reveals monster stats),
+  stunning the target, scaring (fear), or cancellation (removes monster's magical
+  properties entirely). The chances of each effect shift with the weapon's enchantment
+  level. Magicbane also resists 95% of curses thrown at the player and grants magic
+  resistance. The key design principle: RANDOM MAGICAL PROCS that are sometimes
+  beneficial, sometimes disruptive, but always interesting. Importantly, Magicbane
+  is a NEUTRAL alignment item — it doesn't care about your moral axis.
+
+TRANSLATION TO NIGRL:
+  Magicbane Chain is a NECK item (not a weapon) that grants random magical procs
+  on the player's melee hits. It translates the "random proc table on hit" mechanic
+  into NIGRL's status effect vocabulary. The neck slot fits because it's the chain
+  that does the magic, not the weapon. Each hit has a roll against a 5-effect table
+  based on the player's Book-Smarts (which governs magic affinity). The chain also
+  gives strong curse resistance (translated as debuff immunity proc chance) and
+  magic resistance (translated as spell damage reduction).
+
+STAT PROPERTIES:
+  armor_bonus:   15
+  defense_bonus: 1
+  power_bonus:   2
+  stat_bonus:    {"book_smarts": 3, "tolerance": 1}
+  tox_resistance: 0
+  rad_resistance: 0
+
+SPECIAL PROPERTY — "The Old Magic" (passive, proc on hit):
+  New field: "magicbane_chain": True
+
+  ON EVERY PLAYER MELEE HIT, roll once:
+    Proc chance = 20% + (engine.player_stats.effective_book_smarts * 2)%
+    -- At BkSmt 6: 32% proc per hit.
+    -- At BkSmt 10: 40% proc per hit.
+    -- At BkSmt 15 (with bonuses): 50% proc per hit (capped at 50%).
+
+  IF PROC TRIGGERS — roll 1d6 for the effect (uniform distribution):
+
+    1 — PROBE: Reveal the target's full stat block in the message log.
+        "Magicbane Chain probes [enemy]: HP {hp}/{max_hp}, PWR {power}, DEF {defense},
+         SPD {speed}." Plus any notable flags (vampiric, death_split, etc.).
+        Implement: format entity's key stats into a message string.
+        No combat effect. Purely informational.
+
+    2 — STAGGER: Apply "staggered" effect to the target (if not already present).
+        staggered: existing effect from MEMORY — -30 energy/tick, +15% skip-turn
+        chance, 10 turns. (From skill design notes, already planned in effects.py.)
+        If "staggered" effect does not yet exist: create a simpler version:
+        id="kb_stagger", duration=4, -25 energy_per_tick (slow variant).
+        Message: [purple] "Magicbane — STAGGER! [enemy] reels!"
+
+    3 — SCARE: Apply "fear" effect (duration=6, source=player position).
+        This uses the existing FearEffect — forces the enemy to flee for 6 turns.
+        Message: [purple] "Magicbane — SCARE! [enemy] turns and runs!"
+
+    4 — CANCEL: Remove ALL of the target's status effects (both buffs and debuffs).
+        Additionally: set the target's DEFENSE to 0 for 4 turns (replaces armor
+        with zero — essentially cancels their defensive properties).
+        The defense reduction: apply a "cancelled" effect (duration=4,
+        sets entity.defense = 0, restores on expire). Reuse CrippleArmorEffect
+        (already in effects.py) with duration=4.
+        This is the most powerful proc against armored/buffed enemies.
+        Message: [purple] "Magicbane — CANCEL! [enemy]'s defenses dissolve!"
+
+    5 — CONFUSE: Apply "confuse" effect (duration=5) to the target.
+        Uses existing ConfuseEffect — random movement for 5 turns.
+        Message: [purple] "Magicbane — CONFUSE! [enemy] stumbles wildly!"
+
+    6 — BACKFIRE: The proc fires against the PLAYER instead of the enemy.
+        Apply "confuse" (duration=3) to the PLAYER.
+        Message: [dark purple] "Magicbane — BACKFIRE! The magic turns on you!"
+        The Backfire cannot be blocked by Silver Service's confuse immunity
+        (Magicbane's chaos overrides it — implement by bypassing the immunity check
+        for backfire procs specifically via a `force_apply: bool = True` parameter
+        on the apply_effect call).
+
+  CURSE RESISTANCE (passive, always-on):
+    While Magicbane Chain is equipped, the player has a 60% chance to resist any
+    status DEBUFF effect applied to them by enemies.
+    Implement: in apply_effect() targeting the player, if chain is "magicbane_chain"
+    and the effect has category == "debuff": roll 60% chance to skip application.
+    If skipped: message [purple] "Magicbane resists the curse!"
+    Exception: the Backfire on roll 6 is NOT affected by this resistance (it is the
+    chain's own magic, not an enemy debuff).
+
+IMPLEMENTATION NOTES:
+  - Proc trigger: in handle_attack() after hit confirmed (deal_damage returned > 0),
+    if neck item is "magicbane_chain": roll proc chance check. If proc: roll 1d6.
+  - Probe (1): create a helper engine._format_entity_stats(entity) -> str.
+  - Stagger (2): apply_effect(target, engine, "kb_stagger", duration=4) where
+    kb_stagger is a new simple SlowEffect variant OR if staggered already exists,
+    use that.
+  - Scare (3): apply_effect(target, engine, "fear", duration=6, source_x=player.x,
+    source_y=player.y).
+  - Cancel (4): clear target.status_effects list (call expire() on each first for
+    cleanup); then apply_effect(target, engine, "cripple_armor", duration=4).
+  - Confuse (5): apply_effect(target, engine, "confuse", duration=5).
+  - Backfire (6): apply_effect(player, engine, "confuse", duration=3, force_apply=True).
+    Add force_apply parameter to apply_effect to bypass curse resistance.
+  - Curse resistance: add check at top of apply_effect() (before all other processing)
+    if entity == engine.player and engine.neck item_id == "magicbane_chain" and
+    effect.category == "debuff" and not force_apply: roll 60%, return None if resist.
+
+FLAVOR TEXT:
+  "Old magic doesn't care who it hits. You're just the one holding the chain."
+
+SYNERGIES:
+  - Blackkk Magic skill: BkSmt-heavy builds maximize the proc chance (up to 50%).
+    Every hit has a coin-flip chance to trigger a powerful magical proc.
+  - Null Blade (item 20) + Cancel proc: the Null Blade strips effects for damage;
+    Magicbane's Cancel proc strips defenses. Against a heavily armored enemy: Cancel
+    first (eliminates defense), then the next hit's nullification damage skips defense
+    too. Potent combo (requires two procs on consecutive turns, but high BkSmt makes
+    this likely).
+  - Two Down Ring (item 21): the proc effects (stagger, scare, confuse) are all
+    debuffs. After 2 procs on one enemy, Two Down's x1.5 multiplier fires.
+  - Stabbing L3 Windfury: extra attack = extra proc roll. At 40% proc with 2 attacks,
+    ~64% chance per combat turn of at least one proc.
+  - Anti-synergy: Silver Service (item 43) confuse immunity blocks the Backfire (6)
+    through the regular immunity, but the force_apply bypass overrides it.
+    These two items interact in an interesting adversarial way.
+
+BALANCE:
+  - At BkSmt 6 (minimum): 32% proc per hit is already high. Over a 4-hit fight:
+    expect 1-2 procs per enemy encounter. The spread across 5 effects + backfire
+    means outcomes are genuinely unpredictable.
+  - Cancel (4) is the strongest proc: zero defense for 4 turns effectively makes
+    the enemy glass. This turns any armored enemy into a squishy target.
+  - 60% curse resistance is the strongest anti-debuff property in the game. It
+    nearly halves the frequency of enemy debuffs landing on the player.
+  - The Backfire (1/6 = ~17% of procs) is a genuine danger. At 50% proc rate, a
+    player takes a Backfire every ~12 attacks on average. This keeps the item
+    from feeling purely positive.
+
+--------------------------------------------------------------------------------
+ITEM 45 — RING
+--------------------------------------------------------------------------------
+ITEM ID:         "ring_finisher"
+NAME:            The Finisher
+SLOT:            ring (equip_slot: "ring")
+CHAR:            o
+COLOR:           (255, 50, 50)   -- bright execution red
+SUBCATEGORY:     ring
+VALUE:           0
+ZONES:           meth_lab floor 2-4. Found in an "Operating Room" event — a room
+                 with medical table ASCII furniture and the message "Clean kills
+                 only." The ring lies in a sealed biohazard box. Appears at 10%
+                 chance on floors 2-4 of Meth Lab. Alternate: rewarded if the
+                 player kills 3 separate enemies in a single turn (3 kills in one
+                 action via AoE abilities or simultaneous effects).
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  DCSS — Finisher (unrandart falchion)
+  Finisher is a +8 falchion that has a (50 - monster_HD) / 200 probability to
+  instantly kill any struck monster. The key insight: this is NOT a percentage HP
+  threshold — it is based on monster LEVEL (Hit Dice). Against weak monsters
+  (HD 1-5), the instant kill chance is 22-24%. Against endgame monsters (HD 40+),
+  it is essentially 0%. The weapon rewards finishing weak enemies efficiently while
+  being nearly useless against bosses. Additionally, Finisher loses Str+3.
+
+TRANSLATION TO NIGRL:
+  The Finisher ring grants a chance to INSTANTLY kill enemies below a HP LEVEL
+  threshold scaled to the FLOOR NUMBER (not the enemy's maximum HP). On higher
+  floors, the "execution threshold" is higher (more enemies qualify); on lower
+  floors, it is tighter (only very weak enemies can be executed). This rewards
+  using the ring specifically in the deep game where enemies have more total HP,
+  making instant-kills more surprising. The ring also costs -3 swagger (Finisher's
+  Str loss translated to NIGRL's ego/defense resource).
+
+STAT PROPERTIES:
+  stat_bonus:    {"street_smarts": 2, "swagger": -3}
+  power_bonus:   3
+  defense_bonus: 0
+  armor_bonus:   0
+  -- Note: -3 swagger means swagger_defence drops by 1 flat (same as early Dead Weight
+     but less extreme).
+
+SPECIAL PROPERTY — "Clean Kill" (passive):
+  New field: "finisher_ring": True
+
+  ON EVERY PLAYER MELEE HIT where deal_damage(engine, damage, target) resolves:
+    After damage is applied (hp reduced but not yet checked for death):
+    Compute EXECUTE THRESHOLD:
+      floor_num = engine.current_floor   (1-based, 1 = first floor)
+      execute_threshold_pct = 0.05 + (floor_num * 0.04)
+      -- Floor 1: 9% (threshold_pct). Floor 4: 21%. Floor 6: 29%.
+    If target.hp <= int(target.max_hp * execute_threshold_pct):
+      Roll: chance = 0.20 + (engine.player_stats.effective_street_smarts * 0.015)
+      -- At STS 8: 32% chance to execute.
+      -- At STS 12: 38% chance.
+      If roll succeeds:
+        target.alive = False
+        emit "entity_died" event (killer=player)
+        Message: [bright red flash] "FINISH HIM — [enemy] is put down instantly!"
+        Gain +1 Stabbing or Beating XP (whichever is higher level) equivalent to
+        a normal kill for skill purposes. (The execute is still a kill.)
+
+  COST: -3 swagger reduces swagger_defence by 1 flat at default swagger 8
+  (swagger becomes 5 → defence = (5-8)/2 = -1, i.e., enemy hits deal +1 damage
+  each). This is a persistent defensive penalty that makes the player physically
+  easier to hit. The ring's offensive power does not compensate directly; the player
+  must decide if the execute proc is worth the incoming damage increase.
+
+  DESIGN NOTE: The execute is intentionally NOT reliable at low floors (9% threshold,
+  32% roll = 2.9% of all attacks result in an execute at floor 1). At floor 4
+  (21% threshold) the interaction becomes more frequent. The ring is a midgame
+  investment paying off in the late dungeon — classic roguelike "scale into later"
+  item design.
+
+IMPLEMENTATION NOTES:
+  - Execute check: in handle_attack() in engine.py, AFTER deal_damage() resolves
+    and AFTER checking if the enemy died normally: if target.alive and ring is
+    "ring_finisher": compute threshold_pct, check target.hp <= threshold. If yes:
+    compute and roll execute_chance. If execute: mark target.alive=False, emit death.
+  - engine.current_floor: already tracked (floor_num in the engine). Use it.
+  - XP on execute: the entity_died event handler already grants XP when killer is
+    player. Ensure the event emission passes killer=player.
+  - Swagger penalty: applied via stat_bonus {"swagger": -3} in the standard item
+    equip system (same as Dead Weight's -4 swagger). No special code needed.
+
+FLAVOR TEXT:
+  "Deep enough in, even the strong ones get tired. That's your moment."
+
+SYNERGIES:
+  - Stabbing L3 Windfury: extra hits create extra execute opportunities per combat
+    turn. Against a near-threshold enemy, multiple hits per round raises proc odds.
+  - Two Down Ring (item 21): apply 2 debuffs to make the target weaker (debuffs
+    don't lower HP but the psychological/tactical setup aligns: both items reward
+    deliberate multi-step enemy processing).
+  - Time Served neck (item 29): longer debuffs keep enemies in debuffed states
+    longer, giving more turns to land the execute proc.
+  - Meth Lab deep floors: the execute threshold at floor 4 (21%) means nearly 1/5
+    of an enemy's HP range is eligible. Against Meth Lab regulars (40-80 HP),
+    execute activates when they are below 8-17 HP — a meaningful finishing zone.
+  - Anti-synergy: Dead Weight neck (also penalizes swagger). The combined -7 swagger
+    is severe: swagger_defence = (8-7)/2 = -3 for enemies below 8 swagger, meaning
+    enemies deal +3 flat damage. This is a meaningful glass-cannon combo cost.
+  - Anti-synergy: One For One weapon. The doubled outgoing damage often kills enemies
+    before they reach the execute threshold — the ring's proc never fires.
+
+BALANCE:
+  - At floor 4, STS 10: 21% threshold, 35% proc = 7.4% of melee hits result in
+    an instant kill. In a typical 4-hit fight (floor 4 enemy): 26% chance the
+    enemy dies by execute. This is impactful but not dominant.
+  - -3 swagger: a starting swagger 8 player drops to 5, giving -1 defense (enemies
+    hit for +1). Modest cost — far less severe than Dead Weight's -4.
+  - The floor-scaling execute threshold is the clever design element: the ring
+    gets objectively better as the run progresses, rewarding keeping it equipped.
+
+--------------------------------------------------------------------------------
+ITEM 46 — RING
+--------------------------------------------------------------------------------
+ITEM ID:         "ring_vorpal"
+NAME:            Vorpal Ring
+SLOT:            ring (equip_slot: "ring")
+CHAR:            o
+COLOR:           (230, 230, 50)  -- bright dangerous yellow, the color of a warning
+SUBCATEGORY:     ring
+VALUE:           0
+ZONES:           crack_den floor 3-4 OR meth_lab floor 3+. Only spawns if the
+                 player currently has 0 (ZERO) tolerance and the current floor has
+                 at least one enemy with more than 50 max_hp. The ring is found
+                 on the body of that specific enemy (attached to them; drop is
+                 guaranteed when they die). If multiple qualifying enemies exist:
+                 only the first one killed while the player has 0 tolerance holds
+                 the ring. Flavor: no tolerance means perfect clarity of purpose.
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  NetHack — Vorpal Blade (artifact long sword)
+  Vorpal Blade is the artifact weapon famous for one thing: a 5% chance of INSTANT
+  DECAPITATION per hit (only works on monsters with heads). The decapitation
+  mechanic is elegant in its simplicity — it doesn't scale, it doesn't improve,
+  it just has a flat 5% chance to end the fight. This makes Vorpal Blade an item
+  of pure tension: every swing might be the last. In "Jabberwocky" mythology
+  the Vorpal sword goes "snicker-snack" and takes the Jabberwock's head cleanly.
+  The cleanness is the point. No buildup. No proc chain. Just done.
+
+TRANSLATION TO NIGRL:
+  The Vorpal Ring gives all the player's melee attacks a chance to INSTANTLY kill
+  the target if a PERFECT HIT occurs (mega-crit equivalent). The ring does not
+  improve crit chance — it enhances what happens WHEN a mega-crit lands. A mega-
+  crit (already in the codebase: Sniping L3 doubles on already-critted attack for
+  4x multiplier) now has a secondary chance to trigger "decapitation" — the target
+  dies instantly regardless of remaining HP. The ring is intentionally a late-game
+  item requiring Sniping L3 synergy for its full expression, but has a weaker
+  baseline proc on regular crits.
+
+STAT PROPERTIES:
+  stat_bonus:    {"street_smarts": 3, "strength": 1}
+  power_bonus:   1
+  defense_bonus: 0
+  armor_bonus:   0
+
+SPECIAL PROPERTY — "Snicker-Snack" (passive):
+  New field: "vorpal_ring": True
+
+  ON ANY PLAYER MELEE ATTACK that lands:
+    If the attack is a MEGA-CRIT (from check_mega_crit() in combat.py — i.e., the
+    player has Sniping L3 AND the crit-on-crit check passes):
+      Roll: 35% chance of instant kill.
+      If success: target.alive = False; emit entity_died (killer=player).
+      Message: [bright yellow] "SNICKER-SNACK — [enemy] is severed!"
+
+    If the attack is a REGULAR CRIT (not a mega-crit):
+      Roll: 5% chance of instant kill.
+      If success: same as above.
+      Message: [yellow] "Vorpal hit lands true — [enemy] goes down!"
+
+    If NOT a crit at all: no proc. The ring provides nothing for normal hits.
+
+  The instant kill does NOT work on:
+    - Bosses (entities with "boss": True tag or entity_type containing "boss").
+    - Entities with HP > 60% of their max_hp at the time of the check (the blow
+      must be a finishing stroke — the ring's magic only completes an already-
+      weakened foe; a full-health enemy brushes off the vorpal edge).
+    - Cap: cannot proc more than once per combat turn.
+
+  COST: The ring requires an ACTIVE SNIPING L3 investment for its reliable proc
+  path. Without Sniping L3, the only proc is 5% on regular crits. This makes the
+  ring's power entirely conditional on another skill tree investment. A player with
+  no Sniping levels equipped this ring gets ~5 * 0.3 = 1.5% decapitation per
+  attack (at base STS 10: 30% crit * 5% vorpal = 1.5%). With Sniping L3:
+  30% crit * 30% mega-crit * 35% vorpal ≈ 3.2%, plus the regular-crit proc path.
+
+IMPLEMENTATION NOTES:
+  - Mega-crit check: check_mega_crit(engine) in combat.py already exists.
+    In handle_attack(), after the crit check:
+    is_crit = (random.random() < effective_crit_chance)
+    is_mega_crit = is_crit and check_mega_crit(engine)
+    If is_mega_crit and vorpal_ring equipped: roll 35% execute.
+    Elif is_crit and vorpal_ring equipped: roll 5% execute.
+  - HP > 60% guard: check target.hp > int(target.max_hp * 0.6) before proc.
+    If so, skip.
+  - Boss guard: add a "boss" field to MonsterTemplate (or check an existing boss
+    flag). If entity is boss: skip proc.
+  - Instant kill: target.alive = False; emit entity_died. No damage roll.
+  - Once-per-turn cap: use engine.vorpal_proc_this_turn: bool = False, reset each
+    player turn start. If True when checking: skip proc.
+
+FLAVOR TEXT:
+  "It doesn't need to hit harder. It just needs to hit right."
+
+SYNERGIES:
+  - Sniping L3: the definitive synergy. Mega-crits enable the 35% vorpal proc.
+    At Sniping L3 with STS 12: crit 36% * mega-crit check 36% * 35% vorpal = 4.5%
+    per attack. Over a 5-hit fight: 20% chance at least one vorpal fires.
+  - Street-Smarts investment: higher STS raises crit chance (improving base vorpal
+    proc) AND the ring gives +3 STS (further compounding).
+  - Two Down Ring (item 21): both rings occupy ring slots. With vorpal + two_down:
+    pre-debuff enemies for the x1.5 multiplier; if still alive, hope for vorpal.
+  - Lucky Fitted hat (item 9): Lucky Roll fires on crits; vorpal fires on crits too.
+    Combined: on a crit hit, Lucky Roll procs (25%), and vorpal rolls (5% baseline).
+    Both can proc simultaneously — a crit with Lucky Roll + Vorpal is the best-case
+    single hit outcome.
+  - Anti-synergy: One For One weapon. One For One disables Windfury procs; the
+    Vorpal Ring's proc mechanism is independent of Windfury (it fires on the crit
+    check, not Windfury), so there is no direct conflict. However, One For One's
+    doubled damage often kills before the HP > 60% guard drops, reducing vorpal proc
+    window to only partially-damaged targets.
+
+BALANCE:
+  - Without Sniping L3: ~1.5-2% proc rate on all attacks. This is rare but not
+    non-existent. It makes the ring mildly interesting for all crit builds.
+  - With Sniping L3: ~3-5% proc rate. Across a typical floor encounter of 30-40
+    total attacks: expect 1-2 vorpal kills. These are decisive moments.
+  - The HP > 60% guard prevents the ring from trivializing fresh encounters.
+    The player must wear down enemies to the mid-fight range before vorpal can fire.
+  - Instant kills bypass armor/defense/resistances — this is genuinely powerful
+    against highly armored Meth Lab enemies where normal damage is heavily reduced.
+
+--------------------------------------------------------------------------------
+ITEM 47 — FEET
+--------------------------------------------------------------------------------
+ITEM ID:         "adom_soles"
+NAME:            Wanderer's Soles
+SLOT:            feet (equip_slot: "feet")
+CHAR:            s
+COLOR:           (160, 120, 60)  -- worn brown leather, road-dusted
+SUBCATEGORY:     feet
+VALUE:           0
+ZONES:           Both zones. ONLY spawns on floor 1 of the first zone the player
+                 enters. It appears in the starting room (room index 0) in the
+                 corner, always present, as a "background loot" entity. Every run
+                 starts with the option to take it early. However: the item is
+                 cursed at spawn — equipping it reveals the curse and locks it to
+                 the feet slot (cannot be unequipped until the player uses a
+                 "Remove Curse" consumable, if one exists, or completes the
+                 "unburden" condition described below). This is the ADOM BUC system.
+TAGS:            ["legendary", "unique", "starts_cursed"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  ADOM — Cursed Equipment and the Blessing/Curse/Uncurse (BUC) System
+  ADOM has a full BUC system where items can be Blessed, Uncursed, or Cursed.
+  Cursed items are locked to their equipment slot — you cannot remove them without
+  a remove curse scroll or holy water. Some cursed items are deliberately power-
+  ful: the Trident of the Red Rooster (lawful end-game item), for example, starts
+  the game in the possession of a chaos being and has cosmic power. The tension
+  is that you KNOW the item is cursed but the power might be worth the risk.
+  ADOM's "corruptions" (chaos mutations that stack as the player explores) also
+  inform this design: the Wanderer's Soles inflict "road corruption" — stat changes
+  from excessive wandering.
+
+  Secondary: NetHack's BUC system where an item's cursed/blessed status affects
+  its properties and requires specific game mechanics (holy water, scroll of remove
+  curse) to change. A cursed item that HELPS you but TRAPS you is a classic moral
+  dilemma.
+
+TRANSLATION TO NIGRL:
+  The Wanderer's Soles start cursed (locked to the feet slot). They grant powerful
+  movement bonuses and a Jaywalking XP multiplier. But every 15 floors traversed
+  (tracked globally), they apply a "road curse" — a permanent stat change (one
+  random stat permanently -1, different each application). The only way to
+  UNCURSE them (and unlock the slot) is to reach a certain total movement milestone
+  OR use a specific consumable. The player trades permanent stat degradation for
+  extreme mobility. Classic ADOM corruption loop.
+
+STAT PROPERTIES:
+  armor_bonus:   12
+  defense_bonus: 1
+  power_bonus:   0
+  stat_bonus:    {"street_smarts": 3, "constitution": 1}
+  energy_per_tick: 15             -- significant speed bonus
+  tox_resistance: 10
+  rad_resistance: 0
+  starts_cursed: True             -- new field; item is locked on equip until uncursed
+
+SPECIAL PROPERTY — "The Long Road" (passive, progression-based):
+  New field: "adom_soles_cursed": True
+  New engine state:
+    engine.adom_soles_tiles_walked: int = 0   -- total tile-steps taken while equipped
+    engine.adom_soles_curse_count:  int = 0   -- number of road curses applied
+
+  PASSIVE MOVEMENT BONUS — "Wanderer's Pace":
+    Every movement action while these are equipped is FREE (costs 0 energy),
+    same as Cursed Rollers (item 38). Unlike the Rollers, there is NO momentum
+    debt system — movement is purely free, always.
+    BUT: the player cannot SPRINT (no movement bonus from existing speed effects
+    stacks with the free movement; if Haste/Wire grants +30 energy/tick, those
+    still help with attack energy accumulation but move actions are already 0-cost).
+    Track free movement: in handle_move(), if feet item is "adom_soles_cursed":
+    skip energy deduction for the move. NO debt counter.
+
+  JAYWALKING XP MULTIPLIER:
+    While equipped, Jaywalking XP earned from movement is multiplied by 3x.
+    Apply in xp_progression.py Jaywalking grant functions.
+    At 3x multiplier and constant free movement, the player can max Jaywalking
+    in a single zone if they move frequently.
+
+  CURSE LOCK:
+    On equip of an item with starts_cursed: True field:
+    engine.adom_soles_equipped: bool = True
+    Block unequip: in engine.unequip_item() for feet slot, if "adom_soles_cursed"
+    field is present and engine.adom_soles_curse_active: True: message
+    "The Wanderer's Soles are cursed to your feet — they won't come off."
+    Skip unequip. The player is stuck with them.
+
+  ROAD CURSE (every 30 total tile-steps while equipped):
+    Increment engine.adom_soles_tiles_walked each move step.
+    Every time it reaches a multiple of 30 (i.e., at 30, 60, 90...):
+      engine.adom_soles_curse_count += 1
+      Apply PERMANENT stat reduction of -1 to a random stat from:
+        ["constitution", "strength", "book_smarts", "street_smarts", "tolerance"]
+        (swagger intentionally excluded — it affects defense too drastically)
+      Implement: engine.player_stats.permanent stat reduction. Since NIGRL uses
+      _base stats: directly modify the stat's _base value. E.g., if stat chosen is
+      "strength": engine.player_stats._strength_base -= 1 (clamped to minimum 1).
+      This is a PERMANENT change. Even if soles are later uncursed and removed,
+      the stat loss remains (the road takes its toll).
+      Message: [dark orange] "The road takes its due. (-1 [stat] — permanent)"
+
+  UNCURSE CONDITION:
+    At engine.adom_soles_tiles_walked >= 200 (200 tile-steps total):
+      The soles are UNCURSED automatically.
+      engine.adom_soles_curse_active = False
+      The item can now be unequipped normally.
+      Message: [bright white] "The Wanderer's Soles have been broken in. They
+      release you." The player may now choose to keep or remove them.
+    By this point the player has suffered up to 6 road curses (-6 total stat points
+    spread across up to 6 stats) but gained enormous Jaywalking XP and free movement.
+
+  ALTERNATIVE UNCURSE: if a "holy_water" item (or equivalent uncurse consumable)
+    exists or is added in the future, using it on the equipped soles removes the
+    curse immediately. This is forward-compatible via the starts_cursed field.
+
+IMPLEMENTATION NOTES:
+  - starts_cursed field: add to item definition. In engine.equip_item() for feet,
+    if item def has "starts_cursed": True, set engine.adom_soles_curse_active = True
+    and display warning message on equip: "These are cursed. You can feel it. They
+    will not come off until you've walked far enough."
+  - Unequip block: in engine.unequip_item(), check if feet item has "adom_soles_cursed"
+    and engine.adom_soles_curse_active is True. If so: reject unequip.
+  - Tile-step counter: in handle_move() (or process_action move branch), after
+    confirming a valid move: if feet item is "adom_soles_cursed":
+    engine.adom_soles_tiles_walked += 1. Check every 30 for road curse.
+    Check >= 200 for uncurse.
+  - Permanent stat reduction: access _constitution_base, _strength_base, etc.
+    on PlayerStats (the private backing fields for the stat properties). Reduce by 1.
+    This makes the loss truly permanent — even stat_mod effect expiry won't restore it.
+  - Jaywalking 3x: in xp_progression.py gain_potential_exp for "Jaywalking",
+    check if feet item is "adom_soles_cursed" and multiply by 3.
+
+FLAVOR TEXT:
+  "They're worn like they've been somewhere. Every step adds to the bill.
+  But they'll get you there faster than anything else."
+
+SYNERGIES:
+  - Jaywalking L3-L5: the 3x XP multiplier and constant free movement means
+    Jaywalking will reach L5 in any run that uses these soles extensively.
+    Jaywalking perks (speed buffs, evasion, tile bonuses) compound with the free
+    movement for extreme mobility.
+  - Cursed Rollers (item 38) occupy the same slot — cannot stack. Both offer free
+    movement but different risk profiles. Wanderer's Soles are the "long-term burn"
+    version; Rollers are the "crash-and-reset" version.
+  - Stealing skill: free movement to approach targets, loot, move away — at no energy
+    cost. Stealing builds benefit enormously from unrestricted movement.
+  - Ghost Walks (item 8) also offers movement bonuses. Cannot stack (same slot).
+  - Anti-synergy: any build that relies on high CON/STR/BKS — the permanent stat
+    losses from road curses will eventually degrade the build's primary resource.
+    At 6 road curses by uncurse point, expect -1 to 2 points off your key stat.
+  - Anti-synergy: Lead Boots (item 17). Standing still builds planted stacks; free
+    movement incentivizes movement. Directly incompatible play styles.
+
+BALANCE:
+  - Free movement removes the energy cost of traversal entirely. On a busy floor,
+    the player might take 20+ move actions to reach enemies. With the Soles: those
+    20 actions cost 0 energy (saving 2000 energy at 100/tick = 20 free "ticks"
+    worth of energy). This is enormous turn economy advantage.
+  - 30 tile-steps per curse: at 20 moves per floor and a 4-floor crack_den run,
+    the player takes ~80 moves while equipped → 2-3 road curses total. By floor 4
+    the uncurse condition (200 steps) requires most of the run to complete.
+  - Permanent -1 per curse: at 2-3 curses in a run, the player loses 2-3 stat
+    points permanently. At CON 10: -2 CON = -20 max HP. Meaningful but survivable.
+  - The 3x Jaywalking XP is extremely powerful for Jaywalking-focused builds,
+    potentially enabling perks unavailable in normal play within a single floor.
+
+--------------------------------------------------------------------------------
+ITEM 48 — HAT
+--------------------------------------------------------------------------------
+ITEM ID:         "hat_skin_of_zhor"
+NAME:            Iced Out Fisherman's Net
+SLOT:            hat (equip_slot: "hat")
+CHAR:            ^
+COLOR:           (100, 180, 220)  -- pale watery blue-grey
+SUBCATEGORY:     hat
+VALUE:           0
+ZONES:           crack_den floor 2-4. Found in a "Fishmarket Stall" room event —
+                 a room with ASCII fish characters ('><>') and a market table.
+                 The net hangs on the wall. Room spawns at 8% on floors 2-4.
+                 Alternate: found if the player has taken 0 damage from melee
+                 sources on the current floor when loot generates (a "perfect dodge"
+                 condition). Flavor: you moved like something underwater.
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  DCSS — Skin of Zhor (unrandart animal skin armour)
+  The Skin of Zhor gives SInv (see invisible) and passively casts Metabolic
+  Englaciation (slow) on nearby enemies at a rate of approximately 1 in 7 chances
+  per 10 aut (game time units). The passive AoE slow is the defining mechanic:
+  the player doesn't cast it, doesn't target it, doesn't think about it —
+  it just HAPPENS. Enemies near the wearer gradually slow down. It creates a
+  "cold aura" playstyle where the player is the center of a slowing field.
+  The frequency (every ~70 aut) means it's not constant but regular enough
+  to be a meaningful tactical factor.
+
+TRANSLATION TO NIGRL:
+  The Iced Out Fisherman's Net radiates a "cold mist" aura. Every N turns (where N
+  scales with the player's Tolerance stat), all enemies within Chebyshev(3) have a
+  chance to receive 1 Chill stack. The aura is entirely passive — no activation,
+  no targeting, no charges. The player simply wears the net and enemies gradually
+  slow. Combined with existing Chill effects, it creates a persistent zone-control
+  presence. True to the DCSS Skin of Zhor's passive, ambient quality.
+
+STAT PROPERTIES:
+  armor_bonus:   10
+  defense_bonus: 1
+  power_bonus:   0
+  stat_bonus:    {"tolerance": 3, "street_smarts": 2}
+  tox_resistance: 5
+  rad_resistance: 0
+
+SPECIAL PROPERTY — "Cold Mist" (passive aura, always-on):
+  New field: "hat_skin_zhor": True
+  New engine state:
+    engine.zhor_aura_timer: int = 0  -- counts down to next aura pulse
+
+  AURA PULSE MECHANIC:
+    engine.zhor_aura_timer decrements by 1 each energy loop tick (same cadence as
+    one_for_one sentience timer — once per full energy loop cycle, not per action).
+    PULSE INTERVAL:
+      pulse_interval = max(5, 12 - (engine.player_stats.effective_tolerance // 2))
+      -- At TOL 6: 12 - 3 = 9 ticks per pulse.
+      -- At TOL 10: 12 - 5 = 7 ticks per pulse.
+      -- At TOL 14 (with bonuses): 12 - 7 = 5 ticks per pulse (minimum).
+    When timer reaches 0:
+      PULSE: for each alive monster within Chebyshev(3) of the player:
+        Roll 50% chance per enemy.
+        If success: apply_effect(monster, engine, "chill", duration=6, stacks=1).
+        Message (if any enemy receives Chill): [pale blue] "Cold mist settles..."
+        (Only one message per pulse, not per enemy.)
+      Reset timer to pulse_interval.
+
+  ADDITIONALLY — "Cold Clarity" (passive, always-on):
+    While the hat is equipped, the player CANNOT be slowed by enemy Chill effects
+    applied by enemies (full Chill immunity as a player benefit, analogous to the
+    cold-adapted property from Cold Snap but passive from equipment). This prevents
+    the enemy-applied Chill-on-hit from backfiring if the player gets close.
+    Note: this is separate from Cold Snap's immunity (which is earned through kills).
+    Implement: same mechanism as Cold Snap level-3 immunity — in ChillEffect.apply/
+    on_reapply, check if hat is "hat_skin_zhor" and target is player; skip.
+
+  "SIGHT THROUGH THE MIST" (passive):
+    While equipped, the player can see enemies through explored-but-not-visible tiles
+    if those enemies are Chilled (they glow cold enough to be tracked).
+    Implement: in render.py, when drawing monsters that are NOT in dungeon.visible
+    but ARE in dungeon.explored and have at least 1 Chill stack: render them at
+    half-brightness (e.g., color multiplied by 0.5) on the explored tile.
+    This is a limited "see chilled enemies through darkness" effect.
+
+IMPLEMENTATION NOTES:
+  - Aura timer: in _run_energy_loop, add to the tick processing: if hat is
+    "hat_skin_zhor": decrement engine.zhor_aura_timer. If <= 0: execute pulse,
+    reset timer. Compute pulse_interval fresh each reset (reacts to TOL changes).
+  - Chill immunity: same as Cold Snap; add "hat_skin_zhor" as a second check in
+    ChillEffect.apply/on_reapply when target is player.
+  - Dimmed Chill vision: in render.py entity rendering, add condition: if entity not
+    in dungeon.visible and dungeon.explored and entity has "chill" in status_effects:
+    render at color * 0.5 on explored tile.
+  - No activation required: the item works purely from the equipment passive.
+    No new ability needed. No charges. No targeting.
+
+FLAVOR TEXT:
+  "Throw enough net, something gets tangled. The cold takes care of the rest."
+
+SYNERGIES:
+  - Cryomancy skill: the aura constantly applies Chill, generating Cryomancy XP
+    passively every pulse (via ChillEffect.apply hook which already grants XP).
+    The hat is the second-best Cryomancy XP source after Cold Snap weapon.
+  - Cold Snap weapon (item 41): combining Chill-on-hit (weapon) + passive Chill aura
+    (hat) with Chill immunity from both Cold Snap AND hat creates a player who can
+    never be slowed, constantly slows enemies, and benefits from Two Down ring.
+  - Two Down Ring (item 21): aura Chill is a debuff. A single aura pulse gives most
+    nearby enemies 1 Chill stack; one more debuff from any source activates Two Down.
+    In large rooms, Two Down fires on nearly every hit after the first pulse.
+  - Tolerance builds: higher TOL shortens aura pulse interval. At TOL 14 (achievable
+    with Munching perks + rings): pulse every 5 ticks. Near-constant slow field.
+  - Paper Crown (item 18): steal killed enemy stats. Chilled enemies are easier to
+    kill (slowed = more player turns before enemy acts). Combined: stun enemies
+    with cold mist, kill them for crown stat buffs.
+  - Anti-synergy: Pyromania / ignite builds. Applying ignite to a Chilled enemy
+    removes all Chill stacks (ignite vs. chill interaction removes chill in the
+    existing ChillEffect code). The aura's chill and the fire build's ignite will
+    constantly cancel each other in adjacent combat.
+
+BALANCE:
+  - At TOL 6 (minimum start): 9 ticks per pulse, 50% per enemy. In a 6-enemy room,
+    expect ~3 Chill applications per pulse. Over a 4-pulse combat (~36 ticks ≈ 36
+    player actions): ~12 total Chill stacks distributed. Moderate.
+  - At TOL 12: 6 ticks per pulse. Same room: ~18 stacks over the same duration.
+    Enemies become very slow by mid-combat.
+  - The Chill immunity is the primary defensive benefit — ensures the player never
+    deals with their own aura's backfire or enemy chill-on-hit debuffs.
+  - Sight through explored tiles is minor but sometimes a lifesaver: identifying
+    that a Chilled enemy has wandered into an adjacent room before entering.
+
+--------------------------------------------------------------------------------
+ITEM 49 — NECK
+--------------------------------------------------------------------------------
+ITEM ID:         "neck_leech_chain"
+NAME:            Leech Chain
+SLOT:            neck (equip_slot: "neck")
+CHAR:            "
+COLOR:           (80, 30, 30)    -- dark dried-blood crimson
+SUBCATEGORY:     neck
+VALUE:           0
+ZONES:           meth_lab only. Floor 2-4. Spawns ONLY if the player has the
+                 "lifesteal" effect currently active (from Jungle Boyz strain tier
+                 61-80) OR has the "hot" (HoT) effect active when a new floor
+                 generates. The chain appears in a "Medical Bay" room event — a
+                 room with a stretcher entity and cabinet. Spawns at 15% when
+                 conditions are met. Flavor: it knows you're already feeding.
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  DCSS — Leech (unrandart demon blade, merged with Bloodbane)
+  Leech is a +8 demon blade with always-effective vampiricism (heals from damage
+  dealt regardless of monster type — in vanilla DCSS, vampiric weapons only trigger
+  on certain enemy types). It also has the Bloodbane property: a chance to trigger
+  Berserk on the wielder. The MERGED version of Leech (from version 0.25) retains
+  Leech's unconditional lifesteal and adds Bloodbane's +Rage property. This creates
+  a tension: lifesteal sustains you, Berserk makes you hit harder but eventually
+  crashes. The classic DCSS "sustain through damage" + "rage out and wreck your
+  sustain" dual nature.
+
+TRANSLATION TO NIGRL:
+  The Leech Chain is a NECK item that gives lifesteal on ABILITIES, not melee.
+  Every time the player uses an offensive ability (any ability that deals damage
+  to an enemy), they heal for a fraction of the damage dealt. This is the DCSS
+  vampiric mechanic applied to NIGRL's ability system rather than melee (where
+  vampiric already exists on weapons like Bone Club). The "Rage" component is
+  translated as: activating the Leech's secondary drain mode temporarily boosts
+  ability damage but then starves the player (no more healing for 8 turns after).
+
+STAT PROPERTIES:
+  armor_bonus:   20
+  defense_bonus: 2
+  power_bonus:   0
+  stat_bonus:    {"constitution": 2, "tolerance": 3}
+  tox_resistance: 10
+  rad_resistance: 0
+
+SPECIAL PROPERTY — "Sanguine Drain" (passive + activated):
+  New field: "leech_chain": True
+  New engine state:
+    engine.leech_starved_timer: int = 0   -- turns remaining in starved state
+
+  PASSIVE — "Ability Lifesteal":
+    Whenever a player ability deals damage to one or more enemies (the execute/
+    execute_at callable of an AbilityDef successfully hits at least one enemy):
+    collect total damage dealt across all hit targets.
+    Heal the player for int(total_damage * 0.25) (25% of total ability damage).
+    Minimum heal: 1 if any damage was dealt.
+    This fires ONLY if engine.leech_starved_timer == 0 (not in starved state).
+    Message: [dark red] "Leech drains — +{heal} HP"
+
+    Implementation: add a hook to the ability execution system. In spells.py (ability
+    execution), after any execute or execute_at that targets enemies, track total
+    damage applied (sum across all deal_damage calls for that ability). Report total
+    to engine.ability_damage_dealt_this_turn: int = 0. After ability resolves, in
+    engine.py: if leech_chain equipped and starved_timer == 0: heal player by 25%.
+    Reset engine.ability_damage_dealt_this_turn = 0 each turn.
+
+  ACTIVATED — "Blood Frenzy" (secondary ability, no additional grants_ability needed):
+    Using the neck item as an "equip_activate" action (a new mechanic: pressing a
+    specific key while the item is equipped; OR implement as a granted ability):
+    SIMPLEST APPROACH: add "use_verb": "Drain" to the item's definition.
+    On use: if engine.leech_starved_timer > 0: message "You are already starved."
+    Otherwise:
+      Apply "blood_frenzy_mode" for 6 turns:
+        While blood_frenzy_mode is active:
+          All ability damage is multiplied by 1.5x.
+          The player CANNOT be healed by any source (all heals are blocked: player.heal()
+          is overridden to no-op while this effect is active; implement via a new
+          BloodFrenzyModeEffect with on_reapply=no-op that blocks heal calls).
+        On expiry (after 6 turns):
+          engine.leech_starved_timer = 8. No ability lifesteal for 8 turns.
+          Message: "The drain exhausts you. You hunger." (8-turn starvation phase)
+          Reset engine.leech_starved_timer each turn (decrement in _run_energy_loop).
+          After 8 turns: lifesteal resumes automatically.
+    Use the item: costs one turn (same as any use_verb item).
+
+  ANTI-HEAL GUARD: the blood_frenzy_mode effect's heal-blocking is critical.
+    Implement: BloodFrenzyModeEffect in effects.py with id="blood_frenzy_mode",
+    category="buff" (to the player — the frenzy itself feels good), with a hook:
+    override modify_incoming_damage NOT to block damage, but add a new lifecycle
+    hook: modify_heal(amount: int) -> int. If this effect is active: return 0.
+    In entity.heal(), run the status_effects list for any modify_heal hook:
+      actual_heal = sum of hooks; if any returns 0: heal is blocked entirely.
+    (This requires adding a modify_heal() method to the Effect base class.)
+
+IMPLEMENTATION NOTES:
+  - Ability damage tracking: add engine.ability_damage_dealt_this_turn: int = 0.
+    In spells.py (and any other ability execution path), after deal_damage calls
+    for abilities: engine.ability_damage_dealt_this_turn += actual_damage.
+    In _run_energy_loop after player action: if leech_chain equipped and
+    ability_damage_dealt_this_turn > 0 and starved_timer == 0:
+    heal = int(ability_damage_dealt_this_turn * 0.25); player.heal(heal).
+    Reset ability_damage_dealt_this_turn = 0 after.
+  - starved_timer: decrement in _run_energy_loop per game tick. When it reaches 0:
+    nothing (lifesteal resumes passively).
+  - modify_heal() hook: add to Effect base class as:
+    def modify_heal(self, amount: int, entity) -> int: return amount
+    Override in BloodFrenzyModeEffect to return 0.
+    In entity.heal(amount): for e in status_effects: amount = e.modify_heal(amount, self);
+    if amount <= 0: return without healing.
+  - The "use_verb": "Drain" item activation: uses NIGRL's existing use_verb system.
+    The use_effect for this item would be {"type": "activate_leech_drain"} handled
+    in item_effects.py with a new case.
+
+FLAVOR TEXT:
+  "It feeds from your fight. Let it run too long and it starts feeding from you."
+
+SYNERGIES:
+  - Blackkk Magic / Negromancy: abilities deal damage and trigger lifesteal. A
+    BkSmt-heavy ability-spam build gains 25% sustain from every spell cast.
+  - Spell Compendium abilities (from design docs): AOE abilities hitting 4 enemies
+    at 10 damage each = 40 total damage = 10 HP healed per cast. Substantial.
+  - Time Served neck (item 29): cannot stack (same slot). Choose one neck legendary.
+  - Magicbane Chain (item 44): cannot stack (same slot). Competing neck legendaries
+    create genuine choice tension.
+  - Constitution builds: high max HP allows longer blood_frenzy_mode without dying
+    during the no-heal window. CON 12 = 150 HP buffer during frenzy.
+  - Anti-synergy: Null Blade (item 20). The Null Blade blocks external buffs to the
+    player. The leech_chain's passive heal is externally applied (not self-sourced
+    from a SELF ability). With Null Blade equipped, the lifesteal is blocked
+    (the Null Blade's buff-blocking kills the chain's core value).
+  - Anti-synergy: HoT-heavy builds. During blood_frenzy_mode (6 turns), all heals
+    including HoT stacks are blocked. Committing to frenzy while active healing is
+    running wastes the HoT turns.
+
+BALANCE:
+  - 25% of ability damage healed: against a Tweaker (15 HP, one Fireball for 20
+    damage kills it): 5 HP healed per ability. Against a boss (100 HP, AoE for
+    80 damage): 20 HP per cast. Significant but not overpowered (single-target
+    heal limited by ability damage which is already limited by charges/cooldowns).
+  - Blood Frenzy 1.5x damage for 6 turns: strong. The 8-turn starvation cost
+    means total cycle is 14 turns — roughly one major room encounter. Activating
+    during a boss fight and surviving the starvation afterwards is the intended
+    risk/reward play.
+  - armor_bonus 20 and +2 CON make this a very competitive defensive neck item
+    even without the active special property.
+
+--------------------------------------------------------------------------------
+ITEM 50 — NECK
+--------------------------------------------------------------------------------
+ITEM ID:         "neck_adom_talisman"
+NAME:            Talisman of Order
+SLOT:            neck (equip_slot: "neck")
+CHAR:            "
+COLOR:           (240, 220, 140)  -- warm burnished gold
+SUBCATEGORY:     neck
+VALUE:           0
+ZONES:           Both zones. ONLY spawns on the first floor of the SECOND zone the
+                 player enters (i.e., if the player started in crack_den, it appears
+                 on meth_lab floor 1; and vice versa). It appears in a "Shrine Room"
+                 event — a room with a single pedestal and ethereal ASCII symbols on
+                 the walls ('+' and '*' in lines). The talisman sits on the pedestal.
+                 Shrine Room spawns at 20% on zone-entry floor 1.
+                 THE TALISMAN TRACKS ALIGNMENT: it monitors how many enemies the
+                 player has killed vs. how many they have fled from (reached the
+                 stairs without killing all visible enemies). The talisman's power
+                 shifts based on this ratio.
+TAGS:            ["legendary", "unique"]
+
+TRADITIONAL ROGUELIKE INSPIRATION:
+  ADOM — Precrowning gifts and alignment-sensitive artifacts
+  ADOM's greatest mechanic is the relationship between the player's ALIGNMENT
+  and the gifts they receive from their deity. Lawful characters receive items
+  suited to disciplined combat; chaotic characters receive chaotic instruments.
+  The crowning system means that the ENTIRE run influences what tools the player
+  gets: play lawfully (kill humanoids? chaotic), play chaotically (murder
+  innocents? chaos), and your gear choices shift accordingly. The Talisman of
+  Order in ADOM specifically protects against corruptions (chaos mutations) but
+  must be used by lawful-aligned characters to function optimally.
+
+  Secondary: NetHack's artifact properties that SHIFT based on alignment —
+  Excalibur deals extra damage only for lawful characters; Grayswandir requires
+  the wielder to be lawful. The alignment-reactive item is a fundamentally roguelike
+  design concept: your moral choices change your mechanical options.
+
+TRANSLATION TO NIGRL:
+  NIGRL has no explicit alignment system, but it DOES have a behavioral alignment
+  that can be tracked: the ratio of kills to "mercy moves" (taking the stairs without
+  killing visible enemies). The Talisman of Order tracks this and shifts between
+  two modes: "Ordered" (high kill ratio, aggressive) and "Wandering" (high escape
+  ratio, mobile). Each mode grants distinct stats and the passive ability changes.
+  The talisman rewards CONSISTENCY of play style — commit to fighting or commit to
+  running. Mixing the two dilutes its power.
+
+STAT PROPERTIES:
+  (Base stats, always present regardless of mode:)
+  armor_bonus:   18
+  defense_bonus: 2
+  power_bonus:   2
+  stat_bonus:    {"constitution": 2, "book_smarts": 1}
+  tox_resistance: 10
+  rad_resistance: 10
+
+SPECIAL PROPERTY — "Order and Wandering" (alignment-reactive, two modes):
+  New field: "adom_talisman": True
+  New engine state:
+    engine.talisman_kills:          int = 0  -- enemies killed while talisman equipped
+    engine.talisman_mercy_moves:    int = 0  -- floors descended with visible enemies alive
+
+  TRACKING:
+    - On every enemy kill while equipped: engine.talisman_kills += 1.
+    - On every STAIR DESCENT while there are alive visible enemies within the
+      dungeon (checked at the moment the player uses the stairs):
+      engine.talisman_mercy_moves += 1.
+      Message: "The Talisman notes your departure." (only if talisman mode shifts)
+
+  MODE DETERMINATION (computed dynamically each turn):
+    total = engine.talisman_kills + engine.talisman_mercy_moves
+    if total == 0: mode = "neutral"
+    elif engine.talisman_kills / total >= 0.65: mode = "ordered"
+    elif engine.talisman_mercy_moves / total >= 0.65: mode = "wandering"
+    else: mode = "neutral"
+
+  MODE EFFECTS:
+
+    ORDERED MODE (kills >= 65% of total):
+      Additional stat bonuses (on top of base stats):
+        +3 STR (computed dynamically: check mode each turn in _compute_player_attack_power)
+        +5 flat melee damage bonus
+        +15% XP gain from ALL combat kills (multiplicative: apply in entity_died handler)
+      Passive: enemies within Chebyshev(2) take 2 unblocked damage at the START of each
+        of their turns (the talisman's order-field presses upon them). Same mechanic as
+        The Long Arm's shove, but from a neck item and at 2 tiles instead of adjacent.
+        Implement: in _run_energy_loop before each monster's do_ai_turn(), if monster is
+        within Chebyshev(2) of player and talisman mode == "ordered": monster.take_damage(2).
+        Check for death.
+      Message on mode entry: [gold] "Talisman of Order aligns — you are a force of
+        violence. (+3 STR, +5 damage, pressure aura)"
+
+    WANDERING MODE (mercy >= 65% of total):
+      Additional stat bonuses:
+        +3 STS (dynamic check each turn)
+        +10 energy_per_tick bonus (speed increase beyond the base item stats)
+        +20% XP from all MOVEMENT (Jaywalking XP multiplier, stacks with other multipliers)
+      Passive: while in Wandering mode, enemies that the player has SEEN (ever entered
+        dungeon.visible) but NOT killed reset to IDLE ai_state instead of CHASING when
+        the player moves more than 6 tiles away from them (Chebyshev).
+        This "mercy forgiveness" simulates enemies giving up the chase more easily
+        when the player is not hunting them. Implement: in ai.py, in the CHASING
+        state's transition check, add: if talisman mode == "wandering" AND
+        Chebyshev(player, enemy) > 6: enemy.ai_state = AIState.IDLE.
+      Message on mode entry: [pale gold] "Talisman of Order aligns — you move with
+        purpose. (+3 STS, speed, enemies lose interest)"
+
+    NEUTRAL MODE (neither threshold reached):
+      No additional bonuses beyond base stats.
+      Message: "The Talisman waits. Choose a path."
+
+  COST: the talisman requires consistent play style. Mixing kills and mercy moves
+  means permanent neutral mode (weak). The player must commit: either kill everything
+  or flee strategically and consistently. This is the ADOM alignment cost — your
+  choices lock your options.
+
+IMPLEMENTATION NOTES:
+  - Kill tracking: in entity_died event handler, if talisman is equipped and
+    killer is player: engine.talisman_kills += 1.
+  - Mercy tracking: in engine.handle_descend_stairs() or equivalent, check
+    dungeon.entities for alive monsters visible (dungeon.visible check); if any
+    exist, increment engine.talisman_mercy_moves.
+  - Mode computation: create engine._get_talisman_mode() -> str helper.
+    Called from _compute_player_attack_power(), _compute_player_defense(),
+    and _run_energy_loop() wherever the mode matters.
+  - Ordered mode STR bonus: in _compute_player_attack_power(), if talisman mode
+    is "ordered": add 3 to effective_str for the computation only (not permanent).
+    Add 5 to atk_power. Similarly in defense computation if mode affects it.
+  - Ordered mode XP: in the entity_died handler, after standard XP grant:
+    if talisman "ordered" mode and killer is player: multiply XP by 1.15.
+  - Ordered aura: same as The Long Arm shove pattern in _run_energy_loop.
+    Add after the shove check: if neck is "adom_talisman" and mode is "ordered":
+    iterate monsters within Chebyshev(2), deal 2 true damage, check death.
+  - Wandering mode STS: same as STR bonus, dynamic in attack computation.
+  - Wandering mode speed: in the energy_per_tick calculation for the player,
+    if talisman mode == "wandering": add 10 to the total. The base item already
+    adds 0 — the 10 is mode-conditional only.
+  - Wandering mode Jaywalking XP: multiply by 1.20 in xp_progression for "Jaywalking".
+  - Wandering enemy AI reset: in ai.py do_ai_turn(), at start of CHASING state:
+    check engine._get_talisman_mode() == "wandering" and Chebyshev > 6; if so,
+    set entity.ai_state = AIState.IDLE and return.
+
+FLAVOR TEXT:
+  "Order doesn't mean peaceful. And mercy doesn't mean weak. Pick one.
+  The chain decides the rest."
+
+SYNERGIES:
+  - Ordered Mode + One For One (item 42): the talisman's +3 STR and +5 flat damage
+    stack with One For One's 2x multiplier. Combined: (base + str_scaling + 5 + 3) * 2.
+    Extreme glass-cannon output. Ordered mode 65% kill ratio aligns with One For
+    One's "never stop fighting" design (you can't flee with doubled incoming damage).
+  - Ordered Mode + Iron Crown of the Block (hat, item 10): both have intimidation
+    auras (iron crown: fear proc per enemy) and ordered mode's pressure aura. Stack
+    multiple "enemies suffer just by being near me" effects.
+  - Wandering Mode + Cursed Rollers (item 38): free movement + speed bonus = the
+    fastest possible traversal. Both reward movement over combat.
+  - Wandering Mode + Jaywalking + Adom Soles (item 47): triple-stacked Jaywalking
+    XP multipliers (adom_soles 3x + talisman 1.2x = 3.6x). Cannot stack feet items
+    with adom_soles (same slot as wanderer's soles... wait: talisman is NECK, soles
+    are FEET — CAN coexist). Combined: extreme Jaywalking level progression.
+  - Anti-synergy: any build that naturally mixes killing and fleeing (moderate players).
+    The talisman punishes balanced play. Either extreme is rewarded; the middle is not.
+  - Anti-synergy: Soul Chain (item 5). Both are neck items — cannot equip simultaneously.
+    The talisman is MORE powerful than the soul chain in the correct mode but requires
+    behavioral commitment. Soul Chain is reliable. Talisman is conditional.
+
+BALANCE:
+  - Ordered Mode bonuses (+3 STR, +5 flat, 2-tile pressure aura, +15% kill XP):
+    This is a substantial offensive package. The pressure aura deals 2 unblocked to all
+    Chebyshev-2 enemies each of their turns — in a 5-enemy room, that is 10 unblocked
+    damage per round without any player action. Over 5 rounds: 50 unresisted bonus
+    damage across enemies. This is extremely strong for passive damage.
+  - Wandering Mode bonuses (+3 STS, +10 speed, +20% Jaywalking XP, enemies give up):
+    The enemy-aggro-drop is the most strategically powerful aspect. Enemies that
+    chase you losing interest at 6 tiles is essentially a "safe zone" of retreat
+    beyond a small radius. Combined with free movement items, the player can kite
+    indefinitely.
+  - 65% threshold is achievable: at 10 kills and 0 mercy moves, mode locks to
+    Ordered. At 0 kills and 5 descents, mode locks to Wandering (floor-skip plays).
+    The system rewards deliberate strategy from floor 1.
+  - base armor 18, +2 def, +2 CON, tox+rad resistance 10 each: competitive defensive
+    stats even in neutral mode. Never a dead item even without achieving a mode.
+
+================================================================================
+IMPLEMENTATION SUMMARY — Batch 5 New Systems Required
+================================================================================
+
+NEW FIELDS ON ITEM DEFS (items.py):
+  cold_snap_weapon:        bool — weapon: chill-on-hit + cold resistance buildup + frost patches
+  one_for_one_weapon:      bool — weapon: 2x damage mirror + sentience autonomous actions
+  silver_service_weapon:   bool — weapon: silver true damage vs. high-swagger; confuse immunity
+  magicbane_chain:         bool — neck: random magical proc table on hit + curse resistance
+  finisher_ring:           bool — ring: floor-scaled execute chance on low-HP targets
+  vorpal_ring:             bool — ring: instant-kill on mega-crit (35%) or crit (5%)
+  adom_soles_cursed:       bool — feet: free movement + curse lock + road curse on steps
+  starts_cursed:           bool — feet: item is locked on equip (general new field)
+  hat_skin_zhor:           bool — hat: passive chill aura + chill immunity + chill sight
+  leech_chain:             bool — neck: ability lifesteal 25% + blood frenzy mode
+  adom_talisman:           bool — neck: alignment-reactive dual-mode (ordered/wandering)
+
+NEW ABILITIES (abilities.py ABILITY_REGISTRY):
+  None required for batch 5.
+  (All specials are passive or handled via existing use_verb mechanism for leech_chain.)
+
+NEW EFFECTS (effects.py):
+  "chill_adapted"         -- NOT a new effect; implemented as engine flag checks in
+                             ChillEffect.apply/on_reapply based on cold_snap kill count
+  "kb_stagger"            -- debuff: -25 energy_per_tick, duration=4; from magicbane proc
+  "blood_frenzy_mode"     -- buff: +50% ability damage, blocks ALL heals, duration=6
+                             Requires new lifecycle hook: modify_heal(amount) -> int
+                             on Effect base class (default returns amount unchanged)
+  "frost_patch_hazard"    -- NOT an effect; implemented as entity (hazard entity
+                             with hazard_type="frost_patch", processed in energy loop)
+  "roller_lock"           -- already planned in Batch 4 (item 38), re-used here
+                             (Wanderer's Soles do NOT use roller_lock — they have no
+                             crash mechanic; confirmed distinct from Cursed Rollers)
+  "adom_soles_curse"      -- NOT an effect; implemented as engine logic (permanent stat
+                             reduction via _base field modification, not a status effect)
+
+NEW ENGINE STATE (engine.py GameEngine.__init__):
+  engine.cold_snap_chill_immunity_stacks: int = 0
+  engine.one_for_one_awaken_timer:        int = 12
+  engine.smoked_this_floor:              bool = False   (reset in _on_new_floor)
+  engine.zhor_aura_timer:               int = 0
+  engine.leech_starved_timer:           int = 0
+  engine.ability_damage_dealt_this_turn: int = 0        (reset each player turn)
+  engine.talisman_kills:               int = 0
+  engine.talisman_mercy_moves:         int = 0
+  engine.adom_soles_tiles_walked:      int = 0
+  engine.adom_soles_curse_count:       int = 0
+  engine.adom_soles_curse_active:      bool = False
+  engine.vorpal_proc_this_turn:        bool = False     (reset each player turn)
+
+NEW LIFECYCLE HOOK (Effect base class in effects.py):
+  def modify_heal(self, amount: int, entity) -> int: return amount
+  -- Overridden in BloodFrenzyModeEffect to return 0 (blocks all heals).
+  -- entity.heal(amount) must call this hook chain before applying.
+
+NEW ENTITY TYPE (dungeon entities):
+  hazard_type = "frost_patch"
+  -- entity_type: "hazard"
+  -- char: '~', color: (150, 200, 255)
+  -- blocks_movement: False
+  -- entity.hazard_duration: int = 15 (new field; decremented each energy loop)
+  -- In _run_energy_loop: for each frost_patch entity, decrement hazard_duration;
+     remove if <= 0; apply chill to any entity standing on that tile.
+
+NEW PARAMETER (effects.py apply_effect):
+  force_apply: bool = False
+  -- When True, bypasses all resistance checks (used for Magicbane Backfire,
+     ensuring confuse lands even with Silver Service confuse immunity).
+  -- Implement as optional parameter in apply_effect() function signature.
+
+NEW HELPER METHODS (engine.py):
+  engine._get_talisman_mode() -> str    -- computes "ordered"/"wandering"/"neutral"
+  engine._format_entity_stats(entity) -> str  -- for Magicbane Probe proc (item 44)
+
+ALL ITEMS (batch 5):
+  tags:  ["legendary", "unique"] on all 10
+  value: 0 (legendaries have no market value)
+  weight: not in standard loot tables; obtained only via conditions specified above
+
+================================================================================
+TRADITIONAL ROGUELIKE SOURCES — REFERENCE SUMMARY
+================================================================================
+
+Item 41 (Cold Snap):
+  Primary:   NetHack — Frost Brand (double damage, cold resistance intrinsic, melts pools)
+  Secondary: DCSS — Frostbite staff (creates freezing clouds where enemies die)
+  Key mechanic translated: environmental hazard generation from kills; resistance buildup
+    from continued use of the weapon; elemental branding on every hit.
+
+Item 42 (One For One):
+  Primary:   NetHack — Stormbringer (sentient, attacks allies, drains levels autonomously)
+  Secondary: Angband — Hunger weapons (consume resources to power enhanced output)
+  Key mechanic translated: weapon autonomy / sentience (fires on its own); damage mirror
+    where every outgoing boost has an equal incoming penalty.
+
+Item 43 (Silver Service):
+  Primary:   NetHack — Grayswandir (double damage, silver vs. sensitive monsters,
+             hallucination resistance granted as intrinsic)
+  Secondary: ADOM — Precrowning artifacts (appear based on player piety/behavioral history)
+  Key mechanic translated: target-type-specific bonus damage (swagger = alignment proxy);
+    debuff immunity granted as intrinsic from wield; behavioral unlock condition.
+
+Item 44 (Magicbane Chain):
+  Primary:   NetHack — Magicbane (random magical procs per hit, prob table shifts
+             with enchantment, curse resistance 95%, magic resistance)
+  Key mechanic translated: proc table on melee hits with multiple distinct outcomes;
+    curse resistance as blanket debuff immunity chance; backfire risk from own item.
+
+Item 45 (The Finisher):
+  Primary:   DCSS — Finisher (instant kill chance scales with monster HD, not HP %)
+  Key mechanic translated: execute threshold scales with floor depth (replaces HD);
+    stat loss cost (DCSS loses Str+3, NIGRL loses -3 swagger); late-game scaling.
+
+Item 46 (Vorpal Ring):
+  Primary:   NetHack — Vorpal Blade (5% instant decapitation per hit, heads only)
+  Key mechanic translated: instant-kill proc on crits (using NIGRL's crit system);
+    synergy gateway with Sniping L3 mega-crit for reliable proc path; HP-based guard
+    (HP > 60% = target too fresh, like monsters "with heads").
+
+Item 47 (Wanderer's Soles):
+  Primary:   ADOM — Cursed equipment BUC system (locked to slot, uncurse conditions)
+  Secondary: ADOM — Corruption system (permanent stat degradation from chaos exposure)
+  Key mechanic translated: cursed equipment lock with specific uncurse trigger (steps
+    walked rather than holy water/scroll); permanent stat loss from extended wear;
+    behavioral milestone unlock (200 steps = freedom).
+
+Item 48 (Iced Out Fisherman's Net):
+  Primary:   DCSS — Skin of Zhor (passive Metabolic Englaciation AoE slow, SInv)
+  Key mechanic translated: passive periodic AoE debuff with no player input required;
+    slow frequency scales with a player stat (Tolerance replaces Evocations); chill
+    immunity for the wearer; secondary "see through darkness" for affected enemies.
+
+Item 49 (Leech Chain):
+  Primary:   DCSS — Leech/Bloodbane unrandart (unconditional vampiricism + Berserk risk)
+  Key mechanic translated: vampiric applied to ABILITIES (not melee, which already
+    has vampiric on Bone Club); blood frenzy mode = Berserk translation; starvation
+    after frenzy = post-Berserk crash; modify_heal() hook is the core new system.
+
+Item 50 (Talisman of Order):
+  Primary:   ADOM — Alignment-reactive artifacts (precrowning gifts shift with piety;
+             Talisman of Order protects lawful chars from corruption)
+  Secondary: NetHack — Alignment-sensitive artifacts (Excalibur, Grayswandir require
+             specific alignment to function at full power)
+  Key mechanic translated: behavioral alignment tracking (kills vs. mercy/escapes);
+    dual-mode item with incompatible power sets; consistency required for power access;
+    alignment "tax" for mixed play styles (neutral mode = weak base stats only).
+
+================================================================================
+END OF BATCH 5 (ITEMS 41-50)
+================================================================================

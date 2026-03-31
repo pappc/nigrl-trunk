@@ -1,0 +1,1569 @@
+CHEMICAL WARFARE — 10 Branching Skill Tree Variations
+=======================================================
+Design doc for the NIGRL roguelike (Meth Lab zone skill).
+These are BRANCHING trees with player-choice topology — NOT linear L1-L4.
+The player selects one branch at each split and cannot unlock the other.
+
+Toxicity system reference:
+  - Player tox multiplier:  1 + (tox/200)^0.6    (200 tox = 2x damage taken)
+  - Monster tox multiplier: 1 + (tox/50)^0.6     (50 tox = 2x, monsters far more sensitive)
+  - tox_resistance: int on PlayerStats (additive with temporary_tox_resistance)
+  - Tox hazard types: toxic_creep (~, green-yellow), acid_pool (~, bright green),
+    venom_pool (~, mid-green)
+  - ChargeType options: INFINITE+cooldown, PER_FLOOR, TOTAL, ONCE, FLOOR_ONLY
+  - Stat names: constitution, strength, street_smarts, book_smarts, tolerance, swagger
+  - Energy: 100/tick base. +30 speed = ~23% faster action rate.
+  - Player HP: 30 + CON*10. Crit chance: street_smarts * 3%.
+
+XP source for Chemical Warfare: dealing toxicity to enemies, kills on
+high-tox enemies (30+), using tox abilities.
+
+Shape glossary:
+  Y-split (L3)     — L1, L2 shared trunk; branch at L3: L3a/L4a vs L3b/L4b. 6 perks, 2 capstones.
+  Diamond          — L1 shared; L2a/L2b split; L3a/L3b branches; L4 shared convergence;
+                     L5a/L5b final split. 8 perks, 2 capstones.
+  Triple Fork (L4) — L1, L2, L3 shared trunk; split at L4 into L4a/L4b/L4c. 6 perks, 3 capstones.
+  W-shape          — L1/L2 shared; L3a/L4a and L3b/L4b branches; L5 shared convergence;
+                     L6a/L6b final split. 8 perks, 2 capstones.
+  Long Trunk Y     — L1, L2, L3, L4 shared trunk; branch at L5 into L5a/L5b. 6 perks, 2 capstones.
+
+
+==========================================================================
+VARIATION 1: "THE SPREADER" — Contagion vs. Infection
+==========================================================================
+Shape: Y-split (L3)
+Fantasy: The trunk builds up your tox delivery toolkit, then you choose:
+  Branch A — mass contagion (splash, chain death explosions, room-wide spread)
+  Branch B — deep infection (single-target DOT amplification, mark-and-execute)
+
+TREE DIAGRAM:
+
+    L1: Patient Zero
+          |
+    L2: Incubation Period
+         / \
+        /   \
+  [BRANCH A]  [BRANCH B]
+  L3a: Carrier  L3b: Inoculate
+       |              |
+  L4a: Outbreak  L4b: Hemorrhagic Fever
+   (capstone)     (capstone)
+
+TRUNK:
+
+L1 — PATIENT ZERO (activated)
+  Perk type: activated
+  Ability: patient_zero_b
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Mark a visible enemy with the Patient Zero status (15 turns).
+          Each turn the marked enemy gains 4 toxicity and spreads 2 tox
+          to every directly adjacent enemy. The mark is visible
+          (a '~' overlay on the target). Grants +2 Chemical Warfare XP
+          when applied.
+  Desc: "Pick your vector. Everything downstream dies slower."
+
+L2 — INCUBATION PERIOD (passive)
+  Perk type: passive
+  Effect: Enemies that have been toxic for 3+ consecutive turns (tracked
+          per entity via a counter) take 15% increased damage from
+          melee and ranged attacks. The bonus appears as soon as the
+          enemy reaches their third tox-tick without losing toxicity.
+          Resets if the enemy drops below 1 tox for a full turn.
+  Desc: "Give it time. Everything breaks down."
+
+BRANCH A — Mass Contagion
+
+L3a — CARRIER (passive)
+  Perk type: passive
+  Effect: Patient Zero can now be active on 2 enemies simultaneously
+          (up from 1). Additionally, when a Patient Zero-marked enemy
+          dies, ALL enemies in a 3-tile radius gain 10 toxicity (a death
+          burst). This burst can trigger further death bursts if those
+          enemies die with 30+ tox (chain reaction).
+  Desc: "One carrier becomes two. Two becomes the whole block."
+
+L4a — OUTBREAK (activated) — CAPSTONE
+  Perk type: activated
+  Ability: outbreak_b
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF (affects all visible enemies)
+  Effect: 1/floor. Trigger a mass outbreak event: every visible enemy
+          simultaneously gains tox equal to (their current tox + 8).
+          Enemies with 0 current tox gain a flat 8. Enemies with 50+
+          tox gain 58+. Combined with Incubation Period and the Carrier
+          death burst, a well-stacked room can chain-die in 3 turns.
+          Grants +10 Chemical Warfare XP per enemy that dies within 10
+          turns of this activation.
+  Desc: "1/floor. Flip the switch. Let the room finish itself."
+  Balance: Against 6 enemies all at 0 tox, this is only +8 each —
+          minimal. Against 6 enemies already at 30 tox, this is +38
+          each — entering dangerous multiplier territory for those
+          enemies. Rewards setup; punishes using it cold.
+
+BRANCH B — Deep Infection
+
+L3b — INOCULATE (activated)
+  Perk type: activated
+  Ability: inoculate
+  Charge type: INFINITE (30t cooldown)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 30t cooldown. Inject a specific enemy with a deep-tissue
+          toxin. For 20 turns, that enemy's toxicity CANNOT be reduced
+          below its current value at time of injection (they can gain
+          more but cannot lose it). All tox damage ticks against them
+          are doubled. If they die while Inoculated, you gain a
+          permanent +1 TOL stat boost (max +4 TOL total across
+          all Inoculate kills).
+  Desc: "Lock it in. There's no sweating this one out."
+
+L4b — HEMORRHAGIC FEVER (passive) — CAPSTONE
+  Perk type: passive
+  Effect: When a Patient Zero-marked or Inoculated enemy reaches 50+
+          toxicity, they enter Hemorrhagic Fever: lose 8 HP per turn
+          (direct damage, bypasses armor) for as long as they stay at
+          50+ tox. This replaces the normal tox multiplier damage for
+          affected enemies — the flat HP drain is often more lethal
+          against high-armor targets. Additionally, any enemy that takes
+          Hemorrhagic Fever damage within your melee range triggers a
+          free +4 tox application on hit (no action cost).
+  Desc: "50 tox and they start bleeding out. Nothing you can do."
+  Balance: Against high-armor enemies this is strictly better than the
+          normal tox multiplier. Against low-armor targets, the normal
+          formula may be comparable. The choice of which enemies to mark
+          matters. +4 tox free on adjacency keeps melee pressure relevant.
+
+IMPLEMENTATION NOTES (V1):
+  - incubation_period_counter: dict {entity_id: int} tracking consecutive
+    tox turns, stored as engine.chem_incubation_counters
+  - inoculate_floor_lock: dict {entity_id: tox_at_injection_time}
+  - hemorrhagic_fever: new Effect subclass, applies when entity.toxicity >= 50
+    while entity has "inoculated" or "patient_zero" status
+  - Permanent +1 TOL from Inoculate kills: tracked via engine.chem_inoculate_kills,
+    capped at 4; applied as permanent stat increase in player._base.tolerance
+
+NEW ABILITY IDs (V1): patient_zero_b, outbreak_b, inoculate
+
+
+==========================================================================
+VARIATION 2: "THE JUNKIE" — Crash Economy vs. Tox Tolerance
+==========================================================================
+Shape: Y-split (L3)
+Fantasy: The trunk turns consumable use into a tox economy. Then choose:
+  Branch A — Crash Economy (spend tox for burst power, accept the crash)
+  Branch B — Tox Tolerance (carry maximum tox without dying, stack it forever)
+
+TREE DIAGRAM:
+
+    L1: Loaded
+          |
+    L2: The Market
+         / \
+        /   \
+  [BRANCH A]  [BRANCH B]
+  L3a: Spike   L3b: Metabolic Overload
+       |              |
+  L4a: Pump &  L4b: Overdrive
+       Dump          (capstone)
+   (capstone)
+
+TRUNK:
+
+L1 — LOADED (passive)
+  Perk type: passive
+  Effect: Consuming any item (food, drink, strain, joint) grants +8
+          toxicity. If you are already at 40+ tox when you consume, the
+          granted tox is doubled to +16. This converts your consumable
+          usage into tox generation — the more you use, the more toxic
+          you become.
+  Desc: "Everything you swallow goes in the same direction."
+
+L2 — THE MARKET (passive)
+  Perk type: passive
+  Effect: { "tolerance": 2, "constitution": 2 }
+  Killing an enemy while at 30+ personal toxicity grants +6 Chemical
+  Warfare XP. At 60+ tox: grants +12 XP instead. This creates a flywheel
+  incentive to stay toxic while dealing damage.
+  Desc: "+2 TOL, +2 CON. There's a price for everything. You've learned
+        to make the poison pay."
+
+BRANCH A — Crash Economy
+
+L3a — SPIKE (activated)
+  Perk type: activated
+  Ability: spike_tox
+  Charge type: INFINITE (50t cooldown)
+  Target type: SELF
+  Effect: 50t cooldown. For the next 8 turns, your toxicity is treated as
+          double for all outgoing scaling effects (Chemical Rage bonuses,
+          Contact High aura, tox-based ability scaling) but you take NO
+          additional incoming damage from the inflated value. After 8
+          turns: crash. Your tox drops to 0 and you take damage equal to
+          tox/15 (rounded down, min 5, max 18 at 270+ tox). Pairs with
+          any tox-scaling ability for a massive burst window.
+  Desc: "50t cd, 8-turn window. Double power, then the floor catches up."
+
+L4a — PUMP AND DUMP (passive upgrade) — CAPSTONE
+  Perk type: passive
+  Effect: Spike now also boosts your attack speed: gain +25 energy/turn
+          during the Spike window (roughly 20% faster actions). The crash
+          damage cap is removed (no longer capped at 18 — real formula:
+          tox/15, so 200 tox crash = ~13 damage, 400 tox crash = 26
+          damage, still survivable with CON). Additionally: after the
+          crash, you gain immunity to toxicity for 3 turns (your body
+          flushes completely; tox sources add 0 during immunity window).
+  Desc: "Spike goes harder. Crash goes harder. The immunity window after
+        is the only reason this isn't suicide."
+  Balance: Speed boost during spike = meaningful action advantage. Crash
+          immunity = recovery window. The capstone rewards using Spike
+          as a planned burst rather than panic defense.
+
+BRANCH B — Tox Tolerance
+
+L3b — METABOLIC OVERLOAD (passive)
+  Perk type: passive
+  Effect: { "tolerance": 3, "tox_resistance": -30 }
+  Your personal tox cap is raised to 200 (normally softcapped at around
+  100 where the multiplier becomes very painful). Above 100 tox, your
+  melee damage gains a flat bonus equal to (tox - 100) / 10 (rounded
+  down). At 150 tox: +5 melee. At 200 tox: +10 melee. The -30% tox
+  resistance means you accumulate faster — by design.
+  Desc: "+3 TOL, -30% tox resist. The cap is a suggestion. You've
+        broken through it."
+
+L4b — OVERDRIVE (passive) — CAPSTONE
+  Perk type: passive
+  Effect: While at 80+ personal toxicity, gain a second attack every
+          4th turn (a free bonus strike that uses the same equipped
+          weapon, at full damage). The counter resets if you drop below
+          80 tox. Additionally: the flat melee bonus from Metabolic
+          Overload is now DOUBLED (so at 200 tox: +20 melee bonus
+          instead of +10). The tox multiplier on incoming damage at
+          200 tox = 1 + (200/200)^0.6 = 2.0 — you take double damage.
+          Overdrive only works if you can stay alive at that level.
+  Desc: "80+ tox: 1 in 4 swings is free. 200 tox: +20 damage and you
+        die twice as fast. You do the math."
+  Balance: Free attack every 4th turn = +25% melee output. This is
+          strong but gated behind lethal self-damage multiplier. Synergy
+          with White Power L4 (Whitewash) is the intended safety net —
+          a cross-tree interaction reward.
+
+IMPLEMENTATION NOTES (V2):
+  - spike_tox_active: bool flag, 8-turn countdown, engine.chem_spike_active
+  - spike_tox_double: read in combat.py and all tox-scaling passive checks
+  - spike_crash_immune_turns: int countdown on player entity (3 turns after crash)
+  - tox_cap_raised: if player has Metabolic Overload, tox damage formula check
+    uses 200 as denominator instead of 200 (formula already uses 200, so this
+    perk changes the DISPLAY cap and enables the melee bonus above 100)
+  - overdrive_counter: engine.chem_overdrive_counter (int, 0-3, resets on attack)
+  - overdrive_bonus_attack: triggered in combat.py after normal melee when
+    overdrive_counter == 0 and player.toxicity >= 80
+
+NEW ABILITY IDs (V2): spike_tox
+
+
+==========================================================================
+VARIATION 3: "THE ALCHEMIST" — Terrain Chemist vs. Body Chemistry
+==========================================================================
+Shape: Diamond (L2→L5)
+Fantasy: A shared trunk establishes BKS-scaling acid delivery. The split
+explores two approaches to the acid formula before converging on Dissolution
+(shared L4), then diverging into two distinct endgames.
+
+TREE DIAGRAM:
+
+        L1: Corrosive Spit
+           /          \
+          /            \
+  L2a: Terrain         L2b: Acid Blood
+       Chemist
+       |                   |
+  L3a: Acid Volley     L3b: Caustic Skin
+            \              /
+             \            /
+          L4: Dissolution (shared)
+              /           \
+             /             \
+  L5a: Total Meltdown   L5b: Living Reagent
+       (capstone)         (capstone)
+
+TRUNK:
+
+L1 — CORROSIVE SPIT (activated)
+  Perk type: activated
+  Stat bonus: { "book_smarts": 2 }
+  Ability: corrosive_spit_b
+  Charge type: INFINITE (25t cooldown)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: +2 Book-Smarts. 25t cooldown. Spit a corrosive glob at a
+          visible enemy (range 6). Deals 3 + BKS/3 direct damage and
+          applies 20 toxicity. If the target already has 25+ tox, deals
+          the tox amount as bonus damage (a detonation: e.g. 50 tox =
+          50 bonus damage). The detonation does NOT consume the toxicity.
+  Desc: "+2 BKS. 25t cd. Spit first; ask questions once they're melting."
+
+BRANCH SPLIT AT L2:
+
+L2a — TERRAIN CHEMIST (passive)
+  Perk type: passive
+  Effect: Your Corrosive Spit splash creates a small acid pool (1-tile
+          radius) at the impact point lasting 12 turns (4 damage/turn,
+          also applies 4 tox/turn). Acid pools created by you last 50%
+          longer than normal. You are immune to your own acid pools.
+  Desc: "Every spit leaves a puddle. Herd them into the aftermath."
+
+L2b — ACID BLOOD (passive)
+  Perk type: passive
+  Effect: When YOU take melee damage, the attacker takes 5 + BKS/4
+          acid splash damage (direct, bypasses armor) and gains 8
+          toxicity. Stacks with other retaliatory effects. Works once
+          per attack — not per damage point.
+  Desc: "Hit you back? That was a mistake. You bleed wrong."
+
+L3a — ACID VOLLEY (activated)
+  Perk type: activated
+  Ability: acid_volley_b
+  Charge type: PER_FLOOR (2/floor)
+  Target type: AOE_CIRCLE (radius 2, any visible tile as center)
+  Effect: 2/floor. Lob an acid grenade at any visible tile. Creates a
+          3x3 acid pool (6 damage/turn, 25 turns). Enemies in the
+          initial blast radius take 8 + BKS/2 damage and 25 toxicity.
+          Synergizes with Terrain Chemist: the pool lasts 50% longer
+          (37 turns) and you remain immune to it.
+  Desc: "2/floor. Pick a corner, make it uninhabitable."
+
+L3b — CAUSTIC SKIN (passive)
+  Perk type: passive
+  Effect: { "constitution": 2, "tox_resistance": 20 }
+  +2 CON, +20% tox resistance. Your skin has become chemically reactive:
+  any enemy that deals melee damage to you gains 12 toxicity (up from 8
+  from Acid Blood — stacks with the Acid Blood damage; this is a
+  separate tox application, so same attacker gets both). Additionally,
+  your personal tox multiplier formula uses 250 as the denominator
+  instead of 200 (effectively reducing tox damage to you by ~20% at
+  high tox values).
+  Desc: "+2 CON, +20% tox resist. You've become an environmental hazard."
+
+SHARED CONVERGENCE NODE:
+
+L4 — DISSOLUTION (passive)
+  Perk type: passive
+  Stat bonus: { "book_smarts": 2 }
+  Effect: +2 Book-Smarts (combining with L1's +2 = total +4 BKS from
+          this tree). Enemies that die on an acid pool tile or toxic
+          ground tile you created leave a permanent (floor_duration=True)
+          toxic puddle at their death tile (6 tox/turn, indefinite
+          duration). Corrosive Spit detonation threshold drops from 25
+          tox to 15 tox. Any acid pool you control now also applies the
+          Incubation Period effect (15% increased damage taken after 3
+          tox-turns) even without the V1 Spreader perk.
+  Desc: "+2 BKS. Death leaves a stain. Your stains leave more death."
+
+FINAL SPLIT AT L5:
+
+L5a — TOTAL MELTDOWN (activated) — CAPSTONE
+  Perk type: activated
+  Ability: total_meltdown
+  Charge type: TOTAL (2 uses per run)
+  Target type: SELF (affects entire current floor)
+  Effect: 2/run. Every acid pool and tox hazard on the current floor
+          simultaneously releases a tox burst: 15-tile radius (effectively
+          the whole floor), 20 tox to every enemy caught in at least one
+          burst. Enemies hit by 3+ bursts (i.e. adjacent to 3+ hazards)
+          take an additional 30 direct damage and are stunned for 3 turns.
+          Your own pools are immune to you per Terrain Chemist. After
+          activation, all hazard tiles are consumed (they dissolve),
+          granting +5 Chemical Warfare XP per hazard consumed.
+  Desc: "2/run. Press the button. Let them burn from the inside out."
+  Balance: Requires setup (acid pools laid in advance). Maximum value
+          against packed rooms where enemies cluster in terrain. Against
+          single enemies in open space, only 1 burst = 20 tox, modest.
+
+L5b — LIVING REAGENT (passive) — CAPSTONE
+  Perk type: passive
+  Effect: Your own body becomes a walking acid reaction. All tox you
+          carry is converted into a permanent aura: enemies adjacent to
+          you take acid damage each turn equal to your_tox/20 (rounded
+          up, so at 0 tox = 0, at 100 tox = 5 damage/turn/adjacent
+          enemy). This damage counts as acid for Dissolution corpse
+          placement and Terrain Chemist pool creation rules. Additionally,
+          Corrosive Spit no longer has a cooldown — it is replaced with
+          a 3-charge, INFINITE recharge version (gains 1 charge per 15
+          turns spent with 20+ personal tox).
+  Desc: "You ARE the acid pool. Standing next to you is the mistake."
+  Balance: Aura damage at 100 tox = 5/turn adjacent = meaningful chip
+          against low-armor enemies. Against tanky enemies it supplements
+          rather than replaces burst. Spit recharge gating on personal tox
+          rewards keeping tox elevated — synergy with Caustic Skin path.
+
+IMPLEMENTATION NOTES (V3):
+  - Dissolution L4 "permanent puddle" uses floor_duration=True on Effect
+  - acid_pool_owner flag on hazard entity for immunity checks
+  - living_reagent_aura: checked each energy tick for adjacent enemies when
+    player has this perk and toxicity > 0
+  - corrosive_spit recharge: engine.chem_spit_charge_timer (int); check if
+    player.toxicity >= 20 each turn; increment on 15-turn intervals; max 3
+  - total_meltdown uses engine.all_hazards list; filters for acid_pool type
+
+NEW ABILITY IDs (V3): corrosive_spit_b, acid_volley_b, total_meltdown
+
+
+==========================================================================
+VARIATION 4: "THE MARTYR" — Shared Pain vs. Flagbearer
+==========================================================================
+Shape: Diamond (L2→L5)
+Fantasy: Mutual suffering is the trunk theme. The split deepens personal
+tox masochism vs. pure aura infection before converging on Condemned
+(shared L4), then two distinct endgames: Plague Flag vs. Death Wish.
+
+TREE DIAGRAM:
+
+        L1: Shared Suffering
+           /          \
+          /            \
+  L2a: Condemned       L2b: Sympathy Pains
+       |                   |
+  L3a: Martyrdom       L3b: Toxic Empathy
+            \              /
+             \            /
+           L4: Broken Body (shared)
+              /            \
+             /              \
+  L5a: Plague Flag      L5b: Death Wish
+       (capstone)          (capstone)
+
+TRUNK:
+
+L1 — SHARED SUFFERING (passive)
+  Perk type: passive
+  Effect: When YOU gain toxicity from any source, all enemies in a
+          3-tile radius gain 25% of the amount (rounded down, min 1).
+          E.g. gain 20 tox: nearby enemies gain 5 each. Does not recurse
+          from the reflected amount (no loops).
+  Desc: "You go down, the neighborhood goes with you."
+
+BRANCH SPLIT AT L2:
+
+L2a — CONDEMNED (stat)
+  Perk type: stat
+  Effect: { "tolerance": 4, "tox_resistance": -25 }
+  +4 Tolerance, -25% Toxicity Resistance. The resistance penalty is
+  intentional — more tox flowing in means more flowing out to enemies
+  via Shared Suffering. High risk, high contagion.
+  Desc: "+4 TOL, -25% tox resist. The worse it gets for you, the worse
+        it gets for everyone."
+
+L2b — SYMPATHY PAINS (passive)
+  Perk type: passive
+  Effect: { "constitution": 2, "street_smarts": 2 }
+  +2 CON, +2 STS. Shared Suffering's range increases from 3 tiles to
+  5 tiles. Additionally, when an enemy GAINS toxicity for any reason
+  (not just your Shared Suffering), you gain 10% of that amount as
+  temporary HP (a shield, not real HP; maximum 30 temp HP at any time).
+  Every enemy's suffering slightly sustains you.
+  Desc: "+2 CON, +2 STS. 5-tile aura. Their tox feeds your shield."
+
+L3a — MARTYRDOM (activated)
+  Perk type: activated
+  Ability: martyrdom_b
+  Charge type: INFINITE (60t cooldown)
+  Target type: SELF
+  Effect: 60t cd. Voluntarily self-harm: lose 15% max HP (min 1 HP)
+          and instantly gain 50 toxicity. Shared Suffering immediately
+          fires from this gain, spreading ~12 tox to nearby enemies.
+          If you are already at 100+ tox when used, also gain a 3-turn
+          Condemned buff: +20% damage dealt, immune to stuns.
+  Desc: "60t cd. Hurt yourself, hurt the room. The trade works out."
+
+L3b — TOXIC EMPATHY (passive)
+  Perk type: passive
+  Effect: Shared Suffering is upgraded: now transfers 40% of your gained
+          tox to nearby enemies (up from 25%), and affects a 5-tile radius.
+          Additionally, when any enemy in LOS dies at 30+ toxicity, you
+          gain 4 HP (a modest recovery that rewards letting poison do the
+          work). Can only trigger once per enemy per death.
+  Desc: "40% transfer, 5-tile radius. They carry a piece of everything
+        you suffer."
+
+SHARED CONVERGENCE NODE:
+
+L4 — BROKEN BODY (passive)
+  Perk type: passive
+  Stat bonus: { "tolerance": 2, "constitution": 2 }
+  Effect: +2 TOL, +2 CON. Your tox multiplier on OUTGOING melee damage
+          is now active (same formula as incoming, applied to output):
+          melee damage is multiplied by 1 + (your_tox/200)^0.6.
+          At 100 tox: ~1.66x outgoing damage. At 200 tox: 2.0x outgoing.
+          This stacks with your incoming multiplier — at 200 tox you
+          both take and deal double damage. Also: you can no longer
+          die from toxicity damage alone (if tox would reduce you to 0
+          HP, it leaves you at 1 HP instead; you can still die from
+          attacks). A mercy rule for the full Condemned build.
+  Desc: "+2 TOL, +2 CON. Your tox powers your fists. You can't die
+        to the poison. Only to what comes after."
+
+FINAL SPLIT AT L5:
+
+L5a — PLAGUE FLAG (activated) — CAPSTONE
+  Perk type: activated
+  Ability: plague_flag_b
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF
+  Effect: 1/floor. For 15 turns: Shared Suffering transfers at 90%
+          (up from 25%/40% from earlier perks). Every point of tox you
+          accumulate hammers everything in range. Additionally, your
+          Broken Body outgoing melee multiplier is doubled during this
+          window. At 200 personal tox during Plague Flag: outgoing
+          melee is 4.0x (double the formula output). The incoming
+          multiplier remains at 2.0x — you are NOT double-immune, you
+          still take double damage. This is a symmetric nuclear escalation.
+  Desc: "1/floor. 15 turns. 90% transfer. You're the epicenter."
+  Balance: 200 tox during Plague Flag = 4x outgoing, 2x incoming.
+          Requires prior turns of tox buildup. 15 turns is enough to
+          clear a room if the momentum is already there.
+
+L5b — DEATH WISH (passive) — CAPSTONE
+  Perk type: passive
+  Effect: When your HP drops below 25% of max: gain 60 toxicity
+          instantly (firing Shared Suffering) and your melee attacks
+          apply 15 tox to targets for the rest of the floor (passive
+          on-hit, no action). This can only trigger ONCE per floor.
+          Additionally, while below 25% HP, the Broken Body mercy rule
+          is extended: you cannot die from any damage source for 3 turns
+          after Death Wish triggers (a very brief invulnerability
+          converted into a last-stand). After 3 turns, normal dying
+          resumes. Use the window.
+  Desc: "One time per floor. Drop to 25%, become nuclear. 3-turn window.
+        Make them count."
+  Balance: The no-death window is only 3 turns. At 25% HP with 60
+          injected tox, you're outputting maximized damage while the
+          Shared Suffering hammers every adjacent enemy. But you're also
+          at 1/4 HP with tox multiplier damage incoming. The window
+          is the whole game.
+
+IMPLEMENTATION NOTES (V4):
+  - Broken Body outgoing multiplier: new check in combat.py player
+    melee attack after base damage calculation — if player has perk,
+    multiply by 1 + (player.toxicity/200)^0.6
+  - broken_body_no_tox_death: flag read in tox_damage tick; if tox
+    damage would reduce player to <= 0, leave at 1 HP
+  - death_wish_triggered_this_floor: bool flag, prevents re-trigger
+  - death_wish_invuln_turns: int countdown (3 turns)
+  - plague_flag_active: engine.chem_plague_flag_active, 15-turn countdown
+  - sympathy_pains_temp_hp: capped at 30, added to entity.temp_hp
+    whenever any enemy gains tox (hook in add_toxicity call site)
+
+NEW ABILITY IDs (V4): martyrdom_b, plague_flag_b
+
+
+==========================================================================
+VARIATION 5: "THE BIOLOGIST" — Hazard Doctrine vs. Subject Study
+==========================================================================
+Shape: Diamond (L2→L5)
+Fantasy: Two approaches to scientific toxicology split from a shared
+knowledge base, converge on mastery of tox-multiplier mechanics, then
+fork into either total terrain saturation or a single-subject kill lab.
+
+TREE DIAGRAM:
+
+        L1: Field Research
+           /          \
+          /            \
+  L2a: Dead Zone       L2b: Exposed Subject
+       |                   |
+  L3a: Biohazard       L3b: Controlled
+       Perimeter             Experiment
+            \              /
+             \            /
+      L4: Tox Mastery (shared)
+              /           \
+             /             \
+  L5a: Saturation        L5b: Kill Lab
+       Protocol              (capstone)
+       (capstone)
+
+TRUNK:
+
+L1 — FIELD RESEARCH (passive)
+  Perk type: passive
+  Stat bonus: { "book_smarts": 1, "street_smarts": 1 }
+  Effect: +1 BKS, +1 STS. You gain 3x Chemical Warfare XP for every
+          enemy killed at 40+ toxicity (instead of the normal rate).
+          This powerful XP multiplier rewards investing in tox delivery
+          early and makes Chemical Warfare the fastest skill to level for
+          dedicated builds.
+  Desc: "+1 BKS, +1 STS. Data collection. The more toxic the kill,
+        the more you learn."
+
+BRANCH SPLIT AT L2:
+
+L2a — DEAD ZONE (passive)
+  Perk type: passive
+  Stat bonus: { "tolerance": 2, "street_smarts": 1 }
+  Effect: +2 TOL, +1 STS. You create a persistent hazard immunity
+          radius: you cannot gain toxicity from ANY ground hazard tile
+          within 2 tiles of your current position (the hazards still
+          affect enemies). Additionally, enemies standing on any tox
+          hazard tile take 12% increased damage from all sources
+          (multiplicative). You are not the subject. The floor is.
+  Desc: "+2 TOL, +1 STS. Your ground, your rules."
+
+L2b — EXPOSED SUBJECT (passive)
+  Perk type: passive
+  Stat bonus: { "constitution": 2, "book_smarts": 1 }
+  Effect: +2 CON, +1 BKS. You become immune to your own tox damage
+          (the multiplier on INCOMING damage from your personal toxicity
+          is disabled for you — you still accumulate tox but it doesn't
+          hurt you). Your toxicity becomes a pure resource pool.
+          However: enemies adjacent to you gain 1 tox per 15 personal
+          tox you carry each turn (so at 60 tox: +4 tox/turn/adjacent).
+          You are the exposure, not the victim.
+  Desc: "+2 CON, +1 BKS. The multiplier doesn't apply to you. It
+        radiates OUT from you."
+
+L3a — BIOHAZARD PERIMETER (activated)
+  Perk type: activated
+  Ability: biohazard_perimeter
+  Charge type: INFINITE (30t cooldown)
+  Target type: ADJACENT_TILE
+  Effect: 30t cd. Place a Toxic Creep hazard on an adjacent tile (8
+          tox/turn, 30 turns, also -20 speed to enemies). Can maintain
+          up to 5 active perimeter tiles. If a sixth is placed, the
+          oldest expires. Enemies standing on your perimeter take the
+          Dead Zone 12% increased damage bonus. Synergizes brutally
+          with choke-point maps.
+  Desc: "30t cd. Five tiles maximum. Pick your chokepoints."
+
+L3b — CONTROLLED EXPERIMENT (activated)
+  Perk type: activated
+  Ability: controlled_experiment
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 2/floor. Mark one enemy as your Subject. For 20 turns: that
+          enemy's tox multiplier damage scales against their own HP
+          (they take double the normal tox multiplier damage). Your
+          melee hits against the Subject apply an extra +8 tox. On the
+          Subject's death, ALL enemies in a 4-tile radius gain tox equal
+          to the Subject's final toxicity value (the corpse releases it).
+  Desc: "2/floor. One subject, concentrated study. The others get
+        the spillover."
+
+SHARED CONVERGENCE NODE:
+
+L4 — TOX MASTERY (passive)
+  Perk type: passive
+  Stat bonus: { "book_smarts": 2, "tolerance": 1 }
+  Effect: +2 BKS, +1 TOL. You fully understand toxicity mechanics.
+          Two universal upgrades:
+          (1) Enemy tox multiplier formula uses an enhanced version:
+              enemies on your hazards use 35 as denominator instead of 50
+              (they take more multiplier damage at the same tox value).
+          (2) Toxicity you apply via abilities and passive effects ignores
+              25% of tox resistance on enemies (so an enemy with 50% tox
+              resistance still takes 37.5% of the tox, not just 50%).
+  Desc: "+2 BKS, +1 TOL. You understand the system. The system bends."
+
+FINAL SPLIT AT L5:
+
+L5a — SATURATION PROTOCOL (activated) — CAPSTONE
+  Perk type: activated
+  Ability: saturation_protocol
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF (affects whole room)
+  Effect: 1/floor. Instantly saturate the current room: every floor
+          tile becomes a Toxic Creep hazard (3 tox/turn, 15 turns).
+          Enemies cannot avoid tox accumulation. Your Dead Zone immunity
+          (if taken, L2a path) protects you; if you took Exposed Subject
+          instead, you need the L2b immunity. Either way, this is a
+          room-clearing setup tool. Grants +15 Chemical Warfare XP per
+          enemy that reaches 50+ tox within 8 turns of activation.
+  Desc: "1/floor. Cover the room. Wait."
+  Balance: Entire room at 3 tox/turn = 50 tox after ~17 turns if enemy
+          stays put. Against low-tox enemies with the enhanced multiplier
+          (Tox Mastery L4), 50 tox = multiplier of ~2.4x — lethal.
+
+L5b — KILL LAB (passive) — CAPSTONE
+  Perk type: passive
+  Effect: Your Controlled Experiment marks are permanent (they no longer
+          expire after 20 turns — active until the Subject dies). You
+          can have 3 Subject marks active simultaneously. The death
+          explosion radius increases from 4 to 6 tiles. Additionally:
+          the tox multiplier damage your Subjects take is now tripled
+          instead of doubled (they die at roughly 1/3 the normal tox
+          threshold). This converts individual enemies into time bombs
+          that explode into their neighbors on death.
+  Desc: "3 subjects, permanent marks, triple multiplier, 6-tile death
+        burst. The whole room is the experiment."
+
+IMPLEMENTATION NOTES (V5):
+  - exposed_subject_immunity: if player has L2b, tox multiplier in
+    combat.py's tox_damage_per_tick does not apply to player
+  - exposed_subject_aura: checked per energy tick; adjacent enemies gain
+    floor(player.toxicity/15) tox each turn
+  - dead_zone_immunity_radius: 2-tile check in add_toxicity() for player
+    when damage source is a hazard tile
+  - controlled_experiment_marks: engine.chem_subject_marks = dict
+    {entity_id: (turns_remaining, final_tox_at_death)}; if kill_lab perk
+    then turns_remaining = float('inf')
+  - enhanced_tox_multiplier: Tox Mastery check reads denominator 35 if
+    entity is on player-owned hazard
+  - saturation_protocol: places hazard entities on all floor tiles in
+    current room via zone_generators helper
+
+NEW ABILITY IDs (V5): biohazard_perimeter, controlled_experiment, saturation_protocol
+
+
+==========================================================================
+VARIATION 6: "THE CHEMIST" — Acid / Venom / Gas Triple Fork
+==========================================================================
+Shape: Triple Fork (L4)
+Fantasy: A shared trunk of tox delivery mastery culminates at L4 where the
+player specializes into one of three distinct chemical disciplines: acid
+(corrosive terrain), venom (on-hit DOT amplification), or gas (area denial
+cloud). Three capstones, each with a different application method.
+
+TREE DIAGRAM:
+
+    L1: Applied Chemistry
+          |
+    L2: Reagent Handling
+          |
+    L3: Compound Theory
+        /    |    \
+       /     |     \
+  L4a:     L4b:    L4c:
+  Acid     Venom   Gas
+  Bath    Injection  Cloud
+ (cap)    (cap)    (cap)
+
+TRUNK:
+
+L1 — APPLIED CHEMISTRY (passive)
+  Perk type: passive
+  Stat bonus: { "book_smarts": 2, "tolerance": 1 }
+  Effect: +2 BKS, +1 TOL. Melee attacks apply 6 toxicity. When you use
+          any activated ability, the next melee attack within 3 turns
+          deals bonus damage equal to BKS/2. This creates a natural
+          rhythm: fire an ability, then follow up in melee.
+  Desc: "+2 BKS, +1 TOL. Melee applies 6 tox. Ability-to-melee combos
+        deal bonus BKS damage."
+
+L2 — REAGENT HANDLING (passive)
+  Perk type: passive
+  Stat bonus: { "book_smarts": 1, "street_smarts": 2 }
+  Effect: +1 BKS, +2 STS. You no longer gain toxicity from any ground
+          hazard tile. (You still gain tox from ability use or enemy
+          attacks that apply tox — only ground tiles are immunized.)
+          Additionally, tox hazard tiles you stand on deal 8 tox/turn
+          to adjacent enemies (you're stirring the pool). The passive
+          safety of standing in your own acid gives you maximum
+          battlefield control.
+  Desc: "+1 BKS, +2 STS. Ground hazards don't touch you. You can
+        stand in the acid and let it work."
+
+L3 — COMPOUND THEORY (activated)
+  Perk type: activated
+  Ability: compound_theory
+  Charge type: INFINITE (20t cooldown)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 20t cd. Inject a visible enemy with a compound tag (3 types
+          cycle automatically: Acid, Venom, Gas — whichever was last
+          used loops to the next on reuse). Acid tag: enemy takes 10%
+          more damage from all sources for 10 turns. Venom tag: enemy
+          takes 5 tox/turn for 10 turns. Gas tag: if the tagged enemy
+          is hit with any AOE ability, release a gas burst (3-tile
+          radius, 10 tox + -20 speed 5 turns) on their tile. The tags
+          are visible on the enemy. The capstone chosen at L4 augments
+          ONLY the corresponding compound type.
+  Desc: "20t cd. Three compound types cycle on reuse. The L4 you pick
+        determines which one becomes your specialty."
+
+CAPSTONE FORK AT L4 (choose one):
+
+L4a — ACID BATH (passive) — CAPSTONE
+  Perk type: passive
+  Effect: Acid-tagged enemies that die leave a permanent acid pool (12
+          turns, 6 damage/turn + 6 tox/turn) on their death tile. Any
+          enemy that walks through an acid pool you created takes 10%
+          increased damage from all sources FOR THE REST OF THE FLOOR
+          (a permanent floor-wide debuff for that enemy — they're
+          corroded). Additionally, your melee attacks against enemies
+          standing in acid pools deal bonus damage equal to 2x your BKS
+          (a spike the moment they're on your terrain). Standing in your
+          own pool = zero risk (Reagent Handling). Optimizing this
+          capstone involves funneling enemies into pre-laid acid.
+  Desc: "Acid tag + acid terrain = perpetual corrosion. Kill on acid;
+        corrode everyone who steps through the aftermath."
+  Balance: Permanent 10% damage increase per enemy that's ever stepped
+          in acid is a strong floor-wide modifier that rewards setup.
+          The 2x BKS melee bonus (e.g. at BKS 12: +24 damage) is very
+          high but requires standing in your own acid to trigger, which
+          requires Reagent Handling (guaranteed with this tree branch).
+
+L4b — VENOM INJECTION (activated) — CAPSTONE
+  Perk type: activated
+  Ability: venom_injection
+  Charge type: INFINITE (45t cooldown)
+  Target type: ADJACENT
+  Effect: 45t cd. Deliver a concentrated venom payload to an adjacent
+          enemy: applies 50 toxicity instantly AND marks them with
+          Deep Venom (10 turns). Deep Venom: the target cannot reduce
+          their toxicity by any means during the duration; all tox
+          damage ticks against them are tripled; every time they take
+          a tox tick, the 3 nearest enemies gain 5 tox each from
+          the overflow. The venom runs so deep it sweats out.
+          On the target's death during Deep Venom, all enemies in a
+          5-tile radius gain 20 tox each.
+  Desc: "45t cd. 50 tox instantly + Deep Venom 10t: tripled tox ticks,
+        overflow to neighbors, 5-tile death burst. The nucleus of a
+        chain kill."
+  Balance: Requires adjacent range (risky). The triple tox ticks at 50+
+          tox = very fast death for most enemies. 45t cooldown prevents
+          spamming. Deep Venom is lethal against most enemies within
+          8-10 turns.
+
+L4c — GAS CLOUD (activated) — CAPSTONE
+  Perk type: activated
+  Ability: gas_cloud_chem
+  Charge type: PER_FLOOR (2/floor)
+  Target type: AOE_CIRCLE (radius 3, any visible tile center)
+  Effect: 2/floor. Release a persistent gas cloud at the target tile:
+          a 3-tile radius cloud that lasts 20 turns. Enemies inside
+          the cloud gain 6 tox/turn AND have their movement speed
+          reduced by 30% (they can escape but slowly). The cloud is
+          invisible to enemies (no pathfinding avoidance — they walk
+          into it normally). Enemies with Gas compound tags who are
+          hit by the cloud take the tag's burst immediately and also
+          have their gas burst radius doubled to 6 tiles. Combining
+          with Compound Theory Gas tags creates a series of nested
+          explosions when gas-tagged enemies are hit inside the cloud.
+  Desc: "2/floor. Invisible to enemies. 20 turns. Tag a few of them
+        first for the chain reaction."
+  Balance: Invisible cloud is a strong zone-denial tool. Against
+          wandering AI (wander_ambush, meander) that won't dodge, it
+          consistently applies 120 tox over 20 turns. 2/floor limits
+          setup overhead.
+
+IMPLEMENTATION NOTES (V6):
+  - compound_theory_cycle: engine.chem_compound_cycle = "acid"|"venom"|"gas"
+  - compound tags implemented as separate Effect subclasses: AcidTag,
+    VenomTag, GasTag — each checks engine for L4 capstone bonus
+  - deep_venom effect: blocks tox reduction methods, triples tox_tick
+    damage, fires overflow on tick
+  - gas_cloud hazard: new hazard_type="gas_cloud", invisible (renders
+    as empty tile to enemies), applies tox + slow per tick to occupying entity
+  - gas_cloud_invisible: render.py checks for gas_cloud hazard and only
+    renders '~' to player (not to AI pathfinding tile cost)
+  - acid_bath_corroded: engine.chem_corroded_entities = set of entity_ids
+    that have ever walked through player acid; 10% damage bonus tracked
+    per entity in combat.py resolve_attack()
+
+NEW ABILITY IDs (V6): compound_theory, venom_injection, gas_cloud_chem
+
+
+==========================================================================
+VARIATION 7: "THE ZONE CONTROLLER" — Patrol / Strike / Fortress Triple Fork
+==========================================================================
+Shape: Triple Fork (L4)
+Fantasy: Ground control and enemy routing. The trunk establishes terrain
+placement and immunity. At L4, the player chooses their zone-control
+doctrine: roving patrol (mobile toxic aura), strike deployment (timed tox
+bombs), or fortress stance (turret mode, stationary power spike).
+
+TREE DIAGRAM:
+
+    L1: Contaminate
+          |
+    L2: Noxious Field
+          |
+    L3: Saturation Run
+        /    |    \
+       /     |     \
+  L4a:     L4b:    L4c:
+  Patrol  Strike   Fortress
+  Mode  Deployment Stance
+  (cap)   (cap)    (cap)
+
+TRUNK:
+
+L1 — CONTAMINATE (activated)
+  Perk type: activated
+  Ability: contaminate_z
+  Charge type: INFINITE (20t cooldown)
+  Target type: ADJACENT_TILE
+  Effect: 20t cd. Douse an adjacent tile with toxic waste: creates a
+          Toxic Creep hazard (6 tox/turn, 25 turns, also -15 speed on
+          exposure). You are immune to your own Contaminate tiles.
+          Maximum 4 active Contaminate tiles; oldest expires if you
+          exceed this.
+  Desc: "20t cd. Adjacent tile only. Four tile max. Start early."
+
+L2 — NOXIOUS FIELD (passive)
+  Perk type: passive
+  Stat bonus: { "tolerance": 2, "street_smarts": 2, "tox_resistance": 20 }
+  Effect: +2 TOL, +2 STS, +20% tox resistance. Your Contaminate tiles
+          now also apply a Noxious stacking debuff to enemies on them:
+          each turn on a Contaminate tile adds 1 Noxious stack (max 6).
+          Each stack reduces the enemy's armor by 1 (min 0). Armor
+          restoration: stacks decay at 1/turn off the tile.
+  Desc: "+2 TOL, +2 STS, +20% tox resist. Tox terrain strips armor.
+        Get them to stand in it long enough."
+
+L3 — SATURATION RUN (activated)
+  Perk type: activated
+  Ability: saturation_run
+  Charge type: PER_FLOOR (2/floor)
+  Target type: LINE_FROM_PLAYER
+  Effect: 2/floor. Charge forward in a straight line (up to 5 tiles),
+          leaving a trail of Contaminate tiles on every tile you pass
+          through. Enemies in your path take STR damage (direct, uses
+          your melee power) and are knocked back 2 tiles. You stop at
+          walls or the 5th tile. The trail tiles follow all Contaminate
+          rules (immune to you, max 4 tiles cap still applies from the
+          oldest laid).
+  Desc: "2/floor. Charge 5 tiles. Leave a trail. Enemies bounce."
+
+CAPSTONE FORK AT L4 (choose one):
+
+L4a — PATROL MODE (passive) — CAPSTONE
+  Perk type: passive
+  Effect: When you move (any direction), adjacent non-wall tiles you
+          pass adjacent to gain 4 tox if an enemy is standing on them.
+          This is a constant mobile tox aura: just moving near enemies
+          poisons them, no ability use required. Additionally, your
+          Contaminate tiles increase in size: each Contaminate tile now
+          affects a 3x3 area (the center tile is the created hazard, but
+          it applies tox to all 8 adjacent tiles as well — only movement
+          speed penalty applies to adjacent tiles, not the tox/turn).
+          A moving Contaminate specialist leaves a corridor of soft
+          tox wherever they walk.
+  Desc: "Walking near enemies applies 4 tox. Contaminate tiles expand
+        to 3x3. The map is your weapon."
+  Balance: Passive tox application on movement is very consistent
+          against chasing enemies. 3x3 Contaminate is powerful in
+          narrow corridors. Combo: Saturation Run through a packed hall
+          + Patrol Mode movement = significant tox delivery.
+
+L4b — STRIKE DEPLOYMENT (activated) — CAPSTONE
+  Perk type: activated
+  Ability: strike_deployment
+  Charge type: PER_FLOOR (3/floor)
+  Target type: AOE_CIRCLE (radius 2, any visible tile center)
+  Effect: 3/floor. Deploy a timed acid charge at any visible tile. The
+          charge has a 2-turn fuse (render as '*' char, lime green). On
+          detonation: creates a 3-tile radius acid pool (8 damage/turn,
+          10 tox/turn, 20 turns), knocks back all entities in radius 2
+          tiles, and stuns them for 1 turn. Enemies killed in the blast
+          leave a Contaminate tile at their death tile (6 tox/turn, 20t).
+          Can have 2 charges live simultaneously; third delays until
+          one detonates.
+  Desc: "3/floor. 2-turn fuse. 3-tile acid burst, knockback, stun.
+        Dead enemies leave tox tiles. Chain it."
+  Balance: 2-turn fuse allows enemies to walk into range (against
+          chasing AI this is reliable). 3/floor gives consistent
+          room-opening capability. The acid pool from detonation
+          lasts 20 turns — significant territory control after the blast.
+
+L4c — FORTRESS STANCE (passive) — CAPSTONE
+  Perk type: passive
+  Effect: While you do NOT move for 2+ consecutive turns (stationary),
+          gain Fortress Mode: your Contaminate tiles deal doubled tox
+          (12 tox/turn) and speed penalty increases to -30. You
+          personally gain +3 armor and +20% tox resistance while
+          stationary. Additionally, enemies that enter your current
+          tile's melee range (adjacent) while you're in Fortress Mode
+          immediately take 20 direct damage from a contact burst
+          (once per enemy per encounter, not per turn). Moving ends
+          Fortress Mode; 2 stationary turns restart it.
+  Desc: "Don't move for 2 turns: double tox on terrain, +3 armor,
+        +20% tox resist, 20 contact damage vs. adjacent enemies.
+        Choose your chokepoint and hold it."
+  Balance: Powerful but requires static play. Against room guard AI
+          or enemies that charge you, Fortress Mode is consistently
+          active. Against hit-and-run AI it's harder to maintain.
+          Synergy with Saturation Run (use it to spread tiles, then
+          return to center and lock down).
+
+IMPLEMENTATION NOTES (V7):
+  - noxious_stacks: engine.chem_noxious_stacks = dict{entity_id: int}
+    incremented each turn on Contaminate tile, decayed on exit
+  - armor reduction from noxious: applied in combat.py resolve_attack
+    via entity.temp_armor_penalty (noxious_stacks value)
+  - saturation_run: uses movement_in_line helper, places hazards on
+    each tile passed; collision stops on wall or entity
+  - patrol_mode_aura: hook in engine._run_energy_loop AFTER player
+    movement action: check all adjacent entities, apply 4 tox each
+  - strike_deployment fuse: hazard entity with hazard_type="acid_charge"
+    and fuse_turns=2; detonation handled in energy loop
+  - fortress_stance_counter: engine.chem_stationary_turns (int);
+    reset on any movement action; Fortress Mode = counter >= 2
+  - fortress_contact_burst: engine.chem_fortress_hit_set = set{entity_ids}
+    per floor, prevents repeat trigger
+
+NEW ABILITY IDs (V7): contaminate_z, saturation_run, strike_deployment
+
+
+==========================================================================
+VARIATION 8: "THE SURGEON" — Precision Poison vs. Desperate Measures
+==========================================================================
+Shape: W-shape
+Fantasy: A long build arc that explores tox control vs. tox desperation.
+Two branches develop surgical precision or rage-fueled self-toxing; they
+converge at a shared mastery node, then split into two final endgames:
+calculated execution or berserker last-stand.
+
+TREE DIAGRAM:
+
+    L1: Needle Hands
+          |
+    L2: Flush
+       / \
+      /   \
+  L3a:    L3b:
+  Ghost  Chemical
+  Dose   Rage
+    \      /
+     \    /
+  L4: Tox Mastery (shared convergence)
+       / \
+      /   \
+  L5a:    L5b:
+  Final   Berserker
+  Dosage  Bloom
+  (cap)   (cap)
+
+TRUNK:
+
+L1 — NEEDLE HANDS (passive)
+  Perk type: passive
+  Effect: The first melee hit on any enemy per floor applies 25 toxicity
+          (tracked per floor — one burst per enemy; subsequent hits are
+          normal). Grants +3 Chemical Warfare XP per first-strike tox
+          application. Works on all melee weapon types.
+  Desc: "First contact always hits hardest. You've made sure of it."
+
+L2 — FLUSH (stat)
+  Perk type: stat
+  Effect: { "street_smarts": 3, "tox_resistance": 20 }
+  +3 Street-Smarts, +20% Toxicity Resistance. You know exactly how to
+  manage what you're carrying — push it out before it compounds. The
+  first hit to apply tox to YOU each floor is also absorbed: first tox
+  application to the player per floor does nothing (the flush catches it).
+  Desc: "+3 STS, +20% tox resist. First tox hit per floor: nullified."
+
+BRANCH A — Surgical Precision
+
+L3a — GHOST DOSE (activated)
+  Perk type: activated
+  Ability: ghost_dose_w
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 3/floor. Mark a visible enemy with Ghost Dose (12 turns):
+          every time that enemy takes ANY damage from any source, they
+          gain 6 toxicity. On the mark's expiry or the enemy's death,
+          you recover 1 HP per 8 tox the target accumulated while marked
+          (rounded down, max 20 HP). Can have 2 Ghost Dose marks active
+          simultaneously.
+  Desc: "3/floor. Every damage source adds 6 tox. Their suffering funds
+        your survival."
+
+BRANCH B — Desperate Measures
+
+L3b — CHEMICAL RAGE (passive)
+  Perk type: passive
+  Effect: For every 25 toxicity you carry, gain +1 melee damage (no
+          cap within a reasonable range). At 100 tox: +4 melee. At 200
+          tox: +8 melee. Also: while at 75+ personal tox, your melee
+          attacks apply an additional 4 tox per hit (the rage itself
+          becomes contagious).
+  Desc: "+1 melee per 25 personal tox. At 75+ tox: melee also applies
+        4 tox/hit. Anger is a chemical."
+
+SHARED CONVERGENCE NODE:
+
+L4 — TOX MASTERY (passive)
+  Perk type: passive
+  Stat bonus: { "street_smarts": 2, "tolerance": 2 }
+  Effect: +2 STS, +2 TOL. Your tox deliveries are surgical: all tox
+          you apply (via abilities, passives, on-hit effects) bypasses
+          30% of enemy tox resistance. Additionally, enemies at 50+
+          toxicity have a 15% chance per melee hit to be stunned for
+          1 turn (the tox overwhelms their nervous system). Both
+          branches benefit: Ghost Dose builds tox toward the stun
+          threshold; Chemical Rage keeps you doing consistent melee
+          through stuns.
+  Desc: "+2 STS, +2 TOL. Tox bypasses 30% enemy resistance. 50+ tox
+        enemies: 15% stun chance per hit."
+
+FINAL SPLIT AT L5:
+
+L5a — FINAL DOSAGE (activated) — CAPSTONE
+  Perk type: activated
+  Ability: final_dosage
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 2/floor. Administer the killing dose to a visible enemy.
+          Deals direct damage equal to the enemy's current toxicity
+          (converted 1:1 to damage — so an enemy at 80 tox takes 80
+          direct damage). Their toxicity then drops to 0. If this
+          kills them, they release a 4-tile tox burst (the death rattle):
+          every enemy in range gains 25 tox. If it doesn't kill them,
+          they retain 0 tox but a Ghost Dose mark is automatically
+          applied (free, no charge cost) to reset the cycle.
+  Desc: "2/floor. Convert tox to damage 1:1. Kills release a 25-tox
+        burst. Survivors get a free Ghost Dose mark to restart."
+  Balance: Against an enemy with 60+ tox, this is nearly always lethal.
+          The auto-Ghost Dose on survival keeps the loop going. The
+          death burst's 25 tox on nearby enemies pairs with Needle Hands
+          (first hit) for instant pressure on the next target.
+
+L5b — BERSERKER BLOOM (passive) — CAPSTONE
+  Perk type: passive
+  Effect: While you have 50+ personal toxicity: gain +15 speed (faster
+          actions), +3 melee damage flat bonus on top of Chemical Rage
+          scaling, and each melee kill triggers a tox bloom — a 2-tile
+          radius burst that applies 15 tox to all enemies caught in it.
+          The bloom can trigger from every kill while the speed bonus
+          is active, creating a kill-chain momentum loop. At 100+ tox:
+          the bloom radius increases to 4 tiles. You CANNOT use any
+          healing items while Berserker Bloom is active (the chemical
+          rage rejects intervention) — only kills sustain you.
+  Desc: "50+ tox: +15 speed, +3 melee, kill blooms. 100+ tox: bloom
+        grows to 4 tiles. No healing while berserk. Kill or die."
+  Balance: No healing is a significant restriction — you can't play
+          conservative. The speed bonus helps land kills before you die
+          from tox multiplier. Kill blooms create a snowball chain in
+          packed rooms. Low-health fragile build; pairs with Broken Body
+          (V4) for tox-can't-kill-you safety.
+
+IMPLEMENTATION NOTES (V8):
+  - needle_hands_floor_set: engine.chem_needle_floor_set = set{entity_ids}
+    cleared per floor; first hit per enemy applies burst
+  - flush_first_tox_blocked: engine.chem_flush_first_tox_used = bool
+    (False at floor start; True after first tox source absorbed)
+  - ghost_dose_marks: engine.chem_ghost_dose_marks = dict{entity_id: turns}
+  - chemical_rage: checked in combat.py player melee power calculation
+  - tox_mastery_resistance_bypass: read in add_toxicity() when source is
+    player-initiated; reduce effective tox_resistance by 30%
+  - tox_mastery_stun_roll: in combat.py after successful melee hit, if
+    defender.toxicity >= 50 and random.random() < 0.15, apply stun 1t
+  - berserker_bloom_no_heal: flag checked in inventory_mgr.py use_item();
+    if player has perk and toxicity >= 50, block healing items
+  - berserker_bloom_trigger: hook in combat.on_entity_death() if killer is
+    player; create tox burst hazard at death tile
+
+NEW ABILITY IDs (V8): ghost_dose_w, final_dosage
+
+
+==========================================================================
+VARIATION 9: "THE CONTAMINATOR" — Terrain Denial vs. Toxic Swarm
+==========================================================================
+Shape: W-shape
+Fantasy: A terrain-building toolkit in the trunk, two directions of
+specialization (wide coverage vs. targeted deployment), convergence into
+superior ground control, then two endgame philosophies: denial fortress
+or offensive swarm.
+
+TREE DIAGRAM:
+
+    L1: Contaminate
+          |
+    L2: Toxic Ground
+       / \
+      /   \
+  L3a:    L3b:
+  Creep  Acid Volley
+  Zone
+    \      /
+     \    /
+  L4: Hazard Mastery (shared convergence)
+       / \
+      /   \
+  L5a:    L5b:
+  Total   Toxic
+  Denial  Swarm
+  (cap)   (cap)
+
+TRUNK:
+
+L1 — CONTAMINATE (activated)
+  Perk type: activated
+  Ability: contaminate_c
+  Charge type: INFINITE (18t cooldown)
+  Target type: ADJACENT_TILE
+  Effect: 18t cd. Place a Toxic Creep hazard on an adjacent tile (5
+          tox/turn, 20 turns, -10 speed penalty). You are immune to
+          your own Contaminate tiles. Maximum 5 active tiles before
+          oldest expires.
+  Desc: "18t cd. Adjacent tile. Fast placement. Start routing them."
+
+L2 — TOXIC GROUND (passive)
+  Perk type: passive
+  Stat bonus: { "tolerance": 2, "tox_resistance": 20 }
+  Effect: +2 TOL, +20% tox resistance. Enemies that leave a tox hazard
+          tile you created retain a debuff for 3 turns: they move -10
+          speed and take 2 tox/turn (the tox clings). This makes terrain
+          stickier — enemies can't simply walk through and ignore it.
+          Also: the tox/turn on your Contaminate tiles increases from 5
+          to 7.
+  Desc: "+2 TOL, +20% tox resist. Leaving your tiles costs them 3
+        turns and 6 extra tox."
+
+BRANCH A — Creep Zone
+
+L3a — CREEP ZONE (passive)
+  Perk type: passive
+  Effect: Your tox hazard tiles spread: at the end of each floor turn,
+          each of your Contaminate tiles has a 25% chance to create a
+          new adjacent Contaminate tile (random adjacent floor tile,
+          no player immunity to this propagated tile). These propagated
+          tiles are half-strength (3 tox/turn, 10 turns) but still apply
+          the Toxic Ground sticky debuff. Rooms can eventually be
+          saturated passively if you lay the first tiles early.
+  Desc: "25% spread chance per tile per turn. One tile becomes many.
+        Set it and wait."
+
+BRANCH B — Acid Volley
+
+L3b — ACID VOLLEY (activated)
+  Perk type: activated
+  Ability: acid_volley_c
+  Charge type: PER_FLOOR (3/floor)
+  Target type: AOE_CIRCLE (radius 2, any visible tile)
+  Effect: 3/floor. Lob an acid grenade at any visible tile. Creates a
+          2-tile radius acid pool (6 damage/turn, 6 tox/turn, 18 turns).
+          Enemies in initial blast take 10 direct damage + 20 toxicity.
+          Combines with Toxic Ground: the pool's tox/turn increases to
+          9 on creation (Toxic Ground upgrade applies to thrown acid too).
+  Desc: "3/floor. Range-placed acid pool. Blast + sustained tox."
+
+SHARED CONVERGENCE NODE:
+
+L4 — HAZARD MASTERY (passive)
+  Perk type: passive
+  Stat bonus: { "street_smarts": 1, "tolerance": 2 }
+  Effect: +1 STS, +2 TOL. Universal upgrade to all tox hazards you
+          control:
+          (1) Your tox hazards no longer trigger pathfinding avoidance
+              for enemies (they walk into them normally rather than
+              routing around them).
+          (2) Enemies that take tox damage from your hazard tiles take
+              15% increased melee damage from you on that same turn
+              (syncs your terrain damage with your attack cadence).
+          (3) The maximum active Contaminate tile count increases from
+              5 to 8.
+  Desc: "+1 STS, +2 TOL. Enemies don't dodge your hazards. Terrain
+        damage makes your melee hit harder. 8-tile max."
+  Implementation: (1) requires a flag on tox hazard entities; AI
+          pathfinding checks hazard_avoidance=False when entity is the
+          player's hazard. (2) tracked via engine.chem_tox_hazard_hit_this_turn
+          flag, checked in combat.py.
+
+FINAL SPLIT AT L5:
+
+L5a — TOTAL DENIAL (activated) — CAPSTONE
+  Perk type: activated
+  Ability: total_denial
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF (current room)
+  Effect: 1/floor. Seed the entire current room with maximum Contaminate
+          tiles (every floor tile simultaneously becomes a tox hazard:
+          7 tox/turn + Toxic Ground sticky debuff, 25 turns). Your
+          immunity remains active. With Creep Zone (if taken), the
+          seeded tiles also have a 25% spread chance (though they're
+          already everywhere, it extends their lifetime by generating
+          new 10-turn tiles from the old ones). Hazard Mastery's
+          pathfinding override means enemies walk straight into it.
+          With 8 active enemies in the room all taking 7 tox/turn: after
+          10 turns every enemy has 70+ tox. At that tox level, the
+          monster multiplier is 1+(70/50)^0.6 = ~1.86x damage to them.
+  Desc: "1/floor. Entire room becomes your territory. Everything in
+        it starts dying."
+
+L5b — TOXIC SWARM (passive) — CAPSTONE
+  Perk type: passive
+  Effect: When an enemy reaches 60+ toxicity, they become Toxic: they
+          deal 50% of their normal melee damage to adjacent allies
+          (friendly fire, not to you). This turns large enemy groups
+          into chaos — the most-poisoned enemies start attacking their
+          own side. Additionally, Toxic enemies that die explode for
+          20 tox in a 3-tile radius (same as Outbreak, but triggered
+          by tox threshold rather than death threshold). You can seed
+          one or two enemies and watch the group self-destruct without
+          further ability use.
+  Desc: "60+ tox: enemy attacks their own allies for 50% damage. Death
+        explodes for 20 tox. Set one on fire and leave the room."
+  Balance: Friendly fire at 50% is significant — enemies deal around
+          4-8 damage/hit to allies, which can chain kill weaker
+          enemies. The death explosion chains tox to more enemies,
+          potentially triggering more friendly fire. Requires patience
+          (60 tox takes setup) but is very strong in large groups.
+
+IMPLEMENTATION NOTES (V9):
+  - creep_zone_spread: hook in engine._run_energy_loop at end of each
+    player turn; iterate player-owned tox hazard tiles; 25% random check
+    per tile; create half-strength hazard on random adjacent floor tile
+  - hazard_mastery_pathfinding: flag on hazard entity:
+    ai_will_avoid=False; read in ai.py step cost calculation
+  - hazard_mastery_melee_bonus: engine.chem_hazard_hit_this_turn = bool
+    per enemy entity; reset each turn; set True when tox hazard tick fires
+  - toxic_swarm_friendly_fire: hook in combat.resolve_attack when
+    attacker is a Toxic-flagged enemy; 50% damage to a random adjacent
+    ally instead
+  - toxic_swarm_death_explosion: hook in combat.on_entity_death; if
+    entity.toxicity >= 60 at death, apply 20 tox to 3-tile radius
+
+NEW ABILITY IDs (V9): contaminate_c, acid_volley_c, total_denial
+
+
+==========================================================================
+VARIATION 10: "THE LONG GAME" — Epidemic vs. Condemned
+==========================================================================
+Shape: Long Trunk Y-split (L5)
+Fantasy: A deep shared trunk builds the full Chemical Warfare toolkit
+over four levels of consistent progression. The L5 split is the payoff
+choice — a divergence between mass epidemic chain-spreading (room
+economy) or condemned mutual annihilation (single escalating kill game).
+
+TREE DIAGRAM:
+
+    L1: Patient Zero
+          |
+    L2: Incubation Period
+          |
+    L3: Viral Load
+          |
+    L4: Outbreak
+         / \
+        /   \
+  L5a:       L5b:
+  Epidemic   Plague Flag
+  (capstone) (capstone)
+
+TRUNK:
+
+L1 — PATIENT ZERO (activated)
+  Perk type: activated
+  Ability: patient_zero_lg
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: 3/floor. Infect a visible enemy with Patient Zero (15 turns):
+          that enemy gains 5 tox/turn AND spreads 3 tox to every
+          adjacent enemy per turn. Stacks with existing toxicity. The
+          initial application grants +2 Chemical Warfare XP.
+  Desc: "3/floor. Pick the vector. The room takes care of itself."
+
+L2 — INCUBATION PERIOD (passive)
+  Perk type: passive
+  Stat bonus: { "tolerance": 2, "street_smarts": 1 }
+  Effect: +2 TOL, +1 STS. Enemies with 20+ toxicity take 18% increased
+          damage from all sources. This damage vulnerability is broader
+          than V1's version (20 tox threshold vs. 3-tick requirement)
+          rewarding fast tox application over sustained accumulation.
+  Desc: "+2 TOL, +1 STS. 20 tox = 18% damage vulnerability. Hit them
+        while they're toxic."
+
+L3 — VIRAL LOAD (passive)
+  Perk type: passive
+  Stat bonus: { "book_smarts": 2 }
+  Effect: +2 BKS. Patient Zero can now be active on 2 enemies
+          simultaneously. When a Patient Zero-marked enemy dies, ALL
+          visible enemies gain 8 toxicity (not just 3-tile radius — the
+          viral load spreads across the whole room on a death). The
+          death-spread does NOT chain further on subsequent deaths (only
+          direct Patient Zero death triggers the room-wide burst).
+  Desc: "+2 BKS. 2 active marks. Marked death = 8 tox to ALL visible
+        enemies. One death poisons the room."
+
+L4 — OUTBREAK (activated)
+  Perk type: activated
+  Ability: outbreak_lg
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF (all visible enemies)
+  Effect: 1/floor. Trigger a mass outbreak: every visible enemy
+          simultaneously gains tox equal to their current tox + 10.
+          Enemies at 0 tox gain 10. Enemies at 40 tox gain 50. The
+          longer you've been spreading Patient Zero and building with
+          Incubation Period, the more devastating this detonation is.
+          Combined with Viral Load, a single marked death after Outbreak
+          fires can chain to 8 tox on all visible enemies from the death
+          burst, stacking onto Outbreak's escalation. Grants +8 Chemical
+          Warfare XP per enemy at 30+ tox at time of activation.
+  Desc: "1/floor. Everyone's tox doubles. The room is already infected;
+        this just flips the switch."
+
+FINAL SPLIT AT L5:
+
+L5a — EPIDEMIC (passive) — CAPSTONE
+  Perk type: passive
+  Effect: For the rest of the run: any time any enemy takes tox damage
+          (from any source — hazard, passive, ability, Patient Zero tick),
+          there is a 35% chance a random OTHER visible enemy also gains
+          6 tox (no line-of-sight required for the secondary target).
+          This is a permanent passive — always on, no activation. Combined
+          with Outbreak and Viral Load's death burst, this creates a
+          permanent background tox propagation across the whole floor.
+          Against 8+ enemies in a room, the 35% random bounce means
+          roughly 2-3 enemies gain an extra 6 tox every turn from passive
+          chain effects alone. Also grants: +5 Chemical Warfare XP per
+          enemy that dies at 60+ toxicity (the bonus rewards stacking
+          tox before converting it to kills).
+  Desc: "Permanent: 35% chance any tox damage bounces to another
+        visible enemy. The contagion runs itself."
+  Balance: The 35% bounce is roughly 1 extra tox event per 3 damage
+          events. In active combat with 5 enemies taking tox damage,
+          that's ~1-2 extra tox applications per turn. Modest per tick,
+          compound over a floor. Strongest against groups (8+ enemies),
+          weaker vs. solo targets.
+
+L5b — PLAGUE FLAG (activated) — CAPSTONE
+  Perk type: activated
+  Ability: plague_flag_lg
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF
+  Effect: 1/floor. For 18 turns: your own toxicity-gaining events
+          trigger a mass shared-suffering broadcast — every time YOU
+          gain tox, all visible enemies gain 40% of that amount.
+          Additionally, your melee damage during this window is
+          multiplied by 1 + (your_tox/200)^0.6 (the same formula as
+          incoming damage — your tox now powers your output too).
+          During Plague Flag, Outbreak (if not already used) gains
+          a bonus: its +tox-equals-current effect is doubled (enemies
+          gain current_tox * 2 instead of current_tox + 10). Use the
+          flag as the escalation closer: pre-build tox with Patient Zero
+          and Incubation Period, fire Outbreak mid-flag, and convert the
+          whole room's tox into a kill window.
+  Desc: "1/floor, 18 turns. Your tox spreads at 40% to all visible
+        enemies. Your tox powers your melee. Outbreak doubles if unused.
+        The three systems together end rooms."
+  Balance: The melee tox multiplier is the same formula combat.py
+          already applies to incoming damage — zero new math, just
+          applied to the output side. At 150 personal tox: ~1.87x melee
+          output. The 40% shared suffering is meaningful but not
+          broken: at 20 tox gain, enemies gain 8 each. The real power
+          is the Outbreak doubling — used mid-flag with pre-built tox,
+          this can push rooms of enemies to 80-100+ tox in one turn.
+
+IMPLEMENTATION NOTES (V10):
+  - viral_load_room_spread: in combat.on_entity_death(); if deceased
+    had patient_zero status, apply 8 tox to all visible enemies
+    (not just 3-tile radius); flag to distinguish from V1 death burst
+  - epidemic_bounce: hook in add_toxicity() when source is any enemy;
+    35% random check; apply 6 tox to random other visible enemy
+  - plague_flag_lg_active: engine.chem_plague_flag_lg_active bool,
+    18-turn countdown
+  - plague_flag_shared_tox: hook in add_toxicity() when source is player
+    and plague_flag active; broadcast 40% to all visible enemies
+  - plague_flag_melee_multiplier: read in combat.py player melee
+    resolve; if flag active, multiply final damage by
+    1 + (player.toxicity/200)**0.6
+
+NEW ABILITY IDs (V10): patient_zero_lg, outbreak_lg, plague_flag_lg
+
+
+==========================================================================
+GLOBAL IMPLEMENTATION NOTES
+==========================================================================
+
+Shape Distribution:
+  Y-split (L3):     V1 (Spreader),        V2 (Junkie)
+  Diamond (L2→L5):  V3 (Alchemist),       V4 (Martyr),  V5 (Biologist)
+  Triple Fork (L4): V6 (Chemist),         V7 (Zone Controller)
+  W-shape:          V8 (Surgeon),         V9 (Contaminator)
+  Long Trunk Y:     V10 (Long Game)
+
+  [Note: Diamond has 3 uses to accommodate the richer design space; Y-split and
+   Long Trunk Y each have 2. All 5 shapes appear; Y-split and Diamond exceed
+   the minimum-2 requirement.]
+
+All new ability IDs across all 10 variations:
+  patient_zero_b, outbreak_b, inoculate           (V1)
+  spike_tox                                        (V2)
+  corrosive_spit_b, acid_volley_b, total_meltdown (V3)
+  martyrdom_b, plague_flag_b                      (V4)
+  biohazard_perimeter, controlled_experiment,
+    saturation_protocol                            (V5)
+  compound_theory, venom_injection, gas_cloud_chem (V6)
+  contaminate_z, saturation_run, strike_deployment (V7)
+  ghost_dose_w, final_dosage                       (V8)
+  contaminate_c, acid_volley_c, total_denial       (V9)
+  patient_zero_lg, outbreak_lg, plague_flag_lg     (V10)
+
+New engine state flags (all prefixed chem_):
+  chem_incubation_counters:  dict{entity_id: int}         (V1)
+  chem_inoculate_floor_lock: dict{entity_id: int}         (V1)
+  chem_inoculate_kills:      int (perm, capped at 4)      (V1)
+  chem_spike_active:         bool + 8t countdown          (V2)
+  chem_spike_crash_immune:   int countdown (3 turns)      (V2)
+  chem_overdrive_counter:    int 0-3                      (V2)
+  chem_plague_flag_active:   bool + 15t countdown         (V4)
+  chem_death_wish_triggered: bool per floor               (V4)
+  chem_death_wish_invuln:    int countdown (3 turns)      (V4)
+  chem_subject_marks:        dict{entity_id: turns}       (V5)
+  chem_compound_cycle:       str "acid"|"venom"|"gas"     (V6)
+  chem_corroded_entities:    set{entity_ids}              (V6)
+  chem_noxious_stacks:       dict{entity_id: int}         (V7)
+  chem_stationary_turns:     int                          (V7)
+  chem_fortress_hit_set:     set{entity_ids} per floor    (V7)
+  chem_needle_floor_set:     set{entity_ids} per floor    (V8)
+  chem_flush_first_tox_used: bool per floor               (V8)
+  chem_ghost_dose_marks:     dict{entity_id: turns}       (V8)
+  chem_hazard_hit_flags:     dict{entity_id: bool}        (V9)
+  chem_plague_flag_lg_active:bool + 18t countdown         (V10)
+
+New PlayerStats fields proposed:
+  (None new beyond what existing variations already proposed)
+
+New Effect subclasses needed:
+  IncubationPeriodEffect    — 18%/15% damage vuln (V1 L2, V10 L2)
+  InoculateEffect           — blocks tox reduction, doubles tox ticks (V1)
+  HemorrhagicFeverEffect    — 8 HP/turn drain at 50+ tox (V1)
+  SpikeEffect               — tox doubles for calculations, no dmg spike (V2)
+  DeepVenomEffect           — blocks tox reduction, triples tox ticks (V6)
+  FortressModeEffect        — +3 armor, +20% tox resist while stationary (V7)
+  BerserkerBloomEffect      — +15 speed, +3 melee, no heal gate (V8)
+  ToxicSwarmEffect          — enemy friendly fire flag at 60+ tox (V9)
+  PlagueFlag_LGEffect       — shared tox broadcast + melee multiplier (V10)
+
+Passive hooks in existing files:
+  combat.py — add_toxicity(): epidemic_bounce (V10), shared_suffering (V4),
+               spike_tox double flag (V2), tox_resistance bypass (V8 Tox Mastery)
+  combat.py — resolve_attack(): dead_zone bonus (V3/V5/V9), noxious_stacks
+               armor reduction (V7), berserker_bloom kill trigger (V8),
+               broken_body outgoing multiplier (V4), acid_blood retaliation (V3)
+  combat.py — on_entity_death(): viral_load room spread (V10), creep_zone
+               corpse puddle (V3 Dissolution), toxic_swarm explosion (V9)
+  engine.py — _run_energy_loop(): patrol_mode aura (V7), overdrive counter (V2),
+               fortress_stance counter (V7), creep_zone spread tick (V9),
+               incubation_period counter updates (V1)
+
+==========================================================================
+BALANCE COMPARISON TABLE
+==========================================================================
+
+Variation  | Shape         | Identity          | Tox Dir | Risk Level | Complexity
+-----------|---------------|-------------------|---------|------------|----------
+V1 Spreader| Y-split       | Chain infection   | Low/Out | Low        | Medium
+V2 Junkie  | Y-split       | Consume economy   | High    | High       | Medium
+V3 Alchemist| Diamond      | Terrain caster    | Mixed   | Low-Med    | High
+V4 Martyr  | Diamond       | Mutual suffering  | Very Hi | Very High  | High
+V5 Biologist| Diamond      | Science/analysis  | Medium  | Medium     | High
+V6 Chemist | Triple Fork   | Elemental fork    | Mixed   | Low-Med    | Medium
+V7 ZoneCtrl| Triple Fork   | Terrain doctrine  | Low     | Low        | Medium
+V8 Surgeon | W-shape       | Precision DOT     | Zero/Hi | Medium     | Medium
+V9 Contamin| W-shape       | Ground spreading  | Low     | Low        | Medium
+V10 LongGame| Long Trunk Y | Deep setup payoff | Mixed   | Medium     | Medium
+
+Recommended for implementation first:
+  V10 (Long Game) — longest trunk means fewest per-level branch decisions;
+    clean fan-out at L5; all four trunk perks are individually useful.
+  V7 (Zone Controller) — three distinct endgame capstones each fit a
+    different playstyle; trunk perks already proposed in previous doc.
+  V1 (Spreader) — Y-split is the simplest topology; both branches build on
+    Patient Zero which is already designed in the original variations doc.
+
+Most complex to implement:
+  V3 (Alchemist) — Diamond with 8 nodes total including Living Reagent aura
+    and Total Meltdown's floor-hazard burst. High but manageable.
+  V4 (Martyr) — Broken Body's outgoing multiplier and Death Wish's invuln
+    window require careful edge-case handling (permadeath implications).

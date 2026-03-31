@@ -1,0 +1,771 @@
+================================================================================
+TYRONE'S PENTHOUSE — FEATURE BRAINSTORM
+Zone transition hub between Crack Den (floors 1-4) and Meth Lab
+================================================================================
+
+CONTEXT
+-------
+The Penthouse is a single-floor "pseudozone" (type: pseudozone in ZONE_ORDER) with a
+fixed 39x14 layout. Currently it has: Tyrone (gold T, npc_wander AI behind counter),
+5 shop items from UNIQUE_TABLE_A displayed on the counter at 2x item value in cash,
+and an exit staircase tucked in a bottom-right alcove. The large open floor area
+(roughly 30x10 tiles) is almost entirely empty.
+
+The Meth Lab introduces: toxicity damage multiplier (1 + (tox/100)^0.6), radiation +
+mutation system, faction reputation (Aldor/Scryer), and harder enemies (higher base HP,
+~5-12 cash_drop, more special attacks). Preparing the player for these systems is the
+Penthouse's job.
+
+Design constraints:
+- No code edits. This is a pure design document.
+- All features must be feasible within existing engine patterns:
+  entity_type="npc", entity_type="hazard" (hazard_type=...), AbilityDef, Effect
+  subclass, MonsterTemplate, FOOD_DEFS extension, PlayerStats fields.
+- Meaningful choices, not free power. Each feature should have a cost or tradeoff.
+- Fits Tyrone's kingpin/luxury persona and the game's gritty urban tone.
+- ASCII rendering for NPCs and props. Graphical tiles (0xE010+) only if visually critical.
+
+================================================================================
+FEATURE 1: TYRONE'S PERSONAL COOK — MAMA'S KITCHEN
+================================================================================
+
+CONCEPT
+-------
+A second NPC, "Big Mama" (char: 'M', color warm tan ~(220, 180, 130)), stands at a
+cooking station on the west side of the room. She sells a fixed menu of three
+high-value prepared foods that are unique to the Penthouse — you cannot find them in
+the Crack Den or the Meth Lab. Each item has a cash price and a real tradeoff built in.
+
+POSITION IN LAYOUT
+------------------
+West wall area, roughly ox+2 to ox+6, rows oy+5 to oy+10 — on the player's side of
+the counter, away from Tyrone's shop. The cooking station itself is a couple of hazard
+entities (hazard_type="stove") using char='=' in orange-red, blocking movement.
+
+MENU (3 items, fixed per run)
+
+  1. Penthouse Plate — $40
+     A full hot meal. FOOD_DEF style: eat_length=8, heal=[25,35], then HoT=CON/4 for
+     12 turns. Best pure HP recovery in the game at this point. No downside — just
+     expensive. Fills the "safe big heal" slot.
+
+  2. Rat Poison Gumbo — $25
+     Looks delicious. eat_length=6. On finish: removes all current toxicity, then
+     permanently raises tox_resistance by +10 (additive to PlayerStats.tox_resistance).
+     Tox resistance is the most important Meth Lab mechanic — this is a direct counter.
+     Tradeoff: spending $25 now vs. buying a shop item. Only useful if the player has
+     or anticipates tox buildup.
+
+  3. Nuclear Nachos — $30
+     Spicy, glowing, questionable. eat_length=5. On finish: immediately grants +50 rad,
+     then permanently raises good_mutation_base_bonus by +0.10 (on PlayerStats) and
+     good_mutation_multiplier by +0.15. The player is paying $30 and accepting 50 rad
+     (bringing them closer to a weak mutation threshold of 75) in exchange for a
+     significantly better mutation polarity going into the Meth Lab. High-risk,
+     high-reward for Mutation/Nuclear Research builds.
+
+MECHANICAL IMPLEMENTATION
+--------------------------
+- Big Mama entity: entity_type="npc", ai_type="npc_wander" (same as Tyrone), speed=20,
+  wander_idle_chance=0.95 — she barely moves.
+- Interaction: same walk-into-NPC pattern as Tyrone opens the shop. Opens a separate
+  "MAMA'S KITCHEN" menu (new MenuState.KITCHEN or handled inline as a variant of the
+  shop item popup).
+- Foods are not placed as ground entities. They are virtual menu options — on purchase,
+  the item is directly added to inventory (same as buying from Tyrone).
+- Food effect for Rat Poison Gumbo: add a new FOOD_DEFS entry "penthouse_gumbo" with a
+  "remove_toxicity" effect (amount=999 to clear all) plus a new effect type
+  "permanent_tox_resistance" {amount: 10} that calls
+  engine.player_stats.tox_resistance += 10 on eating completion.
+- Food effect for Nuclear Nachos: existing "radiation" effect type (amount=50) plus a
+  new "permanent_mutation_bonus" effect type that adjusts good_mutation_base_bonus and
+  good_mutation_multiplier on PlayerStats.
+
+BALANCE NOTES
+-------------
+- +10 tox resistance is meaningful (at 100 tox, damage mult goes from ~1.63x to ~1.49x)
+  but not game-breaking. It's one purchase.
+- +50 rad pushing you toward mutation threshold is a real cost — you might mutate badly.
+- Prices ($25-$40) compete directly with Tyrone's shop items ($60-$200+ for uniques).
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Tox resistance is the single most valuable stat entering the Meth Lab. Nuclear Nachos
+give Mutation builds an early advantage. Penthouse Plate lets a low-HP player top off
+before descending. All three options are optional but genuinely useful.
+
+================================================================================
+FEATURE 2: THE SKILL SAGE — PROFESSOR CRACKSWORTH
+================================================================================
+
+CONCEPT
+-------
+An eccentric academic NPC (char: 'P', color light cyan ~(160, 220, 220)) in the corner
+of the penthouse, sitting at a table. He offers a one-time skill consultation:
+spend cash to convert your accumulated potential_exp in a skill into real_exp, bypassing
+the normal book_smarts conversion tax. Essentially he "tutors" you on one skill for a fee.
+
+POSITION IN LAYOUT
+------------------
+Far east side of the room, southeast quadrant, around ox+30, oy+7 — away from both
+Tyrone's counter and the exit alcove. A small table hazard entity (hazard_type="table",
+char=0xE002 which is the existing table tile) sits in front of him.
+
+MECHANIC
+---------
+On interact, a menu shows all skills that have potential_exp > 0 (i.e., the player has
+earned but not yet cashed in). For each skill it shows:
+  [Smoking]   - Potential: 1240 XP — Cost: $18
+  [Stabbing]  - Potential: 3800 XP — Cost: $55
+  etc.
+
+Pricing formula: ceil(potential_exp / 100) * 1.5 dollars, rounded to nearest $5.
+This means a skill with 1000 potential XP costs ~$15, one with 5000 costs ~$75.
+
+On purchase: engine.skills.get(skill_name).real_exp += potential_exp for that skill;
+potential_exp for that skill is set to 0. The player may level up if the real_exp
+threshold is crossed. Only one skill can be tutored per visit (one-time per penthouse
+floor — tracked by a flag on engine).
+
+TRADEOFF
+--------
+The player could have gotten all this XP "for free" by just spending skill_points
+normally. What Cracksworth sells is the conversion rate — bypassing the book_smarts
+penalty. For a player with low book_smarts (6-7), the normal SP conversion is very slow
+(10% rate). Cracksworth gives the full potential_exp without the tax. Cash cost is the
+equalizer.
+
+Low book_smarts players value this enormously (they're normally throttled). High
+book_smarts players have less incentive (they already convert efficiently). Natural
+self-balancing.
+
+IMPLEMENTATION NOTES
+--------------------
+- New MenuState.TUTOR or handled as a specialized inline menu using existing menu
+  infrastructure (similar to ITEM_MENU pattern).
+- engine flag: engine.cracksworth_tutored = False; set True after purchase; resets on
+  new run. (Does not reset on floor change since the Penthouse is only one floor.)
+- Dialogue on second approach after tutoring:
+  "Professor Cracksworth: Already taught you everything I can. For now."
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Lets low-BKS players unlock skill perks (tox resistance from Meth-Head, mutation perks
+from Mutation skill, etc.) that they'd otherwise not reach until mid-Meth Lab. Forces a
+cash vs. power decision that's genuinely interesting.
+
+================================================================================
+FEATURE 3: THE GUN BENCH — DAQUAN'S CUSTOMS
+================================================================================
+
+CONCEPT
+-------
+A gun modification NPC (char: 'D', color steel blue ~(100, 150, 200)), standing at a
+workbench on the east side of the room. He offers two permanent gun upgrade services
+(one per visit) and one consumable purchase. Relevant only if the player has a gun
+equipped but interesting enough that it's worth gun-running into the Penthouse for.
+
+POSITION IN LAYOUT
+------------------
+East wall, middle rows — roughly ox+32, oy+5. A workbench hazard entity in front of him
+(hazard_type="counter", reuse existing char/color).
+
+SERVICES
+
+  A. Magazine Extension — $35
+     Permanently increases the mag_size of the player's currently equipped gun by +3.
+     On purchase: engine.player.mag_size += 3; engine.player.current_ammo is adjusted
+     proportionally (capped at new max). One service per visit.
+
+  B. Suppressor — $45
+     Applies a permanent flag "suppressor" to the player's equipped gun entity
+     (entity.suppressor = True). Effect: enemies that are not the direct target of a
+     gunshot do not enter ALERTING state when the player fires near them. Implemented
+     in ai.py — the existing ALERTING logic already propagates sound; suppress it when
+     the flag is present.
+
+  C. Buy: Speed Loader (consumable) — $20 each, up to 3 in stock
+     An inventory item (item_id="speed_loader"). Use effect: immediately reloads the
+     equipped gun to full mag_size (equivalent to a free instant reload). Useful in
+     the Meth Lab's faster-paced combat.
+
+TRADEOFF
+--------
+Mag extension and suppressor are both genuinely strong for gun builds. The cash cost is
+real — $35-$45 competes with Tyrone's shop. Suppressor is more strategically valuable
+than mag extension in most situations but less flashy. Player must choose one.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Meth Lab enemies have more HP and hit harder. More ammo before reloading and the ability
+to snipe without pulling the whole room are both high-value upgrades. Gun builds go from
+"decent" to "actually powerful" with these services.
+
+================================================================================
+FEATURE 4: THE FACTION BROKER — SMOOTH CARL
+================================================================================
+
+CONCEPT
+-------
+A smooth-talking fixer NPC (char: 'C', color olive green ~(140, 180, 100)) who can
+improve your Aldor or Scryer faction reputation before you enter the Meth Lab. The
+Meth Lab's faction system currently starts both factions at -1000 (Archenemy). Smooth
+Carl lets you buy goodwill.
+
+POSITION IN LAYOUT
+------------------
+Near the center of the open floor, roughly ox+18, oy+8. He's just standing there.
+Approachable from any direction.
+
+SERVICES (one per visit, choose faction)
+
+  A. Aldor Introduction — $50
+     Adds +500 to reputation["aldor"] on PlayerStats.
+     Takes you from Archenemy (-1000) to Hated (-500). Enemies will still fight you
+     but you won't trigger the Aldor faction's most aggressive escalation behaviors.
+
+  B. Scryer Introduction — $50
+     Same as above for reputation["scryer"].
+
+  C. Double Introduction — $90
+     Both factions simultaneously. Takes both from -1000 to -500.
+
+TYRONE DIALOGUE TIE-IN
+-----------------------
+If the player has bought from Smooth Carl, Tyrone's greeting message changes to:
+  "Tyrone: Oh, you paid Carl? Smart. Don't waste it down there."
+
+TRADEOFF
+--------
+$50-$90 is expensive. Faction reputation only matters if you interact with faction
+enemies strategically (some have passive_until_hit AI at Friendly+ tier). Going in at
+-500 vs -1000 is a mild advantage, not a game-changer. It's prep for players who
+understand the Meth Lab's faction system. Ignorant players will not feel punished for
+skipping it.
+
+IMPLEMENTATION NOTES
+--------------------
+- engine.smooth_carl_used = False; set True after any purchase (disables further deals).
+- Reputation system already exists on PlayerStats.reputation dict.
+- The reputation tiers and what Friendly/Hombre unlocks are defined per faction in
+  existing Meth Lab enemy AI logic.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Directly addresses the faction system — the most opaque new mechanic in the Meth Lab.
+Rewards players who've learned how it works on a previous run. Creates a meaningful
+investment path for builds that want to leverage faction passives.
+
+================================================================================
+FEATURE 5: THE STAT MIRROR — TYRONE'S VANITY
+================================================================================
+
+CONCEPT
+-------
+An interactable object: a large ornate mirror on the south wall of the penthouse
+(hazard_type="mirror", char='|', color silver (200, 210, 220), blocks_movement=True).
+On interact, opens a one-time "Stat Reroll" service with no cash cost, but with a
+meaningful constraint: you can redistribute your current base stats (CON, STR, BKS, STS,
+TOL, SWG), but the total points stay exactly the same. It's a chance to fix a terrible
+stat roll before entering the hardest zone.
+
+MECHANIC
+---------
+Opens a new MenuState.STAT_MIRROR menu that shows all 6 stats as adjustable dials.
+Player can increment/decrement each stat within [6, 12] (for the 5 main stats) and [6, 16]
+for Swagger (which has a different range since it's independent). The total pool of
+(constitution + strength + book_smarts + street_smarts + tolerance) must equal the
+current total — no points gained or lost. Swagger is adjusted separately but capped at
+the current swagger value + 4 (can't boost it indefinitely).
+
+On confirm: all _base values on PlayerStats are set to the new distribution.
+Engine recalculates max HP immediately (since CON * 10 + 30).
+One-time use; engine flag engine.mirror_used = False → True.
+
+FLAVOR TEXT ON INTERACT
+------------------------
+"You stare into the mirror. For a moment you see exactly who you could be.
+ Tyrone: Redistribute yourself. Once."
+
+TRADEOFF
+--------
+No cash cost, but it's one-time and irreversible. The constraint is maintaining the same
+total — you cannot improve your build overall, only rebalance a lopsided roll. A player
+who already has a good stat spread will ignore it. A player who rolled 6 CON and 12 STR
+might desperately want to fix that before the Meth Lab's higher damage threats.
+
+BALANCE NOTES
+-------------
+- Cannot exceed [6,12] per stat, so you cannot create a degenerate build.
+- HP impact: shifting CON from 6 to 10 increases max HP by 40, but costs 4 points
+  from other stats. Real tradeoff.
+- This is not free power — it's redistributed power with strategic depth.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Toxicity damage scales with incoming damage. Low CON (low HP) combined with high tox is
+a death spiral. The mirror lets players correct a CON deficiency without abandoning
+their build archetype entirely.
+
+================================================================================
+FEATURE 6: THE SHOOTING RANGE — "JUST IN CASE"
+================================================================================
+
+CONCEPT
+-------
+A small practice range in the southeast area of the room (before the alcove) — three
+paper target hazard entities (hazard_type="target", char='O', color=(180, 80, 80),
+blocks_movement=False) on the east wall. Interacting with any target does nothing
+combat-wise, but it triggers a one-time XP bonus event:
+
+  "You put a few rounds through Tyrone's practice targets.
+   [Gatting XP: +300] [Sniping XP: +150]"
+
+These bonuses apply whether or not the player has a gun equipped. Flavor: even dry-
+firing and thinking about shooting counts as practice.
+
+A secondary use: if the player has any gun equipped and fires at a target (using the
+normal F gunfire command targeting a target entity), the target takes no damage but
+the shot grants double normal Gatting/Sniping/Drive-By XP for that one shot. This
+reuses the existing gun XP system — targets are just entities flagged with
+target_type="practice" that the gun system checks for.
+
+MECHANICAL IMPLEMENTATION
+--------------------------
+- Three Entity objects, entity_type="hazard", hazard_type="target".
+- engine.range_bonus_claimed = False. On first player move onto or adjacent to a target
+  tile: grant XP, set flag. No interaction key required.
+- Alternatively: walk-up auto-trigger — player enters the east area and a message fires.
+- Targets do not block movement.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Meth Lab has two gun-focused skills (Gatting, Sniping) with meaningful perks at L2-L3.
+Getting a free 300 XP in Gatting (out of 600 needed for L2) meaningfully nudges gun
+builds closer to their first real perk. Low cost to implement; no cash required.
+
+================================================================================
+FEATURE 7: THE STASH BOX — TYRONE'S SAFE
+================================================================================
+
+CONCEPT
+-------
+A large floor safe (hazard_type="safe", char='S', color=(120, 130, 100),
+blocks_movement=True) in the far west corner of the room. Interacting with it opens a
+special "STASH" interface: the player can deposit items and cash to be retrieved at the
+start of Meth Lab floor 1. Think of it as a carry-forward mechanic — you can commit
+resources to survival by "sending them ahead."
+
+But the stash is not free. Tyrone takes a 20% cut of all cash stashed.
+Items stash for free (he likes holding onto your stuff).
+
+MECHANIC
+---------
+On interact: opens MenuState.STASH (new). Shows current inventory. Player selects items
+to stash and an amount of cash. On closing the menu:
+- Cash amount is multiplied by 0.8 (Tyrone's cut) and stored in engine.stash_cash.
+- Selected items are removed from inventory and stored in engine.stash_items (list of
+  item_ids).
+- On Meth Lab floor 1 spawn: if stash_cash > 0 or stash_items is non-empty, player
+  receives them immediately with a message:
+  "Tyrone's guy drops off your stash. [$X cash, Y items retrieved]"
+
+Items can be stashed: consumables, weapons (even equipped — unequips first), rings, etc.
+You cannot stash the item you'll need immediately — so stashing a weapon means going
+into floor 1 of the Meth Lab unarmed until the delivery.
+
+Actually: the delivery happens at floor 1 spawn before the player takes their first turn.
+So weapon stashing IS viable (just a bit chaotic).
+
+TRADEOFF
+--------
+Stashing cash costs 20% but protects it from permadeath on the Penthouse (there's no
+combat, but the stash mechanic creates an interesting meta-choice: "do I spend now
+or bank for later?"). Stashing items trades now-availability for guaranteed future
+possession.
+
+The most compelling use: buy cheap consumables (tox removers, foods) in the Penthouse
+and stash them so you start Meth Lab floor 1 already stocked.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Players can create their own custom starting kit for the Meth Lab. A well-stocked
+tox-removal consumable supply at the start of floor 1 changes the threat profile of
+the entire zone. Forces deliberate planning rather than hoping for good loot.
+
+IMPLEMENTATION NOTES
+--------------------
+- engine.stash_cash: int = 0 (persists through floor transition)
+- engine.stash_items: list[str] = [] (item_ids)
+- engine.stash_delivered: bool = False (set True after Meth Lab floor 1 delivery)
+- The 20% cut is applied at stash time, not retrieval time.
+- Stashing does not require cash (you can stash 0 cash and just items).
+
+================================================================================
+FEATURE 8: THE MUTATION CLINIC — DR. IRRAD
+================================================================================
+
+CONCEPT
+-------
+A shady back-room NPC (char: '+', color sickly green ~(80, 200, 80), dressed as a
+doctor) operating out of a makeshift medical area on the west side, separated from
+Big Mama's kitchen by a couple of wall-adjacent hazard entities acting as partitions.
+Dr. Irrad offers controlled low-dose radiation exposure as a service.
+
+SERVICES
+
+  A. Micro-Dose ($20): grants exactly +40 rad to the player.
+     If player is below 75 rad (weak mutation threshold), this might push them into
+     range for a mutation. If they're already near a threshold, this tips them over.
+     The player sees their current rad before buying (shown in the menu).
+
+  B. Stable Isotope ($35): grants +40 rad AND applies a one-time "mutation insurance"
+     flag: engine.mutation_insurance = True. When this flag is set, the next mutation
+     that fires will be forced-good (overrides the 67% bad polarity for one roll).
+     The flag is consumed on the next mutation trigger.
+
+  C. Rad Flush ($15): removes exactly -60 rad (capped at 0). Pure defensive prep.
+
+TRADEOFF
+--------
+Micro-Dose: you want a mutation NOW, before the harder Meth Lab enemies, but you can't
+control polarity. It might be bad.
+Stable Isotope: costs $35 but guarantees your next mutation is good. Expensive insurance.
+Rad Flush: defensive, especially if you're sitting at 70 rad and don't want an
+uncontrolled mutation during the upcoming harder encounters.
+
+IMPLEMENTATION NOTES
+--------------------
+- engine.mutation_insurance: bool = False (checked in mutations.py trigger logic;
+  consumed and set to False when a mutation fires while it is True).
+- engine.dr_irrad_visited: bool = False; set True after any service to prevent
+  repeated purchases (one visit per penthouse, but can buy all three on that visit).
+  Actually — allow multiple service purchases on a single visit; just don't reset the
+  NPC between visits. Cap: can only buy each service once per Penthouse visit.
+- Dr. Irrad dialogue: "You don't ask what's in the needle. That's smart."
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+The Meth Lab is a radiation-heavy zone. Entering with a controlled mutation (especially a
+good one obtained via Stable Isotope) gives a substantial power spike. Alternatively,
+entering rad-clean (Flush) prevents early uncontrolled mutations during difficult first
+encounters. This feature directly targets Meth Lab's defining mechanic.
+
+================================================================================
+FEATURE 9: THE FLOOR BAR — TYRONE'S CABINET
+================================================================================
+
+CONCEPT
+-------
+A small bar setup on the east side of the penthouse — a few barstools (non-blocking
+decorative entities, char=',') and a bar surface (hazard_type="bar", char='=', brown).
+The bar is stocked with a rotation of Penthouse-exclusive drinks not available in either
+zone. 3 drinks in stock, randomized per run from a fixed pool. Walk up to the bar
+(adjacent to any bar-surface entity) to see the menu and purchase.
+
+No NPC attendant — the drinks are self-serve behind the bar. A small sign entity
+(char='"', color gold) labeled "Tyrone's Reserve" floats above it.
+
+PENTHOUSE-EXCLUSIVE DRINK POOL (6 options, 3 appear per run)
+
+  1. 40-Ounce of Resilience — $18
+     Drink: grants +20 temporary tox_resistance (via temporary_tox_resistance on
+     PlayerStats) for the duration of Meth Lab floor 1 only.
+     Implementation: a long-duration effect (floor_duration=True) that hooks into
+     total_tox_resistance. Expires at floor 2 of Meth Lab.
+
+  2. The Purple Promise — $22
+     Drink: immediately heals 15 HP and grants +1 permanent swagger.
+     Implementation: immediate heal + engine.player_stats.modify_base_stat("swagger", 1).
+     One of the only sources of permanent swagger outside of mutations.
+
+  3. Static Shock Soda — $15
+     Drink: grants +15% dodge_chance for 20 turns.
+     Implementation: apply_effect with a dodge_bonus effect for 20 turns.
+     Dodge_chance already exists on PlayerStats with set_dodge_chance().
+
+  4. Fermented Lean — $25
+     Drink: removes 30 toxicity (existing remove_toxicity effect type), then grants
+     +8 temporary tolerance boost for 15 turns. Tolerance is weird — lower is better
+     (stronger drug effects). This boosts tolerance (makes drugs weaker) but clears tox.
+     Good for a tox emergency, bad for the Nigle Fart/Iron Lung strain builds.
+
+  5. Paint Thinner Special — $10
+     Cheap. Drink: 50% chance to heal 20 HP, 50% chance to take 10 damage and gain
+     +20 toxicity. Classic gamble drink. Flavor: "Smells like turpentine. Tastes worse."
+
+  6. Gold Bottle ($50)
+     Premium. Drink: heals 30 HP, grants +1 to ALL base stats permanently, +1 temporary
+     swagger for 30 turns. Most expensive item in the Penthouse besides some shop uniques.
+     Luxury item — exists to be aspirational and reward cash hoarding.
+
+IMPLEMENTATION NOTES
+--------------------
+- Bar entities: a row of 4-5 hazard entities (hazard_type="bar") forming a surface.
+  Interacting with any of them opens the drink menu.
+- Drinks are not ground items — virtual menu options, purchased directly into inventory
+  or consumed immediately (player chooses, like a ITEM_MENU choice: "Buy / Buy & Drink").
+- engine.bar_stock: list[str] = [] (set at spawn time, 3 random draws from pool of 6).
+- Each drink tracks a "sold" flag so stock depletes.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+The 40-Ounce of Resilience directly addresses tox damage. Gold Bottle is aspirational
+permanent power. Static Shock Soda helps agile builds dodge the harder Meth Lab hits.
+The choice of 3 from 6 creates variety between runs.
+
+================================================================================
+FEATURE 10: THE BULLETIN BOARD — INTEL ON THE METH LAB
+================================================================================
+
+CONCEPT
+-------
+A cork board / notice board (char='#' tinted dark green, hazard_type="bulletin_board",
+blocks_movement=False) on the north wall between the counter and the east side.
+On interact, it opens a read-only text panel describing the Meth Lab.
+
+Content is procedurally selected from a pool of "intel cards" — 3 random cards per run.
+Each intel card reveals one concrete mechanic about what's ahead:
+
+  INTEL POOL (examples — 8 total cards, 3 shown per run):
+
+  CARD: "Toxicity Warning"
+  "Toxic enemies and hazards will raise your TOXICITY. At 100 tox, incoming damage is
+   multiplied by ~1.6x. Clear it fast. Tox Purgers and Industrial Cleaner consumables
+   help. Anti-tox strains: Iron Lung (CON-based), Nigle Fart (TOL-based)."
+
+  CARD: "Radiation & Mutations"
+  "Radiation accumulates passively and from enemies. At 75+ rad, you'll start mutating.
+   Mutations are permanent — 33% chance good, 67% bad. Nuclear Research and Mutation
+   skill trees shift the odds. Dr. Irrad in this very room offers insurance."
+
+  CARD: "The Factions"
+  "Aldor and Scryer run the Meth Lab. Both factions start hostile to you. Neutral or
+   better reputation lets you pass faction-specific enemies without combat. Smooth Carl
+   at the bar can grease some wheels — for a price."
+
+  CARD: "First Responders"
+  "Meth Lab Security and HAZMAT Officers patrol in groups. They call backup fast. Kill
+   the radio operator first — that's the one wearing the vest."
+
+  CARD: "The Purger"
+  "The Purger enemy uses a cleanse attack — it will remove YOUR positive status effects.
+   Don't stack buffs before walking into a Purger's room."
+
+  CARD: "Energy Economy"
+  "Meth and tox affect your speed. High tox slows you significantly. Speed matters more
+   in the Meth Lab's tighter corridors. Deep-Frying and Jaywalking trees help."
+
+  CARD: "Crafting Window"
+  "You still have your crafting table here. This is your last chance to combine items
+   before descending. Some Crack Den crafting combos produce tox-resistance consumables."
+
+  CARD: "Cash Economy"
+  "Meth Lab enemies drop more cash than Crack Den ones ($5-$50 per kill). Hoarding now
+   is less important than spending on the right upgrades."
+
+IMPLEMENTATION NOTES
+--------------------
+- hazard_type="bulletin_board"; on interact, new MenuState.BULLETIN or a simple
+  fullscreen text overlay (similar to the existing examine/log screen pattern).
+- engine.intel_cards: list[str] = [] (3 randomly sampled at spawn_penthouse time from
+  the pool of 8 string IDs; card text rendered at interaction time).
+- Cards are read-only. No cash cost. Pure tutorial/lore content.
+- The board entity is accessible from the player side of the counter (south of it),
+  near the east end of the counter line.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+NIGRL is a traditional roguelike — learning through death is part of the design. But the
+Penthouse transition is a perfect place to surface mechanic knowledge without breaking
+immersion. Players on their first run learn what to buy. Players on repeat runs can skip
+it quickly. The procedural card selection adds light replay value.
+
+================================================================================
+FEATURE 11: TYRONE'S BLACKJACK TABLE — HIGH STAKES
+================================================================================
+
+CONCEPT
+-------
+A gambling mini-game. A felt-covered table (hazard_type="gambling_table", char='T',
+dark green, blocks_movement) in the center of the room. Tyrone occasionally drifts to
+it (his npc_wander AI). Interacting with the table when Tyrone is adjacent (or within 2
+tiles) triggers the game. If Tyrone is too far away, a message fires:
+  "Tyrone: (busy right now)"
+
+GAME MECHANIC — SIMPLIFIED BLACKJACK
+--------------------------------------
+Not a full blackjack implementation. A simplified abstraction:
+
+On enter: player selects a bet from $10 to $50 (in $10 increments).
+The engine rolls: player_roll = random.randint(1,10) + int(street_smarts/2)
+               house_roll = random.randint(1,15)
+
+If player_roll > house_roll: player wins bet amount (net +bet).
+If player_roll < house_roll: player loses bet amount (net -bet).
+If player_roll == house_roll: push — no gain or loss, but player gets a consolation
+  prize: one random low-value consumable placed in inventory.
+
+Street-Smarts stat gives a real edge (higher STS = higher player roll average).
+This rewards the STS builds that won't be as well-served by the standard shop.
+
+Three rounds maximum per visit. Engine tracks engine.blackjack_rounds_played (0-3).
+
+TRADEOFF
+--------
+Gambling on cash you might need for better upgrades. Winning $50 is meaningful but
+losing $50 before the Meth Lab is painful. STS builds get a legitimate edge but it's
+not deterministic — there's real risk.
+
+FLAVOR
+------
+Tyrone's dialogue on win: "Tyrone: Next time I'll take it back."
+Tyrone's dialogue on loss: "Tyrone: That's what I thought."
+Tyrone's dialogue on push: "Tyrone: Take the snack. We square."
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+Doesn't directly prepare — it's a risk/reward mechanism. A winning session can fund
+three extra services from other NPCs. A losing session is a meaningful cost. The STS
+synergy rewards a stat that doesn't have many direct Penthouse interactions otherwise.
+
+================================================================================
+FEATURE 12: THE REPENTANCE PEW — ONE LAST PRAYER
+================================================================================
+
+CONCEPT
+-------
+A pew bench (char='_', dark wood color (100, 75, 40), blocks_movement=False) against
+the south wall with a small candle hazard entity (char='i', orange-yellow) beside it.
+On interact: the player kneels. A message fires:
+  "You take a moment. The city hums beneath you. Something shifts."
+
+Then: one of three things happens, weighted randomly:
+
+  (A) 60% — Nothing. Just the message. Flavor beat only.
+
+  (B) 30% — The player receives a "floor_duration=True" status effect called "Blessed"
+      which grants: +5% crit chance (STS bonus equivalent +1 or so), reduces all
+      incoming damage by 1 flat for the floor. Minor but real.
+      Effect category: "buff". Display name: "Blessed".
+
+  (C) 10% — A permanent +1 to one randomly selected stat (CON, STR, BKS, STS, or TOL).
+      Message: "Something in you hardened. [+1 Constitution]" etc.
+      Implemented via engine.player_stats.modify_base_stat().
+
+Interact is one-time per visit (engine.pew_used flag).
+
+TRADEOFF
+--------
+No cost. The tradeoff is purely probabilistic: you interact and either get nothing or
+something. The 10% permanent stat boost is genuinely exciting. The 60% empty result
+means players cannot rely on this. It creates a small ritual — players will always try
+it, know it might give nothing, and accept the outcome. Classic roguelike probability
+tension.
+
+FLAVOR NOTE
+-----------
+The pew has no religious denomination specified — it could be anything. The tone fits
+the game's irreverence: a moment of stillness in a brutal world that might mean nothing,
+or might change everything. Tyrone's penthouse having a pew is absurdist but plausible
+for a kingpin of his caliber.
+
+WHY IT PREPARES FOR METH LAB
+-----------------------------
+A 10% chance at a free permanent stat point is the strongest possible Penthouse reward
+with no cost attached. It rewards players for exploring every interactable. The Blessed
+buff is a small guaranteed-floor buffer. Neither is overpowered — they're small joys
+in a hard game.
+
+================================================================================
+LAYOUT INTEGRATION NOTES
+================================================================================
+
+Current penthouse dimensions: 39 wide x 14 tall, interior 37 wide x 12 tall.
+Counter occupies north wall, x=8 to x=26, rows 1-3.
+Exit alcove: bottom-right, ~x=33-38, y=9-13.
+
+Proposed NPC/Object placement (all approximate, spacing subject to fine-tuning):
+
+  NORTH AREA (behind counter, inaccessible to player):
+    - Tyrone: x=17, y=2 (existing)
+
+  NORTH WALL (player-side, row 3-4 area):
+    - Bulletin board: x=28-30, y=1 (on counter segment player can read from south side)
+
+  WEST SIDE (rows 5-10, x=2-7):
+    - Big Mama + stove: x=3-6, y=5-8
+
+  CENTER-WEST (rows 8-10):
+    - Repentance Pew: x=10-12, y=10 (south wall area)
+
+  CENTER-OPEN FLOOR:
+    - Smooth Carl: x=18, y=8
+    - Gambling table: x=20, y=7 (Tyrone wanders toward it)
+
+  CENTER-EAST:
+    - Professor Cracksworth + table: x=26-27, y=8
+
+  EAST SIDE (rows 4-8, x=31-36):
+    - Daquan's bench: x=32, y=5
+    - Shooting range targets: x=34-36, y=4-6 (north of alcove)
+    - Bar surface: x=30-34, y=9-10
+
+  FAR WEST CORNER:
+    - Tyrone's safe: x=2, y=10
+
+  SOUTH WALL AREA:
+    - Dr. Irrad clinic: x=8-12, y=10-11
+      (a small 2-wide partition hazard at x=13 separates clinic from pew area)
+
+This placement keeps the north counter + shop as the main focus, distributes NPCs
+across the room to encourage exploration, and respects the exit alcove in the bottom-
+right as untouched.
+
+================================================================================
+PRIORITY / IMPLEMENTATION ORDER
+================================================================================
+
+Tier 1 — Highest mechanical value, simplest to implement:
+  1. Mama's Kitchen (Feature 1) — reuses existing food system, huge Meth Lab prep value
+  2. The Bulletin Board (Feature 10) — pure text, no new mechanics, great for players
+  3. Tyrone's Cabinet bar (Feature 9) — extends existing drink/consumable system
+  8. The Mutation Clinic / Dr. Irrad (Feature 8) — directly targets Meth Lab rad system
+
+Tier 2 — New UI but leverages existing systems:
+  4. The Stat Mirror (Feature 5) — new menu but purely stat manipulation
+  5. The Stash Box (Feature 7) — new engine state, cross-floor persistence needed
+  6. Professor Cracksworth (Feature 2) — new menu over existing XP data
+
+Tier 3 — New content with more implementation surface:
+  7. Daquan's Customs (Feature 3) — gun entity modification + suppressor AI hook
+  9. Smooth Carl (Feature 4) — simple but requires faction system to be meaningful
+ 10. The Shooting Range (Feature 6) — simplest of this tier, quick XP event
+ 11. Tyrone's Blackjack (Feature 11) — simple math, new mini-menu
+ 12. The Repentance Pew (Feature 12) — one-liner probability event, trivial to code
+
+================================================================================
+CROSS-FEATURE SYNERGIES
+================================================================================
+
+- Buy Nuclear Nachos (Feature 1) then visit Dr. Irrad for Stable Isotope (Feature 8):
+  enter Meth Lab floor 1 with 90 rad AND mutation insurance. Guaranteed good mutation
+  shortly after descending. Very powerful combo.
+
+- Win big at Blackjack (Feature 11) then buy Gold Bottle at the bar (Feature 9):
+  gambling funds the premium drink. STS builds get gambling edge + dodge from Static
+  Shock Soda. Two features that synergize naturally.
+
+- Professor Cracksworth (Feature 2) unlocks a Meth-Head perk via tutoring, THEN buy
+  Rat Poison Gumbo (Feature 1) for double tox resistance entering the Meth Lab.
+  Tox resistance stacking is the primary survival mechanic for Meth Lab floor 1.
+
+- Pew (Feature 12) gives permanent +1 stat → visit Stat Mirror (Feature 5) afterward
+  to redistribute the adjusted total. Sequence matters.
+
+- Stash Box (Feature 7) + Mama's Kitchen (Feature 1): buy 2x Penthouse Plates, stash
+  one for Meth Lab floor 1 delivery. Guaranteed strong heal at zone entry.
+
+================================================================================
+end of document
+================================================================================

@@ -1,0 +1,85 @@
+================================================================================
+POE/WOW UNIQUE ITEMS — SUMMARY
+Source: nigrl-ideas/poe-wow-unique-items.txt
+================================================================================
+
+25 unique equippable items. Design lens: PoE rule-breaking uniques with real
+"Cannot do X" tradeoffs + WoW proc/stacking legendaries. Every item has a
+build-defining mechanic that does not duplicate any existing unique.
+
+SLOT BREAKDOWN:
+  Weapons melee (5): 2 stabbing, 2 beating, 1 slashing
+  Weapons guns (1):  1 large gun (weapon slot)
+  Sidearms (3):      3 small guns
+  Rings (7):         diverse builds (energy, charges, cleave, cash, DoT, speed, procs)
+  Neck (4):          tox offense, melee-disable, dodge retaliation, grudge burst
+  Feet (2):          tox dodge, HP-threshold speed swap
+  Hats (3):          random debuff tank, kill-dodge charges, gun-crit amplifier
+
+QUICK REFERENCE:
+  glass_cannon         Weapon (stabbing)  Forces armor=0; bonus damage = suppressed armor / 4
+  thinkin_mans_heater  Weapon (beating)   BKS-only scaling; crit = +1 temp BKS (max 4 stacks)
+  deadweight_shank     Weapon (stabbing)  +3 dmg/kill (max +15); ALL stacks expire after 10 idle turns
+  knucklehead          Weapon (beating)   15% Dazed proc; 3 stacks on same target = Haymaker (3x dmg)
+  manifesto_machete    Weapon (slashing)  TOL scaling (+2/TOL); +10 tox/hit; tox-kill → perm tox resist
+  decimators_oath      Weapon (large gun) d4 table per shot: 2x/normal/half+Shocked/miss+Fear
+  last_resort          Sidearm            Deals min damage above 35% HP; 3x defense-ignoring below
+  corner_store_chrome  Sidearm            base_damage = 1 + player.armor (current value)
+  clean_sweep          Sidearm            Bullet chains to up to 3 more adjacent targets (-20% each)
+  borrowed_time_ring   Ring               5 HP regen/turn; energy ONLY from kills
+  accountability_mirror Ring              30hp budget/floor: absorb incoming damage → ability charges
+  static_discharge_ring Ring              Melee crits arc lightning to 2 adjacents + self-shocked
+  street_tax_ring      Ring               Cash wallet → +1 dmg/10$; 2x kill cash
+  parasite_ring        Ring               DoT ticks also heal 50% of damage dealt
+  stash_house_ring     Ring               +3 TOL/BKS/STS + 2x cash; -20 energy/tick
+  vicars_signet        Ring               25% on ability use: refund charge + free random secondary
+  preachers_belt       Neck               +1 melee/20 tox; tox thorns on hit; -20 tox resist
+  cowards_coat         Neck               Melee DISABLED; +80 armor +8 def +30% tox/rad resist
+  snitches_get_stitches Neck              Any dodge triggers free 150% power counter (once/turn)
+  grudge_beads         Neck               Incoming damage stored; next attack spends (min(30, grudge/2))
+  meth_lab_overalls    Feet               dodge_chance += min(40, tox // 5); +20 tox resist
+  backpedal_boots      Feet               -10 energy/tick above 40% HP; +60 below 40% HP
+  the_empties          Hat                +3 TOL -3 SWG; 30% DR + random debuff when hit for 10+
+  prophets_poncho      Hat                Kill → Prophecy charge (max 3); charge → guaranteed melee dodge
+  hollow_point_hat     Hat                Gun crits 3x dmg; melee crits 1.5x; +3 STS
+
+KEY NEW MECHANICS INTRODUCED:
+  - Armor forced to 0 by equipped weapon (glass_cannon_equipped flag)
+  - Energy ONLY from kills — no passive accumulation (borrowed_time_equipped)
+  - Execute gun: useless above threshold; defense-ignoring burst below
+  - Damage = current armor (not base_damage range) for gun
+  - Chain bullet arc (up to 4 targets, -20%/hop) in gun system
+  - d4 chaos table per gun shot (each roll has distinct outcome)
+  - Cash wallet as direct melee damage scalar
+  - DoT-healing conversion (Parasite: DoTs heal 50% of tick damage)
+  - Melee-disabled "Cannot" with massive compensation (Coward's Coat)
+  - Tox-to-dodge scaling (min(40, tox//5) dodge bonus)
+  - HP-threshold energy swap (Backpedal: slow above 40%, fast below)
+  - Kill-generated dodge charge (persist, decay on empty floors)
+  - Grudge accumulation (stored incoming damage → burst next attack)
+  - Tox thorns on hit (enemy gets tox when it attacks you)
+  - Dazed stacking on same target → Haymaker free attack
+  - Ability proc chain (25% chance: refund + random second ability free)
+  - Gun crit multiplier override per hat (gun 3x, melee 1.5x)
+  - BKS crit feedback loop (crit → +1 temp BKS → bigger next crit damage)
+  - TOL as primary melee scaling stat (Manifesto Machete)
+  - Permanent tox resistance earned via tox kills (Manifesto)
+
+NEW ENGINE FLAGS INTRODUCED:
+  glass_cannon_equipped, borrowed_time_equipped, accountability_mirror_budget,
+  meth_lab_overalls_equipped, backpedal_boots_equipped, preachers_belt_equipped,
+  snitches_get_stitches_equipped, grudge_beads_damage, stash_house_equipped,
+  prophecy_charges, prophecy_killed_this_floor, street_tax_equipped,
+  hollow_point_hat_equipped, corner_store_equipped, static_discharge_equipped,
+  snitches_triggered_this_turn, deadweight_stacks/no_kill_turns/target_id,
+  knucklehead_dazed_target_id/count, manifesto_tox_bonus, vicar_proc_active
+
+NEW EFFECTS REQUIRED:
+  borrowed_time_hot (HoT 5/turn, floor_duration)
+  bks_surge (+1 temp BKS/stack, max 4, dur 10)
+  accountability_mirror_eff (floor_duration proxy)
+  dazed (-40% energy, dur 2)
+
+NEW PlayerStats FIELDS:
+  melee_damage_bonus (int, additive to atk_power; used by deadweight + others)
+================================================================================

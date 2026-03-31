@@ -1,6 +1,6 @@
 ---
 name: Spell Compendium Index
-description: Quick-reference index for all three spell compendiums (45 + 35 + 34 = 114 total ability designs)
+description: Quick-reference index for all spell compendiums (45 + 35 + 34 + 32 + 26 = 172 total ability designs)
 type: project
 ---
 
@@ -283,3 +283,260 @@ _hangover_fuel_active, _lease_weapon_id, _debt_spiral_count, _pocket_dimension (
 - AI state manipulation: write monster.ai_state directly + apply effect to re-assert each turn
 - Inverse scaling: compute bonus from (max_hp - hp) or debuff count at action-resolve time
 - Debt mechanics: track count in engine field, bill on floor transition (not on use)
+
+---
+
+## VOLUME II — New Elemental, Water School, and Multi-Element Combos
+Full document: `nigrl-ideas/elemental-ability-compendium-v2.txt`
+Written: 2026-03-26. 32 new castable ability IDs + 5 passive terrain interaction rules.
+PRIMARY: builds the Water/Wet school from scratch (8 spells).
+Also: fire/ice/lightning second-wave abilities, multi-element combo spells, weird entries.
+
+### W-W — Water / Wet School (8 spells, entirely new school)
+W-W-01 hydrant_burst    — INF CD5; SINGLE_LOS; 3+BKS/4 dmg; applies Wet (6t). Wet primer.
+W-W-02 splash_zone      — /FL 4; ADJ_TILE; wet_puddle terrain (8t). Conducts lightning to all puddle entities.
+W-W-03 muck_flood       — /FL 2; LINE 8 pierce; Wet (5t) all hit; creates mud_tile terrain. Absorbs puddles for range bonus.
+W-W-04 waterlogged_spell — /FL 3; SINGLE_LOS; Wet (8t) + WaterloggedEffect (-30 spd, -1 def). Doubles on pre-Wet targets.
+W-W-05 pressure_washer  — /FL 2; CONE 5; STR+BKS; Wet (4t) + pushback. STRIPS all ignite/fire from cone. Converts fire tiles to puddles.
+W-W-06 flash_flood      — ONCE; SELF room-wide; Wet (10t) all visible; room becomes puddles; strips all fire terrain, thaws frozen.
+W-W-07 rinse_cycle      — /FL 3; SELF; strip ALL elemental debuffs; brief self-Wet (4t); CON-scaled HoT.
+W-W-08 tidal_slap       — INF CD4; SINGLE_LOS; 5+BKS/4+STR/4; Wet (5t); 1-tile pushback. 2-tile + earthbound on mud targets.
+
+### V-F2 — Fire Second Wave (5 spells)
+slow_cook   — INF CD3; SINGLE_LOS; TOL; 1 ignite stack, 10t timer. Maintenance tool. Refreshes (no new stacks) on 3+ stacks.
+fire_wall   — /FL 2; ADJ_TILE; places 3 fire hazard entities in perpendicular line. Corridor blocker.
+ember_burst — INF CD10; SINGLE_LOS; BKS+TOL; detonates ALL ignite stacks (3+BKS/6+TOL/6 per stack). Applies Scorch (can't re-ignite 8t).
+magma_fist  — INF CD3; ADJACENT; STR+TOL; 4+STR/3+TOL/4; applies ignite (2 stacks). Shatters frozen targets. +50% vs earthbound.
+smoke_signal — /FL 3; LINE 12; STS+BKS; 2+BKS/4+STS/4; 1 ignite stack. fire_marked 2-shot mechanic: second cast = double dmg + 3 stacks.
+
+### V-I2 — Ice Second Wave (4 spells)
+black_ice    — /FL 3; ADJ_TILE; STS; invisible trap tile (15t). Trigger: 2+STS/4 cold, chill 2, 50% stun 1t. Freezes adjacent puddles.
+cold_snap    — /FL 2; SELF room-wide; BKS; chill 1 to all visible. Wet entities → chill 2 + Wet stripped. Converts puddles to ice_terrain.
+polar_vortex — /FL 1; AOE_CIRCLE r3; BKS; 6+BKS/4 cold; chill 3 (8t) all. Pre-2+ chill → frozen 4t. Creates ice_terrain in radius.
+ice_clone    — /FL 2; ADJ_TILE; BKS; places ice_clone entity (1 HP, decoy). Shatter on death: chill 2 adj. Fire death = steam burst.
+
+### V-L2 — Lightning Second Wave (4 spells)
+static_field   — /FL 3; ADJ_TILE; BKS; static_field terrain (10t). Trigger: 1+BKS/4 lightning + shocked 1. Amplified on puddle. Chain between adjacent fields.
+conductor      — INF CD6; SINGLE_LOS; BKS; conductor_mark (8t). Inward arc: 3 dmg when OTHER entities take lightning. Outward arc: Chebyshev 2 when directly hit.
+discharge_aura — /FL 2; SELF; TOL+BKS; buff 10t. Melee hits arc shocked (1) to adj. Wet player → expand to Chebyshev 2, double discharge.
+electric_slide — /FL 3; SELF movement; STS+BKS; 2-tile electrified dash. Shocked sweep to entities passed. Post-slide melee bonus.
+
+### V-C — Multi-Element Combos (6 spells)
+steam_cannon     — /FL 3; LINE 6; BKS+STR; [FIRE+WATER] Consumes adjacent puddle; 8+scaling dmg; earthbound+scorch. Double if target Wet.
+thunderstorm     — /FL 1; AOE_CIRCLE r4; BKS; [LIGHTNING+WATER] Requires 2+ Wet or puddles; Wet+shocked 2 all. Pre-Wet targets = double + 4 stacks.
+permadeath_frost — ONCE; SINGLE_LOS; BKS; [ICE+SHADOW] Requires target has chill + shadowed. DarkFrozenEffect: freeze + +50% dmg taken, fire-proof.
+mudslide         — /FL 2; LINE 6 pierce; STR+BKS; [EARTH+WATER] Requires adjacent water. Earthbound (5t) all. Creates mud terrain. Prone on pre-earthbound.
+frozen_lightning — /FL 1; SINGLE_LOS; BKS; [ICE+LIGHTNING] chill 3 + shocked 3 simultaneously. Shatter frozen for triple. Paralysis if 3+ prior shocked.
+acid_rain        — /FL 2; AOE_CIRCLE r3 DELAYED; BKS; [WATER+POISON] Wet+poisoned all; pre-Wet = double. Creates acid_puddle terrain.
+
+### V-W Weird Entries (5 spells)
+cold_hard_cash — INF CD6; SINGLE_LOS; STS+TOL; costs 10 cash; chill 2. More cash = more stacks/earthbound.
+live_wire      — /FL 2; SELF; TOL+CON; hybrid buff/debuff. Melee arcs shocked. +2 water dmg taken. Meth-Head Wire combo.
+fossilize      — ONCE; SINGLE_LOS; CON+BKS; [EARTH extreme] Requires earthbound + (ignite 3+ OR poisoned). FossilizedEffect: immobile -4 def, shatter hits, fire cracks.
+electric_slide — (already listed in V-L2 section above)
+undertow       — /FL 1; SELF room; STR+BKS; [WATER] Requires 3+ puddles. 5-turn current: pulls puddle-entities toward player 1 tile/turn. Free melee on arrival.
+
+### New Effects (Volume II)
+WetEffect, WaterloggedEffect, ScorchEffect, DarkFrozenEffect, FossilizedEffect,
+LiveWireEffect, ElectricSlideEffect, DischargeAuraEffect, ConductorMarkEffect,
+FireMarkedEffect (player-side 1t flag)
+
+### New Engine Terrain State (Volume II)
+wet_puddles, mud_tiles, ice_terrain, black_ice_tiles, static_fields, acid_puddles,
+charged_puddles, static_field_links, pending_acid_rain
++ engine flags: _water_current_active, _water_current_turns, _fire_marked,
+  _discharge_aura, _live_wire_grounds_crash
+
+### New Entity Fields (Volume II)
+entity.wet: bool (formalized), entity.scorched: bool, entity_type="ice_clone"
+
+### Key Design Patterns (Volume II)
+- Water school = enabler school: no standalone power; all payoffs in what it enables for fire/ice/lightning
+- Terrain system: multiple terrain types (wet_puddle, mud, ice, static_field, acid_puddle, black_ice)
+  interact passively — fire eats water, ice freezes puddles, static amplifies on puddles
+- Terrain resource consumption: Steam Cannon spends wet_puddle tiles, Undertow requires puddle count
+- DarkFrozenEffect: combines freeze + 50% damage amplifier + fire-immune — unlike normal FrozenEffect
+- Scorch debuff: post-Ember Burst state prevents re-ignition for 8t, forces fire build to rotate
+- fire_marked two-shot rhythm: Smoke Signal's setup → confirm loop
+- Combo REQUIRE conditions: some spells explicitly fail (or fire weakly) without pre-conditions
+  (Steam Cannon, Thunderstorm, Fossilize, Undertow) — reward setup, punish blind use
+
+---
+
+## VOLUME III PART 1 — Elementalist Spells / Earth Expansion / Wind Expansion
+Full document: `nigrl-ideas/elemental-ability-compendium-v3-part1.txt`
+Written: 2026-03-26. 33 new abilities across 3 categories.
+
+### CATEGORY 1 — Elementalist Spells (17 entries)
+Three new PASSIVE ENGINE SYSTEMS (no ability slot):
+  Elemental Convergence  — passive: 2+ debuffs on same target → burst 8+BKS/3+2/element
+  Elemental Overload     — passive: alternate element → +BKS/4 flat damage bonus
+  Primal Attunement      — passive: scales with # elemental trees (tiers 1-3)
+  Focused Element        — passive: COUNTER to Overload; 3 same-element streak → +2 flat
+
+Herald system (3 entries, mutual exclusive, /FL 1 each):
+  Herald of Fire   — melee reflect ignite + fire radiate on cast
+  Herald of Ice    — melee reflect chill + freeze pulse on nearby freeze
+  Herald of Lightning — melee reflect shocked + crit chain arc
+
+Active abilities (10 entries):
+  convergence_strike — SINGLE_LOS INF CD8; +3/debuff on target; shuffles debuffs
+  attunement_shift   — SELF free; cycles element attunement; +3 to next matching spell
+  elemental_surge    — SELF /FL 2; 5t window; +2 speed/element cast; discharge on expire
+  wild_element       — SINGLE_LOS INF CD6; random debuff from available elements
+  schematic          — SINGLE_LOS TOTAL 3; 4+ elements → detonation 12+BKS/3
+  elemental_echo     — SELF TOTAL 4; 3t echo window; 50% dmg echo to random target
+  elemental_communion — SELF ONCE; expunge all buffs → mass multi-element blast
+  elemental_weaving  — SELF /FL 2; 4t; previous spell re-casts at 60% dmg
+  elemental_chain    — SINGLE_LOS TOTAL 5; requires 3+ elements received by target
+  storm_caller       — SELF ONCE; all-6-element mass blast; 20t burnout after
+
+### CATEGORY 2 — Earth/Stone Expansion (9 entries)
+pothole           — ADJ_TILE /FL 3; creates enemy-blocking terrain, trip on placement
+rubble_shield     — SELF INF CD8; absorbs 3 physical hits, reflects, detonates
+stone_wall        — ADJ_TILE /FL 2; 3-tile destructible wall (15 HP); blocks sight
+quicksand         — ADJ_TILE /FL 2; hidden trap; earthbound refresh while on tile
+tremor            — SELF INF CD12; r4 AoE; 50% stun; double vs earthbound
+petrify           — SINGLE_LOS /FL 1; HP-gated; not fire-removable; stone_explosion on death
+tectonic_surge    — ADJ_TILE /FL 1; detonates own stone_wall or pothole terrain
+granite_fist      — SELF INF CD5; buff next melee: +dmg+earthbound; crushing vs earthbound
+pillar_of_stone   — SELF ONCE; 10t immobile, stone aura, cracked terrain, Collapse on expire
+
+### CATEGORY 3 — Wind/Air Expansion (7 entries)
+step_dodge        — SELF /FL 4; 3t window; dodge chance+blink+windswept on attacker
+crosswind         — LINE /FL 3; sustained wind barrier; deflects projectiles; fans flames
+updraft           — SELF /FL 2; blink to visible tile; windswept pulse; fans fire on origin
+dust_devil        — ADJ_TILE /FL 2; autonomous entity 6t; absorbs fire→fire_devil; arcs on static
+slip_stream       — passive; 3-move sprint → +20 energy/tick +10% dodge for 2t
+scattering_wind   — SELF /FL 1; r6 push all enemies 3 tiles; disoriented on full push
+cyclone_step      — ADJACENT /FL 3; dash-strike; hits all adj to start+end tile; free during hurricane
+
+### New Engine Flags (Part 1)
+_convergence_available, _last_element_cast, _attunement_level, _attunement,
+_available_attunements, _surge_active/_turns/_elements_hit/_stacks,
+_weaving_active/_turns/_last_ability/_last_target,
+_focused_element_streak/_tag/_active, _elemental_echo_active/_turns,
+_pillar_active/_turns, _granite_fist_ready, _slipstream_tiles,
+_active_herald: str | None, crosswind_lines list, dust_devils list
+
+### New Terrain Types (Part 1 — beyond Vol II terrain)
+engine.stone_walls: dict[(x,y) → hp], engine.potholes: set[(x,y)],
+engine.quicksand_tiles: set[(x,y)], engine.cracked_tiles: set[(x,y)]
+
+### New Entity Fields (Part 1)
+entity.elements_received: set[str]  — debuff history for Elemental Chain / Schematic
+entity_type="dust_devil"            — autonomous wander_random AI entity
+
+---
+
+## VOLUME III PART 2 — Shadow School Expansion, Multi-Element Combos, Terrain Fields
+Full document: `nigrl-ideas/elemental-ability-compendium-v3-part2.txt`
+Written: 2026-03-26. 26 new ability IDs across 3 categories.
+
+### Shadow School Expansion (8 new abilities — builds on Supplement III seeds)
+INTRODUCES: engine._shadow_dark (0-10 darkness meter). Decays 1/turn; fire tiles
+  each decay +1/turn. Enemy sight_radius reduced -1 per 2 darkness levels.
+
+kill_the_lights  — SELF INF CD6; +3 dark, mass shadowed all FOV enemies, dims fire 4t
+shadow_step      — SINGLE_LOS INF CD8; requires darkness 2+ OR target shadowed;
+                   blink to adj target, damage + shadow_marked (3t). Silent at dark 5+
+eclipse          — SELF /FL 2; +5 dark, mass blinded (5t) all room enemies.
+                   At dark 4+: extends to 8t, enemies deal -4 dmg while blinded
+dark_mirror      — SINGLE_LOS INF CD7; curse: each damage instance reflects BKS/4+STS/4
+                   bypass shadow dmg back to target (cap 8/trigger, 5 turns)
+night_terror     — SINGLE_LOS INF CD10; HP-gated stochastic fear; +2 dark per panic trigger.
+                   At dark 6+: spreads to all FOV enemies
+penumbra         — SELF /FL 3; +15% dodge, +1 dark/turn while active (4t).
+                   Free action on expire if dark >= 3
+void_strike      — ADJACENT INF CD5; 6+STS/3+BKS/4 bypass-50%, void_torn (3t: -2 def all,
+                   -all def for shadow). No CD at dark 5+. Triple + free kill_the_lights
+                   if target has shadow_marked + shadowed simultaneously
+shadow_harvest   — SELF ONCE; spend ALL darkness: D*3 bypass-50% AOE + D*5 bypass-all
+                   to shadow-afflicted targets + D*2 heal. Permanent: shadow effects +2t.
+                   Fire tiles in room reduce effective D (fire fights your harvest)
+
+### Multi-Element Combos (11 new abilities)
+dark_fire       — /FL 3 SINGLE_LOS; [SHADOW+FIRE] converts ignite→dark_flames (wet-immune).
+                  At dark 5+: dark_flames bypass all def
+magma_trap      — /FL 3 ADJ_TILE; [FIRE+EARTH] magma_tile terrain (10t): earthbound+ignite on entry.
+                  Mud in tile → radius-1 lava pool
+static_storm    — /FL 1 AOE r3; [LIGHTNING+WIND] requires shocked/windswept in radius.
+                  shocked(3)+windswept(3)+push. Pre-shocked: +2 stacks, 2-tile push.
+                  Earthbound → stripped + 6 bonus dmg
+cinders_and_ash — INF CD9 SINGLE_LOS; [FIRE+SHADOW] requires target <50% HP.
+                  Ignite → detonation auto-convert. Cinders DoT reduces healing 25%
+frostburn       — /FL 2 SINGLE_LOS; [FIRE+ICE paradox] bypasses both resists.
+                  ignite+chill simultaneously → FROSTBURST (3x dmg, stun 2t).
+                  Frozen target → thaw + ignite 3
+swamp_gas       — /FL 3 ADJ_TILE; [EARTH+POISON] radius-1 poison cloud 6t. Fire = explosion
+                  (8 fire dmg, stun 1t, cloud removed). Pre-poisoned = double stacks
+chain_of_ice    — /FL 2 SINGLE_LOS; [ICE+LIGHTNING] requires chill 2+ on primary.
+                  Arc chains to all shocked enemies in sight (chill 2 each, freeze if 3+)
+dust_devil      — INF CD6 LINE; [EARTH+WIND] grit_blinded(3t)+windswept(3t). Consumes mud
+                  for +5 dmg. Strips earthbound with 2-tile knockback
+blood_lightning — /FL 2 SINGLE_LOS; [LIGHTNING+SHADOW] costs 8 HP. Soul shards: +3dmg/+1shocked
+                  per shard (not consumed). Soul_drain active = HP cost refunded
+frozen_ground   — /FL 3 ADJ_TILE; [ICE+EARTH] frozen_ground terrain r1 (12t): double move cost,
+                  chill 1 on entry, 50% slip if windswept. Wet puddles → radius 2 expansion
+asphalt_storm   — ONCE SELF r3; [EARTH+WIND] signature urban. Earthbound(3)+windswept(3)+damage
+                  all r3. Creates rubble_tiles at 30% radius. Pre-earthbound: prone 2t
+
+### Elemental Terrain / Field Effects (7 new, RARE / ONCE / per-floor-1)
+acid_rain_weather — ONCE floor-wide 15t; universal Wet every 2t + 1 bypass acid/t +
+                    sight -2 all. Lightning +25%. Fire hazards suppressed to 1 dmg, 2t
+dead_block        — ONCE floor-wide 20t; Negromancy capstone. dark=8, enemy sight -3.
+                    Kill = +1 extra soul shard. Revenant spawns at turns 5/10/15.
+                    All healing -25%
+crack_house_fire  — ONCE floor-wide 25t; Pyromania capstone. Fire spreads every 2t from
+                    player tile (cap 30). Smoke: 2 bypass dmg every 3t all entities.
+                    Collapse at turn 20: 20% tiles cracked
+heat_wave         — ONCE floor-wide 20t; item or Pyromania alt. Spontaneous ignite(1) every
+                    3t to non-Wet entities. Cold spells half duration. Move +2 energy cost.
+                    Fire spells +3 dmg. TOL mitigates movement cost
+aurora_drain      — ONCE floor-wide 15t; cyclic elemental drain from enemies to player.
+                    5 phases: fire→ice→lightning→shadow→chaos. Chaos phase: -5 HP player
+consecrated_gutter— /FL 1 ADJ_TILE zone 3x3 20t; player: +2 HP/t, +2 def, shadow resist.
+                    enemies: 1 holy dmg/t, alarm suppressed. Soul shards preserved on death
+flash_freeze      — ONCE floor-wide instant+terrain; all wet_puddles→ice_terrain, mud→frozen_ground,
+                    room floor→ice_floor (20t). All entities: chill check (chill 2+→frozen,
+                    ignite→stripped). Ice_floor: 20% slip, chill 1 on entry, melts to puddles 15t
+
+### New Effects (Part 2)
+shadow_marked, blinded (full room version), dark_mirrored (is_curse), night_terror_effect,
+penumbra_buff, void_torn, dark_flames (wet-immune ignite variant), grit_blinded,
+frostburned (paradox DoT), cinders, soul_drained (minor soul drain variant)
+
+### New Terrain (Part 2 — beyond Part 1)
+engine.magma_tiles, engine.swamp_gas_clouds, engine.frozen_ground_tiles,
+engine.rubble_tiles, engine.ice_floor
+
+### New Engine Flags (Part 2)
+_shadow_dark (0-10), _fire_dimmed_turns, _acid_rain_active/_turns,
+_dead_block_active/_turns, _crack_fire_active/_turns, _heat_wave_active/_turns,
+_aurora_active/_turns/_phase, _consecrated_zone (set)/_turns,
+_free_action_pending, _shadow_harvest_used, _shadow_mark_targets (set),
+_wet_applications_this_weather
+
+### Key Design Patterns (Part 2)
+- Darkness meter = shadow school resource: build with penumbra/kill_the_lights,
+  spend with shadow_harvest/void_strike (no-CD), thresholds at 2/3/4/5/6/8/10
+- Fire is shadow's natural enemy: each fire tile decays darkness 1/turn extra
+- Combo REQUIRE pattern extended: shadow_step (dark 2+ or shadowed target),
+  chain_of_ice (chill 2+ on primary), frostburn (both resists bypassed = weaker solo)
+- HP cost spells (blood_lightning -8 HP): CON scales both pool and damage simultaneously
+- Terrain field events: ONCE or /FL 1; affect BOTH sides equally; both sides is the design
+- Darkness meter anti-synergy with crack_house_fire: you cannot run both simultaneously
+  (fire eats darkness) — forces build commitment
+- New hooks introduced: on_after_damage (dark_mirror reflection), modify_incoming_heal (cinders)
+
+### New AbilityDef Field
+element: str | None  — needed across ALL elemental abilities for Overload/Convergence tracking
+
+### Key Design Patterns (Part 1)
+- Three passive systems with no ability slot: engine-level rules checked in execute callables
+- HERALD pattern: /FL 1 floor-duration buff that transforms one element school's behavior; mutual exclusive
+- TERRAIN OWNERSHIP: player-created earth terrain is targeted by tectonic_surge (own terrain only)
+- ENTITY DEBUFF HISTORY: entity.elements_received tracks what elements hit this floor (not just active effects)
+- AUTONOMOUS ENTITY: dust_devil uses wander_random AI (new mode) — no aggro, just random walk
+- CAPSTONE TENSION: Pillar of Stone (immobile tank) vs Cyclone Step (hyperactive mobile) are opposites
+- FOCUSED vs OVERLOAD: two passives that directly oppose each other — mono-element vs multi-element playstyle choice

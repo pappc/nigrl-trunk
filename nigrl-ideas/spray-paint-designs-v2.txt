@@ -1,0 +1,631 @@
+SPRAY PAINT DESIGNS V2 — 10 NEW COLORS
+=======================================
+NIGRL roguelike | Design document
+
+Purpose: Expand the spray paint consumable roster from 5 to 15.
+Each new paint follows the established pattern in ITEM_DEFS (items.py)
+and requires corresponding entries in: render.py (bg colors for visible
+and explored states), combat.py (_apply_tile_amp), engine.py
+(_update_tile_stat_bonuses and any per-tick loops), and the examine
+popup (_spray_descs in items.py). The Graffiti unlock perk table
+(_SPRAY_TABLE in engine.py) should include all 15 paints.
+
+Existing paints for reference (never overlap mechanically):
+  Red    — enemy on tile: +25% damage taken
+  Blue   — player on tile: +5 Street-Smarts; 25% preserve ability charges
+  Green  — player on tile: +4 Defense
+  Orange — all entities on tile: 5 + 2*Graffiti_Lvl damage per turn
+  Silver — entity entering tile: slipped (skip move, +50% melee dmg taken)
+
+============================
+PAINT 6 — YELLOW
+============================
+Item ID:    yellow_spray_paint
+Name:       Yellow Spray Paint
+RGB:        (230, 220, 40)
+Render bg (visible):   (120, 115, 10)
+Render bg (explored):  (60, 58, 5)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 35
+
+Effect:
+  Player on tile — +3 Street-Smarts AND +3 Book-Smarts simultaneously.
+  No enemy interaction.
+
+Design rationale:
+  Blue grants +5 STS alone. Yellow splits the bonus across STS and BKS,
+  making it valuable for hybrid builds (Smartsness, Gatting+spell combos)
+  without simply out-scaling blue for pure STS builds. "Dual-channel"
+  stat tile — the first of its kind.
+
+Scale with Graffiti: No direct scaling. Synergy: Living Canvas (L3) can
+  auto-paint a tile yellow when the player uses an ability, rewarding
+  Smartsness + Graffiti hybrid builds.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile yellow."
+  "Player on tile: +3 Street-Smarts"
+  "and +3 Book-Smarts."
+
+Implementation notes:
+  In _update_tile_stat_bonuses: add branch
+    elif spray == "yellow":
+        bonuses["street_smarts"] = 3
+        bonuses["book_smarts"] = 3
+  No new effects.py entries needed.
+
+============================
+PAINT 7 — PURPLE
+============================
+Item ID:    purple_spray_paint
+Name:       Purple Spray Paint
+RGB:        (160, 40, 210)
+Render bg (visible):   (80, 15, 105)
+Render bg (explored):  (40, 8, 52)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 40
+
+Effect:
+  Enemy on tile — 30% chance per turn to become "confused" (1 turn).
+  Confused enemies move in a random direction instead of toward the player.
+  Does NOT stack: if enemy is already confused, no new roll.
+  Player on tile — no direct bonus, but confusion rolls still trigger.
+
+New effect required: confused_paint
+  id = "confused_paint"
+  category = "debuff"
+  duration = 1
+  before_turn: pick random walkable adjacent tile, move entity there
+    (if that tile is blocked or wall, entity stays; turn still consumed).
+  No stacking: on_reapply refreshes duration.
+
+Design rationale:
+  Offensive control tile. Pairs with orange (chase enemy onto orange,
+  confusion delays escape). Purple discourages enemies from standing still
+  on high-traffic corridors.
+
+Scale with Graffiti:
+  L1 Taggin': 50% chance spray doesn't consume charge — standard.
+  Living Canvas (L3) auto-red proc is separate; purple doesn't auto-proc.
+  No direct level scaling; the 30% per-turn rate is intentionally moderate
+  since confused enemies still survive and may stumble toward the player.
+
+Examine popup lines:
+  "Spray a tile purple."
+  "Enemy on tile: 30% each turn"
+  "to become confused (1 turn)."
+  "Confused enemies move randomly."
+
+Implementation notes:
+  Per-tick loop in engine.py (alongside orange damage loop):
+    for entity in monsters:
+        if spray_paint.get((entity.x, entity.y)) == "purple":
+            if not has_effect(entity, "confused_paint"):
+                if random.random() < 0.30:
+                    apply_effect(entity, engine, "confused_paint")
+  effects.py: new ConfusedPaintEffect class.
+
+============================
+PAINT 8 — PINK
+============================
+Item ID:    pink_spray_paint
+Name:       Pink Spray Paint
+RGB:        (255, 100, 160)
+Render bg (visible):   (130, 30, 75)
+Render bg (explored):  (65, 15, 38)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 35
+
+Effect:
+  Player on tile — +15 max HP (temporary, lasts while standing on tile).
+  Implemented as a tile_max_hp_bonus field on PlayerStats, updated in
+  _update_tile_stat_bonuses alongside tile_defense_bonus.
+  HP does NOT change when entering: only max rises (player isn't
+  healed by stepping on). HP clamped to new max on step off.
+  Enemy on tile — no effect.
+
+Design rationale:
+  A defensive tile that rewards holding ground. Unlike green (+4 Defense),
+  pink rewards tanky CON builds by inflating their HP ceiling while
+  positioned. Combined with green, creates a strong "fortified tile" combo
+  — though on different tiles, so the player can only benefit from one at
+  a time.
+
+Scale with Graffiti:
+  L2 Street Art: when enemy dies on painted tile, heal 5 HP. Pink tile
+  qualifies for this trigger even though its own effect is player-facing.
+  Encourages luring enemies onto your pink tile to secure both the max HP
+  buffer AND the kill heal.
+
+Examine popup lines:
+  "Spray a tile pink."
+  "Player on tile: +15 max HP"
+  "while standing here."
+  "HP capped on leaving."
+
+Implementation notes:
+  PlayerStats needs new field: tile_max_hp_bonus: int = 0
+  engine.py: in _update_tile_stat_bonuses:
+    elif spray == "pink":
+        self.player_stats.tile_max_hp_bonus = 15
+  In effective_max_hp property (or wherever HP cap is enforced):
+    add tile_max_hp_bonus to the cap.
+  On step-off: tile_max_hp_bonus resets to 0, then clamp
+    player.hp = min(player.hp, effective_max_hp).
+
+============================
+PAINT 9 — GOLD / YELLOW-GOLD
+============================
+Item ID:    gold_spray_paint
+Name:       Gold Spray Paint
+RGB:        (255, 190, 30)
+Render bg (visible):   (130, 95, 10)
+Render bg (explored):  (65, 48, 5)
+Tool charges: 8
+Zones: crack_den
+Value: 60
+
+Effect:
+  When a monster is killed on a gold tile (any damage source), drop +$5
+  extra cash in addition to normal loot.
+  Player on tile — no defensive or stat bonus.
+  Enemy on tile — no damage or debuff.
+
+This is a pure economy tile. Passive: just standing and fighting on it
+  pays a premium. Works best with Silver or Red nearby: silver slows
+  enemies down so they die on the tile, red amplifies damage so kills
+  happen faster.
+
+Scale with Graffiti:
+  L2 Street Art: enemy dying on gold tile triggers Street Art heal as
+  normal (gold qualifies as "painted tile"). So gold + L2 provides:
+    +5 HP on kill, +$5 on kill. Stack with player also on a painted tile
+    for an extra +5 HP. Net: up to +10 HP and +$5 per kill.
+
+Examine popup lines:
+  "Spray a tile gold."
+  "Enemies killed on gold tiles"
+  "drop $5 extra cash."
+
+Implementation notes:
+  In _on_death_graffiti_heal (engine.py) or a new _on_death_gold_bonus
+  event handler:
+    if spray_paint.get((entity.x, entity.y)) == "gold":
+        engine._give_player_cash(5)
+        engine.messages.append("Gold paint pays out $5!")
+  Hook into the "entity_died" EventBus event (already wired for other
+  kill effects — see _on_death_graffiti_heal pattern).
+
+============================
+PAINT 10 — TEAL / CYAN
+============================
+Item ID:    teal_spray_paint
+Name:       Teal Spray Paint
+RGB:        (40, 200, 185)
+Render bg (visible):   (10, 100, 90)
+Render bg (explored):  (5, 50, 45)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 35
+
+Effect:
+  Player on tile — +20% XP from all skill XP gains while standing here.
+  Multiplier applied as a flat 1.20x on all skill XP ticks that occur
+  while player.xy == spray tile.
+  Enemy on tile — no effect.
+
+Design rationale:
+  Utility tile for grind-focused play. Incentivizes setting up a "learning
+  corner" and fighting from a fixed position. Synergizes with any skill
+  that awards XP per hit (Stabbing, Beating, Graffiti, Smoking).
+  Distinctly different from blue (STS + ability charges) and yellow
+  (dual stat); teal is about long-term character progression.
+
+Scale with Graffiti:
+  This tile directly accelerates Graffiti XP when the player earns
+  graffiti XP events (kills on painted tiles, hits on painted tiles),
+  creating a recursive loop: more Graffiti XP → higher level → stronger
+  tile effects → more kills on tile → more Graffiti XP.
+
+Examine popup lines:
+  "Spray a tile teal."
+  "Player on tile: +20% skill XP"
+  "from all sources."
+
+Implementation notes:
+  PlayerStats needs new field: tile_xp_bonus: float = 0.0
+  In _update_tile_stat_bonuses:
+    elif spray == "teal":
+        self.player_stats.tile_xp_bonus = 0.20
+  In xp_progression.py or wherever skills.gain_potential_exp is called,
+  apply multiplier:
+    xp = round(xp * (1.0 + self.player_stats.tile_xp_bonus))
+  Note: xp_multiplier (from Lain ring) is already separate; these stack
+  multiplicatively in sequence: xp * xp_multiplier * (1 + tile_xp_bonus).
+
+============================
+PAINT 11 — BROWN / SLUDGE
+============================
+Item ID:    brown_spray_paint
+Name:       Brown Spray Paint
+RGB:        (120, 75, 20)
+Render bg (visible):   (70, 40, 10)
+Render bg (explored):  (35, 20, 5)
+Tool charges: 10
+Zones: meth_lab (primarily), crack_den
+Value: 30
+
+Effect:
+  Enemy on tile — movement slowed: enemy's move_cost increased by +50
+  energy (so a normal enemy needs 150 energy to move instead of 100,
+  effectively 33% slower movement from the tile).
+  This is a MOVEMENT penalty only, not a turn skip (unlike silver).
+  Does not affect attack actions or ability costs.
+  Player on tile — no effect.
+
+Design rationale:
+  Silver = hard CC (skip turn entirely, +50% melee vulnerability).
+  Brown = soft CC (movement penalty only, no extra damage bonus).
+  Brown is safer for area denial and doesn't punish the player if they
+  walk into it accidentally. Ideal for corridor choke points in the
+  Meth Lab. Pairs well with orange (slowed enemies take more ticks on
+  the DoT tile before escaping).
+
+Scale with Graffiti:
+  Graffiti XP: +5 XP when an enemy dies on a brown tile (slow enough
+  to die in it). This rule can share the existing "dies on any painted
+  tile" XP logic — simply extend the check to include brown.
+
+Examine popup lines:
+  "Spray a tile brown."
+  "Enemies on tile: +50 move cost"
+  "(move takes 50% more energy)."
+  "Does not affect attacks."
+
+Implementation notes:
+  Evaluated in engine.py during monster action resolution (_run_energy_loop
+  or equivalent). When selecting action_type == "move", check if current
+  tile is brown: if so, add 50 to the energy cost for the move (after
+  normal cost is set).
+  No new Effect class needed — pure energy-cost modifier applied inline.
+  In the monster move-cost block in engine.py:
+    if action_type == "move":
+        cost = ENERGY_THRESHOLD  # base 100
+        if spray_paint.get((monster.x, monster.y)) == "brown":
+            cost += 50
+        # Silver slip check here (existing)
+
+============================
+PAINT 12 — LIME GREEN / TOXIC
+============================
+Item ID:    lime_spray_paint
+Name:       Lime Spray Paint
+RGB:        (100, 240, 50)
+Render bg (visible):   (40, 120, 15)
+Render bg (explored):  (20, 60, 8)
+Tool charges: 10
+Zones: meth_lab (primary), crack_den
+Value: 40
+
+Effect (Meth Lab themed — toxicity):
+  Enemy entering or standing on tile: gains +8 toxicity per turn.
+  Player on tile: gains +3 toxicity per turn (lesser exposure, still
+  dangerous — don't linger).
+
+Tox reminder: tox multiplies incoming damage by 1.0 + (tox/100)^0.6.
+  At tox 50 that is 1.38x; at tox 100 it is 1.62x.
+  Enemies generally have tox resistance 0, so lime rapidly poisons them.
+
+Scale with Graffiti:
+  At Graffiti L1+, the standard 50% no-consume chance applies.
+  Suggested direct scaling: enemy tox rate = 6 + 2*Graffiti_Lvl per turn.
+  At L0: +6 tox; L1: +8 tox; L2: +10 tox; L3: +12 tox.
+  Player rate stays flat at +3 (self-damage doesn't scale with level).
+
+Design rationale:
+  Meth Lab exclusive pain tile. Unlike orange (flat damage), lime
+  inflates the enemy's tox so that ALL future damage — including from
+  weapons — is amplified. Lime + red = devastating: enemy takes +25%
+  from all sources AND has tox multiplier stacking on top.
+  The self-tox risk means the player can't camp it indefinitely.
+
+Examine popup lines:
+  "Spray a tile lime."
+  "Entities on tile gain toxicity:"
+  " Enemy: +(6+2*Graffiti) per turn"
+  " Player: +3 per turn."
+
+Implementation notes:
+  In the per-tick entity loop (alongside orange damage loop):
+    if spray_paint.get((entity.x, entity.y)) == "lime":
+        if entity == player:
+            entity.toxicity = min(entity.toxicity + 3, 200)
+        else:  # monster
+            rate = 6 + 2 * graffiti_lvl
+            entity.toxicity = min(entity.toxicity + rate, 200)
+  Uses existing entity.toxicity field (from Meth Lab zone).
+  Note: tox on monsters in Crack Den zone may be a no-op unless the
+  damage formula checks tox there too. Safe to spawn in both zones;
+  just less impactful in Crack Den.
+
+============================
+PAINT 13 — GREY / STATIC
+============================
+Item ID:    grey_spray_paint
+Name:       Grey Spray Paint
+RGB:        (160, 160, 160)
+Render bg (visible):   (75, 75, 80)
+Render bg (explored):  (38, 38, 40)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 40
+
+Effect:
+  Enemy on tile — -2 to all their effective attack damage (minimum 1).
+  Applied as a flat reduction in combat.py _apply_tile_amp: if attacker
+  (the monster) is on grey, reduce computed damage by 2 before
+  dealing it to the player.
+  Player on tile — no direct bonus.
+
+Design rationale:
+  Red amplifies damage dealt TO enemies. Grey reduces damage dealt BY
+  enemies. Both are "stand on enemy's tile" paints, but grey is
+  defensive: place it where enemies congregate in approach corridors.
+  The -2 flat is significant at early floors (enemy dmg 4-8; -2 = 25-50%
+  reduction), less so later (floor 4+ enemies hit for 12-20+). Scales
+  inversely with danger rather than directly — strongest when most needed.
+
+Scale with Graffiti:
+  Suggested: reduction = 1 + Graffiti_Lvl. At L0: -1; L1: -2; L2: -3;
+  L3: -4. Capped at reducing attacker's final damage to minimum 1.
+
+Examine popup lines:
+  "Spray a tile grey."
+  "Enemies on tile: -(1+Graffiti)"
+  "to their melee damage."
+  "Strongest on low-level floors."
+
+Implementation notes:
+  In combat.py _apply_tile_amp (or a new function _apply_tile_attacker_mod
+  called on monster-to-player attacks):
+    attacker_spray = engine.dungeon.spray_paint.get((attacker.x, attacker.y))
+    if attacker_spray == "grey":
+        graffiti_lvl = engine.skills.get("Graffiti").level
+        damage = max(1, damage - (1 + graffiti_lvl))
+  Called inside the monster-attacks-player branch of perform_attack.
+
+============================
+PAINT 14 — RADIOACTIVE / CHARTREUSE
+============================
+Item ID:    rad_spray_paint
+Name:       Radioactive Paint
+RGB:        (180, 255, 60)
+Render bg (visible):   (85, 130, 20)
+Render bg (explored):  (42, 65, 10)
+Tool charges: 8
+Zones: meth_lab ONLY
+Value: 50
+
+Effect:
+  Enemy on tile — gains +12 radiation per turn.
+  Player on tile — gains +6 radiation per turn (half rate).
+  At high radiation, entities may mutate (for the player: standard
+  mutation rolls; for enemies: radiation damage at the engine level
+  if enemies have rad tracking in Meth Lab).
+
+This is the Meth Lab counterpart to lime_spray_paint (which does tox).
+  Rad affects player mutations; enemies with rad taking may have rad-
+  resistance or be immune (check enemy rad fields in entity.py).
+
+Scale with Graffiti:
+  Enemy rad rate = 10 + 2*Graffiti_Lvl.
+  At L0: +10; L1: +12; L2: +14; L3: +16.
+  Player rate stays flat: +6 per turn regardless of level.
+
+Design rationale:
+  Meth Lab exclusive. Forces the player to manage radiation exposure
+  while fighting. High-risk: standing here gives you rad fast. Strategic
+  use: place in corridors enemies patrol to stress-mutate them or trigger
+  any rad-based enemy behaviors. Pairs with Nuclear Research skill builds
+  that convert rad into power (rad_to_power_ratio perk).
+
+Examine popup lines:
+  "Spray a tile radioactive."
+  "Entities on tile gain radiation:"
+  " Enemy: +(10+2*Graffiti)/turn"
+  " Player: +6 per turn."
+  "Meth Lab zone only."
+
+Implementation notes:
+  Per-tick loop:
+    if spray_paint.get((entity.x, entity.y)) == "rad":
+        if entity == player:
+            entity.radiation = min(entity.radiation + 6, 1000)
+        else:
+            rate = 10 + 2 * graffiti_lvl
+            entity.radiation = min(entity.radiation + rate, 1000)
+  Entity radiation field: entity.radiation (exists for Meth Lab zone).
+  Zone restriction can be soft (paint just found in meth_lab loot table)
+  or hard (check zone in the per-tick handler and skip if not meth_lab).
+  Recommend soft restriction for simplicity.
+
+============================
+PAINT 15 — WHITE
+============================
+Item ID:    white_spray_paint
+Name:       White Spray Paint
+RGB:        (245, 245, 245)
+Render bg (visible):   (120, 120, 120)
+Render bg (explored):  (60, 60, 60)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 45
+
+Effect:
+  Player on tile — ALL enemies within 3 tiles that have line-of-sight
+  to the player are revealed with a one-tile positional ping per turn
+  (shown as a brief message: "You sense movement to the NE").
+  This is an INFORMATION tile: no damage, no stat change. The player
+  learns enemy positions before they enter FOV.
+
+  The "sense" is directional only — the player is told the general
+  direction (8-way compass) but not the exact tile. Works for enemies
+  outside normal sight range (e.g., in explored but not currently visible
+  tiles). Does NOT reveal enemies through walls.
+
+  Enemy on tile — no effect.
+
+Scale with Graffiti:
+  Detection radius = 2 + Graffiti_Lvl.
+  L0: 2 tiles; L1: 3 tiles; L2: 4 tiles; L3: 5 tiles.
+
+Design rationale:
+  A unique utility tile with no combat numbers. White paint rewards
+  careful, position-conscious play. Especially powerful in the Meth Lab
+  where enemy factions move unpredictably. Does not directly improve
+  combat math — a deliberate choice to keep it a tactical support tool.
+  Synergy: use white to detect then silver to set up CC in their approach.
+
+Examine popup lines:
+  "Spray a tile white."
+  "While standing here, sense nearby"
+  "enemies within (2+Graffiti) tiles."
+  "Directional only; not exact pos."
+
+Implementation notes:
+  Per-turn check in _update_tile_stat_bonuses or a new
+  _update_tile_sense_bonuses pass:
+    if spray == "white":
+        radius = 2 + graffiti_lvl
+        for monster in living monsters:
+            dx = monster.x - player.x
+            dy = monster.y - player.y
+            dist = max(abs(dx), abs(dy))  # Chebyshev
+            if dist <= radius and has_los(player, monster):
+                direction = _compass_dir(dx, dy)
+                messages.append(f"You sense movement to the {direction}.")
+  Helper _compass_dir(dx, dy) returns string: N, NE, E, SE, S, SW, W, NW.
+  Deduplicate messages: only report once per enemy per turn (use a set).
+  This runs each turn after player acts.
+
+============================
+COMBO SYNERGIES
+============================
+
+Lime + Red (Meth Lab):
+  Enemy on red tile: +25% damage from all sources.
+  Enemy on lime tile: rapidly accumulates tox, pushing damage multiplier
+  up via 1.0 + (tox/100)^0.6.
+  Can't be on both simultaneously (single tile), but sequence: place red
+  at an ambush point, lime in the approach corridor. Enemy walks through
+  lime, arrives at red with high tox. Result: massively amplified burst
+  damage window.
+
+Grey + Orange:
+  Grey reduces enemy melee damage. Orange deals per-tick damage to all
+  entities. Place grey in corridor, lure enemy onto grey to reduce
+  counterattack, then chase them toward orange for cleanup. Works because
+  grey discourages standing still (they take no extra damage there) while
+  orange punishes staying (DoT).
+
+White + Silver:
+  White reveals approach direction. Silver trips enemies entering a
+  specific tile. Setup: paint white on your position, silver on the
+  choke point between you and the sensed enemy. You know they're coming
+  from the NE, you've pre-slipped the NE corridor entrance. Enemy walks
+  in blind — slipped immediately.
+
+Brown + Lime (Meth Lab):
+  Brown slows enemy movement. Lime toxifies them per turn. The longer
+  they're slowed, the more tox they accumulate. Forces enemies to
+  stand in lime longer than they would otherwise, dramatically increasing
+  total tox delivered.
+
+Gold + Street Art (L2):
+  Kill an enemy on a gold tile with Graffiti L2 equipped:
+  +$5 cash, +5 HP (enemy on painted tile), +5 HP if player also on
+  painted tile. Potential triple payoff per kill. Encourages "boss
+  killing field" setup — designate one tile as the execution spot.
+
+============================
+IMPLEMENTATION SUMMARY
+============================
+
+Files requiring changes for all 10 new paints:
+
+items.py:
+  Add 10 new ITEM_DEFS entries following silver_spray_paint pattern.
+  tool_charges: 10 (8 for gold and rad).
+  Add all 10 spray types to _spray_descs dict in examine popup section.
+
+render.py:
+  Add elif branches for all 10 new spray types in both the
+  visible-tile block and explored-tile block (two blocks near line 300).
+  Use the bg(visible) / bg(explored) RGBs listed above.
+
+engine.py:
+  _update_tile_stat_bonuses: add yellow (STS+3, BKS+3), pink (max_hp+15),
+    teal (tile_xp_bonus=0.20). Grey handled separately in combat.
+  Per-tick entity loop: add lime (tox), rad (radiation), purple (confusion
+    roll), brown (no-op here — handled in move cost block).
+  Monster move-cost block: add brown (+50 energy to move cost).
+  _on_death gold bonus: add gold tile cash award.
+  White sensing: add per-turn pass when player on white tile.
+  _SPRAY_TABLE: update to all 15 paints.
+
+combat.py:
+  _apply_tile_amp: add grey branch (attacker on grey = -damage).
+  Note: currently _apply_tile_amp only applies to defender tile. Grey
+  needs an attacker-tile check. Either extend the function signature to
+  pass attacker AND defender, or add a new _apply_attacker_tile_mod call.
+
+effects.py:
+  ConfusedPaintEffect (id="confused_paint"): duration=1, debuff.
+    before_turn: pick random walkable adjacent tile, move entity there.
+    on_reapply: refresh duration.
+
+stats.py (PlayerStats):
+  tile_max_hp_bonus: int = 0
+  tile_xp_bonus: float = 0.0
+  Integrate tile_max_hp_bonus into effective_max_hp computation.
+  On step-off (tile_max_hp_bonus resets to 0): clamp player.hp.
+
+============================
+BALANCE NOTES
+============================
+
+Power ranking (approximate, relative to existing 5):
+  Tier 1 (strongest): Lime, Rad, Gold+L2, White+L3
+  Tier 2 (strong):    Purple, Grey, Pink+tanky build
+  Tier 3 (utility):   Yellow, Teal, Brown, White (base)
+
+- Lime and Rad carry high self-damage risk; justify their power.
+- Gold has zero combat benefit — pure economy; value scales with kills.
+- White is the only pure-information tile; no direct combat math.
+- Purple's 30% confusion rate means ~1-in-3 turns lost for enemy standing
+  still; less brutal than silver (guaranteed skip).
+- Brown's +50 move cost is soft: enemy still acts eventually, just slower.
+- Pink's +15 max HP is large but non-regenerating; the player must keep
+  HP topped up by other means to actually benefit from the buffer.
+- Teal's XP multiplier stacks with xp_multiplier from items; could
+  accelerate late-game skill spikes on a prepared build. Monitor.
+- Grey scales inverted with floor depth (most useful early) — intentional.
+
+Graffiti unlock perk awards one random paint from all 15:
+  Adjust distribution if some paints are too strong as random grants.
+  Consider: Rad and Gold paints should have lower weight in the unlock
+  table (Rad is meth_lab themed; Gold is rare/economy), e.g.:
+    _SPRAY_TABLE = [
+        "red_spray_paint", "blue_spray_paint", "green_spray_paint",
+        "orange_spray_paint", "silver_spray_paint",
+        "yellow_spray_paint", "purple_spray_paint", "pink_spray_paint",
+        "teal_spray_paint", "brown_spray_paint", "lime_spray_paint",
+        "grey_spray_paint", "white_spray_paint",
+        # Rarer grants:
+        "gold_spray_paint", "rad_spray_paint",
+    ]
+  Equal weights in the table, but gold and rad listed once while others
+  could be listed twice for double probability. Decide per balance needs.

@@ -1,0 +1,674 @@
+================================================================================
+DEEP-FRYING SKILL TREE — COMBAT ABILITIES DESIGN
+NIGRL Roguelike | Design Doc v1.0 | 2026-03-28
+================================================================================
+
+CONCEPT OVERVIEW
+----------------
+Deep-Frying is being reworked as the DPS-focused food skill, contrasting with
+Munching's defensive/sustain role. Where Munching heals and buffs, Deep-Frying
+weaponizes the kitchen — boiling oil as a ranged nuke, grease slicks as terrain
+denial, and the deep fryer itself as a combat amplifier.
+
+Primary stat: Constitution (CON)
+Secondary stat: Tolerance (TOL)
+
+This gives tanky CON-heavy characters a damage outlet. High CON = high HP AND
+high ability damage — a "brawny chef" archetype that doesn't rely on STR (melee),
+STS (crits), or BKS (spells).
+
+KEY CALIBRATION NOTES
+---------------------
+- CON range in play: 6–12 base, plus ring/temp bonuses. Typical tanky build: 10.
+- Fry Shot (L1): damage = max(1, CON + 2 - DEF). At CON 10 vs DEF 2: 10 dmg.
+- Enemy HP floors 1-2: roughly 10-30 HP. Floor 3-4: 25-60 HP.
+- Ignite ticks 1 dmg/stack/turn. Grease Fire reaction: stacks*2 burst + stacks*2
+  added ignite. Greasy on enemies (debuff): makes them flammable (Grease Fire).
+- "Greasy" on enemies uses the same effect but category="buff" isn't relevant to
+  enemies since they have no dodge to grant; the fire synergy still fires.
+  NEW: A "greasy_debuff" enemy-specific effect is proposed below that is clearly
+  a debuff category and does NOT give dodge (see Ability 7 note). Alternatively,
+  reuse existing "greasy" — the Grease Fire synergy already works against enemies.
+- IMPORTANT: The existing GreasyEffect on enemies already triggers Grease Fire
+  when Ignite is applied — all abilities that stack Greasy + Ignite on enemies
+  will naturally combo without new code.
+
+EXISTING TREE (for context)
+-----------------------------
+L1 — Fry Shot (activated):
+  Hurl hot grease at target within 4 tiles.
+  Dmg: max(1, CON + 2 - DEF). Applies 3 Greasy stacks. 15t cooldown.
+  Also deals deep-frying XP = damage dealt.
+
+L2 — Extra Greasy (passive):
+  Fried food items restore +20% HP when eaten.
+
+THE 10 NEW ABILITIES (L3–L10 CANDIDATES)
+=========================================
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 1: SPLATTER  (Recommended: L3)
+────────────────────────────────────────────────────────────────────────────────
+Type: Activated (cooldown)
+Target Type: AOE_CIRCLE (radius 1, centered on adjacent/near tile)
+Flavor: You hurl the deep fryer basket forward in a wide arc, flinging scalding
+        oil and half-cooked grease in a 3x3 splash. Kitchen warfare at its finest.
+
+Mechanical Specification:
+  - Player targets a tile within 4 tiles (SINGLE_ENEMY_LOS targeting, but AOE)
+  - All entities in a 3x3 radius (Chebyshev distance 1) around target tile take:
+      Dmg = max(1, CON - 2 - DEF)   [weaker than Fry Shot since it hits multiple]
+  - All targets hit receive 2 Greasy stacks (duration 20)
+  - Cooldown: 20 turns
+  - CON scaling: base is CON - 2; at CON 8 = 6 dmg raw, CON 12 = 10 dmg raw
+
+Implementation Notes:
+  - Ability ID: "splatter"
+  - target_type=TargetType.SINGLE_ENEMY_LOS + custom execute_at that gathers all
+    entities within Chebyshev(1) of (tx, ty), deals damage to each, applies greasy
+  - get_affected_tiles: returns all tiles in 3x3 around (tx,ty) for cursor highlight
+  - Award Deep-Frying XP = total damage dealt across all targets
+
+Balance:
+  - Weaker per-hit than Fry Shot but hits 3-9 targets in a pack
+  - Stacking Greasy on multiple enemies sets up chain Grease Fires if player has
+    any Ignite source (Pyromancy cross-skill synergy, torch items, Hot Cheetos)
+  - At CON 10: 8 dmg per target in the AOE; decent but not overwhelming
+  - 20t cooldown = slower cadence than Fry Shot, but serves a different role
+
+Synergies:
+  - Every Greasy stack from Splatter is primed for Grease Fire if enemy gets Ignite
+  - Pairs well with a torch, Bic Lighter, or Pyromancy cross-skill build
+  - Deep Fryer Basket weapon's on_hit_ignite_if_greasy triggers on melee follow-up
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 2: POP THE OIL  (Recommended: L3 or L4)
+────────────────────────────────────────────────────────────────────────────────
+Type: Passive
+Target Type: N/A (on_player_melee_hit hook)
+Flavor: Every time your fist or weapon makes contact, you hear that satisfying
+        POP of hot oil releasing. The enemy gets a face full.
+
+Mechanical Specification:
+  - Passive: on every successful player melee hit, 25% + (CON * 2)% chance to
+    apply 1 Greasy stack to the target (duration 20).
+  - Formula: chance = min(0.75, 0.25 + CON * 0.02)
+    - CON 6:  37% chance
+    - CON 8:  41% chance
+    - CON 10: 45% chance
+    - CON 12: 49% chance
+    (Max 75% at very high effective CON from bonuses)
+  - No limit on stacks applied; each melee hit rerolls
+
+Implementation Notes:
+  - Ability ID: "pop_the_oil"
+  - is_passive=True; registered in ABILITY_REGISTRY
+  - perk_type="activated" with {"ability": "pop_the_oil"} but is_passive=True
+    so UI shows "(passive)" label
+  - Requires a new effect subclass OR can be handled via a new passive hook in
+    the skill unlock system (engine checks skill level on each melee hit, similar
+    to how Smoking's "Pack a Day" is checked)
+  - Recommended: add check in combat.py's melee resolution block, after
+    "Grease on-hit chance (e.g. Deep Fryer Basket)" block:
+      if engine.skills.get("Deep-Frying").level >= 3_or_4:
+          chance = min(0.75, 0.25 + con * 0.02)
+          if random.random() < chance:
+              apply_effect(defender, engine, "greasy", ...)
+
+Balance:
+  - At CON 10, ~45% chance = roughly every other melee hit. Moderate grease
+    buildup during prolonged fights.
+  - Softens transition from "Fry Shot only" to having persistent grease on enemies
+  - Combined with Fry Shot, enemy can quickly reach 4-5 Greasy stacks (Grease
+    Fire reaction at 5 stacks = 10 burst dmg + 10 ignite stacks)
+  - Pure passive — no action cost, no cooldown. Balanced by the probabilistic
+    nature and the fact that CON only caps at 12 base.
+
+Synergies:
+  - Multiplies value of any Ignite source
+  - Combos with Deep Fryer Basket weapon (also has 20% on-hit grease + ignite-if-
+    greasy procs — two independent grease rolls per melee hit at L4+)
+  - Stacks with Splatter — use Fry Shot, then Splatter, then melee follow-up
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 3: DEEP FRY ZONE  (Recommended: L4)
+────────────────────────────────────────────────────────────────────────────────
+Type: Activated (per-floor charges)
+Target Type: ADJACENT_TILE (places a hazard on an adjacent tile)
+Flavor: You splash a puddle of searing hot oil on the floor tiles. Anyone who
+        walks through it is getting Greasy whether they like it or not.
+
+Mechanical Specification:
+  - Places an oil_slick hazard on a target adjacent tile (any non-wall tile)
+  - Oil slick: hazard_type="oil_slick", duration=15 turns, char='~', color=(220,180,50)
+  - Any entity that steps onto or through an oil_slick tile during movement:
+      - Receives 2 Greasy stacks (duration 20)
+      - Has 30% chance to lose balance (apply slow: -30% energy gain, 2 turns)
+        [new effect: "slip" — see implementation notes]
+  - The player does NOT trigger their own oil slick
+  - 2 charges per floor
+
+CON / TOL Scaling:
+  - Duration: 10 + CON turns (CON 6=16t, CON 10=20t, CON 12=22t)
+  - Greasy stacks applied: 2 + floor(TOL / 4) (TOL 6=3, TOL 8=4, TOL 12=5)
+  - At TOL 10: 4 stacks. At TOL 12: 5 stacks. (Encourages TOL investment)
+
+Implementation Notes:
+  - Ability ID: "deep_fry_zone"
+  - Requires new hazard_type="oil_slick" in hazards.py
+  - In _run_energy_loop step 4 or in do_ai_turn movement processing: check if
+    entity's new tile has an oil_slick hazard, apply greasy + slip
+  - New "slip" effect: simple slow effect, category="debuff", -30% energy gain,
+    2t duration. OR reuse existing slow effect if one exists.
+  - The oil_slick entity: char='~', blocks_movement=False, hazard_duration field
+    (counts down, entity removed when expired)
+  - This follows the frost_patch pattern proposed elsewhere in memory
+
+Balance:
+  - 2 charges/floor = meaningful but not spammable
+  - Strong in corridors (enemies must walk through). Weaker in open rooms.
+  - Hazard persists 16-22 turns — enemy patrol paths will trigger it repeatedly
+  - Combined with a fire source, the oil slick becomes a "lit oil puddle" zone
+    (player applies Ignite to enemy entering, Grease Fire instantly triggers)
+
+Synergies:
+  - Best combo: place oil_slick, then kite enemy through it, then use Fry Shot
+    to trigger Grease Fire (Greasy from slick + Ignite from Fry Shot)
+  - Pyromancy L5 Wildfire: enemies burning on an oil slick spread fire naturally
+  - Corridor chokepoint denial — place it in the only path, back up, let enemies
+    come to you (fits the CON = tanky, patient playstyle)
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 4: PORK RIND ARMOR  (Recommended: L5)
+────────────────────────────────────────────────────────────────────────────────
+Type: Activated (cooldown)
+Target Type: SELF
+Flavor: You inhale deeply and coat your skin in a thick layer of crystallized
+        fried pork skin. It's disgusting. It also stops knives.
+
+Mechanical Specification:
+  - Grants temp HP equal to CON * 3
+    - CON 6:  18 temp HP
+    - CON 8:  24 temp HP
+    - CON 10: 30 temp HP
+    - CON 12: 36 temp HP
+  - Additionally: while the temp HP is active, melee attackers that hit the
+    player have a 40% chance to receive 1 Greasy stack (the grease "rubs off")
+  - The temp HP functions as normal temp HP (entity.temp_hp field; absorbs before
+    regular HP; damage absorption order: Temp HP → Armor → HP)
+  - Temp HP lasts until depleted (no duration limit)
+  - Cooldown: 25 turns
+
+Implementation Notes:
+  - Ability ID: "pork_rind_armor"
+  - execute: add engine.player.temp_hp += con*3; set engine.ability_cooldowns["pork_rind_armor"] = 25
+  - The "attacker gets greasy on hit" — requires a new player stat flag or a
+    temporary buff effect: "pork_rind_active" that has an on_incoming_melee_hit
+    hook (fires when player is hit by melee).
+    New lifecycle hook needed: on_incoming_melee_hit(engine, attacker) — called
+    in combat.py when an enemy successfully hits the player.
+    OR: check engine.player_stats for a pork_rind_charges field that decrements
+    as temp HP is consumed, then check in combat.py hit handler.
+  - Simplest implementation: store engine.pork_rind_armor_hp = CON*3 separately
+    from temp_hp; when that pool > 0, absorb hits and roll 40% grease on attacker.
+    When pool reaches 0, flag clears. This avoids needing a new lifecycle hook.
+
+Balance:
+  - CON 10 = 30 temp HP = absorbs roughly 3-5 hits from floor 3-4 enemies
+  - 25t cooldown keeps it from being permanent uptime
+  - The "rub off grease" punishes melee-heavy enemies, setting up Grease Fire
+    if player has any ignite source after
+  - Synergizes with high CON — the same stat driving ability damage also drives
+    this defensive layer. CON investment rewards are clear.
+  - Does NOT scale with Tolerance on purpose (keeps CON as the primary stat)
+
+Synergies:
+  - Enemies that proc Grease Fire while attacking = they hurt themselves for
+    applying the grease (Grease Fire triggers on their own greasy stacks when
+    player fires Fry Shot at them afterward)
+  - Pairs with Pop the Oil (L3-4): melee attacker gets greasy from armor rub-off,
+    player counter-attacks and also procs Pop the Oil → double greasy application
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 5: GREASE TRAP  (Recommended: L5 or L6)
+────────────────────────────────────────────────────────────────────────────────
+Type: Activated (per-floor)
+Target Type: SELF (instant, global)
+Flavor: You've been cooking long enough to know: control the grease, control the
+        fight. Every enemy on the floor gets a little taste of what you're working
+        with.
+
+Mechanical Specification:
+  - Instantly applies 2 Greasy stacks to ALL visible enemies (within FOV)
+  - Duration: 20 turns
+  - Additionally: the next time any Greasy enemy takes damage from any source
+    (not just fire), deal bonus damage equal to their current Greasy stack count
+    [this is a one-time bonus per enemy that resets when Greasy is consumed by
+    Grease Fire]
+  - 1 charge per floor (extremely powerful, very limited)
+
+CON Scaling:
+  - Greasy stacks applied: 1 + floor(CON / 4)
+    - CON 6:  2 stacks
+    - CON 8:  3 stacks
+    - CON 10: 3 stacks
+    - CON 12: 4 stacks
+
+Implementation Notes:
+  - Ability ID: "grease_trap"
+  - execute: iterate engine.dungeon.get_monsters(); if visible (in dungeon.visible),
+    apply 1+CON//4 Greasy stacks to each
+  - The "bonus damage on next hit" could be handled by a new "primed_grease" flag
+    on each enemy entity OR by a brief "grease trap marked" effect (dur=30;
+    modify_incoming_damage adds entity's current greasy stack count to damage once,
+    then clears the flag).
+  - Simplest: just apply the Greasy stacks without the bonus damage — even without
+    it, mass-Greasy on all visible enemies is a powerful setup for Ignite combo.
+    The bonus damage adds depth at cost of implementation complexity.
+
+Balance:
+  - 1 charge/floor makes it a "big moment" ability
+  - On CON 10 with 4 visible enemies: 12 Greasy stacks distributed = significant
+    Grease Fire potential if player has ignite source
+  - Arguably the most powerful utility ability — hence 1 charge/floor
+  - The per-enemy greasy stack count matters: enemies accumulate stacks over time
+    from Fry Shot, Splatter, Pop the Oil — Grease Trap tops them all off
+
+Synergies:
+  - Immediate synergy with Fry Shot: Grease Trap → Fry Shot on nearest enemy →
+    Grease Fire on that enemy → ignite spreads (Pyromania Wildfire if cross-build)
+  - All enemies Greasy makes them slow on oil slick if placed nearby
+  - Deep Fryer Basket weapon: already has 20% on-hit ignite-if-greasy — after
+    Grease Trap, every weapon hit has 20% to auto-trigger Grease Fire
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 6: BURNING LARD  (Recommended: L6)
+────────────────────────────────────────────────────────────────────────────────
+Type: Activated (cooldown)
+Target Type: LINE_FROM_PLAYER (fire in a direction)
+Flavor: You pour a stream of burning lard from your fryer in a wide arc,
+        leaving a river of fire that everything in its path has to cross.
+
+Mechanical Specification:
+  - Fire a 6-tile line of burning grease in a chosen direction
+  - Every entity in the line takes: Dmg = max(1, CON + TOL - DEF)
+    - CON 10 + TOL 8 vs DEF 2 = 16 dmg
+    - CON 10 + TOL 10 vs DEF 2 = 18 dmg
+    - CON 12 + TOL 12 vs DEF 2 = 22 dmg
+  - Every entity in the line receives 3 Greasy stacks (duration 20)
+  - Each tile the line passes through becomes an oil_slick hazard (duration 10)
+    [leaves a burning trail on the floor using the oil_slick entity from Ability 3]
+  - Cooldown: 25 turns
+
+CON/TOL Scaling:
+  - Damage uses BOTH CON + TOL (encourages balanced investment)
+  - Cooldown reduction if TOL >= 10: 20 turns instead of 25
+
+Implementation Notes:
+  - Ability ID: "burning_lard"
+  - target_type=TargetType.LINE_FROM_PLAYER
+  - execute_at: trace the 6-tile ray; for each tile in ray:
+      - If entity present: deal CON+TOL-DEF damage, apply 3 Greasy stacks
+      - Place oil_slick hazard at that tile (or extend existing one)
+  - If oil_slick hazard system from Ability 3 is implemented, reuse it here
+  - If oil_slick not yet implemented: tiles just apply Greasy to any entity that
+    steps on them later (store via a set engine.oil_slick_tiles with expiry ticks)
+  - Award Deep-Frying XP = total damage dealt across all targets
+
+Balance:
+  - LINE_FROM_PLAYER means player must position well — corridor use is excellent
+  - The trail of oil_slick persists for 10t = corridor denial after the initial hit
+  - Damage is the highest raw single-target equivalent of any frying ability:
+    CON+TOL scaling rewards builds that invest in both
+  - At typical CON 10 + TOL 8: 16 dmg on a line — more than Fry Shot (10 dmg)
+    but no defense pierce, can miss via line geometry
+
+Synergies:
+  - Immediately primes the line for Grease Fire if enemy survives and gets Ignite
+  - Oil_slick trail = Burning Lard IS the floor denial + the damage ability
+  - Cross-skill: Pyromancy Bic Lighter after Burning Lard = line full of Greasy
+    enemies immediately hit with flame from a follow-up Ignite source
+  - Rolling skill (smoke cloud) + Burning Lard trail = smoke + fire combo
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 7: FULL RENDER  (Recommended: L7)
+────────────────────────────────────────────────────────────────────────────────
+Type: Passive
+Target Type: N/A (modifies Grease Fire synergy trigger)
+Flavor: You've learned to render fat so completely that when your grease ignites,
+        it doesn't just burst — it keeps burning. The fire never fully goes out.
+
+Mechanical Specification:
+  - PASSIVE: Modifies the Grease Fire reaction globally for any enemy the player
+    causes to Grease Fire.
+  - Without Full Render: Grease Fire = stacks*2 burst damage + stacks*2 ignite
+    stacks added. Greasy consumed.
+  - With Full Render active:
+    - The burst damage becomes stacks * (2 + CON / 5) [rounds down]
+      - CON 8:  stacks * 3
+      - CON 10: stacks * 4
+      - CON 12: stacks * 4 (4.4 rounds to 4)
+    - Greasy is NOT fully consumed — half the stacks remain (floor(stacks/2)),
+      so a second Grease Fire can trigger on the same enemy if they get more Ignite
+    - The ignite stacks added = original stacks * 3 instead of * 2
+  - Only affects enemy Grease Fires (not player self-grease-fire)
+
+Implementation Notes:
+  - Ability ID: "full_render"
+  - is_passive=True
+  - The _check_grease_fire_synergy() function in effects.py needs to check
+    engine.skills.get("Deep-Frying").level >= 7 (or check a flag) to modify:
+    - damage = greasy_stacks * (2 + con // 5)
+    - bonus_stacks = greasy_stacks * 3
+    - Only remove floor(greasy_stacks / 2) greasy stacks instead of all
+  - Alternatively: set engine.player_stats.full_render_active = True as a
+    PlayerStats bool flag, and check it in _check_grease_fire_synergy()
+  - New PlayerStats field: full_render_active (bool, default False)
+
+Balance:
+  - Multiplicatively amplifies ALL previous abilities — every Greasy stack from
+    L1-L6 now deals more on Grease Fire trigger
+  - At CON 10: burst goes from stacks*2 to stacks*4. With 5 stacks: 20 burst dmg
+    instead of 10. Significant.
+  - The partial Greasy preservation is the truly dangerous part — enemies that
+    survive a Grease Fire are still half-Greasy, ready for a second trigger
+  - Appropriately late (L7) since it amplifies existing tools rather than adding new
+  - Passive with no cost — this IS the payoff for investing deeply in the tree
+
+Synergies:
+  - Every ability in the tree (Fry Shot, Splatter, Pop the Oil, Grease Trap,
+    Burning Lard) now has higher burst ceiling
+  - Stacking Deep Fryer Basket weapon proc rate with Full Render = constant
+    re-triggering Grease Fires on survivors
+  - Anti-boss: boss enemies that survive the first Grease Fire are still primed
+    for the second. Good against high-HP targets.
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 8: THERMITE BASTE  (Recommended: L7 or L8)
+────────────────────────────────────────────────────────────────────────────────
+Type: Activated (total charges)
+Target Type: ADJACENT (touch range)
+Flavor: You apply a thick baste of pure alchemical grease directly to one enemy.
+        Within moments, they are coated in something that is not merely flammable
+        but actively wants to burn. Three uses. Use them wisely.
+
+Mechanical Specification:
+  - Instantly applies MAX Greasy stacks (10 stacks, duration 30) to an adjacent
+    enemy — the maximum possible in one application
+  - Also applies 3 Ignite stacks immediately (triggers Grease Fire instantly)
+  - The Grease Fire from this is guaranteed; the player is applying both triggers
+    at once intentionally
+  - Total charges: 3 (rare, precious — this is a finisher or boss tool)
+  - No cooldown beyond charge consumption
+
+CON Scaling:
+  - The immediate Ignite stacks = 1 + CON // 3
+    - CON 6:  3 ignite stacks
+    - CON 8:  3 ignite stacks
+    - CON 9:  4 ignite stacks
+    - CON 12: 5 ignite stacks
+  - With Full Render (L7): Grease Fire burst = 10 * (2 + CON//5)
+    - CON 10: 10 * 4 = 40 burst damage
+    - CON 12: 10 * 4 = 40 burst damage + 5 ignite stacks ongoing
+
+Implementation Notes:
+  - Ability ID: "thermite_baste"
+  - target_type=TargetType.ADJACENT (quick-select; auto-fires if 1 adjacent enemy)
+  - execute_at: apply 10 Greasy stacks, then apply 1+CON//3 Ignite stacks
+    (Grease Fire triggers automatically via _check_grease_fire_synergy on the
+    ignite application — no special code needed)
+  - charge_type=ChargeType.TOTAL, max_charges=3
+
+Balance:
+  - Only 3 total charges for the run — must be saved for dangerous situations
+  - Without Full Render: 10*2 = 20 burst + 20 ignite stacks = massive but not
+    infinite damage. Floor 4 boss likely survives.
+  - With Full Render (CON 10): 40 burst + 40 ignite stacks. Against a 60 HP boss
+    at full health, this is potentially 40 burst + ~40 more ignite ticks = 80+
+    effective damage over time. Boss-killing territory if positioned correctly.
+  - TOUCH RANGE: player must be adjacent. High risk for high reward. Permadeath
+    implication: player is next to a dangerous boss while using this.
+
+Synergies:
+  - The absolute best Grease Fire trigger in the tree; everything else sets up,
+    this finishes
+  - Cross-skill: any CON buff (temporary or permanent) directly amplifies ignite
+    stacks and (via Full Render) the burst multiplier
+  - Can be used mid-floor to save a difficult fight: 3 charges = 3 emergencies
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 9: THE LARD IS MY SHEPHERD  (Recommended: L9)
+────────────────────────────────────────────────────────────────────────────────
+Type: Passive
+Target Type: N/A (on-kill trigger)
+Flavor: Every enemy that dies by grease and fire blesses you. Their fat renders
+        into your body. You grow heavier, greasier, and harder to kill.
+
+Mechanical Specification:
+  - PASSIVE: When the player kills an enemy that dies while having the Greasy
+    effect (at any stack count), the player gains:
+    - Temp HP equal to half the dead enemy's Greasy stack count (min 1)
+    - 1 Greasy stack on self (the player absorbs the enemy's grease)
+      [player Greasy = +3% dodge per stack, already implemented]
+    - Deep-Frying XP = 10 * greasy_stacks_on_kill
+  - This creates a sustain loop: killing Greasy enemies feeds the player
+
+CON Scaling:
+  - Temp HP gained = max(1, floor(greasy_stacks / 2)) + floor(CON / 5)
+    - CON 8:  +1 temp HP bonus per kill
+    - CON 10: +2 temp HP bonus per kill
+    - CON 12: +2 temp HP bonus per kill
+  - At 5 greasy stacks + CON 10: floor(5/2) + 2 = 4 temp HP per kill
+
+Implementation Notes:
+  - Ability ID: "lard_is_my_shepherd"
+  - is_passive=True
+  - Check in the "entity_died" event handler or after kill confirmation in
+    combat.py: check engine.skills.get("Deep-Frying").level >= 9; check if
+    dead entity had Greasy stacks; award temp HP and player Greasy stack
+  - New engine event: on kill with greasy condition — best added to the
+    entity_died event bus handler in engine.py under "killer == engine.player"
+  - Deep-Frying XP: call engine.skills.gain_potential_exp("Deep-Frying", 10*stacks)
+
+Balance:
+  - Modest heal per kill (2-5 temp HP typically)
+  - Encourages the "grease everything, then kill" loop rather than greasing and
+    running. Active engagement with the Greasy system.
+  - Deep-Frying XP from kills accelerates later skill levels (L9-L10 XP curve
+    is steep: 25,000 and 100,000 potential XP required)
+  - Player building Greasy stacks on themselves (dodge) while also healing per kill
+    creates a durable aggressive playstyle
+
+Synergies:
+  - Grease Trap (L5) + cleave/Splatter = multiple enemies Greasy = multiple kills
+    each granting temp HP in one turn
+  - Works passively during melee if Pop the Oil (L3-4) is applying grease on hit
+  - Anti-attrition: allows longer dungeon floors without needing food, if you keep
+    kills coming
+
+────────────────────────────────────────────────────────────────────────────────
+ABILITY 10: THE FORBIDDEN DEEP FRY  (Recommended: L10, Capstone)
+────────────────────────────────────────────────────────────────────────────────
+Type: Activated (ONCE per run)
+Target Type: SELF → explodes outward AOE
+Flavor: You pour everything — every drop of oil, every ounce of grease, every
+        bubbling vat of scalding fat you've ever cooked with — over yourself and
+        the entire floor. It is terrifying. It is glorious. It is totally
+        irreversible.
+
+Mechanical Specification:
+  - Targets SELF; immediately affects all entities on the entire current floor
+  - Phase 1 (instant): All non-player entities on the floor receive:
+    - Greasy stacks = 5 + floor(CON / 3)   (CON 10 = 8 stacks, CON 12 = 9 stacks)
+    - Ignite stacks = floor(CON / 2)         (CON 10 = 5 stacks, CON 12 = 6 stacks)
+    - Grease Fire triggers on ALL of them simultaneously:
+        Burst = greasy_stacks * 2 (base) or greasy_stacks * (2 + CON//5) with Full Render
+        + ignite stacks continue ticking
+  - Phase 2 (player): Player also gains:
+    - 3 Greasy stacks on self (+9% dodge)
+    - Temp HP = CON * 5 (CON 10 = 50 temp HP; a full shield)
+    - BUT player takes Ignite (3 stacks, 5 turns) — you're covered in grease too.
+      The player ignite is a non-negotiable cost.
+  - Phase 3 (environment): All floor tiles become oil_slick for 20 turns
+    (every tile on the floor is slicked — walking costs are dangerous)
+  - ONCE per run. No reset, no refund.
+
+CON Scaling (summary):
+  - Enemy Greasy stacks: 5 + CON//3  →  CON 6=7, CON 8=7, CON 10=8, CON 12=9
+  - Enemy Ignite stacks: CON//2      →  CON 6=3, CON 8=4, CON 10=5, CON 12=6
+  - With Full Render (L7): burst per enemy = 8*(2+2)=32 to 9*(2+2)=36 raw burst,
+    BEFORE ignite ticks
+  - Player temp HP: CON * 5          →  CON 6=30, CON 10=50, CON 12=60
+
+Permadeath Consideration:
+  - Player takes 3 ignite stacks = 3 dmg/turn for 5 turns = 15 damage total
+  - At full HP (CON 10 = 130 HP) this is trivial; but if already wounded, this
+    can be the killing blow
+  - The entire floor becoming oil_slick means the player can ALSO slip if moving
+  - This is intentional: the capstone is powerful but leaves the player in
+    a vulnerable, burning, oil-covered mess. NIGRL humor.
+
+Implementation Notes:
+  - Ability ID: "forbidden_deep_fry"
+  - target_type=TargetType.SELF
+  - charge_type=ChargeType.ONCE
+  - execute: iterate ALL entities in dungeon (monsters + player):
+      For non-player: apply greasy stacks + ignite stacks (grease fire auto-triggers)
+      For player: apply greasy (3 stacks), apply temp HP, apply ignite (3 stacks)
+  - Place oil_slick hazards on ALL walkable non-wall floor tiles:
+      iterate dungeon tiles; for each passable tile without existing hazard, spawn
+      oil_slick entity (or set a per-tile flag engine.floor_oil_slick = True with
+      expiry counter, to avoid creating thousands of hazard entities)
+  - Best implementation for floor-wide oil: add engine.floor_oil_slick_turns counter
+    (int, countdown from 20). In _run_energy_loop movement check: if counter > 0,
+    treat every floor tile as oil_slick for movement resolution.
+  - New engine state: floor_oil_slick_turns (int, default 0; countdown per turn)
+  - Award massive Deep-Frying XP: sum of all damage dealt (significant XP for an
+    already-maxed-tree player, but satisfying)
+
+Balance:
+  - Once per run — used at a pivotal moment (boss floor, overwhelming ambush,
+    final floor)
+  - Against a floor with 6 enemies at CON 10, no Full Render:
+    8 greasy stacks each → 8*2=16 burst + 5 ignite stacks (5 dmg/turn for 5t)
+    = 16+25 = 41 effective dmg per enemy. With 6 enemies = 246 effective damage.
+  - With Full Render: 8*(4)=32 burst per enemy = 192 burst damage across 6 enemies
+    in one action. Effectively ends the floor.
+  - Cost: 15 self-damage from ignite + risk from oil-slick floor movement
+  - This is the Munching tree equivalent of a "eat all your food at once" panic
+    button, but offensive. The flavor and the numbers both deliver on the fantasy.
+
+Synergies:
+  - Full Render (L7) is the single biggest multiplier — getting to L10 means L7
+    is already unlocked; every run that uses The Forbidden Deep Fry has Full Render
+  - Thermite Baste (L8) with 3 charges: use 2 before Forbidden Deep Fry to weaken
+    the boss, then Forbidden Deep Fry to clear the room
+  - Smoking tree: if player is fire-immune at L3+ (Pyromania branch), the self-
+    ignite from Forbidden Deep Fry is free damage with no cost. Major cross-skill
+
+SUGGESTED SKILL TREE STRUCTURE
+================================
+
+L1  — Fry Shot (activated) [EXISTS]
+L2  — Extra Greasy (passive) [EXISTS]
+L3  — Pop the Oil (passive, on-hit grease) [NEW]
+L4  — Splatter (activated, 3x3 AOE grease splash) [NEW]
+L5  — Pork Rind Armor (activated, CON*3 temp HP + grease rub-off) [NEW]
+L6  — Deep Fry Zone (activated, oil_slick hazard placement, 2/floor) [NEW]
+L7  — Full Render (passive, amplifies Grease Fire reaction) [NEW]
+L8  — Burning Lard (activated, LINE_FROM_PLAYER grease + ignite + trail) [NEW]
+L9  — Thermite Baste (activated, max-grease touch apply, 3 total charges) [NEW]
+L10 — The Forbidden Deep Fry (activated, floor-wide grease fire, ONCE) [NEW]
+
+Note: Grease Trap and The Lard Is My Shepherd are listed as alternatives to
+Burning Lard (L8) and Thermite Baste (L9) respectively, if the designer wants
+different mid-to-late tree flavors. See ALTERNATIVES section below.
+
+ALTERNATIVE PLACEMENT
+======================
+Grease Trap can replace Splatter at L4 for a more "setup/control" midgame
+  instead of burst AOE. Splatter is more immediately satisfying.
+
+The Lard Is My Shepherd can replace Deep Fry Zone at L6 if terrain hazards
+  are not yet implemented. Pure passive sustain is simpler to implement first.
+
+IMPLEMENTATION PRIORITY ORDER
+===============================
+Low complexity (implement first):
+  - Pop the Oil (L3): just adds a check in combat.py melee block
+  - Pork Rind Armor (L5): entity.temp_hp addition + simple flag in engine
+  - Grease Trap (L5/alt): iterate visible monsters, apply greasy stacks
+
+Medium complexity:
+  - Splatter (L4): AOE ability using existing 3x3 iteration pattern
+  - Full Render (L7): modify _check_grease_fire_synergy with skill level check
+  - Burning Lard (L8): LINE_FROM_PLAYER pattern exists; line hazard spawning is new
+  - Thermite Baste (L9): ADJACENT pattern exists; just apply max stacks + ignite
+
+High complexity:
+  - Deep Fry Zone (L6): requires oil_slick hazard entity type + movement trigger
+  - The Lard Is My Shepherd (L9/alt): new event_bus hook on greasy-kill
+  - The Forbidden Deep Fry (L10): floor_oil_slick_turns engine state + ONCE charge
+
+NEW EFFECTS REQUIRED
+=====================
+  - greasy (enemy variant): existing "greasy" effect already works on enemies;
+    no new effect needed. The category="buff" is correct (it DOES give dodge if
+    applied to the player; on enemies it just acts as a flammability marker for
+    _check_grease_fire_synergy). No change needed.
+  - slip: new debuff, -30% energy gain, 2t duration. Reuse or subclass SlowEffect
+    if it exists, or create a minimal SlipEffect subclass.
+  - pork_rind_active: buff effect with on_incoming_melee_hit hook that rolls 40%
+    to apply 1 Greasy to the attacker. Duration = indefinite (until temp HP pool
+    depletes; clear when pork_rind pool hits 0).
+
+NEW ENGINE STATE REQUIRED
+==========================
+  - engine.pork_rind_armor_hp (int, default 0; per-ability-use pool)
+  - engine.floor_oil_slick_turns (int, default 0; countdown for floor-wide oil)
+  - New PlayerStats bool: full_render_active (set True at L7 unlock)
+
+NEW ABILITY IDs TO REGISTER
+=============================
+  "splatter", "pop_the_oil", "deep_fry_zone", "pork_rind_armor",
+  "grease_trap", "burning_lard", "full_render", "thermite_baste",
+  "lard_is_my_shepherd", "forbidden_deep_fry"
+
+NEW HAZARD TYPE
+================
+  hazard_type="oil_slick": char='~', color=(220,180,50), blocks_movement=False,
+  hazard_duration (counts down per turn). Movement through tile: apply 2 Greasy
+  stacks + 30% chance slip. Player immune to their own oil slicks.
+
+CROSS-SKILL SYNERGIES SUMMARY
+================================
+  - Pyromancy/Pyromania: BEST cross-skill. Any Ignite source (Bic Lighter, Breathe
+    Fire, Wildfire spread) instantly triggers Grease Fire on Greasy enemies. A
+    Pyromancy/Deep-Frying hybrid build is the "Chef on Fire" archetype.
+  - Smoking (Fiery Fists if implemented): melee attacks apply ignite — combined
+    with Pop the Oil's passive grease, every melee hit is a potential Grease Fire.
+  - Munching: Fried food heals (Extra Greasy L2). Eating while fighting keeps HP
+    up as Deep Fry Zone and Grease Trap burn the room down.
+  - Stabbing (crits via STS): Thermite Baste as an opener to apply 10 Greasy,
+    then stab the now-Greasy-and-ignited enemy for crit damage — total burst combo.
+
+BALANCE SUMMARY TABLE
+======================
+Ability                | Lvl | Cooldown   | Damage Type         | CON Scaling
+-----------------------|-----|------------|---------------------|------------------
+Fry Shot (existing)    | L1  | 15t        | CON+2-DEF, single   | Linear
+Splatter               | L4  | 20t        | CON-2-DEF, 3x3 AOE  | Linear
+Pop the Oil            | L3  | Passive    | +Greasy on melee    | Chance = f(CON)
+Deep Fry Zone          | L6  | 2/floor    | Greasy terrain      | Duration + stacks
+Pork Rind Armor        | L5  | 25t        | CON*3 temp HP       | Linear
+Grease Trap            | L5* | 1/floor    | Mass Greasy (setup) | Stacks = f(CON)
+Burning Lard           | L8  | 25t        | CON+TOL-DEF, line   | CON+TOL
+Full Render            | L7  | Passive    | Amplifies Grease Fi | Mult = f(CON)
+Thermite Baste         | L9  | 3 total    | Max Greasy + Ignite  | Ignite = f(CON)
+Lard Is My Shepherd    | L9* | Passive    | Temp HP on kill     | HP = f(CON)
+Forbidden Deep Fry     | L10 | ONCE/run   | Floor-wide AOE      | Stacks + mult
+(*) = alternative placement candidate
+
+================================================================================
+END OF DOCUMENT
+================================================================================

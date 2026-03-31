@@ -68,6 +68,9 @@ These were extracted from `engine.py` and take `engine` as first parameter:
 - **zone_generators.py**: Zone generation registry. Delegates to zone-specific `generate()` and `spawn()` callables. Room types: Rect, L, U, T, Hall, Oct, Cross, Diamond, Cavern, Pillar, Circle.
 - **menu_state.py**: `MenuState` enum (NONE, SKILLS, CHAR_SHEET, EQUIPMENT, ITEM_MENU, COMBINE_SELECT, LOG, DESTROY_CONFIRM, BESTIARY, TARGETING, ABILITIES, RING_REPLACE, ENTITY_TARGETING, PERKS, DEV_MENU, DEV_ITEM_SELECT, ADJACENT_TILE_TARGETING, EXAMINE, DEATH_SCREEN, DEEP_FRYER, GUN_TARGETING, DEV_FLOOR_SELECT).
 - **event_bus.py**: EventBus for decoupled event publishing.
+- **save_system.py**: JSON save/load. `save_game(engine)`, `load_game()`, `has_save()`. Clipboard export/import for sharing. Auto-saves on floor transition. Saves go to `saves/save.json`.
+- **sdl_overlay.py**: `SDLOverlay` class. SDL2-based pixel rendering layer on top of tcod console. Handles floating damage/heal numbers, glyph rendering, status effect icons. Replaces `context.present()` with a pipeline: console→texture→overlays→present.
+- **floating_text.py**: `FloatingText`/`FloatingTextManager` data classes for damage/heal number display.
 
 ### Data-Driven Design
 
@@ -143,6 +146,17 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 - Effects can modify energy gain via `modify_energy_gain()` hook. Toxicity slows enemies (up to 50% at 100 tox).
 - FOV uses tcod symmetric shadowcasting (`FOV_SYMMETRIC_SHADOWCAST`), computed once per player move.
 
+### Save System
+- JSON serialization of full game state (entities, dungeon, skills, effects, abilities).
+- Auto-saves on floor transition. Manual save via menu. Permadeath: save deleted on death.
+- Clipboard export/import for save sharing (base64-encoded).
+- `status_effect.py` is a deprecated stub — all effect logic lives in `effects.py`.
+
+### SDL Overlay
+- `SDLOverlay` owns the present pipeline — call `overlay.present()` instead of `context.present()`.
+- Renders floating damage numbers, status glyph icons (ignite, chill, shock, toxic, rad).
+- Glyph textures loaded from `dev-assets/*-glyph.png` at startup.
+
 ### Permadeath
 - Player dies → `engine.game_over = True` → main loop stops (no respawns or continues).
 
@@ -159,6 +173,9 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 - **test_faction_enemies.py**: Meth Lab faction enemies (Scryer/Aldor variants, law enforcement, faction AI).
 - **test_meth_lab_enemies.py**: Toxic enemies (Covid-26, Purger, Toxic Slug, Sludge Amalgam, Chemist).
 - **test_mutations.py**: Radiation mutation tiers, polarity, stat/skill/equipment mutations, rad consumption.
+- **test_save_system.py**, **test_save_advanced.py**: Save/load round-trip, entity serialization, clipboard export.
+- **test_seeding.py**: Deterministic seed system tests.
+- **test_hangover_cleanse.py**, **test_voodoo_doll.py**, **test_jerome_door.py**: Specific mechanic tests.
 - Run all: `python -m pytest test_*.py -v`
 - Run single test file: `python -m pytest test_food_system.py -v`
 
@@ -196,9 +213,23 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 - Use `prepare_ai_tick()` output (creature_positions, step_map) to verify pathfinding.
 - Add print statements in `do_ai_turn()` to trace state transitions.
 
+## Design Documents
+
+- `nigrl-ideas/` contains game design documents (enemy concepts, skill trees, item ideas, etc.).
+- **NEVER use Edit on files in `nigrl-ideas/`** — regenerate via agent instead.
+- When adding new design docs, also add a summary to `nigrl-ideas/summaries/`.
+- `nigrl-ideas/finished-reading/` contains docs that have been implemented.
+- `version_history_and_features.txt` tracks feature history by version.
+
 ## Known Limitations
 
 - Inventory uses item stacking with count-based display.
+
+## Critical Conventions
+
+- **Floor-duration effects**: Use `floor_duration=True` on Effect, never `duration=9999`.
+- **Description updates**: ALWAYS update description/tooltip text when changing item/perk/ability/skill mechanics.
+- **Graphical tiles**: Most objects use ASCII. Graphical tiles (`0xE000`+) reserved for special items needing visual distinction. Next free slot: `0xE011`. Monocolor tiles are white sprites tinted by entity `color` field.
 
 ## Code Style
 

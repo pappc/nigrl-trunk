@@ -1,0 +1,1340 @@
+================================================================================
+ABILITY-GRANTING UNIQUE ITEMS — BATCH 2 (SINGLE ABILITY)
+12 Unique Equippable Items That Each Grant One Powerful Ability
+NIGRL Roguelike
+================================================================================
+
+Research Notes
+--------------
+- Builds on Batch 1 infrastructure (ability_cooldowns dict, ChargeType, TargetType).
+- Batch 1 covered: Weapon/beating x4, Feet x1, Hat x2, Neck x1, Ring x2.
+- Batch 2 targets: Stabbing weapon, Slashing weapon, Gun (sidearm + weapon), Neck,
+  Ring x2, Feet, Hat, and one new weapon/beating for different flavor.
+- Ability cooldowns: engine.ability_cooldowns[ability_id] = turns_remaining (ticked each
+  energy loop). ChargeType.INFINITE + cooldown = the standard pattern for single abilities.
+- All single-grant items use grants_ability (str) not grants_abilities (list).
+- Existing effects leveraged: stun, fear, slow, confuse, bleeding, ignite, divine_shield,
+  cripple_armor, stat_mod, invulnerable, dot.
+- New effects proposed here follow the same @register + lifecycle hook pattern.
+- Tradeoffs present on every item: self-damage, stat loss, HP cost, break chance,
+  cooldown length, ammo dependency, or positional risk.
+
+================================================================================
+ITEM 1: The Hoodoo Needle
+Slot: Weapon (stabbing) | Char: | | Color: (180, 80, 200) deep violet
+================================================================================
+
+CONCEPT SUMMARY
+A bone-handled embroidery needle wrapped in electrical tape, scratched with sigils in a
+dead language. Nobody knows where it came from — it showed up in a bathroom drain one morning.
+It deals modest stab damage but the real power is Hoodoo Pin: fire it into a target and they
+become your voodoo proxy. For the next 12 turns, whenever YOU take damage, the pinned enemy
+takes the same damage again. A weapon for players who fight on the edge — the more danger you
+put yourself in, the more punishment the target soaks.
+
+ITEM DEFINITION (items.py ITEM_DEFS entry)
+  "hoodoo_needle": {
+      "name": "The Hoodoo Needle",
+      "char": "|",
+      "color": (180, 80, 200),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "stabbing",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "base_damage": 5,
+      "str_req": 1,
+      "reach": 1,
+      "str_scaling": {"type": "tiered", "divisor": 3},  # +1 dmg per 3 STR
+      "tags": ["hoodoo_needle", "unique"],
+      "name_gradient": [(180, 80, 200), (80, 20, 120), (180, 80, 200)],
+      "grants_ability": "hoodoo_pin",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Hoodoo Pin
+  ability_id: "hoodoo_pin"
+  name: "Hoodoo Pin"
+  description: "Stab a distant enemy with voodoo intent. For 12 turns, every hit you take
+    echoes as equal damage on your pinned proxy. Range 6. 20-turn cooldown."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  max_range: 6.0
+  Cooldown: 20
+
+  Execute logic (_execute_at_hoodoo_pin):
+    - Validate target is visible monster within range 6.
+    - Requires The Hoodoo Needle equipped (weapon slot, tag "hoodoo_needle").
+    - Apply new effect "hoodoo_proxy" (duration=12) to the target.
+    - Store engine.hoodoo_proxy_target_id = target.instance_id.
+    - Message: "Hoodoo Pin! [name] is your proxy for 12 turns!"
+    - Set ability_cooldowns["hoodoo_pin"] = 20.
+
+  NEW EFFECT — HoodooProxyEffect (effects.py):
+    id = "hoodoo_proxy"
+    category = "debuff"
+    On tick: check engine.hoodoo_proxy_target_id matches self's entity.
+    In engine.py damage-taken path (player takes damage): if engine.hoodoo_proxy_target_id
+      is set and matches a living entity, call deal_damage(engine, damage, proxy_entity).
+    - Mirror damage is NOT reduced by proxy's defense (pure echo damage).
+    - Message on echo: "Hoodoo echo! [name] suffers [dmg] mirror damage!"
+    expire: clear engine.hoodoo_proxy_target_id if it matches this entity.
+    on_reapply: refresh duration, keep proxy target.
+
+  TRADEOFF: You must take damage to deal mirror damage — incentivizes risky play.
+    Low base damage (5) means Hoodoo Pin is the weapon's primary value, not raw melee.
+    If proxy dies or you kill it normally, engine clears hoodoo_proxy_target_id.
+    Cooldown 20 means you can't chain-pin multiple targets quickly.
+
+BALANCE:
+  - STR 10: 5 + (10-1)//3 = 5 + 3 = 8 base damage. Modest raw power for a stabber.
+  - Mirror at full player HP pool: floor 1-2 average hit is 4-8, so proxy receives 4-8 extra
+    per hit taken. Over 12 turns at aggressive play: ~6-8 free hits of 4-8 = 24-64 bonus dmg.
+  - Risk: player must tank hits, which is dangerous without CON investment.
+  - Synergizes with: CON-heavy builds (more HP = more tanking = more mirror), Divine Shield
+    (absorbs player hit but the absorbed hit still counts as "damage taken" for mirror?
+    — no: Divine Shield zeroes out incoming damage before the hook runs, so no mirror.
+    Intentional: divine_shield hard-counters hoodoo stacking which would be oppressive).
+  - Countered by: very tanky enemies with high HP (mirror helps a lot) vs. weak enemies
+    (mirror is overkill). Best value against bosses and minibosses.
+
+IMPLEMENTATION NOTES:
+  - engine.py: new engine state: engine.hoodoo_proxy_target_id (str|None, clears on
+    entity death and on floor change).
+  - engine.py player_takes_damage path (the hook that ticks the damage-received): add
+    "if engine.hoodoo_proxy_target_id" check — find entity by instance_id, deal_damage.
+  - effects.py: HoodooProxyEffect (id="hoodoo_proxy"); expire clears engine state.
+  - abilities.py: new AbilityDef "hoodoo_pin" with SINGLE_ENEMY_LOS, INFINITE, max_range=6.
+  - inventory_mgr.py: single grants_ability already supported for weapon slot.
+  - No new PlayerStats fields required.
+
+================================================================================
+ITEM 2: Last Rites Cleaver
+Slot: Weapon (slashing) | Char: / | Color: (200, 30, 30) blood red
+================================================================================
+
+CONCEPT SUMMARY
+A meat cleaver stamped with a cross — not from a church, from a butcher shop. The blade is
+so old the steel is almost black. Last Rites is its ability: sprint across the room and
+deliver a devastating leaping slash to one target, dealing amplified damage. But the cleaver
+is bound by a strict rule — if you use Last Rites and the target SURVIVES, the blade turns
+against you. You take half the damage you dealt as self-harm, the weapon hums with bad luck
+for 4 turns (−2 STR debuff), and the cooldown extends to 30 turns instead of 18. Kill your
+target, get clean revenge. Fail — bleed for it.
+
+ITEM DEFINITION
+  "last_rites_cleaver": {
+      "name": "Last Rites Cleaver",
+      "char": "/",
+      "color": (200, 30, 30),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "slashing",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "base_damage": 9,
+      "str_req": 8,
+      "reach": 1,
+      "str_scaling": {"type": "tiered", "divisor": 1},  # +1 per STR above 8
+      "tags": ["last_rites_cleaver", "unique"],
+      "name_gradient": [(200, 30, 30), (120, 10, 10), (200, 30, 30)],
+      "grants_ability": "last_rites",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Last Rites
+  ability_id: "last_rites"
+  name: "Last Rites"
+  description: "Leap to a visible enemy (range 5) and slash for 2.5x damage. If the
+    target survives: take half damage dealt as self-harm and suffer -2 STR for 4 turns.
+    Cooldown 18 (30 on miss-kill)."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  max_range: 5.0
+  Cooldown: 18 on kill, 30 on miss
+
+  Execute logic (_execute_at_last_rites):
+    - Requires Last Rites Cleaver equipped.
+    - Validate target in LOS, range <= 5.
+    - Compute atk_power = engine._compute_player_attack_power().
+    - damage = int(max(1, atk_power - target.defense) * 2.5)
+    - deal_damage(engine, damage, target).
+    - Teleport player adjacent to target (pick the first free adjacent tile to target).
+    - engine._compute_fov().
+    - If target.alive:
+        self_harm = damage // 2
+        deal_damage(engine, self_harm, engine.player)  # note: deal_damage to player
+        apply_effect(engine.player, engine, "stat_mod",
+                     duration=4, stat="strength", amount=-2)
+        engine.ability_cooldowns["last_rites"] = 30
+        engine.messages.append([
+            ("LAST RITES! ", (200, 30, 30)),
+            (f"{target.name} survived! -{self_harm} self-harm! -2 STR for 4 turns!", (255, 80, 80)),
+        ])
+      Else (target dead):
+        engine.ability_cooldowns["last_rites"] = 18
+        engine.messages.append([
+            ("LAST RITES! ", (200, 30, 30)),
+            (f"{target.name} is CLEAVED! Clean kill.", (255, 200, 200)),
+        ])
+    - Award Stabbing XP (wait — this is a slashing weapon; award Slashing XP):
+        engine.skills.gain_potential_exp("Slashing", damage, bksmt)
+
+  TRADEOFF: 2.5x damage is devastating but missing the kill punishes hard. You self-harm
+    half the attack and suffer a −2 STR stat debuff, turning your best weapon weaker right
+    when you need it. The 30-turn cooldown compounds the punishment.
+
+BALANCE:
+  STR 10: base_damage=9 + (10-8)//1 = 11 + atk bonuses. Typical floor 3 damage: ~14-18.
+  Last Rites on 14: 35 damage. Most floor 3 enemies have 30-60 HP. Near-reliable kill.
+  On a 60 HP enemy surviving with 25 HP: self-harm 17, -2 STR for 4t. Player at ~113-17=96
+  HP if healthy. Risky but survivable. Cooldown 30 means ~3 floors at moderate play.
+
+IMPLEMENTATION NOTES:
+  - abilities.py: new AbilityDef "last_rites"; no new effect needed — uses existing stat_mod.
+  - Handle teleport: scan adjacent tiles to target for first free passable non-monster tile.
+  - deal_damage on player: call entity.take_damage directly or via a special self-harm path
+    that logs the message without triggering "enemy deals damage" hooks.
+    Safest: engine.player.take_damage(self_harm); log message manually.
+  - If player dies from self-harm: call engine.event_bus.emit("entity_died",
+    entity=engine.player, killer=None) — permadeath fully applies.
+  - Slashing XP: follows same pattern as handle_attack Slashing XP in combat.py.
+
+================================================================================
+ITEM 3: Parole Officer's Notepad
+Slot: Neck | Char: 0xE009 (or plain '"') | Color: (200, 200, 150) manila yellow
+================================================================================
+
+CONCEPT SUMMARY
+A laminated government notepad on a lanyard — every parole officer in the city carries one.
+This one is enchanted. The ability is Mandatory Check-In: mark one visible enemy as "on
+parole". For the next floor, that enemy's AI is suppressed — it wanders passively and
+ignores the player unless attacked first (passive_until_hit behavior override). Additionally,
+if the parolee approaches within 2 tiles, it cannot attack for 1 turn (compliance check).
+The real hook: if the parolee dies, the player gets a flat cash bonus (the state pays out
+for a successful supervision outcome). One parolee per floor.
+
+ITEM DEFINITION
+  "parole_officers_notepad": {
+      "name": "Parole Officer's Notepad",
+      "char": chr(0xE009),
+      "color": (200, 200, 150),
+      "category": "equipment",
+      "subcategory": "neck",
+      "equip_slot": "neck",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 10,
+      "stat_bonus": {"book_smarts": 1},
+      "tags": ["parole_notepad", "unique"],
+      "name_gradient": [(200, 200, 150), (120, 110, 70)],
+      "grants_ability": "mandatory_check_in",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Mandatory Check-In
+  ability_id: "mandatory_check_in"
+  name: "Mandatory Check-In"
+  description: "Mark one visible enemy as your parolee. It wanders passively and can't
+    attack within 2 tiles (compliance check 1t stun). On its death: +$25 state payout.
+    1 parolee per floor."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: PER_FLOOR
+  max_charges: 1
+
+  Execute logic (_execute_at_mandatory_check_in):
+    - Validate target is visible, living monster.
+    - If engine.parolee_id is set (already a parolee this floor): message "You already
+      have an active parolee this floor!" return False.
+    - Apply effect "parolee" (floor_duration=True) to target.
+    - engine.parolee_id = target.instance_id.
+    - Message: "Mandatory Check-In! [name] is now on parole."
+    - Consume charge (charge consumed automatically by system after return True).
+
+  NEW EFFECT — ParoleeEffect (effects.py):
+    id = "parolee"
+    category = "debuff"
+    floor_duration = True
+    apply: store entity.ai_type as self._saved_ai, set entity.ai_type = "passive_until_hit"
+           set entity.provoked = False  (reset provocation state)
+    expire: restore entity.ai_type = self._saved_ai
+
+    before_turn hook (compliance check):
+      - If entity's distance to player <= 2 (Chebyshev):
+          apply_effect(entity, engine, "stun", duration=1, silent=True)
+          engine.messages.append(f"{entity.name} checks in! (stunned 1t)")
+          return True  # skip their turn (stun handles it)
+      - Return False (normal passive behavior takes over).
+
+    on_reapply: do nothing (one parolee only, PER_FLOOR charge prevents double-apply).
+
+  Cash payout on parolee death (engine.py kill handler):
+    if engine.parolee_id and entity.instance_id == engine.parolee_id:
+        payout = 25
+        engine.player_stats.cash = getattr(engine.player_stats, 'cash', 0) + payout
+        engine.messages.append([
+            ("State payout! ", (200, 200, 100)),
+            (f"+${payout} for successful supervision outcome!", (255, 255, 150)),
+        ])
+        engine.parolee_id = None
+
+  NEW ENGINE STATE:
+    engine.parolee_id: str|None — instance_id of the current parolee; cleared on floor change.
+
+BALANCE:
+  - +10 armor and +1 BKS make the neck slot worthwhile defensively even ignoring the ability.
+  - One parolee per floor: limited scope, not broken.
+  - The parolee AI suppression means you can farm the zone without one enemy aggroing —
+    tactical avoidance or clearing other enemies first.
+  - Compliance check (stun within 2 tiles) is a proximity "keep away" mechanic; the
+    parolee passively won't approach but if pushed toward player (e.g. by Fear) it freezes.
+  - Cash payout ($25) is modest — about half a floor's expected cash. Flavour over power.
+  - Synergizes with: high-BKS builds (faster SP), Steal skill (mark a target you want
+    neutral to steal from later — then kill it for payout).
+
+IMPLEMENTATION NOTES:
+  - engine.py: add engine.parolee_id init (None), clear on floor change.
+  - engine.py kill handler: check engine.parolee_id, award payout, clear.
+  - effects.py: ParoleeEffect; saves/restores ai_type.
+  - abilities.py: "mandatory_check_in" AbilityDef, PER_FLOOR, max_charges=1,
+    SINGLE_ENEMY_LOS. No max_range limit (full FOV, like most single-target abilities).
+  - neck slot already processes grants_ability (inventory_mgr.py neck equip block already
+    handles single grants_ability). Verify with existing neck items (boots_of_striding
+    pattern is for feet; neck uses grants_abilities list). Check: inventory_mgr.py for
+    neck equip handling of single "grants_ability" field vs "grants_abilities" list.
+    If neck only supports grants_abilities, either (a) use grants_abilities: ["mandatory_check_in"]
+    or (b) add single grants_ability support to neck equip block.
+
+================================================================================
+ITEM 4: The Thin Blue Line Ring
+Slot: Ring | Char: o | Color: (30, 80, 200) police blue
+================================================================================
+
+CONCEPT SUMMARY
+A thick steel signet ring engraved with a thin blue line emblem, looted off a crooked cop or
+bought from a pawn shop for $12 — nobody's sure. The ability is Officer Down: slam this ring
+into the ground and all enemies in a 3-tile radius briefly panic, scattering in random
+directions (confuse effect, 4 turns). While they stumble around, the ring sends out a "call
+for backup" — a one-time phantom cop materializes for 8 turns and attacks the nearest enemy
+before vanishing. The catch: the cop is completely indiscriminate and might attack the player
+if there are no enemies in LOS when it spawns.
+
+ITEM DEFINITION
+  "thin_blue_line_ring": {
+      "name": "The Thin Blue Line Ring",
+      "char": "o",
+      "color": (30, 80, 200),
+      "category": "equipment",
+      "subcategory": "ring",
+      "equip_slot": "ring",
+      "power_bonus": 0,
+      "defense_bonus": 2,
+      "stat_bonus": {"swagger": 1},
+      "tags": ["thin_blue_ring", "unique"],
+      "name_gradient": [(30, 80, 200), (10, 30, 100), (30, 80, 200)],
+      "grants_ability": "officer_down",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Officer Down
+  ability_id: "officer_down"
+  name: "Officer Down"
+  description: "AOE panic (3-tile radius): confuse all enemies for 4 turns. Summon a
+    Phantom Cop for 8 turns that attacks nearest entity — including you if no enemies
+    in range. 22-turn cooldown."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cooldown: 22
+
+  Execute logic (_execute_officer_down):
+    - Find all living enemy entities within Chebyshev distance 3 of player.
+    - Apply effect "confuse" (duration=4) to each.
+    - Spawn a "phantom_cop" entity on the nearest free adjacent tile:
+        Entity(x, y, char='@', color=(30, 80, 200), name="Phantom Cop",
+               entity_type="monster", hp=20, power=8, defense=2,
+               ai_type="meander",  # meander toward nearest entity including player
+               is_summon=True, summon_lifetime=8, speed=130)
+        NOTE: is_summon=True means player does NOT automatically attack it on bump.
+        However, the phantom cop uses meander AI targeting the nearest entity (by distance).
+        If no enemies are in range and the player is the nearest entity, it will approach
+        and attack. This is the intended risk.
+    - Message: "Officer Down! Backup called! [n] enemies panicked!"
+    - engine.ability_cooldowns["officer_down"] = 22.
+
+  RISK: The phantom cop is indiscriminate — if it appears and you're surrounded by confused
+    enemies that have wandered away, the cop will meander toward you. Use with caution in
+    open spaces. Corridor play = safer (cop goes for enemies first).
+
+BALANCE:
+  - +2 defense, +1 SWG: solid defensive ring passives.
+  - AOE confuse on 3-tile radius: at floor 1-2, most encounters are 2-4 enemies. Confusing
+    all of them for 4 turns is powerful but confuse is already in the game (ConfuseEffect).
+  - Phantom cop at speed 130 acts before most enemies. HP=20, power=8: about 2-3 hits on
+    floor 3 enemies. Meaningful backup but dies fast.
+  - Risk: indiscriminate AI makes it a chaotic use, not a pure win button.
+  - Cooldown 22 = roughly 2+ floors of combat to recharge.
+  - Synergizes with: Jabbing/melee builds where you want enemies confused first for safe
+    approach. Anti-synergy: Stealing (confused enemies may wander, making pickpocket easier
+    BUT the phantom cop might attack the enemy you're trying to steal from, triggering
+    passive_until_hit and ending the pickpocket window).
+
+IMPLEMENTATION NOTES:
+  - abilities.py: "officer_down" AbilityDef, SELF, INFINITE, execute=_execute_officer_down.
+  - "phantom_cop" spawned inline in execute function (no MonsterTemplate entry required
+    for a summon — can be built directly with Entity constructor with hardcoded stats).
+    is_summon=True means engine doesn't auto-attack it. BUT phantom_cop uses "meander"
+    AI targeting nearest entity — need to ensure meander AI targets nearest entity not
+    specifically the player. Verify in ai.py: meander mode moves toward player explicitly
+    in most cases. May need a new ai_type "indiscriminate_meander" that attacks any entity
+    (including player) — or repurpose/extend existing logic. Simpler: give phantom_cop
+    is_summon=False and let normal "meander" AI handle it (it will target player), but
+    mark it with a tag so the kill-handler awards no XP. This means player can attack it
+    normally if needed.
+  - Simplest implementation: is_summon=False, ai_type="meander", faction=None. Player
+    can swing at it if it becomes a problem. It will target player. Death = no kill XP
+    (add a "no_xp" flag or check enemy_type="phantom_cop" in xp handler).
+  - ring grants_ability support: already proposed in Batch 1 (The Borrowed Watch).
+    Follow the same infrastructure addition pattern.
+  - Confuse effect: already exists in effects.py. Just apply to all enemies in radius.
+
+================================================================================
+ITEM 5: Dead Letters Chain
+Slot: Neck | Char: " | Color: (140, 140, 160) gray-blue
+================================================================================
+
+CONCEPT SUMMARY
+A bundle of undeliverable mail folded into a rough chain — census forms, eviction notices,
+a birthday card that never got there. Each envelope is sealed. The ability is Return to Sender:
+target a visible enemy and redirect all the world's bad luck at them. For 8 turns that enemy
+becomes a "dead letter" — any status effect currently on the player (DoT, fear, slow, etc.)
+is COPIED onto the target. Not moved — copied. Both you and the target suffer, but now they
+share your misery. Costs 8 HP to activate (paying it forward).
+
+ITEM DEFINITION
+  "dead_letters_chain": {
+      "name": "Dead Letters Chain",
+      "char": chr(0x22),
+      "color": (140, 140, 160),
+      "category": "equipment",
+      "subcategory": "neck",
+      "equip_slot": "neck",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 5,
+      "stat_bonus": {"tolerance": 1},
+      "tags": ["dead_letters_chain", "unique"],
+      "name_gradient": [(140, 140, 160), (80, 80, 100)],
+      "grants_ability": "return_to_sender",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Return to Sender
+  ability_id: "return_to_sender"
+  name: "Return to Sender"
+  description: "Copy ALL your active debuffs onto a visible enemy. Costs 8 HP.
+    Works best when you're suffering — turns your misery into their problem too."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  Cooldown: 15
+
+  Execute logic (_execute_at_return_to_sender):
+    - Validate target is visible, living.
+    - Cost check: if engine.player.hp <= 8: message "Not enough HP!"; return False.
+    - engine.player.take_damage(8)  (self-harm, no echo to hoodoo proxy).
+    - Collect all debuff effects from engine.player.status_effects where
+      effect.category == "debuff".
+    - For each debuff effect (by effect id):
+        apply_effect(target, engine, effect.id, duration=effect.duration)
+        — passes the remaining duration so both tick down simultaneously.
+    - Count how many effects were copied.
+    - If 0 effects: message "No debuffs to share... and you lost 8 HP. Rough."
+    - Else: message f"Return to Sender! {count} debuffs echoed onto {target.name}! (-8 HP)"
+    - engine.ability_cooldowns["return_to_sender"] = 15.
+
+  STRATEGIC DEPTH:
+    - Strongest when you're heavily debuffed (bleeding, burning, poisoned, feared):
+      fire this at a powerful enemy to instantly apply your entire ailment stack to them.
+    - Weakest when you're clean — then you spent 8 HP for nothing.
+    - Build synergy: intentionally take mild, long-duration debuffs (e.g., walk through
+      weak fire, let a Purger touch you) then Return to Sender against a boss.
+    - Fear is interesting: if you're feared, Return to Sender copies fear onto the target
+      (source_x/y = whatever was stored on your fear effect).
+
+  TRADEOFF: 8 HP cost, 15-turn cooldown, works best when you're hurt/debuffed (risky state).
+
+BALANCE:
+  - +5 armor, +1 TOL: modest defensive passives, but TOL is valuable.
+  - 8 HP cost: at CON 10 (130 HP), trivial. At CON 6 (90 HP), meaningful.
+  - "Worst case" (no debuffs active): you paid 8 HP for nothing — actively punishes
+    inefficient use.
+  - "Best case" (burning x3, bleeding, slowed): you suddenly make a tough enemy burn
+    and bleed simultaneously — a meaningful turn shift in hard encounters.
+  - No new effect subclass needed — uses existing effect ids passed to apply_effect.
+  - Potential edge case: some effects have special __init__ kwargs (FearEffect stores
+    source_x/source_y). Copy logic should use the existing effect instance's attributes.
+    Simple approach: for each effect, call apply_effect(target, engine, effect.id,
+    duration=effect.duration, **{k: v for k, v in vars(effect).items()
+    if k not in ("duration", "floor_duration", "custom_display_name")}).
+    Alternatively: only copy effects with standard (duration-only) init — document this
+    limitation. Recommended: copy only "safe" effect ids: dot, bleeding, ignite, slow,
+    confuse, child_support, mogged, rabies, cripple_armor. Whitelist approach.
+
+IMPLEMENTATION NOTES:
+  - abilities.py: "return_to_sender" AbilityDef, SINGLE_ENEMY_LOS, INFINITE,
+    execute_at=_execute_at_return_to_sender.
+  - Use a WHITELIST of copyable effect ids to avoid fragile kwarg forwarding.
+    COPYABLE_EFFECTS = frozenset({"dot","bleeding","ignite","slow","confuse",
+                                   "child_support","mogged","rabies","stat_mod"})
+    Copy only effects in this set; log skipped effects as "too complex to copy."
+  - neck slot grants_ability: see Item 3 implementation notes (same infrastructure fix).
+  - self-harm: engine.player.take_damage(8); message before the copy loop.
+  - engine.py floor-reset: clear ability_cooldowns["return_to_sender"] on floor change
+    (standard pattern — ability_cooldowns already auto-tick, floor reset not needed
+    unless chargeType resets — PER_FLOOR would auto-reset; INFINITE only resets cooldown
+    via the tick loop, which is already implemented).
+
+================================================================================
+ITEM 6: Gas Station Shades
+Slot: Hat | Char: chr(0xE00C) (or '^') | Color: (50, 200, 100) reflective green
+================================================================================
+
+CONCEPT SUMMARY
+Those cheap UV400 plastic sunglasses on a spinning rack near the register — $4.99, polarized
+(probably not), and covered in warnings about not wearing while driving. These are magical
+though. When you put them on everything gets tactical. The ability is Read the Room: scan
+your current room and highlight every enemy's weak spot. For 8 turns, all your attacks
+(melee AND ranged) crit automatically — not a crit chance roll, guaranteed. The tradeoff
+is perceptual: while the shades are "reading", your FOV is reduced by 3 tiles (they're
+dark, cheap plastic). You can feel everything in the room — but you can't see far.
+
+ITEM DEFINITION
+  "gas_station_shades": {
+      "name": "Gas Station Shades",
+      "char": "^",
+      "color": (50, 200, 100),
+      "category": "equipment",
+      "subcategory": "hat",
+      "equip_slot": "hat",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"street_smarts": 2},
+      "fov_penalty": 0,
+      "tags": ["gas_station_shades", "unique"],
+      "name_gradient": [(50, 200, 100), (20, 100, 50)],
+      "grants_ability": "read_the_room",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Read the Room
+  ability_id: "read_the_room"
+  name: "Read the Room"
+  description: "Guaranteed crits on ALL attacks (melee + ranged) for 8 turns.
+    While active: -3 FOV tiles. 25-turn cooldown."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cooldown: 25
+
+  Execute logic (_execute_read_the_room):
+    - Requires gas_station_shades equipped (tag "gas_station_shades").
+    - Apply new effect "read_the_room_active" (duration=8).
+    - engine.ability_cooldowns["read_the_room"] = 25.
+    - Message: "Read the Room! Guaranteed crits for 8 turns! (FOV -3)"
+
+  NEW EFFECT — ReadTheRoomEffect (effects.py):
+    id = "read_the_room_active"
+    category = "buff"
+    priority = 50
+
+    apply(entity, engine):
+      engine._read_the_room_fov_penalty = 3
+      engine._compute_fov()  # Recompute FOV with penalty applied.
+      # FOV penalty integration: engine.py _compute_fov uses
+      # engine.dungeon.fov_radius = BASE_FOV - engine._read_the_room_fov_penalty (or similar).
+      # Alternatively, store on PlayerStats.temporary fov_penalty field.
+
+    tick(entity, engine): standard duration decrement.
+
+    expire(entity, engine):
+      engine._read_the_room_fov_penalty = 0
+      engine._compute_fov()
+      engine.messages.append("Read the Room fades. Your vision clears.")
+
+  GUARANTEED CRIT INTEGRATION:
+    - engine.py (or combat.py) _compute_player_attack_power / handle_attack:
+      Check if player has "read_the_room_active" effect. If so, force is_crit = True.
+    - gun_system.py: check same effect flag before roll; if active, auto-crit on hit.
+    - Applies crit_multiplier (default 2x; mega crit via Sniping L3 can still apply).
+
+  TRADEOFF: -3 FOV is real; the game's standard FOV is about 8-10 tiles. At -3 you're
+    fighting at ~5-7 tile radius. Against ranged enemies, this is dangerous. In a large room
+    you can get ambushed. Works best in corridors or small rooms.
+
+BALANCE:
+  - +2 STS: +6% base crit chance (street_smarts × 3%). Already solid passive.
+  - 8 guaranteed crit turns: at 2x crit_multiplier, roughly doubles total DPS.
+    Combined with +2 STS and high STR: devastating burst window.
+  - Cooldown 25 means ~2 floors of combat. Use for boss rooms or rooms with 3+ enemies.
+  - Synergizes with: Sniping L3 (mega crit on guaranteed crits = devastating),
+    Knuckle Diary (entries fill fast on all crits), Street Smarts investment.
+  - Anti-synergy: Ranged play benefits most from the crits but suffers hardest from
+    the FOV penalty. The tradeoff is sharpest for gun users.
+
+IMPLEMENTATION NOTES:
+  - effects.py: ReadTheRoomEffect (id="read_the_room_active"); apply/expire modify
+    engine._read_the_room_fov_penalty (new engine state int, default 0).
+  - engine.py _compute_fov(): subtract _read_the_room_fov_penalty from fov_radius.
+  - combat.py handle_attack: add check for "read_the_room_active" effect on player
+    before crit roll; if present, force is_crit = True.
+  - gun_system.py fire step: add same "read_the_room_active" check; if active, treat hit
+    as crit (apply crit_multiplier to damage). Note: guns already have hit roll; this
+    does not bypass miss — it only forces crit IF the shot lands.
+  - hat grants_ability: same infrastructure (inventory_mgr.py hat equip block, mirrors
+    Batch 1 Crown of the Corner Boy pattern).
+  - New engine state: engine._read_the_room_fov_penalty = 0 (init in __init__).
+
+================================================================================
+ITEM 7: The Lotto Scratchers
+Slot: Ring | Char: o | Color: (255, 180, 0) lottery gold
+================================================================================
+
+CONCEPT SUMMARY
+A ring made from folded silver lotto scratcher strips, held together with a paper clip and
+stubborn optimism. Gross. It works though. The ability is Lucky Numbers: scratch the surface
+of reality and get a randomized effect — each use pulls from a weighted table of outcomes,
+good and bad. You never know what you'll get. Five possible outcomes, each with its own
+probability. The thrill of the scratch is the point. Big upside, but real downside risk.
+
+ITEM DEFINITION
+  "lotto_scratchers_ring": {
+      "name": "The Lotto Scratchers",
+      "char": "o",
+      "color": (255, 180, 0),
+      "category": "equipment",
+      "subcategory": "ring",
+      "equip_slot": "ring",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "stat_bonus": {"tolerance": 1},
+      "tags": ["lotto_scratchers", "unique"],
+      "name_gradient": [(255, 180, 0), (180, 80, 0), (255, 180, 0)],
+      "grants_ability": "lucky_numbers",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Lucky Numbers
+  ability_id: "lucky_numbers"
+  name: "Lucky Numbers"
+  description: "Scratch reality. Roll a weighted outcome — 5 possible results, good
+    and bad. You never know. 3 uses per floor."
+  TargetType: SELF
+  ChargeType: PER_FLOOR
+  max_charges: 3
+
+  Execute logic (_execute_lucky_numbers):
+    Roll random.choices over the following weighted table (weights sum to 100):
+
+    OUTCOME TABLE (roll d100 with weights):
+    1. JACKPOT (weight 15):
+       Heal to full HP. Cash +$30.
+       Message: "JACKPOT! Full heal! +$30!"
+       color: (255, 255, 50)
+
+    2. SMALL WIN (weight 35):
+       Heal max(5, player.max_hp // 10) HP.
+       Apply "hot" (HoT) effect: 3 HP/turn for 10 turns.
+       Message: "Lucky 7s! +[hp] HP and healing for 10 turns!"
+       color: (150, 255, 150)
+
+    3. SCRATCH FEVER (weight 25):
+       Apply "stat_mod" duration=10, stat=random.choice(list of all 6 stats), amount=+3.
+       Message: "Scratch Fever! +3 [STAT] for 10 turns!"
+       color: (100, 200, 255)
+
+    4. LOSING TICKET (weight 15):
+       Apply "stat_mod" duration=8, stat=random.choice(["strength","street_smarts"]), amount=-2.
+       Message: "Loser! -2 [STAT] for 8 turns. Can't win 'em all."
+       color: (200, 80, 80)
+
+    5. ALREADY A WINNER (weight 10):
+       Spawn a random cash pile ($10-$40) on the player's tile.
+       Apply "dot" (damage over time) duration=5, amount=3.
+       Message: "Already A Winner! +$[cash] and... ouch. (-3/turn for 5t)"
+       color: (200, 150, 50)
+
+    After outcome: No cooldown added (charge consumption IS the limiter — 3/floor).
+
+  BALANCE:
+    Expected value across 100 uses:
+    - JACKPOT 15%: very powerful. Full heal + $30.
+    - SMALL WIN 35%: reliable minor benefit.
+    - SCRATCH FEVER 25%: stat boost, random stat — could be +3 CON (HP!) or +3 BKS.
+    - LOSING TICKET 15%: -2 STR or -2 STS for 8 turns. Notably hurts DPS or crits.
+    - ALREADY A WINNER 10%: net positive cash but you're taking 15 damage over 5 turns.
+    Overall EV is positive but variance is real. Worst case: 3 LOSING TICKETs in a row =
+    -6 STR or -6 STS for 8 turns. That's a rough floor. +1 TOL passive is mild but
+    synergizes with drug-heavy playthroughs.
+
+  TRADEOFF: Pure RNG. Rewards players who accept volatility. Anti-pattern to careful builds.
+
+IMPLEMENTATION NOTES:
+  - abilities.py: "lucky_numbers" AbilityDef, SELF, PER_FLOOR, max_charges=3.
+  - Execute: use random.choices with weights list.
+  - Cash spawn: engine.dungeon.add_entity(Entity(px, py, char="$", color=(255,200,50),
+      entity_type="item", item_id=None, cash_amount=amount, name="Cash")).
+    Or use existing cash spawn helper if one exists.
+  - HoT effect: use existing HotEffect (id="hot") if it accepts duration/amount kwargs.
+    Check effects.py for HotEffect signature (from batch 1 research: "hot" is a food
+    effect defined in foods.py; for direct apply use HealOverTimeEffect or the
+    food HoT chain if wired in effects.py — confirm id).
+  - stat_mod: existing StatModEffect takes stat, amount, duration — clean.
+  - dot: existing DotEffect takes amount, duration — clean.
+  - ring grants_ability support: same pattern as Batch 1 (Borrowed Watch).
+
+================================================================================
+ITEM 8: Stash House Sneakers
+Slot: Feet | Char: chr(0xE00B) | Color: (80, 80, 80) stash grey
+================================================================================
+
+CONCEPT SUMMARY
+Beat-up sneakers with a hollow in the left heel. Nothing in there right now, but if you stash
+one consumable inside before a fight, you can retrieve it in a flash — the ability Ghost
+Stash lets you store one consumable item and deploy it as an instant (free-action) use mid-
+combat. Normal eating or smoking costs a turn. Ghost Stash bypasses that — snap your heel
+open, use the item, keep fighting. The stash resets when you retrieve it.
+
+ITEM DEFINITION
+  "stash_house_sneakers": {
+      "name": "Stash House Sneakers",
+      "char": chr(0xE00B),
+      "color": (80, 80, 80),
+      "category": "equipment",
+      "subcategory": "feet",
+      "equip_slot": "feet",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"street_smarts": 1},
+      "energy_per_tick": 10,
+      "fov_penalty": 0,
+      "tags": ["stash_sneakers", "unique"],
+      "name_gradient": [(80, 80, 80), (50, 50, 50)],
+      "grants_ability": "ghost_stash",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Ghost Stash
+  ability_id: "ghost_stash"
+  name: "Ghost Stash"
+  description: "Two modes: STORE (out of combat, no cost) — pick one consumable from
+    inventory and lock it in your heel. DEPLOY (mid-combat, free action) — instantly use
+    the stored item without spending a turn. Stored item is lost if you unequip the sneakers."
+  TargetType: SELF
+  ChargeType: INFINITE
+  No cooldown on STORE. DEPLOY: no cooldown (free action, costs nothing).
+
+  Execute logic (_execute_ghost_stash):
+    - Check engine.stash_sneakers_item_id:
+      A. If EMPTY (no stash): enter stash-store mode.
+         - If no eligible consumable in inventory: message "Nothing to stash!"; return False.
+         - Open an item selection sub-menu: player picks any consumable from inventory.
+           Implementation: engine.stash_sneakers_pending_store = True; engine.menu_state
+           = MenuState.ITEM_MENU (or a new lightweight menu); on item confirm:
+           store item entity ref or item_id + quantity. Remove 1 from inventory stack.
+         - engine.stash_sneakers_item_id = chosen item_id (or entity).
+         - Message: "Stashed [item name] in your heel."
+         - Return False (no charge consumed yet; charge consumed on DEPLOY).
+      B. If FULL (stash has item): DEPLOY mode.
+         - Retrieve stored item_id.
+         - Apply the item's use_effect to the player (as if used from inventory).
+         - engine.stash_sneakers_item_id = None (stash cleared).
+         - engine.player_free_action = True (bypass turn cost).
+         - Message: "Ghost Stash DEPLOYED: [item name]! (free action)"
+         - Return True (consume one charge — but INFINITE means no real cost).
+         - After DEPLOY: no cooldown.
+
+  STASHING RULES:
+    - Only consumables (category="consumable") and cannabis items (category="weed") may be stashed.
+    - Guns, equipment, and ammo cannot be stashed.
+    - If the Sneakers are unequipped, the stashed item is dropped on the floor at the
+      player's location (don't silently destroy items).
+    - Stash state persists across floors while equipped.
+
+  TRADEOFF: Requires planning ahead — you need to pre-stash before entering a tough room.
+    Slow-stash (out of combat) + instant-deploy rewards preparation over reactive play.
+    The free action is powerful: smoking a joint without spending a turn, or chugging a
+    potion mid-fight with no energy cost.
+
+BALANCE:
+  - +10 energy/tick, +1 STS: modest, comparable to other unique boots.
+  - Ghost Stash value scales with what you stash. Stash Iron Lung joint: massive value.
+    Stash OG Kush: minor heal. The item is only as good as your preparation.
+  - Synergizes heavily with: smoking skill (free smoke mid-fight), food builds (instant
+    eat without multi-turn channel), Rolling skill (stash a pre-rolled joint).
+  - Counterplay: forgetting to pre-stash = a dead ability slot. High skill ceiling.
+  - No cooldown: if you've stashed a cheap item and deployed it, you can immediately
+    stash another (next turn). Frequent re-stashing against easy enemies = minor benefit.
+
+IMPLEMENTATION NOTES:
+  - engine state: engine.stash_sneakers_item_id (item_id str or None, persists floor),
+    engine.stash_sneakers_pending_store (bool flag for menu).
+  - STORE mode: open item selection via existing ITEM_MENU or a new "stash select" path.
+    Simplest: set engine.pending_stash_select = True; next time player opens inventory
+    menu it's in "stash select mode." Or use engine._enter_spell_targeting / ENTITY_TARGETING.
+    Alternative: implement as a two-step: first use opens a filtered inventory; player
+    presses letter to select. Use MenuState.ITEM_MENU with a "stash_mode" flag.
+  - DEPLOY mode: call item_effects.apply_item_use_effect(engine, stored_item_id) or the
+    equivalent. Check if the stored item is a food (calls food eat path) vs. consumable.
+    For consumables: call engine._use_item_by_id(item_id).
+  - engine.player_free_action: already proposed in existing designs; set True to bypass
+    normal turn-cost deduction.
+  - On unequip: if stash_sneakers_item_id is set, create item entity at player position,
+    add to dungeon.entities.
+  - feet slot grants_ability: already supported (inventory_mgr.py).
+
+================================================================================
+ITEM 9: The Undertaker's Belt
+Slot: Neck | Char: " | Color: (60, 60, 60) mortician black
+================================================================================
+
+CONCEPT SUMMARY
+A wide leather mortician's belt — the kind worn to cinch up a body bag, repurposed as a
+fashion item by someone who thinks it's ironic. The ability is Last Wishes: once per floor,
+when you would otherwise be reduced to 0 HP and die, the belt triggers automatically. You
+survive at 1 HP, all enemies in a 2-tile radius take damage equal to the overkill amount
+(the damage that would have killed you), and you gain 15 temporary HP. It's a passive death
+save that fires without any player input. The tradeoff: the belt must absorb all the damage —
+it cracks. For the rest of the floor the belt goes silent (the once-per-floor charge is spent
+whether you triggered it or not on that floor).
+
+ITEM DEFINITION
+  "undertakers_belt": {
+      "name": "The Undertaker's Belt",
+      "char": chr(0x22),
+      "color": (60, 60, 60),
+      "category": "equipment",
+      "subcategory": "neck",
+      "equip_slot": "neck",
+      "power_bonus": 0,
+      "defense_bonus": 2,
+      "armor_bonus": 8,
+      "stat_bonus": {"constitution": 1},
+      "tags": ["undertakers_belt", "unique"],
+      "name_gradient": [(60, 60, 60), (30, 30, 30)],
+      "grants_ability": "last_wishes",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Last Wishes
+  ability_id: "last_wishes"
+  name: "Last Wishes"
+  description: "Passive death-save: triggers automatically when you reach 0 HP. Survive
+    at 1 HP, overkill damage blasts nearby enemies, +15 temp HP. 1 use per floor."
+  TargetType: SELF
+  ChargeType: PER_FLOOR
+  max_charges: 1
+  NOTE: This ability is PASSIVE — it fires automatically, not from the ability menu.
+
+  Integration (engine.py / combat.py):
+    In the player-takes-lethal-damage path (where engine checks if player.hp <= 0):
+      BEFORE death is processed: check if player has ability "last_wishes" and
+      AbilityInstance.can_use() is True (floor charge available):
+        - overkill = abs(engine.player.hp)  (how far below 0 we went)
+        - engine.player.hp = 1  (survive at 1)
+        - engine.player.temp_hp += 15  (temporary HP shield)
+        - Consume the charge: inst.consume(engine).
+        - Blast: for each living enemy within Chebyshev 2 of player:
+            deal_damage(engine, max(1, overkill), enemy)
+        - Apply "invulnerable" for 1 turn to player (brief iframe after proc).
+        - Message: [
+            ("LAST WISHES! ", (255, 255, 100)),
+            (f"Death cheated! Overkill ({overkill} dmg) blasted nearby enemies!", (200, 200, 255)),
+          ]
+
+  ABILITY MENU DISPLAY: Should show "Last Wishes: 1/floor (passive)" in the ability list
+    but not be activatable manually. Flag: passive=True on AbilityDef.
+    Implementation: add optional "is_passive" bool field to AbilityDef; if True, UI shows
+    it greyed out with "(passive)" label. No targeting mode entered when selected.
+
+  TRADEOFF: Automatic = very reliable safety net, but only 1/floor. If you blow through
+    2 near-death moments, the second one actually kills you. Creates a false sense of
+    security that punishes overconfidence.
+
+BALANCE:
+  - +8 armor, +2 defense, +1 CON: very tanky neck item. CON +1 = +10 max HP. Significant.
+  - The death-save is worth a lot — it's a "free extra life" each floor. But only once.
+  - Overkill blast: against weak enemies, overkill is small (5-10 dmg). Against a boss
+    that oneshots you, overkill could be 40+ — blasting nearby adds for massive damage.
+  - Synergizes with: HP-drain builds (Alcoholism), high-risk low-HP builds where death
+    is a constant threat, Hoodoo Needle (you tank hits, death save fires when it matters).
+  - Anti-synergy: high-CON defensive builds where you rarely hit 0 HP get no value.
+
+IMPLEMENTATION NOTES:
+  - abilities.py: add "is_passive: bool = False" to AbilityDef dataclass.
+    "last_wishes" entry: is_passive=True, ChargeType.PER_FLOOR, max_charges=1.
+  - engine.py player-lethal-damage check: add passive death-save hook before
+    event_bus.emit("entity_died", ...) fires. Check for "last_wishes" ability.
+  - temp_hp already exists on Entity (from memory: temp_hp field added).
+  - deal_damage for overkill blast: only on living monsters, skip if player is summon-
+    adjacent. Chebyshev distance 2 from player.x/y.
+  - invulnerable effect for 1 turn: InvulnerableEffect already exists (effects.py).
+  - render.py ability UI: if ability_def.is_passive: render label "(passive)", skip
+    "use" keybind display.
+
+================================================================================
+ITEM 10: Coroner's Badge
+Slot: Hat | Char: ^ | Color: (160, 160, 200) cool silver
+================================================================================
+
+CONCEPT SUMMARY
+A laminated county coroner's badge clipped to a cap. The identification of cause of death
+is the skill. The ability is Cause of Death: study a visible enemy for 1 turn, identify
+their specific biological weakness, then apply it as a debuff that makes ALL your attacks
+deal amplified damage against that specific target for 8 turns. The amplifier scales with
+your Book Smarts (you did the analysis). Used on an already-studied enemy: refreshes the
+timer. One study at a time — the new target replaces the old. The badge rewards systematic
+target selection over indiscriminate brawling.
+
+ITEM DEFINITION
+  "coroners_badge": {
+      "name": "Coroner's Badge",
+      "char": "^",
+      "color": (160, 160, 200),
+      "category": "equipment",
+      "subcategory": "hat",
+      "equip_slot": "hat",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"book_smarts": 2},
+      "fov_penalty": 0,
+      "tags": ["coroners_badge", "unique"],
+      "name_gradient": [(160, 160, 200), (80, 80, 120)],
+      "grants_ability": "cause_of_death",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Cause of Death
+  ability_id: "cause_of_death"
+  name: "Cause of Death"
+  description: "Mark a visible enemy. Your attacks deal 20% + (BKS/4)% bonus damage
+    against that target for 8 turns. Replace old study with new. 10-turn cooldown."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  Cooldown: 10
+
+  Execute logic (_execute_at_cause_of_death):
+    - Validate target visible, living.
+    - If engine.cod_study_target_id is set: clear old "cause_of_death_mark" effect from
+      the previously studied entity (find by instance_id in dungeon.entities, remove effect).
+    - bksmt = engine.player_stats.effective_book_smarts
+    - bonus_pct = 20 + bksmt // 4   # At BKS 8: 22%. At BKS 12: 23%. Small BKS scaling.
+      (Note: floor BKS [6,12]. BKS//4: 1-3. So range 21%-23%. Low variance by design.)
+    - Apply new effect "cause_of_death_mark" (duration=8, bonus_pct=bonus_pct) to target.
+    - engine.cod_study_target_id = target.instance_id.
+    - Message: f"Cause of Death: {target.name} analyzed! +{bonus_pct}% damage for 8 turns!"
+    - engine.ability_cooldowns["cause_of_death"] = 10.
+
+  NEW EFFECT — CauseOfDeathMarkEffect (effects.py):
+    id = "cause_of_death_mark"
+    category = "debuff"
+
+    def __init__(self, duration=8, bonus_pct=22, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self.bonus_pct = bonus_pct
+
+    display_name: f"Analyzed (+{bonus_pct}% dmg)"
+
+    DAMAGE AMPLIFICATION INTEGRATION:
+      Two options:
+      A. Hook in modify_incoming_damage: increase incoming damage by bonus_pct%.
+         damage_out = int(damage * (1 + self.bonus_pct / 100))
+         Simple, one-line effect hook.
+      B. Hook in engine.py / combat.py: check if target has "cause_of_death_mark" effect
+         and multiply outgoing damage by (1 + bonus_pct/100).
+      Recommended: Option A — simpler, self-contained in the effect subclass.
+      NOTE: This interacts with armor/defense AFTER modification — it amplifies pre-defense
+        damage. This means high-defense enemies benefit less from the amplification.
+        Intentional: BKS-based analysis should reward attacking vulnerable (low-defense)
+        targets.
+
+    expire: engine.cod_study_target_id = None (if this was the current study).
+    on_reapply: refresh duration and update bonus_pct (new BKS value).
+
+  BALANCE:
+    - +2 BKS hat: fastest SP gain in the game. Core appeal even without the ability.
+    - 21-23% damage amplification on one target for 8 turns: significant but narrow.
+      On a boss with 80 HP: each 15-damage hit now deals ~18 dmg (+3/hit = ~6 extra
+      hits to kill, saving ~2-3 turns). Not broken but meaningful.
+    - 10-turn cooldown: short enough to apply to every major fight. Rhythm: study,
+      fight, study next, fight next.
+    - Replace-on-reuse: no benefit to multi-studying. Forces you to commit to one target
+      before moving on.
+    - Synergizes with: Book Smarts stat investment, BOLO Mark from Batch 1 (stack two
+      targeting mechanics on the same enemy for double amplification), Meth Lab zone
+      where tox multipliers and this % stack multiplicatively.
+
+IMPLEMENTATION NOTES:
+  - effects.py: CauseOfDeathMarkEffect. modify_incoming_damage amplifies damage.
+  - engine state: engine.cod_study_target_id (str|None, clears on floor change).
+  - abilities.py: "cause_of_death" AbilityDef, SINGLE_ENEMY_LOS, INFINITE, cooldown 10.
+  - hat grants_ability: same as Gas Station Shades above (inventory_mgr.py hat equip block).
+  - floor change: clear engine.cod_study_target_id in floor transition handler.
+  - On target death: clear engine.cod_study_target_id in kill handler.
+
+================================================================================
+ITEM 11: The Rat King's Scepter
+Slot: Weapon (beating) | Char: / | Color: (120, 80, 50) rat brown
+================================================================================
+
+CONCEPT SUMMARY
+A length of PVC pipe with a rat skull zip-tied to the end. Somehow it commands loyalty from
+vermin. The Rat King's Scepter grants the ability Swarm Call: stomp the scepter on the ground
+and summon 3 Scurry Rats that charge your enemies. Rats are weak individually but come in
+fast — each has speed 150 and they scatter to attack the nearest enemy. The scepter gives
+off a rank smell (-1 STS, effectively a passive penalty) but the Swagger boost offsets it.
+More importantly: dead rats leave a blood trail that applies the "bleeding" effect to any
+enemy that steps on their corpse tile for 2 turns.
+
+ITEM DEFINITION
+  "rat_king_scepter": {
+      "name": "The Rat King's Scepter",
+      "char": "/",
+      "color": (120, 80, 50),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "beating",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "base_damage": 7,
+      "str_req": 6,
+      "reach": 1,
+      "str_scaling": {"type": "tiered", "divisor": 2},
+      "stat_bonus": {"swagger": 2, "street_smarts": -1},
+      "tags": ["rat_king_scepter", "unique"],
+      "name_gradient": [(120, 80, 50), (60, 40, 20)],
+      "grants_ability": "swarm_call",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Swarm Call
+  ability_id: "swarm_call"
+  name: "Swarm Call"
+  description: "Summon 3 Scurry Rats that rush the nearest enemies. Rats are weak but
+    fast (speed 150). On death each rat leaves a blood patch that bleeds enemies (2t).
+    2 uses per floor."
+  TargetType: SELF
+  ChargeType: PER_FLOOR
+  max_charges: 2
+
+  Execute logic (_execute_swarm_call):
+    - Requires Rat King's Scepter equipped.
+    - Find up to 3 free adjacent tiles around the player to spawn rats.
+    - For each spawn tile (up to 3):
+        rat = Entity(x, y, char='r', color=(120, 80, 50), name="Scurry Rat",
+                     entity_type="monster", hp=5, power=4, defense=0,
+                     ai_type="wander_ambush",  # sight_radius=10, will immediately chase
+                     is_summon=True, summon_lifetime=25, speed=150,
+                     enemy_type="scurry_rat",
+                     death_drop_chance=0.0)
+        engine.dungeon.add_entity(rat)
+    - Message: f"Swarm Call! {n} Scurry Rats answer your call!"
+    - No cooldown (PER_FLOOR charge is the limiter).
+
+  DEAD RAT BLOOD PATCH:
+    In engine.py kill handler: if dying entity.enemy_type == "scurry_rat":
+      Spawn a "blood_patch" hazard at the rat's position (new hazard_type):
+        Entity(x, y, char='.', color=(160, 30, 30), entity_type="hazard",
+               hazard_type="blood_patch", hazard_duration=10,
+               name="blood patch")
+      In engine.py energy loop (hazard tick step): for each living enemy on a blood_patch
+        tile: apply_effect(enemy, engine, "bleeding", duration=2, amount=2).
+      Blood patches don't block movement.
+
+  TRADEOFF: -1 STS (−3% crit chance) is the passive cost of carrying this stinky pipe.
+    Rats are summons with is_summon=True so player won't accidentally auto-attack them,
+    but they are fragile (5 HP). Against enemies with area attacks or high power, they die
+    instantly. The blood patch effect is the real value — it transforms rat deaths into
+    hazard tiles.
+
+BALANCE:
+  - Base damage 7, STR tiered /2: at STR 10, 7 + 4 = 11. Solid beating weapon.
+  - +2 SWG −1 STS: net defensive gain (+1 effective defense via swagger) vs. crit loss.
+    Players who invest in SWG over STS will love this.
+  - 2 uses/floor: Swarm Call twice per floor = 6 rats total. Each rat's death = 1 blood patch.
+    6 blood patches, each lasting 10 turns. Real zoning potential in small rooms.
+  - Synergizes with: Beating skill (XP from scepter swings), Swagger-focused builds,
+    hit-and-run tactics (rats bait enemies through blood patches).
+
+IMPLEMENTATION NOTES:
+  - abilities.py: "swarm_call" AbilityDef, SELF, PER_FLOOR, max_charges=2.
+  - "scurry_rat" enemy_type: either add a MonsterTemplate entry in enemies.py, or
+    set enemy_type="scurry_rat" inline (with a check that validate_registry skips
+    summon-spawned entities). Recommend adding a minimal MonsterTemplate with
+    spawn_weight=0 (never spawns naturally) but valid entry for validation.
+  - hazard_type="blood_patch": new hazard type. No graphical tile needed — use '.'
+    in (160, 30, 30) red. Implement tick logic in engine.py energy loop alongside
+    existing fire/tox hazard ticks.
+  - weapons grants_ability: already supported for single ability (items.py crowbar).
+  - stat_bonus negative values: already confirmed possible (Negromancy L2 pattern).
+
+================================================================================
+ITEM 12: The Warrant (Sidearm — Unique Gun)
+Slot: Sidearm | Char: ) | Color: (200, 160, 80) aged paper tan
+================================================================================
+
+CONCEPT SUMMARY
+A battered snub-nose revolver with a paper tag wired to the barrel: a decades-old arrest
+warrant, laminated and tied on as a good luck charm. The gun is slow to fire (reload every
+2 shots) but each bullet is dedicated — the ability is Served: designate one visible enemy
+as "wanted." The next shot fired at the wanted target has its damage doubled and ignores
+defense entirely. No armor, no defense stat — pure damage. Additionally, if you KILL the
+wanted target with that shot, you recover the 2 ammo that shot cost (the warrant is served,
+cycle complete). One wanted designation active at a time, cleared on floor change.
+
+ITEM DEFINITION
+  "the_warrant": {
+      "name": "The Warrant",
+      "char": ")",
+      "color": (200, 160, 80),
+      "category": "equipment",
+      "subcategory": "gun",
+      "equip_slot": "sidearm",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "value": 350,
+      "primary_skill": "Sniping",
+      "secondary_skill": None,
+      "tertiary_skill": None,
+      "tags": ["the_warrant", "unique"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+      "base_damage": (14, 20),
+      "gun_range": 6,
+      "ammo_type": "medium",
+      "mag_size": 2,
+      "reload_speed": 80,
+      "gun_class": "small",       # sidearm slot
+      "aoe_type": "target",       # single-target
+      "grants_ability": "served",
+      "name_gradient": [(200, 160, 80), (140, 80, 20)],
+      "firing_modes": {
+          "accurate": {"hit": 75, "energy": 80},
+          "fast":     {"hit": 55, "energy": 60},
+      },
+  }
+
+ABILITY: Served
+  ability_id: "served"
+  name: "Served"
+  description: "Designate a visible enemy as Wanted. Your next shot at them deals 2x
+    damage and ignores defense. Kill them with that shot: recover 2 ammo. Only one
+    wanted per floor. 12-turn cooldown."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  Cooldown: 12
+
+  Execute logic (_execute_at_served):
+    - Validate target visible, living.
+    - If engine.warrant_target_id is set: message "Warrant already active!"; return False.
+    - Apply effect "wanted" (floor_duration=True) to target.
+    - engine.warrant_target_id = target.instance_id.
+    - Message: f"Served! {target.name} is wanted. Next shot: 2x dmg, ignore defense!"
+    - engine.ability_cooldowns["served"] = 12.
+
+  NEW EFFECT — WantedEffect (effects.py):
+    id = "wanted"
+    category = "debuff"
+    floor_duration = True
+
+    apply(entity, engine): pass  (marker only)
+    expire(entity, engine): clear engine.warrant_target_id if it matches.
+    display_name: "Wanted"
+
+  WANTED SHOT INTEGRATION (gun_system.py):
+    In the gun-fire resolution, after the hit-roll confirms a hit:
+      if target has "wanted" effect AND engine.warrant_target_id == target.instance_id:
+        bonus_damage = raw_damage * 2   (before defense, so defense is skipped entirely)
+        Apply bonus_damage directly to target.hp (skip target.defense).
+        — implementation: raw_damage is the rolled base_damage value; multiply by 2 then
+          apply with defense=0 override.
+        Log: f"Wanted shot! {target.name} takes {bonus_damage} dmg (defense ignored)!"
+        Remove "wanted" effect from target.
+        engine.warrant_target_id = None.
+        If target.alive == False (kill shot):
+          sidearm = engine.equipment.get("sidearm")
+          if sidearm and "the_warrant" in (get_item_def(sidearm.item_id) or {}).get("tags", []):
+              sidearm.current_ammo = min(sidearm.current_ammo + 2, sidearm.mag_size)
+              engine.messages.append("Warrant served! +2 ammo recovered.")
+
+  TRADEOFF: Mag size 2 is very small — you fire, reload, fire, reload rhythm. The wanted
+    mechanic encourages planning: designate, load up, fire the kill shot. If you waste the
+    wanted shot on a miss or non-lethal hit, the buff is consumed and cooldown starts again
+    without the ammo recovery. The 12-turn cooldown is the shortest of any unique ability,
+    reflecting the gun's slow-cycle nature (you spend most of your time reloading).
+
+BALANCE:
+  - Base damage 14-20, medium ammo, mag 2: a heavy-hitting snub revolver. Each shot
+    deals ~17 average. Wanted shot: 34, ignoring defense. Floor 3 enemies: 40-80 HP.
+    Won't oneshot most enemies at floor 3 but removes an enemy's armor entirely for that
+    hit — very strong on high-defense enemies (2-3 defense = 4-6 damage nullified normally;
+    Wanted removes all of it).
+  - Small mag forces reload discipline. Sniping skill tree synergy: each hit awards Sniping
+    XP, and Sniping L3 mega-crit interacts with the doubled damage (mega crit on a wanted
+    shot = 4x crit × 2x wanted = 8x multiplier on the raw roll). Extremely high ceiling.
+  - Ammo recovery: keeps the rhythm going on a successful execution.
+  - Synergizes with: Sniping skill, Cause of Death (stack analyze + wanted on same target),
+    BOLO Mark from Batch 1 (three damage-amp effects on one target), Street Smarts crits.
+
+IMPLEMENTATION NOTES:
+  - engine state: engine.warrant_target_id (str|None, clears on floor change and on
+    effect expire).
+  - gun_system.py: after confirmed hit, check wanted effect presence (using instance_id
+    match). Bypass defense in damage application: deal `raw_damage * 2` directly to
+    target.hp without subtracting target.defense.
+  - Ammo recovery: access sidearm entity via engine.equipment["sidearm"].
+  - effects.py: WantedEffect (simple marker, floor_duration=True).
+  - abilities.py: "served" AbilityDef, SINGLE_ENEMY_LOS, INFINITE, cooldown 12.
+  - sidearm grants_ability: already supported in inventory_mgr.py (sidearm is in
+    EQUIPMENT_SLOTS, same handling as weapon). Verify: EQUIPMENT_SLOTS = ["weapon","sidearm"];
+    both are processed by equip_item(); single grants_ability on sidearm is valid.
+  - wanted shot fires after normal hit-roll: if the shot misses, the wanted effect
+    is NOT consumed (you get another chance — the designation persists until a hit lands
+    or floor change, not cooldown expiry). Cooldown STILL applies from cast time.
+    This means Served is actually a guarantee on a specific NEXT HIT, not just the next
+    shot — misses don't waste the buff. Reward for accurate mode play.
+
+================================================================================
+SLOT DISTRIBUTION SUMMARY
+================================================================================
+
+  Weapon (stabbing):  Item 1  — The Hoodoo Needle
+  Weapon (slashing):  Item 2  — Last Rites Cleaver
+  Neck:               Items 3, 5 — Parole Officer's Notepad, Dead Letters Chain
+  Ring:               Items 4, 7 — The Thin Blue Line Ring, The Lotto Scratchers
+  Feet:               Item 8  — Stash House Sneakers
+  Hat:                Items 6, 10 — Gas Station Shades, Coroner's Badge
+  Weapon (beating):   Item 11 — The Rat King's Scepter
+  Gun (sidearm):      Item 12 — The Warrant
+
+  No weapon/slashing in Batch 1; this batch adds first slashing unique weapon.
+  No gun in Batch 1; this batch adds first gun unique.
+  Neck: 2 items — good; neck has limited options in the base game.
+  Beating weapon: 1 new item bringing total unique beating weapons to 5 (with Batch 1).
+
+================================================================================
+SHARED INFRASTRUCTURE ADDITIONS
+================================================================================
+
+EFFECTS.PY — New Effect Subclasses (6):
+  1. HoodooProxyEffect ("hoodoo_proxy") — floor_duration, marks mirror-damage target
+  2. ParoleeEffect ("parolee") — floor_duration, ai_type override + compliance stun
+  3. CauseOfDeathMarkEffect ("cause_of_death_mark") — modify_incoming_damage amplify
+  4. WantedEffect ("wanted") — floor_duration, marker for gun one-shot bonus
+  5. ReadTheRoomEffect ("read_the_room_active") — apply/expire FOV penalty + crit flag
+  6. blood_patch hazard type — not an Effect; handled in hazard tick loop
+
+ENGINE.PY — New State Variables (8):
+  engine.hoodoo_proxy_target_id (str|None) — clears on entity death + floor change
+  engine.parolee_id (str|None) — clears on floor change, kill handler payout
+  engine.cod_study_target_id (str|None) — clears on entity death + floor change
+  engine.warrant_target_id (str|None) — clears on entity death + floor change
+  engine._read_the_room_fov_penalty (int, default 0)
+  engine.stash_sneakers_item_id (str|None) — persists floor, clears on unequip
+  engine.stash_sneakers_pending_store (bool, default False)
+  Note: lucky_numbers and officer_down need no new engine state.
+
+ABILITIES.PY — New AbilityDef Entries (12):
+  hoodoo_pin, last_rites, mandatory_check_in, return_to_sender,
+  officer_down, lucky_numbers, ghost_stash, last_wishes (passive),
+  read_the_room, cause_of_death, swarm_call, served
+
+  New field on AbilityDef: is_passive: bool = False
+  (used by Last Wishes for UI display — no targeting entered when activated)
+
+ABILITIES.PY — New Execute Functions (12):
+  _execute_at_hoodoo_pin, _execute_at_last_rites, _execute_at_mandatory_check_in,
+  _execute_at_return_to_sender, _execute_officer_down, _execute_lucky_numbers,
+  _execute_ghost_stash, _execute_at_served, _execute_read_the_room,
+  _execute_at_cause_of_death, _execute_swarm_call
+  (last_wishes is passive — no execute function; triggers in engine.py death check)
+
+INVENTORY_MGR.PY — Extensions:
+  - hat grants_ability equip/unequip (already proposed in Batch 1 for Crown of Corner Boy)
+  - ring grants_ability equip/unequip (already proposed in Batch 1 for Borrowed Watch)
+  - neck grants_ability (single) equip/unequip (new: neck currently only supports
+    grants_abilities list; add single-ability shorthand processing)
+  - ghost_stash unequip drop logic (item stored in stash lands on floor)
+
+COMBAT.PY — Extensions:
+  - hoodoo_proxy mirror damage trigger in player-takes-damage path
+  - last_rites self-harm (direct entity.take_damage call)
+
+GUN_SYSTEM.PY — Extensions:
+  - wanted shot detection after confirmed hit (instance_id match, defense bypass,
+    ammo recovery on kill)
+  - read_the_room_active forced crit check on confirmed hit
+
+ENGINE.PY — Extensions:
+  - parolee cash payout in kill handler
+  - scurry_rat blood_patch spawn in kill handler
+  - hoodoo_proxy entity death cleanup in kill handler
+  - cod_study_target_id + warrant_target_id cleanup in kill handler and floor change
+  - last_wishes passive death-save check in player-lethal-damage path
+  - read_the_room_active FOV penalty in _compute_fov
+
+ENEMIES.PY — New MinimalTemplate (1):
+  "scurry_rat": MonsterTemplate(spawn_weight=0, ...) — never spawns naturally,
+  exists only for validation and is_summon spawns from Swarm Call.
+
+HAZARDS.PY — New hazard_type:
+  "blood_patch": char='.', color=(160,30,30), hazard_duration=10, applies bleeding
+  on any enemy that stands on it. Tick logic in engine.py energy loop.
+
+================================================================================
+DESIGN PRINCIPLES APPLIED
+================================================================================
+  - Every item has a meaningful tradeoff: Hoodoo Needle (tank hits to deal damage),
+    Last Rites (survive or suffer), Parole Notepad (one suppression/floor), Dead Letters
+    (only valuable when you're debuffed), Gas Station Shades (crit burst vs. FOV blind),
+    Lotto Scratchers (pure RNG, good EV with real downside), Stash Sneakers (preparation
+    vs. reactive), Undertaker's Belt (once-per-floor hard save), Coroner's Badge (methodical
+    vs. chaotic combat), Rat King Scepter (minion fragility + blood patch zoning),
+    The Warrant (slow gun, single-use execution shot, ammo recovery on kill).
+  - No item is just a stat stick with a minor bonus — each one enables a new playstyle.
+  - All abilities reference real existing systems and patterns in the codebase.
+  - Urban tone maintained throughout: parole officers, lotto scratchers, stash sneakers,
+    warrants, coroners, rat kings — all street-level imagery.
+  - Ability targeting types spread across all 6 TargetTypes:
+    SELF: Officer Down, Lucky Numbers, Ghost Stash, Swarm Call, Read the Room,
+          Last Wishes (passive-SELF).
+    SINGLE_ENEMY_LOS: Hoodoo Pin, Last Rites, Mandatory Check-In, Return to Sender,
+                      Cause of Death, Served.
+    No new LINE or AOE_CIRCLE items here (Batch 1 and base game cover those well).
+================================================================================

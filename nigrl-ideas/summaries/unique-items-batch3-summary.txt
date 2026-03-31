@@ -1,0 +1,69 @@
+================================================================================
+UNIQUE ITEMS BATCH 3 — SUMMARY
+Source: nigrl-ideas/unique-items-batch3.txt
+================================================================================
+
+25 unique items across all slots. Core design emphasis: every item has a
+UNIQUE mechanic with meaningful tradeoffs. No pure stat-sticks.
+
+SLOT BREAKDOWN:
+  Weapons (5): stabbing, 2x beating, 2x slashing
+  Sidearm (1): chaos/gambling gun
+  Rings (4): borrowing power, information, smoke, aggression scaling
+  Neck (4): swagger, reactivity, patience, drug synergy
+  Feet (4): mobility builds, ambush, tox/tech, swagger stomp
+  Hats (4): skill XP, crowd control, kill-scaling crit, no-wait sustain
+  Consumables (3): time slow, one-shot kill, XP burst + permanent cost
+
+QUICK REFERENCE:
+  jawbreaker         Weapon (beating)   Sugarcrust stacks → crit shatter + stun
+  serrated_shiv      Weapon (stabbing)  Bleed stacks; move-away = big burst
+  weighted_blanket   Weapon (beating)   150% atk cost; Comfort → sleep; +20% heals
+  streetlight_arm    Weapon (slashing)  Reach 2; chain shock to adjacents; self-damage 2
+  scalpel_of_accountability Weapon (slashing)  +dmg = target tox/10; +1x crit; self-tox on hit
+  pawn_shop_special  Sidearm            25% Jam Weird (1d6 chaos table per shot)
+  ring_of_borrowed_time Ring            +3 all stats; 15% max HP toll every 30 turns; shatters at <25% HP
+  ring_of_lookout    Ring               +4 FOV + telepathy; doubles all enemy sight radius
+  ring_of_secondhand_smoke Ring         Smoke a joint → 20t aura; enemies get strain monster_effect
+  blood_debt_ring    Ring               Inert above 50% HP; phase1 +4 STR/STS below 50%; phase2 +30 energy below 25%
+  grillz             Neck               Doubles swagger defense formula; +1 melee per 2 swagger
+  crackheads_communion Neck             3 charges/floor; 20% absorb dmg → random benefit; crack = +25% incoming
+  knot_of_st_expedite Neck             +15 energy/tick; lose charge per wait/stun; 0 charges = -15/tick penalty
+  junkies_locket     Neck               Each smoke = +1 perm TOL / -1 perm CON (max 5)
+  rollerblades_of_damned Feet           +30 energy while moving; Momentum stacks → dodge (resets on attack)
+  clout_cleats       Feet               30% stomp proc = swagger bonus damage + 1-tile knockback
+  ghost_slippers     Feet               Silence footsteps; ambush first hit = 2x damage (per-enemy-per-floor)
+  mag_lift_shoes     Feet               Arc teleport every 5 tiles; knockback on land; +20% tox resist
+  dunce_cap          Hat                -3 BKS; +2 XP to all skills per combat action; 1.5x physical XP
+  bucket_of_shade    Hat                25 armor; 15% chance/turn to "Shook" unseen enemies (25% dmg reduce + idle)
+  balaclava_thousand_ops Hat            +0.5% crit per kill (max +15%); 15% tox/rad resist; -1 SWG
+  snapback_of_no_return Hat             Cannot wait; +1 HP per action taken; +2 CON + 20 armor
+  lean_pint          Consumable         15t: half energy all sides + 40% dodge + 30% DR (time-slow)
+  burner_phone       Consumable         One call per floor: randomly kill one non-boss enemy (grants normal XP/loot)
+  diploma_expired    Consumable         +6 BKS + 2x SP rate for 20 turns; on expire: -1 perm BKS
+
+KEY NEW MECHANICS INTRODUCED:
+  - Sugarcrust stacking: defense reduction + movement lock + crit shatter
+  - Move-away damage trigger: serrated bleed bursts when player leaves adjacency
+  - Conditional energy_per_tick (only while moving): rollerblades
+  - Secondhand smoke aura: strain effects projected to nearby enemies
+  - FOV bonus + telepathy on ring
+  - HP-threshold ring phases (blood_debt)
+  - Tolerance locket: permanent TOL gain for permanent CON loss
+  - Silence footsteps + ambush multiplier (per-enemy-per-floor flag)
+  - Swagger as melee damage scalar (grillz doubles defense formula)
+  - Kill-accumulating crit bonus (balaclava)
+  - No-wait restriction as hat tradeoff
+  - Time-slow consumable (lean_pint) affecting both player and enemies
+  - One-use-per-floor remote kill (burner_phone)
+  - Permanent stat cost on consumable use (diploma: -1 BKS on expire)
+  - Heal amplification float on PlayerStats
+
+NOTABLE SYNERGY CHAINS:
+  Swagger build: Grillz + Clout Cleats + Swagger rings + 2x4/Hair Pick
+  Ambush build: Ghost Slippers + Bucket of Shade + Ring of Lookout
+  Drug build: Junkies Locket + Massive Blunt + Ring of Secondhand Smoke + Snapback of No Return
+  Tank build: Weighted Blanket + Rosary + Crackhead's Communion + Snapback of No Return
+  Speed build: Rollerblades + Knot of St. Expedite + Blood Debt Ring phase 2
+  Crit build: Balaclava + Scalpel of Accountability + Blood Debt Ring + Prison Shank
+================================================================================

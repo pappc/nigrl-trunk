@@ -1,0 +1,1034 @@
+NIGRL UNIQUE EQUIPPABLE ITEMS — BATCH 4 (25 ITEMS)
+====================================================
+Design doc. All items are EQUIPPABLE only — no consumables.
+Next available graphical tile: 0xE00F (0xE006–0xE00E are used).
+Zones marked [] = special acquisition (not loot table). zones present = can spawn there.
+
+Research basis: items.py, effects.py, combat.py, stats.py, abilities.py, skills.py,
+entity.py, engine.py. All mechanics reference real system hooks.
+
+=============================================================================
+WEAPONS (9 items)
+=============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+1. PROPHET'S SHANK
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: chr(0xE00F) | Color: (80, 180, 255) | name_gradient: [(40, 80, 180), (180, 220, 255)]
+Tags: ["prophets_shank", "unique"] | Weapon type: stabbing | zones: []
+base_damage: 6 | str_req: 7 | str_scaling: {"type": "tiered", "divisor": 2} | value: 250
+
+CONCEPT:
+A blade that knows what's coming. Each time the player is hit while wielding it,
+the shank "absorbs the prophecy" — up to 3 stacks. Each stack gives +4 damage on
+the next melee strike, then all stacks are consumed. Stacks persist indefinitely until
+they are spent (not timed). This rewards players who take damage and immediately
+counter-attack.
+
+MECHANIC — ProphetsShanks tag, handled in combat.py handle_attack() and a new
+"after player takes damage" hook in engine.py:
+  - engine field: `prophets_shank_charges: int = 0` (capped at 3)
+  - When player takes melee damage from a monster AND weapon has "prophets_shank" tag:
+    prophets_shank_charges = min(3, prophets_shank_charges + 1)
+    Message: "Prophet's Shank absorbs the blow! (Prophecy x{N})"
+  - In _compute_player_attack_power(): if "prophets_shank" in tags,
+    atk_power += prophets_shank_charges * 4
+  - In handle_attack() post-damage: if "prophets_shank" in tags and prophets_shank_charges > 0:
+    prophets_shank_charges = 0
+    Message: "Prophecy fulfilled! (+{N*4} damage)"
+  - Reset prophets_shank_charges to 0 on floor change (engine.on_floor_change)
+
+BALANCE:
+  - Base ~6-12 damage from str scaling. Charges: 0/+4/+8/+12 bonus.
+  - Risk: you must take damage to charge it. Reward: +12 on next hit is significant.
+  - Synergizes with Slashing/Stabbing skill (wait — it's stabbing, so Stabbing tree).
+  - Tradeoff: low base damage. Against tanky enemies you want multiple charges before using.
+  - Pairs well with the Divine Shield effect (absorb the hit, get a charge, retaliate).
+
+DISPLAY: "Prophecy x{N}" shown as charge state; reset message on attack.
+
+──────────────────────────────────────────────────────────────────────────────
+2. CHROME SHORTY
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: chr(0xE00F) | Color: (200, 210, 220) | name_alternating: [(200, 210, 220), (80, 80, 100)]
+Tags: ["chrome_shorty", "unique"] | Weapon type: slashing | zones: []
+base_damage: 4 | str_req: 6 | str_scaling: {"type": "tiered", "divisor": 1} | value: 220
+
+CONCEPT:
+A sawed-off chrome blade with one rule: kill the thing you hit in ONE strike or suffer.
+If you deal damage with Chrome Shorty but the enemy does NOT die, you take 3 self-
+damage (unblockable, bypasses armor). If you DO kill with it, gain +5 temporary STR
+for 5 turns. Pure execution weapon — know your power, go for the kill shot.
+
+MECHANIC — "chrome_shorty" tag, handled in handle_attack() post-kill check:
+  - In handle_attack() after deal_damage():
+    if "chrome_shorty" in wdefn.get("tags", []):
+      if not defender.alive:  # kill confirmed
+        apply_effect(engine.player, engine, "stat_mod", stat="strength", amount=5, duration=5)
+        engine.messages.append("Chrome Shorty! One-shot kill! +5 STR for 5 turns.")
+      else:  # hit but didn't kill
+        engine.player.take_damage(3)  # unblockable
+        engine.messages.append("Chrome Shorty! Didn't finish — you take 3 damage!")
+  - The self-damage bypasses armor/temp_hp: call entity.hp -= 3 directly (or take_damage
+    which goes through temp_hp first — designer's call; flavor suggests full bypass)
+
+BALANCE:
+  - Extremely high risk. Most enemies survive first hit unless significantly weakened first.
+  - +1 per STR above req 6 makes it a strong finisher vs. weakened targets.
+  - Best used as a coup de grace after softening with gun/spells.
+  - Synergy: Slashing L3 Execute (2x damage below 25% HP) = almost always kills = constant STR buff.
+  - Anti-synergy: High HP enemies will tick your health down fast if you keep missing kills.
+
+──────────────────────────────────────────────────────────────────────────────
+3. ANCESTRAL BEATER
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: chr(0xE010) | Color: (180, 120, 60) | name_gradient: [(180, 120, 60), (255, 200, 100)]
+Tags: ["ancestral_beater", "unique"] | Weapon type: beating | zones: []
+base_damage: 10 | str_req: 9 | str_scaling: {"type": "tiered", "divisor": 2}
+on_hit_stun_chance: 0.08 | stun_duration: 3 | value: 260
+
+CONCEPT:
+Your granddaddy's favorite piece of wood. Gets stronger as you kill enemies this run.
+Every enemy killed anywhere in the run (not just with this weapon) adds a permanent
++0.5 damage to the Ancestral Beater (floored to int, so every 2 kills = +1 damage).
+Run-wide kill counter — the longer you survive, the harder it hits. No cap.
+
+MECHANIC — "ancestral_beater" tag:
+  - New engine field: `ancestral_kill_count: int = 0` (survives floor transitions, resets only on new run)
+  - New field on the entity (item): `ancestral_bonus: int = 0`
+  - On ANY enemy death (engine event_bus "entity_died"):
+    if weapon has "ancestral_beater" tag:
+      ancestral_kill_count += 1
+      weapon.ancestral_bonus = ancestral_kill_count // 2  # int division
+  - In _compute_player_attack_power():
+    if "ancestral_beater" in tags:
+      atk_power += getattr(weapon, "ancestral_bonus", 0)
+  - The bonus persists even when the weapon is unequipped (stored on entity),
+    but only applies when equipped (checked in power computation).
+
+BALANCE:
+  - Floor 1 enemies yield +0-+5 by end of floor 4 crack den.
+  - By mid Meth Lab, 80+ kills could mean +40 bonus damage — extremely powerful late.
+  - Tradeoff: useless early. You must commit to it from floor 1 to realize full potential.
+  - Competing with: Whirlwind Axe (AOE), Double Edged Sword (raw damage).
+  - Synergy: any kill-accelerating build (AOE spells, Whirlwind, guns) feeds it.
+
+──────────────────────────────────────────────────────────────────────────────
+4. STATIC SNAP BATON
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: "/" | Color: (255, 255, 60) | name_alternating: [(255, 255, 60), (100, 180, 255)]
+Tags: ["static_snap", "unique"] | Weapon type: beating | zones: []
+base_damage: 7 | str_req: 7 | str_scaling: {"type": "tiered", "divisor": 2}
+on_hit_effect: {"type": "shocked", "stacks": 1, "duration": 10} | value: 240
+
+CONCEPT:
+A collapsed baton laced with a janky taser coil. Every hit applies 1 Shocked stack to
+the enemy (existing system). BONUS: if the enemy already has 3+ Shocked stacks before
+you hit them, the attack CRITS automatically — regardless of street smarts.
+"Pre-shocking" enemies before engaging turns this into a crit machine.
+
+MECHANIC — "static_snap" tag, in handle_attack():
+  - Check before damage calculation:
+    if "static_snap" in wdefn.get("tags", []):
+      shocked_eff = next((e for e in defender.status_effects if e.id == "shocked"), None)
+      if shocked_eff and shocked_eff.stacks >= 3:
+        is_crit = True
+        engine.messages.append("Static snap! Auto-crit on shocked target!")
+  - The existing on_hit_effect: {"type": "shocked"...} handles stacking.
+  - Interacts with existing Shocked damage amplification in combat.py _apply_toxicity().
+
+BALANCE:
+  - Can't self-generate the 3-stack threshold alone in one combat (hits 1 stack/swing).
+  - Requires pre-shocking: Electrodynamics spells, partner abilities, or multiple hits first.
+  - Shooting an enemy twice first with a gun (if using a no-Shocked build) won't help.
+  - Sweetspot: Electrodynamics L1+ player: zap once for Shocked, then melee for growing crits.
+  - Diminishing return: once enemy has 3 stacks, every hit is a crit — very strong.
+  - Counter: enemies with Shocked resistance (future proofing).
+
+──────────────────────────────────────────────────────────────────────────────
+5. WIDOW'S NEEDLE
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: chr(0xE00F) | Color: (200, 80, 200) | name_gradient: [(80, 0, 80), (255, 100, 255)]
+Tags: ["widows_needle", "unique"] | Weapon type: stabbing | zones: []
+base_damage: 9 | str_req: 8 | str_scaling: {"type": "tiered", "divisor": 3}
+on_hit_tox: {"enemy": 6} | value: 240
+
+CONCEPT:
+Venom drips from this needle-thin blade. But the real hook: when you KILL an enemy
+who has any toxicity on them (any amount), you gain their toxicity as temp HP.
+Converting poison kills into shields. Pairs brutally with tox-stacking builds.
+
+MECHANIC — "widows_needle" tag, in handle_attack() on kill:
+  - In handle_attack() after deal_damage(), if defender dies and "widows_needle" in tags:
+    enemy_tox = getattr(defender, "toxicity", 0)
+    if enemy_tox > 0:
+      gain = max(1, enemy_tox // 3)  # convert 1/3 of enemy tox to temp HP
+      engine.player.temp_hp += gain
+      engine.messages.append([("Widow's Needle: ", (200, 80, 200)),
+                               (f"Absorbed {gain} temp HP from toxic corpse!", (255, 180, 255))])
+  - on_hit_tox: {"enemy": 6} handled by existing weapon on-hit system.
+  - Temp HP absorbs damage before armor and HP per the damage absorption order in entity.py.
+
+BALANCE:
+  - 6 tox per hit; 3 hits = 18 tox on enemy = 6 temp HP on kill. Modest alone.
+  - Scales with tox stacking: Syringe Lance, Dumpster Lid, Chemical Warfare skills all pre-load tox.
+  - Synergy: Chemical Warfare player with Tox-Barbed Shiv or Syringe Lance to pre-stack, then
+    swap to Widow's Needle for the kill = large temp HP gain.
+  - Tradeoff: you MUST land the killing blow with Widow's Needle to proc (no switching at low HP).
+  - Temp HP decays naturally (is not healed) — purely defensive, not offensive.
+
+──────────────────────────────────────────────────────────────────────────────
+6. CRACKHEAD'S LUCKY PIPE
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: "/" | Color: (200, 180, 80) | name_alternating: [(200, 180, 80), (255, 240, 150)]
+Tags: ["lucky_pipe", "unique"] | Weapon type: beating | zones: []
+base_damage: 3 | str_req: 5 | str_scaling: {"type": "tiered", "divisor": 1} | value: 200
+
+CONCEPT:
+A dented copper pipe that's "lucky." Every attack has a 40% chance to proc a random
+bonus effect from a small table. Effects are wild and unpredictable — this is the chaos
+weapon. Sometimes great, sometimes awful. Good for builds that enjoy variance.
+
+Proc table (40% chance on any hit, roll 1d6):
+  1 — Heal 5 HP (HoT-style: apply_effect "hot" with amount=5, duration=1)
+  2 — Apply "stun" to enemy for 2 turns
+  3 — Apply "fear" to enemy for 8 turns (source_x/y = player position)
+  4 — Deal 1-15 bonus damage to enemy (random.randint(1,15))
+  5 — Apply "bleeding" to enemy (amount=3, duration=5)
+  6 — Apply "mogged" to PLAYER (amount=2, duration=8) — bad luck!
+
+MECHANIC — "lucky_pipe" tag, in handle_attack() post-damage:
+  if "lucky_pipe" in wdefn.get("tags", []) and random.random() < 0.40:
+    roll = random.randint(1, 6)
+    # dispatch by roll value
+    engine.messages.append each outcome with appropriate color
+
+BALANCE:
+  - Very low base damage (3 + str_scaling). You NEED procs to kill things.
+  - The 40% rate is high but the effects are untargeted.
+  - Roll 6 (mogged -2 SWG for 8 turns) is genuinely bad — -1 defense for 8 turns.
+  - Roll 4 (1-15 bonus) can be 1 or 15 — pure RNG.
+  - Synergy: Tolerance stat (not directly) — but this is a Gambling build enabler.
+  - Thematic: "crackhead luck." High chaos, medium average power.
+
+──────────────────────────────────────────────────────────────────────────────
+7. SAINT'S CROWBAR (unique variant)
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: chr(0xE010) | Color: (200, 255, 180) | name_gradient: [(100, 200, 80), (240, 255, 220)]
+Tags: ["saints_crowbar", "unique"] | Weapon type: beating | zones: []
+base_damage: 8 | str_req: 8 | str_scaling: {"type": "tiered", "divisor": 2}
+grants_ability: "pry" (inherits the Pry ability from the base crowbar) | value: 280
+
+CONCEPT:
+A crowbar blessed with something. After opening any crate (smashing it), the Saint's
+Crowbar gains a "Sanctified" buff for 5 turns: all melee hits heal 2 HP each.
+Also permanently grants the "Pry" ability. The healing lasts only 5 turns after crate
+opening — rewards aggressive crate-smashing followed by immediate combat.
+
+MECHANIC — "saints_crowbar" tag:
+  - In engine._smash_crate(): if weapon has "saints_crowbar" tag:
+    apply_effect(engine.player, engine, "hot", amount=2, duration=5)
+    engine.messages.append([("Saint's Crowbar! ", (200, 255, 180)), ("Sanctified for 5 turns!", ...)])
+  - The HoT effect (existing system) heals 2 HP/turn for 5 turns.
+  - grants_ability: "pry" — same as base crowbar; already in abilities.py.
+  - Value: Pry ability + sanctified mechanic + decent damage. Strong crate-dense floors.
+
+BALANCE:
+  - Crates spawn once per floor (room index 1). Only 1-3 crates per floor typically.
+  - 5 turns HoT is extremely short. You must engage immediately after smashing.
+  - No tox/rad effects in Crack Den means this is a pure quality-of-life weapon there.
+  - Meth Lab: fewer crates but more combat density, so timing matters more.
+  - Tradeoff: no innate scaling mechanic (no on-hit effects). Pure utility + conditional heal.
+
+──────────────────────────────────────────────────────────────────────────────
+8. TOL HAMMER
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: "/" | Color: (160, 220, 160) | name_gradient: [(80, 160, 80), (200, 255, 180)]
+Tags: ["tol_hammer", "unique"] | Weapon type: beating | zones: []
+base_damage: 6 | tol_req: 10 | tol_scaling: {"divisor": 1} (matches Massive Blunt pattern)
+str_req: 8 | str_scaling: {"type": "none"} | value: 230
+
+CONCEPT:
+A heavy mallet that runs on body chemistry rather than brute force. Scales purely off
+Tolerance: +1 damage per Tolerance above 10. High tolerance players (drug builds) get
+a weapon that synergizes directly with their stat investment. Also: when you smoke a
+joint while wielding this, each melee hit for the next 10 turns applies 1 stack of
+the joint's strain effect to the enemy (at roll 50 — a guaranteed "neutral" outcome).
+
+MECHANIC:
+  - tol_scaling: {"divisor": 1} handled by existing tol_scaling in _compute_player_attack_power().
+  - "joint smoke triggers 10-turn proc" mechanic:
+    New engine field: `tol_hammer_proc_turns: int = 0`
+    In item_effects.py when strain is smoked (any) AND "tol_hammer" weapon equipped:
+      tol_hammer_proc_turns = 10
+      engine.messages.append("Tol Hammer absorbs the strain!")
+    In handle_attack() post-hit: if tol_hammer_proc_turns > 0:
+      tol_hammer_proc_turns -= 1
+      # Apply the last smoked strain at roll=50 (neutral outcome) to defender
+      last_strain = getattr(engine, "last_smoked_strain", None)
+      if last_strain:
+        engine._apply_strain_effect(defender, last_strain, 50, "monster")
+
+BALANCE:
+  - At TOL 10 (base req): 0 bonus. At TOL 12: +2 bonus. At TOL 15+ (rings/buffs): +5+.
+  - Strain proc at roll=50 is middle-of-the-table — usually minor debuff or nothing.
+  - Synergy: high TOL Smoking builds. This IS a Smoking/Munching skill support weapon.
+  - Against massive enemies the strain proc adds meaningful pressure.
+  - Tradeoff: useless at low TOL. No other damage scaling.
+
+──────────────────────────────────────────────────────────────────────────────
+9. CHAIN WHIP (Upgraded)
+──────────────────────────────────────────────────────────────────────────────
+Slot: weapon | Char: "/" | Color: (180, 140, 100) | name_gradient: [(180, 140, 100), (255, 200, 50)]
+Tags: ["chain_whip", "unique"] | Weapon type: beating | zones: []
+base_damage: 5 | str_req: 6 | reach: 2 | str_scaling: {"type": "tiered", "divisor": 2}
+on_hit_bounce: {"chance": 0.50, "damage_pct": 0.80} | value: 260
+
+CONCEPT:
+A heavy chain repurposed as a flail. Has reach 2 (same as Extension Cord). On-hit
+bounce at 50% chance for 80% damage to nearest adjacent enemy (existing system).
+UNIQUE extra: each consecutive turn you hit an enemy without moving, the bounce
+chance STACKS by +15% per consecutive turn (capped at 95%). Stationary stance = chain
+builds momentum. Taking a movement step RESETS the counter.
+
+MECHANIC — "chain_whip" tag:
+  - New engine fields: `chain_whip_stance: int = 0` (consecutive stationary hit turns)
+  - In handle_attack() if "chain_whip" in tags and player did NOT move this turn:
+    chain_whip_stance = min(chain_whip_stance + 1, 3)
+    effective_bounce_chance = 0.50 + chain_whip_stance * 0.15  # cap at 0.95
+  - In handle_attack() if player DID move this turn (engine.player_moved_this_turn flag):
+    chain_whip_stance = 0
+  - The on_hit_bounce handling in combat.py already exists for Extension Cord;
+    same pattern. For Chain Whip, replace the 0.25 with the dynamic effective_bounce_chance.
+    Implement as: if wdefn.get("chain_whip_dynamic_bounce"):
+      bounce_chance = 0.50 + getattr(engine, "chain_whip_stance", 0) * 0.15
+
+BALANCE:
+  - 50% base bounce with 80% damage is already stronger than Extension Cord (25%/50%).
+  - Full stance (3 turns): 95% bounce = near-guaranteed cleave. VERY strong.
+  - Counter: enemies that force movement (knockback, fear) reset your stance.
+  - Synergy: room_guard AI mode enemies that don't move help you build stance.
+  - Tradeoff: worse vs. single isolated enemies where bounce has no second target.
+
+=============================================================================
+RINGS (5 items)
+=============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+10. RING OF SECOND WIND
+──────────────────────────────────────────────────────────────────────────────
+Slot: ring | Char: "o" | Color: (100, 200, 255) | name_gradient: [(50, 100, 180), (150, 220, 255)]
+Tags: ["second_wind_ring", "unique"] | zones: []
+stat_bonus: {} | value: 280
+
+CONCEPT:
+Once per floor, when the player would be reduced to 0 HP, instead survive at 1 HP
+and gain a powerful burst of energy: +30 speed for 10 turns (SurgeEffect x3 equivalent).
+This is the FLOOR's death save ring — distinct from the Straw Hat's run-save mechanic.
+Second Wind can save you once per floor. The speed burst lets you flee or finish a fight.
+
+MECHANIC:
+  - "second_wind_ring" tag handled in engine.py take_damage / death check:
+    New engine field: `second_wind_used_this_floor: bool = False`
+    In engine's death handling (where player.alive = False would be set):
+      has_ring = any("second_wind_ring" in get_item_def(r.item_id).get("tags", []) for r in engine.rings if r)
+      if has_ring and not second_wind_used_this_floor:
+        second_wind_used_this_floor = True
+        engine.player.hp = 1
+        engine.player.alive = True
+        engine.player.speed += 30  # temporary via SurgeEffect
+        apply_effect(engine.player, engine, "surge", stacks=3, duration=10)
+        engine.messages.append("SECOND WIND! Survived at 1 HP! (+30 speed for 10t)")
+    On floor change: second_wind_used_this_floor = False
+  - This is the same pattern as Straw Hat (engine._straw_hat_death_save) but ring-based and floor-scoped.
+
+BALANCE:
+  - Not a run save (unlike Straw Hat). Once per floor save.
+  - Speed burst allows escape or aggressive follow-up.
+  - Consumes a ring slot — competing with stat rings.
+  - Tradeoff: does nothing until you nearly die.
+  - Synergy: squishy high-offense builds that regularly push limits.
+
+──────────────────────────────────────────────────────────────────────────────
+11. COUNTERFEIT RING
+──────────────────────────────────────────────────────────────────────────────
+Slot: ring | Char: "o" | Color: (150, 120, 80) | name_alternating: [(150, 120, 80), (255, 215, 0)]
+Tags: ["counterfeit_ring", "unique"] | zones: []
+stat_bonus: {"swagger": 3} | value: 180
+
+CONCEPT:
+Looks like gold. Isn't. +3 Swagger passively. But when you have at least $50 on your
+person, the ring "activates" visually and adds an additional +4 Swagger and +2 STR
+(as a temporary bonus updated each turn). When your cash drops below $50, the bonus
+vanishes. Encourages hoarding cash — but cash is also used to... buy nothing (no
+shops exist), so it's a pure hoarding incentive. Named for "looking rich" = intimidation.
+
+MECHANIC:
+  - Base +3 Swagger from stat_bonus (static, always active).
+  - Dynamic bonus: in engine._run_energy_loop() or a per-turn check:
+    has_ring = check for "counterfeit_ring" in equipped rings
+    if engine.player.cash_amount >= 50 and not counterfeit_active:
+      counterfeit_active = True
+      engine.player_stats.add_temporary_stat_bonus("swagger", 4)
+      engine.player_stats.add_temporary_stat_bonus("strength", 2)
+    elif engine.player.cash_amount < 50 and counterfeit_active:
+      counterfeit_active = False
+      engine.player_stats.add_temporary_stat_bonus("swagger", -4)
+      engine.player_stats.add_temporary_stat_bonus("strength", -2)
+  - New engine field: `counterfeit_ring_active: bool = False`
+  - Cash is tracked via engine.player.cash_amount (see entity.py).
+
+BALANCE:
+  - At full cash: effective +7 SWG (+3 DR) and +2 STR. Very strong passive.
+  - Cash drops when taking Child Support or spending cash (if shop added).
+  - Currently cash only decreases via Child Support debuff — mostly a free bonus.
+  - Risk: Child Support cursed builds, or future cash-spending systems.
+  - Tradeoff: useless slot if below $50 at run start.
+
+──────────────────────────────────────────────────────────────────────────────
+12. RING OF THE BLOCK
+──────────────────────────────────────────────────────────────────────────────
+Slot: ring | Char: chr(0xE00A) | Color: (150, 80, 40) | name_gradient: [(100, 50, 20), (220, 140, 80)]
+Tags: ["ring_of_block", "unique"] | zones: []
+stat_bonus: {"street_smarts": 2, "constitution": 2} | value: 300
+
+CONCEPT:
+You rep the block. +2 STS, +2 CON passively. ALSO: at the START of each floor, when
+the player enters any room that contains 3 or more enemies, all enemies in that room
+are immediately "tagged" with a Chill effect (1 stack, 6 turns). "Coldest block in
+the city — they freeze up when they see you come through." One proc per room per floor.
+
+MECHANIC:
+  - "ring_of_block" tag handled in engine.py room-entry logic (where _intimidation_ring_proc is):
+    New method: engine._ring_of_block_proc(room_idx):
+      if "ring_of_block" not in rings: return
+      room_already_chilled = room_idx in engine.ring_of_block_chilled_rooms
+      if room_already_chilled: return
+      monsters = [e for e in dungeon.entities if e.entity_type == "monster" and
+                  dungeon.get_room_index_at(e.x, e.y) == room_idx and e.alive]
+      if len(monsters) >= 3:
+        engine.ring_of_block_chilled_rooms.add(room_idx)
+        for m in monsters:
+          apply_effect(m, engine, "chill", stacks=1, duration=6)
+        engine.messages.append("Ring of the Block! The crowd freezes!")
+  - New engine field: `ring_of_block_chilled_rooms: set = set()` — reset on floor change.
+  - Chill effect (existing): reduces energy gain by 15% per stack.
+
+BALANCE:
+  - Crowd-control ring. Useful in heavily populated rooms.
+  - Only 1 Chill stack = 15% slow per enemy. Moderate debuff, not crippling.
+  - One proc per room means the bonus spreads thinly over many rooms.
+  - Synergy: Cryomancy builds — applying Chill generates Cryomancy XP.
+  - Tradeoff: useless in rooms with < 3 enemies, useless against solo bosses.
+
+──────────────────────────────────────────────────────────────────────────────
+13. PENSION RING
+──────────────────────────────────────────────────────────────────────────────
+Slot: ring | Char: "o" | Color: (200, 200, 200) | name_gradient: [(120, 120, 120), (255, 255, 255)]
+Tags: ["pension_ring", "unique"] | zones: []
+stat_bonus: {} | value: 220
+
+CONCEPT:
+"You've been putting in work for a long time." Passive: gain +1 to a random stat
+permanently after every 20 enemies killed this run. No cap on the stat gain. Tracks
+the cumulative run kill total. This rewards long, aggressive runs over quick dashes.
+All 6 stats eligible. Flavor: "pension building up."
+
+MECHANIC:
+  - New engine field: `pension_ring_kill_count: int = 0`, `pension_ring_milestones: int = 0`
+  - On any enemy death (entity_died event handler), if ring is equipped:
+    pension_ring_kill_count += 1
+    milestones_earned = pension_ring_kill_count // 20
+    if milestones_earned > pension_ring_milestones:
+      pension_ring_milestones = milestones_earned
+      stat = random.choice(["constitution","strength","book_smarts","street_smarts","tolerance","swagger"])
+      engine.player_stats.modify_base_stat(stat, 1)  # permanent
+      if stat == "constitution": engine._sync_player_max_hp()
+      engine.messages.append(f"Pension Ring! Kill #{pension_ring_kill_count}: +1 {stat.replace('_',' ').title()} permanently!")
+  - Kill counter and milestone counter survive floor transitions (run-wide).
+  - On new run / engine reinit: both counters reset.
+
+BALANCE:
+  - 20 kills/stat = roughly 1 stat gain per floor (floor 1 has ~10 enemies, floors 2-4 more).
+  - At 100 kills total: +5 random stats. At 200: +10. Very powerful in long runs.
+  - Pure run reward. Useless in first 10 kills. Competes with stat rings for slot.
+  - Tradeoff: random stat (could be TOL when you want STR).
+  - Synergy: anything that facilitates high kill counts (AOE, Gatting, Pyromancy).
+
+──────────────────────────────────────────────────────────────────────────────
+14. RING OF COMEUPPANCE
+──────────────────────────────────────────────────────────────────────────────
+Slot: ring | Char: "o" | Color: (255, 80, 80) | name_gradient: [(180, 20, 20), (255, 120, 120)]
+Tags: ["comeuppance_ring", "unique"] | zones: []
+stat_bonus: {"strength": 2} | value: 250
+
+CONCEPT:
++2 STR. When an enemy CRITS you (deals a crit hit), the Comeuppance Ring activates:
+for the next 5 turns, all your melee attacks deal 50% more damage (additive to the
+outgoing_damage_mults list at 1.5). "They hit hard, you hit harder back." Once per
+crit (not stackable — it refreshes, not double-stacks).
+
+MECHANIC:
+  - Enemy crit detection: in handle_attack() when attacker is a monster and defender is player,
+    if is_crit (the crit flag is already computed for enemy attacks per the existing pattern):
+      if "comeuppance_ring" equipped:
+        if not comeuppance_active:
+          comeuppance_active = True
+          player_stats.outgoing_damage_mults.append(1.5)
+          comeuppance_turns_remaining = 5
+        else:  # refresh
+          comeuppance_turns_remaining = 5  # just reset the timer
+    Decrement comeuppance_turns_remaining each player-acted turn; on hitting 0:
+      comeuppance_active = False
+      player_stats.outgoing_damage_mults.remove(1.5)  # remove the 1.5x multiplier
+
+  - New engine fields: `comeuppance_active: bool`, `comeuppance_turns_remaining: int`
+  - Uses existing outgoing_damage_mults list (PlayerStats) for the multiplier.
+  - Enemy crits happen via the `crit_chance` field on enemy entities (entity.crit_chance).
+
+BALANCE:
+  - +50% outgoing damage for 5 turns. Against high-crit enemies this can be very strong.
+  - Enemy base crit_chance is low (monsters have crit_chance 0 or small values in enemies.py).
+  - Mostly procs on enemies with high street_smarts-like stats or special attacks.
+  - Tradeoff: passive — you must BE critted to benefit. Punishes being critted.
+  - Synergy: low defense / no dodge builds that get critted more often.
+
+=============================================================================
+NECK (3 items)
+=============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+15. DEALER'S CHAIN
+──────────────────────────────────────────────────────────────────────────────
+Slot: neck | Char: '"' | Color: (100, 200, 120) | name_gradient: [(50, 150, 70), (180, 255, 180)]
+Tags: ["dealers_chain", "unique"] | zones: []
+armor_bonus: 25 | stat_bonus: {"street_smarts": 3} | value: 280
+
+CONCEPT:
+A chain worn by every man who ever moved product. +25 armor, +3 STS. ALSO: whenever
+you pick up any consumable item (joint, food, drink), there's a 30% chance you gain
+a second copy of it for free. "If you know the plug, everything comes in twos."
+The doubling chance fires at item pickup.
+
+MECHANIC:
+  - "dealers_chain" tag checked in engine.py item pickup handler (where items are added
+    to inventory):
+    In engine.handle_pickup_item() or inventory_mgr.handle_item_pickup():
+      if item.category == "consumable":
+        neck_defn = get_item_def(engine.neck.item_id) if engine.neck else None
+        if neck_defn and "dealers_chain" in neck_defn.get("tags", []):
+          if random.random() < 0.30:
+            duplicate = create_item_entity(item.item_id, item.x, item.y)
+            if item.strain: duplicate.strain = item.strain
+            engine.player.inventory.append(duplicate)
+            engine.messages.append([("Dealer's Chain: ", (100, 200, 120)),
+                                     (f"Got a second {item.name}!", (180, 255, 180))])
+
+BALANCE:
+  - 30% double = on average every 3.3 pickups you get a free item.
+  - Joints, food, and drinks all benefit. Big inventory swing in loot-dense runs.
+  - Tradeoff: dead in combat (armor only), no weapon synergy.
+  - Competing with Cuban Link (50 armor, +reach) — less armor, far more utility.
+  - Synergy: Munching builds, Smoking/Rolling builds benefit from doubled consumables.
+
+──────────────────────────────────────────────────────────────────────────────
+16. CRACKHEAD CRUCIFIX
+──────────────────────────────────────────────────────────────────────────────
+Slot: neck | Char: chr(0xE005) | Color: (220, 80, 80) | name_gradient: [(180, 40, 40), (255, 160, 160)]
+(Uses same tile as Rosary — recolored red; alternatively use 0xE010 if a new tile is added)
+Tags: ["crackhead_crucifix", "unique"] | zones: []
+armor_bonus: 15 | stat_bonus: {"tolerance": 4} | value: 260
+
+CONCEPT:
+A twisted inversion of the Rosary. +15 armor, +4 TOL. ALSO: whenever the player has
+active NEGATIVE status effects (debuffs), each debuff gives +3 dodge chance (additive,
+capped at 60%). "Suffering is your armor." The more cursed you are, the harder you are
+to hit. Pairs with builds that intentionally stack debuffs on themselves.
+
+MECHANIC:
+  - Per-turn update in engine (or as part of the armor/defense computation cycle):
+    if "crackhead_crucifix" equipped:
+      num_debuffs = len([e for e in engine.player.status_effects if e.category == "debuff"])
+      base_dodge = engine.player_stats.dodge_chance (without this item's contribution)
+      crucifix_dodge = min(60, num_debuffs * 3)
+      engine.player_stats.temporary_stat_bonuses["dodge"] = ...
+    — Actually better to use engine.player_stats.add_dodge_chance() in the per-turn
+      tick, but we need to cleanly track this item's contribution.
+    Simpler: track `crucifix_dodge_last: int` and update each turn by diff.
+  - New engine field: `crucifix_dodge_last: int = 0`
+  - PlayerStats.add_dodge_chance() / set_dodge_chance() exists; use diff pattern.
+
+BALANCE:
+  - At 0 debuffs: 0 bonus dodge. At 5 debuffs: +15% dodge (capped at 60% total incl. base).
+  - High debuff builds: Child Support, Rabies, Mogged, Hangover, Bleeding = potentially 15-20%.
+  - Tradeoff: you must suffer debuffs. Some debuffs (Agent Orange) prevent you from fighting.
+  - Synergy: L Farming (armor stacks), Dismantling builds, White Power builds (tox debuffs).
+  - Counter-synergy: Zoned Out (removes debuffs = removes dodge bonus).
+
+──────────────────────────────────────────────────────────────────────────────
+17. SEVEN DEADLY CHAINS
+──────────────────────────────────────────────────────────────────────────────
+Slot: neck | Char: '"' | Color: (200, 50, 200) | name_gradient: [(100, 0, 100), (255, 100, 255)]
+Tags: ["seven_deadly_chains", "unique"] | zones: []
+armor_bonus: 40 | stat_bonus: {} | value: 320
+
+CONCEPT:
+Seven thick chains around your neck, each representing a sin. +40 armor. On equip,
+gain permanent +1 to all 6 stats. BUT: each time you gain a negative status effect
+(debuff applied), permanently LOSE 1 HP from max HP (tracked as a penalty). "Sin has a
+cost." Up to 7 max-HP losses per floor, after which the curse is "full" and no further
+penalties accrue until next floor. The armor bonus is the protection; the sins are the price.
+
+MECHANIC:
+  - "on equip" stat bonus: in engine equipment handler, when equipped:
+    for stat in all 6: player_stats.modify_base_stat(stat, 1)  # permanent
+  - "on debuff applied penalty": override to handle in effects.py apply_effect() call.
+    When apply_effect() is called with a debuff-category effect on the player:
+      if "seven_deadly_chains" in equipped neck tags:
+        engine field `seven_deadly_sins_this_floor: int`
+        if seven_deadly_sins_this_floor < 7:
+          seven_deadly_sins_this_floor += 1
+          engine.player.max_hp -= 1
+          engine.player.hp = min(engine.player.hp, engine.player.max_hp)
+          engine.messages.append("A sin is etched. (-1 max HP)")
+    Reset: seven_deadly_sins_this_floor = 0 on floor change (NOT resetting the HP loss).
+  - The max HP penalty is permanent and accumulates across floors.
+  - "on unequip" stat removal: reverse the stat bonuses if still equipped (subtract 1 all stats).
+    The HP losses are NOT reversed.
+
+BALANCE:
+  - +40 armor + all stats +1 = incredible passive bonuses.
+  - Per-floor HP drain: 7 debuffs/floor = -7 max HP/floor in worst case.
+  - Over 4 Crack Den floors: potentially -28 max HP if constantly debuffed.
+  - Forces very careful status-effect management.
+  - Synergy: Zoned Out strain (prevents debuffs), White Power L3 (resistance).
+  - Anti-synergy: Chemical Warfare (intentionally takes tox = debuff), Crackhead Crucifix.
+
+=============================================================================
+FEET (4 items)
+=============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+18. GRAVITY BOOTS
+──────────────────────────────────────────────────────────────────────────────
+Slot: feet | Char: chr(0xE00B) | Color: (80, 80, 200) | name_gradient: [(40, 40, 180), (140, 140, 255)]
+Tags: ["gravity_boots", "unique"] | zones: []
+armor_bonus: 5 | energy_per_tick: -20 | value: 200
+
+CONCEPT:
+Heavy magnetized boots that slow you down (-20 energy/tick). In exchange: every melee
+attack you land has a 30% chance to apply a "Gravity Slam" — instantly knocking the
+target back 2 tiles AND dealing 3 bonus damage from the slam impact. Slow but hits
+harder and has crowd control. The knockback is 2 tiles (existing on_hit_knockback pattern).
+Also: you cannot be knocked back yourself (immune to knockback while equipped).
+
+MECHANIC:
+  - energy_per_tick: -20 is handled by existing equipment_energy_per_tick system in stats.py.
+  - "gravity_boots" tag in handle_attack():
+    30% chance: on_hit_knockback: {"chance": 0.30, "tiles": 2}
+    The knockback already exists in combat.py (war_maul pattern).
+    For the gravity_boots, hook into the same system.
+  - Knockback immunity: new engine field or effect.
+    In handle_attack() when attacker is monster and defender is player:
+      if "gravity_boots" in equipped feet tags: skip knockback application.
+  - For the 3 bonus damage from slam: add as part of the knockback resolution:
+    if knockback fires AND target is knocked (not blocked): deal 3 extra damage via deal_damage().
+
+BALANCE:
+  - -20 energy/tick = noticeably slower (80 vs 100 = 25% slower actions).
+  - 30% knockback every attack is very strong crowd control.
+  - 3 bonus slam damage is modest but adds up.
+  - Competing with Boots of Blinding Speed (+50 energy) — total swing is 70 energy.
+  - Tradeoff: speed loss feels bad. Best on tanky/high-defense builds.
+  - Synergy: Chain Whip (stationary bonus) + Gravity Boots (slow-you-down, stay still).
+
+──────────────────────────────────────────────────────────────────────────────
+19. RUBBER SOLES
+──────────────────────────────────────────────────────────────────────────────
+Slot: feet | Char: chr(0xE00B) | Color: (200, 200, 80) | name_alternating: [(200, 200, 80), (255, 255, 160)]
+Tags: ["rubber_soles", "unique"] | zones: []
+armor_bonus: 10 | stat_bonus: {"tolerance": 2} | value: 220
+
+CONCEPT:
++10 armor, +2 TOL. Passive: completely immune to the Shocked status effect. If an
+enemy tries to apply Shocked to you, it fails silently. Also: when YOU apply Shocked to
+an enemy (via any source), deal 2 bonus lightning damage immediately. "You're grounded —
+insulated against the current." Anti-electricity build option.
+
+MECHANIC:
+  - "rubber_soles" shock immunity: in effects.py apply_effect() or in ShockedEffect.apply():
+    if entity == engine.player:
+      if any("rubber_soles" in get_item_def(f.item_id).get("tags",[]) for f in [engine.feet] if f):
+        engine.messages.append("Rubber Soles! Shocked blocked!")
+        return  # do not apply
+  - Alternatively: in PlayerStats add a shock_immune bool (follows Angband non-stacking rule
+    from memory notes), set it when equipping rubber_soles.
+  - On player applying Shocked to enemy (ShockedEffect.apply / on_reapply when entity is enemy):
+    check if rubber_soles equipped, if so: deal_damage(engine, 2, entity)
+
+BALANCE:
+  - Hard counter to Electrodynamics enemies and any shocked-applying mechanic.
+  - 2 bonus damage on each Shocked application is very minor.
+  - +10 armor and +2 TOL are solid passives.
+  - Tradeoff: Shocked immunity prevents you from using it offensively for damage amps.
+    (If YOU are never Shocked, that's fine, but you also can't benefit from self-shock synergy.)
+  - In Meth Lab: Electrodynamics enemies may apply Shocked. This fully counters that.
+
+──────────────────────────────────────────────────────────────────────────────
+20. SPECTER CREEPERS
+──────────────────────────────────────────────────────────────────────────────
+Slot: feet | Char: chr(0xE00B) | Color: (140, 160, 180) | name_gradient: [(80, 90, 100), (200, 215, 230)]
+Tags: ["specter_creepers", "unique"] | zones: []
+armor_bonus: 8 | energy_per_tick: 15 | stat_bonus: {"street_smarts": 2} | value: 270
+
+CONCEPT:
+Silent sneakers. +8 armor, +15 energy/tick (slightly faster), +2 STS. ALSO: whenever
+you enter a room that contains enemies who have NOT yet been activated (still in IDLE
+or WANDERING AIState), you gain 30% increased melee damage for 5 turns. The bonus
+represents ambushing before they spot you. "You move like a ghost."
+
+MECHANIC:
+  - Room entry detection: in engine.py where room-entry events fire (same location as
+    _intimidation_ring_proc):
+    New method: engine._specter_creepers_proc(room_idx):
+      has_feet = check "specter_creepers" in feet item tags
+      if not has_feet: return
+      from ai import AIState
+      unalerted = [e for e in dungeon.entities if e.entity_type == "monster" and e.alive
+                   and dungeon.get_room_index_at(e.x, e.y) == room_idx
+                   and e.ai_state in (AIState.IDLE, AIState.WANDERING)]
+      if unalerted:
+        engine.player_stats.outgoing_damage_mults.append(1.30)
+        specter_proc_turns = 5  # new engine field
+        engine.messages.append([("Specter Creepers! ", (140, 160, 180)),
+                                 ("Ambush bonus! +30% melee damage for 5 turns.", ...)])
+  - Decrement specter_proc_turns each player action turn; on 0, remove 1.30 from mults.
+  - New engine fields: `specter_proc_turns: int = 0`, `specter_damage_active: bool = False`
+
+BALANCE:
+  - +30% melee damage for 5 turns on room entry. Strong opener.
+  - Only fires when enemies are IDLE/WANDERING — i.e., not chasing you already.
+  - Once you've cleared and re-entered a room, no bonus (they're dead or already alerted).
+  - Synergy: high damage burst weapons (Ramp Damage, Chrome Shorty finishing).
+  - Tradeoff: does nothing in extended fights, only at the start of each new encounter.
+
+──────────────────────────────────────────────────────────────────────────────
+21. MARATHON NIKES
+──────────────────────────────────────────────────────────────────────────────
+Slot: feet | Char: chr(0xE00B) | Color: (255, 100, 30) | name_gradient: [(220, 60, 0), (255, 160, 100)]
+Tags: ["marathon_nikes", "unique"] | zones: []
+armor_bonus: 0 | energy_per_tick: 30 | stat_bonus: {"constitution": 2} | value: 260
+
+CONCEPT:
+Fast shoes. +30 energy/tick (same as Boots of Springing but no special ability), +2 CON.
+NO FOV penalty (unlike Blinding Speed). BUT: every floor, you must take at least 30
+movement steps OR you receive a "Cramps" debuff at floor end (before descending):
+-3 STR, -3 STS for the next floor. The game tracks your steps. "Grind or cramp up."
+
+MECHANIC:
+  - energy_per_tick: 30 handled by existing system.
+  - Step counter: new engine field `marathon_steps_this_floor: int = 0`
+    Incremented every time player successfully moves (in engine.handle_move()).
+  - On floor descent (engine._descend() or equivalent):
+    if "marathon_nikes" equipped:
+      if marathon_steps_this_floor < 30:
+        apply_effect(engine.player, engine, "stat_mod", stat="strength", amount=-3, duration=floor_duration=True)
+        apply_effect(engine.player, engine, "stat_mod", stat="street_smarts", amount=-3, duration=floor_duration=True)
+        engine.messages.append("Marathon Nikes: Cramps! You didn't run enough. -3 STR, -3 STS next floor.")
+      marathon_steps_this_floor = 0
+
+BALANCE:
+  - +30 energy/tick = substantial speed bonus (Boots of Springing equivalent without ability).
+  - 30 steps/floor is easy in a normal run but can be missed in small floors.
+  - Cramp penalty: -3 STR and -3 STS is significant (equivalent to -3 crit chance and weapon dmg).
+  - Competing with Blinding Speed (+50 speed, -2 FOV), Springing Boots (+20 + ability).
+  - Synergy: Jaywalking XP builds (walking generates XP), exploration-first play.
+
+=============================================================================
+HATS (4 items)
+=============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+22. TINFOIL THRONE
+──────────────────────────────────────────────────────────────────────────────
+Slot: hat | Char: "^" | Color: (220, 225, 235) | name_gradient: [(160, 165, 175), (255, 255, 255)]
+Tags: ["tinfoil_throne", "unique"] | zones: []
+rad_resistance: 60 | tox_resistance: 60 | armor_bonus: 0 | stat_bonus: {"book_smarts": 4} | value: 300
+
+CONCEPT:
+The king of tinfoil hats. +60% rad resistance, +60% tox resistance, +4 BKS. BUT: every
+time you gain radiation (from any source), there's a 20% chance to also gain a free
+Skill Point (immediately converted from potential to real exp for a random skill). "Your
+brain is so protected, it converts background radiation into pure knowledge." Makes
+rad gain meaningful for BKS-focused builds.
+
+MECHANIC:
+  - "tinfoil_throne" tag, checked in combat.py add_radiation() after gain > 0:
+    if entity == engine.player and gain > 0:
+      hat_defn = get_item_def(engine.hat.item_id) if engine.hat else None
+      if hat_defn and "tinfoil_throne" in hat_defn.get("tags", []):
+        if random.random() < 0.20:
+          # Award a skill point to a random skill with potential_exp > 0
+          eligible = [s for s in engine.skills.skills.values() if s.potential_exp > 0]
+          if eligible:
+            target = random.choice(eligible)
+            sp_gain = max(1, target.potential_exp // 10)  # small chunk
+            target.real_exp += sp_gain
+            target.potential_exp = max(0, target.potential_exp - sp_gain)
+            engine.messages.append([("Tinfoil Throne: ", (220, 225, 235)),
+                                     (f"Rad converted to {target.name} SP!", (200, 255, 200))])
+
+BALANCE:
+  - 60% rad AND tox resistance is among the best possible (hat prefixes go up to 50%).
+  - +4 BKS is excellent for spell/skill builds.
+  - Free skill point on 20% rad gain is very niche but powerful in Meth Lab.
+  - Tradeoff: no physical armor. Very glass vs melee.
+  - Synergy: Nuclear Research builds (constantly gaining rad = SP farming).
+
+──────────────────────────────────────────────────────────────────────────────
+23. BUCKET HAT OF KNOWING
+──────────────────────────────────────────────────────────────────────────────
+Slot: hat | Char: "^" | Color: (100, 180, 80) | name_alternating: [(80, 160, 60), (160, 255, 120)]
+Tags: ["bucket_hat_knowing", "unique"] | zones: []
+rad_resistance: 0 | tox_resistance: 0 | armor_bonus: 20 | stat_bonus: {"book_smarts": 3, "street_smarts": 3} | value: 290
+
+CONCEPT:
++20 armor, +3 BKS, +3 STS. No tox/rad resist (not a protective hat, it's a smart hat).
+UNIQUE PASSIVE: this hat reveals the item_id of all items on the floor the moment the
+player enters the floor (like instant identification — items display their real name even
+before picking up). In ASCII roguelike context: items already show their name on hover.
+Mechanically: all "unidentified" items on the floor are auto-identified on equip and on
+floor entry. Also grants +5% crit chance (directly added to player_stats.crit_chance calculation
+via a new field or via street_smarts bonus already applied via stat_bonus).
+
+Actually the identification system isn't implemented (NIGRL shows names already). Revised:
+ACTUAL MECHANIC: this hat reveals the exact position of all items on the entire floor,
+even in unexplored areas. They appear as '@' on the map outside FOV. This is a minimap
+awareness boost. Implemented via: entity.always_visible = True on all floor items when
+hat is equipped; reversed on unequip.
+
+  - In engine hat equip handler:
+    if "bucket_hat_knowing" in new_hat_tags:
+      for ent in dungeon.entities:
+        if ent.entity_type == "item": ent.always_visible = True
+  - In engine hat unequip handler:
+    for ent in dungeon.entities:
+      if ent.entity_type == "item": ent.always_visible = False
+  - On floor change (new floor): reapply to new floor items.
+
+BALANCE:
+  - +20 armor + dual stats makes this a strong "smart tank" hat.
+  - Loot visibility is pure QoL — see items through walls on unexplored tiles.
+  - No tox/rad resistance is a notable downside in Meth Lab.
+  - Tradeoff: misses the protective qualities of standard hats.
+  - Synergy: looting-focused builds, Stealing skill players who want to know where everything is.
+
+──────────────────────────────────────────────────────────────────────────────
+24. WELDER'S MASK
+──────────────────────────────────────────────────────────────────────────────
+Slot: hat | Char: "^" | Color: (80, 80, 80) | name_gradient: [(40, 40, 40), (160, 140, 100)]
+Tags: ["welders_mask", "unique"] | zones: []
+rad_resistance: 30 | tox_resistance: 0 | armor_bonus: 35 | stat_bonus: {} | value: 270
+
+CONCEPT:
+A heavy industrial welding mask. +35 armor, +30% rad resistance. ALSO: immune to the
+Ignite (fire) status effect — the fire visor protects you. Stepping on fire tiles does
+not ignite you. AND: when a fire hazard entity is in your FOV, deal +2 bonus melee damage
+on every attack (the heat makes you fight angrier). "Built for hazardous environments."
+
+MECHANIC:
+  - Fire immunity: in the fire-damage tick in engine._run_energy_loop():
+    After fire proc check, before apply_effect ignite:
+      hat_defn = get_item_def(engine.hat.item_id) if engine.hat else None
+      if hat_defn and "welders_mask" in hat_defn.get("tags", []):
+        skip ignite application
+  - Also: IgniteEffect.apply() can short-circuit if equipped (same pattern as Rubber Soles shock).
+  - Fire FOV bonus: new engine field `welder_fire_bonus_active: bool = False`
+    Per-turn check in energy loop:
+      fire_in_fov = any(getattr(e, "hazard_type", None) == "fire"
+                        and dungeon.visible[e.y][e.x]
+                        for e in dungeon.entities)
+      welder_fire_bonus_active = fire_in_fov and "welders_mask" in hat tags
+    In _compute_player_attack_power(): if welder_fire_bonus_active: atk_power += 2
+
+BALANCE:
+  - +35 armor is the strongest armor slot after "Of Brick" hats.
+  - Fire immunity is niche but invaluable on fire-heavy floors.
+  - +2 damage near fire is minor but free.
+  - No tox resistance means it's a rad/fire specialist, vulnerable to tox.
+  - Synergy: Pyromania builds (they CREATE fire = permanent +2 melee damage in combat).
+
+──────────────────────────────────────────────────────────────────────────────
+25. FITTED CAP OF THE STREETS
+──────────────────────────────────────────────────────────────────────────────
+Slot: hat | Char: "^" | Color: (50, 50, 50) | name_alternating: [(50, 50, 50), (255, 215, 0)]
+Tags: ["fitted_cap_streets", "unique"] | zones: []
+rad_resistance: 0 | tox_resistance: 0 | armor_bonus: 0 | stat_bonus: {"street_smarts": 5, "swagger": 3} | value: 310
+
+CONCEPT:
+No protection at all. Pure stat hat. +5 STS, +3 SWG. BUT the real mechanic: killing an
+enemy while your HP is above 80% of max HP permanently increases your base crit chance
+by 0.5% (additive to the street_smarts-based formula). This is tracked as a new
+`permanent_crit_bonus: float` field on PlayerStats. Max 15% permanent bonus (30 clean kills).
+"Stay fresh, stay confident — only lose it when you take Ls."
+ALSO: if you drop below 50% HP, the accumulated permanent crit bonus resets to 0.
+"Take a real L and all that confidence is gone."
+
+MECHANIC:
+  - New PlayerStats field: `permanent_crit_bonus: float = 0.0`
+  - In PlayerStats.crit_chance property:
+    return self.effective_street_smarts * 0.01 + self.permanent_crit_bonus
+  - On enemy death (entity_died handler):
+    if "fitted_cap_streets" in hat tags:
+      if engine.player.hp / engine.player.max_hp > 0.80:
+        if engine.player_stats.permanent_crit_bonus < 0.15:
+          engine.player_stats.permanent_crit_bonus += 0.005
+          engine.messages.append([("Fitted Cap: ", (50, 50, 50)),
+                                   (f"+0.5% crit (total: {engine.player_stats.permanent_crit_bonus*100:.1f}%)", (255, 215, 0))])
+  - HP drop check: in engine's damage handler:
+    if engine.player.hp / engine.player.max_hp <= 0.50:
+      if "fitted_cap_streets" in hat tags and engine.player_stats.permanent_crit_bonus > 0:
+        engine.player_stats.permanent_crit_bonus = 0.0
+        engine.messages.append("You took an L. Crit bonus lost.")
+  - The reset triggers ONCE on crossing the threshold (not every tick).
+    Use a flag: `fitted_cap_hp_below_50: bool` to prevent repeating.
+
+BALANCE:
+  - +5 STS alone = +15% crit chance. With +3 SWG = +1.5 defense.
+  - Full 30 clean kills = +15% permanent crit on top = potentially 30%+ crit total.
+  - The RESET mechanic is brutal. One bad fight wipes all progress.
+  - Tradeoff: no protection at all. One of the most glass-cannon hats in the game.
+  - Synergy: high dodge builds (Slashing L4, dodge rings) that can stay above 80% HP easily.
+  - Anti-synergy: any build that regularly trades HP.
+
+=============================================================================
+SIDEARM (1 item — unique gun)
+=============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+BONUS GUN (counted as item 25.5 — included for completeness, doesn't displace another)
+Actually this IS item 25 — FITTED CAP is 25 items total. See numbering.
+──────────────────────────────────────────────────────────────────────────────
+
+Wait — we have: 9 weapons + 5 rings + 3 necks + 4 feet + 4 hats = 25. Fitted Cap is #25.
+
+=============================================================================
+CROSS-ITEM SYNERGY NOTES
+=============================================================================
+
+RECOMMENDED BUILD: "Prophecy Punisher"
+  - Prophet's Shank + Crackhead Crucifix + Ring of Comeuppance
+  - Take hits intentionally → Shank charges up, Crucifix gives dodge from debuffs,
+    Comeuppance gives +50% damage back.
+  - Survive through defense while retaliating massively.
+
+RECOMMENDED BUILD: "Toxic Ambush"
+  - Widow's Needle + Specter Creepers + Dealers Chain
+  - Enter room for +30% melee damage, pre-stack tox with needle, kill for temp HP.
+  - Dealers Chain doubles consumables for more tox options.
+
+RECOMMENDED BUILD: "Block Boss"
+  - Chain Whip + Gravity Boots + Ring of the Block
+  - Stay still for stance, knockback enemies who approach, Chill entire rooms on entry.
+  - Gravity Boots keep you planted (slow movement speed = rarely move = more stance stacks).
+
+RECOMMENDED BUILD: "Rad Scholar"
+  - Tinfoil Throne + Nuclear Research L4 + Tol Hammer
+  - Rad gives SP, SP unlocks Nuclear Research, Tol Hammer gets strain effects.
+  - Intentionally eating Radbar / Yellowcake for huge SP gains.
+
+=============================================================================
+IMPLEMENTATION NOTES (PRIORITY ORDER)
+=============================================================================
+
+EASIEST (data-only or minimal code):
+  - Tol Hammer (already has tol_scaling pattern from Massive Blunt)
+  - Static Snap Baton (already has on_hit_effect shocked pattern)
+  - Ancestral Beater (kill counter, per-attack power bonus)
+  - Rubber Soles (+10 armor, shock immunity hook)
+  - Tinfoil Throne (rad resistance + BKS, one hook in add_radiation)
+
+MEDIUM (new engine fields + hook in existing locations):
+  - Prophet's Shank (new engine field + damage hook)
+  - Second Wind Ring (death check, same as Straw Hat)
+  - Pension Ring (kill counter, modify_base_stat)
+  - Ring of Comeuppance (enemy crit detection)
+  - Counterfeit Ring (per-turn cash check)
+  - Dealers Chain (item pickup hook)
+  - Marathon Nikes (step counter, floor descent penalty)
+  - Chrome Shorty (kill check, self-damage)
+  - Specter Creepers (room entry check, AIState query)
+  - Welder's Mask (fire immunity + FOV check)
+  - Gravity Boots (energy_per_tick existing, knockback hook, knockback immunity)
+
+HARDER (new effects or complex interactions):
+  - Crackhead Crucifix (per-turn debuff count, dynamic dodge)
+  - Seven Deadly Chains (on-equip permanent stat mod + per-debuff HP loss)
+  - Fitted Cap of the Streets (new crit_bonus on PlayerStats, HP threshold reset)
+  - Ring of the Block (room entry Chill proc, room set tracking)
+  - Bucket Hat of Knowing (always_visible on all items, equip/unequip/floor change)
+  - Widow's Needle (kill check, enemy toxicity conversion to temp HP)
+  - Crackhead's Lucky Pipe (40% proc with 6-entry random table)
+  - Saint's Crowbar (crate smash hook)
+  - Chain Whip (stance system, dynamic bounce chance)
+
+=============================================================================
+FILE CHANGES REQUIRED
+=============================================================================
+
+items.py:
+  - Add all 25 item entries to ITEM_DEFS (or near unique items section).
+
+effects.py:
+  - No new Effect subclasses required (all mechanics handled via engine/combat hooks).
+  - Exception: if "Crackhead Crucifix" dodge update is cleaner as a per-tick effect,
+    a CrucifixDodgeEffect could manage the temp dodge calculation.
+
+combat.py (handle_attack):
+  - Prophet's Shank: damage-absorb hook and charge-spend hook.
+  - Chrome Shorty: post-kill / post-hit check.
+  - Static Snap Baton: pre-damage crit check for 3+ Shocked stacks.
+  - Widow's Needle: kill check, toxicity-to-tempHP conversion.
+  - Ancestral Beater: power contribution in _compute_player_attack_power().
+  - Ring of Comeuppance: enemy-crit detection.
+  - Specter Creepers: outgoing_damage_mults decrement.
+  - Chain Whip: dynamic bounce chance from stance field.
+
+engine.py:
+  - Prophet's Shank: player takes damage → increment charges.
+  - Second Wind Ring: death check (same pattern as _straw_hat_death_save).
+  - Intimidation Ring proc location → also add Ring of Block proc and Specter Creepers proc.
+  - Counterfeit Ring: per-turn cash check.
+  - Dealers Chain: item pickup handler.
+  - Marathon Nikes: step counter in handle_move(), floor-descend cramp check.
+  - Gravity Boots: knockback immunity in monster attack handler.
+  - Fitted Cap: kill handler, HP-drop tracker.
+  - Seven Deadly Chains: on-equip stat mod, debuff-apply hook.
+  - Tinfoil Throne: in add_radiation() skill point proc.
+  - Bucket Hat: equip/unequip/floor handlers for always_visible.
+  - Welder's Mask: fire tile immunity, per-turn FOV fire check.
+  - Crackhead Crucifix: per-turn debuff count → dodge update.
+
+stats.py:
+  - Add `permanent_crit_bonus: float = 0.0` to PlayerStats (Fitted Cap).
+  - Update crit_chance property to include permanent_crit_bonus.
+
+=============================================================================
+RENDERING NOTES
+=============================================================================
+
+New graphical tiles needed:
+  - 0xE00F: shared by Prophet's Shank and Widow's Needle (both stabbing weapons).
+  - 0xE010: Ancestral Beater and Saint's Crowbar (beating weapons — blunt silhouette).
+  - Boots all reuse 0xE00B (existing boot tile).
+  - Rings reuse "o" ASCII (except Ring of the Block uses 0xE00A like Titan's Blood).
+  - Neck items reuse '"' (chain ASCII) or 0xE005 (rosary — Crackhead Crucifix is red recolor).
+
+Rendering patterns:
+  - name_gradient: 2-color fade (Prophet's Shank, Chrome Shorty, Ancestral Beater, etc.)
+  - name_alternating: alternating colors (Static Snap Baton, Counterfeit Ring, etc.)
+  - monocolor graphical tiles: white sprite tinted by entity.color field.
+
+=============================================================================
+END OF BATCH 4 DESIGN DOCUMENT
+=============================================================================

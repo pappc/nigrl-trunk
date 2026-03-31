@@ -28,26 +28,60 @@ from loot import generate_floor_loot
 # Crack Den
 # ===================================================================
 
+_CRACK_DEN_SHAPES = ["rect", "l", "u", "t", "hall", "oct", "cross", "diamond", "cavern", "pillar", "circle"]
+
+# Floor-based generation profiles: ramp from clean/simple (floor 0) to chaotic/complex (floor 3)
+_CRACK_DEN_FLOOR_PROFILES = {
+    #                max_rooms  wide_chance  dogleg_chance  dressing_chance  shape_weights
+    0: {"max_rooms": 18, "wide_chance": 0.00, "dogleg_chance": 0.05, "dressing_chance": 0.30,
+        "shape_weights": [8, 3, 3, 2, 5, 2, 1, 1, 1, 1, 1]},
+    1: {"max_rooms": 20, "wide_chance": 0.15, "dogleg_chance": 0.10, "dressing_chance": 0.40,
+        "shape_weights": [6, 4, 4, 3, 5, 3, 2, 2, 2, 2, 1]},
+    2: {"max_rooms": 22, "wide_chance": 0.20, "dogleg_chance": 0.15, "dressing_chance": 0.50,
+        "shape_weights": [5, 4, 4, 3, 4, 3, 3, 3, 3, 2, 2]},
+    3: {"max_rooms": 23, "wide_chance": 0.25, "dogleg_chance": 0.15, "dressing_chance": 0.60,
+        "shape_weights": [4, 5, 5, 4, 3, 4, 3, 3, 4, 3, 2]},
+}
+
+
 def generate_crack_den(dungeon):
     """Place rooms randomly, then connect them all with MST corridors + extra connections."""
-    from dungeon import build_mst, RectRoom, LRoom, URoom, TRoom, HallRoom, OctRoom, CrossRoom, DiamondRoom, CavernRoom, PillarRoom, CircleRoom
+    from dungeon import build_mst
 
+    profile = _CRACK_DEN_FLOOR_PROFILES.get(dungeon.floor_num, _CRACK_DEN_FLOOR_PROFILES[1])
+    max_rooms = profile["max_rooms"]
+
+    min_rooms = max(8, max_rooms * 2 // 3)  # floor for acceptable room count
     attempts = 0
-    max_attempts = MAX_ROOMS * 6
+    max_attempts = max_rooms * 15
 
-    while len(dungeon.rooms) < MAX_ROOMS and attempts < max_attempts:
+    while len(dungeon.rooms) < max_rooms and attempts < max_attempts:
         attempts += 1
-        room = _random_crack_den_room(dungeon)
+        room = _random_crack_den_room(dungeon, shape_weights=profile["shape_weights"])
         if room is None:
             continue
-        if any(room.intersects(other) for other in dungeon.rooms):
+        # After hitting min_rooms, use tighter padding to pack more rooms in
+        padding = 1 if len(dungeon.rooms) < min_rooms else 0
+        if any(room.intersects(other, padding=padding) for other in dungeon.rooms):
             continue
         room.carve(dungeon)
         dungeon.rooms.append(room)
 
-    # Carve MST corridors (guaranteed connectivity)
+    # Carve MST corridors (guaranteed connectivity) with corridor variety
+    wide_chance = profile["wide_chance"]
+    dogleg_chance = profile["dogleg_chance"]
+
+    def _carve_varied_corridor(pt_a, pt_b):
+        r = random.random()
+        if r < wide_chance:
+            dungeon._carve_wide_corridor(pt_a, pt_b, width=2)
+        elif r < wide_chance + dogleg_chance:
+            dungeon._carve_dogleg_corridor(pt_a, pt_b)
+        else:
+            dungeon.carve_corridor(pt_a, pt_b)
+
     for i, j in build_mst(dungeon.rooms):
-        dungeon.carve_corridor(dungeon.rooms[i].center(), dungeon.rooms[j].center())
+        _carve_varied_corridor(dungeon.rooms[i].center(), dungeon.rooms[j].center())
 
     # Add extra connections for more interconnected layout
     if len(dungeon.rooms) > 2:
@@ -55,20 +89,29 @@ def generate_crack_den(dungeon):
             i = random.randint(0, len(dungeon.rooms) - 1)
             j = random.randint(0, len(dungeon.rooms) - 1)
             if i != j:
-                dungeon.carve_corridor(dungeon.rooms[i].center(), dungeon.rooms[j].center())
+                _carve_varied_corridor(dungeon.rooms[i].center(), dungeon.rooms[j].center())
 
     # Build room tile map after all corridors are carved
     dungeon._build_room_tile_map()
 
+    # Dress rooms with interior wall features
+    _dress_crack_den_rooms(dungeon, profile["dressing_chance"])
 
-def _random_crack_den_room(dungeon):
+    # Sprout closet/alcove rooms off existing rooms
+    _sprout_closets(dungeon)
+
+    # Rebuild room tile map (closets added new rooms)
+    dungeon._build_room_tile_map()
+
+
+def _random_crack_den_room(dungeon, shape_weights=None):
     """Pick a random room shape and position for crack den."""
     from dungeon import RectRoom, LRoom, URoom, TRoom, HallRoom, OctRoom, CrossRoom, DiamondRoom, CavernRoom, PillarRoom, CircleRoom
 
-    shape = random.choices(
-        ["rect", "l", "u", "t", "hall", "oct", "cross", "diamond", "cavern", "pillar", "circle"],
-        weights=[  6,   4,   4,   3,      5,      3,       2,          2,          2,       2,        1],
-    )[0]
+    if shape_weights is None:
+        shape_weights = [6, 4, 4, 3, 5, 3, 2, 2, 2, 2, 1]
+
+    shape = random.choices(_CRACK_DEN_SHAPES, weights=shape_weights)[0]
 
     lo = ROOM_MIN_SIZE
     hi = ROOM_MAX_SIZE
@@ -152,6 +195,203 @@ def _random_crack_den_room(dungeon):
         return CircleRoom(cx, cy, radius)
 
 
+def _safe_to_wall(dungeon, x, y):
+    """Check if converting (x, y) to wall keeps all orthogonal neighbors connected.
+    Returns True only if the tile has 3+ orthogonal floor neighbors after the change."""
+    if dungeon.tiles[y][x] != TILE_FLOOR:
+        return False
+    floor_neighbors = 0
+    for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < dungeon.width and 0 <= ny < dungeon.height:
+            if dungeon.tiles[ny][nx] == TILE_FLOOR:
+                floor_neighbors += 1
+    return floor_neighbors >= 3
+
+
+def _dress_crack_den_rooms(dungeon, dressing_chance):
+    """Add interior wall features to Crack Den rooms for visual and tactical variety."""
+    for room_idx, room in enumerate(dungeon.rooms):
+        if room_idx == 0:
+            continue  # skip spawn room
+        floor_tiles = room.floor_tiles(dungeon)
+        if len(floor_tiles) < 25:
+            continue
+        if random.random() > dressing_chance:
+            continue
+
+        rw = room.x2 - room.x1
+        rh = room.y2 - room.y1
+
+        dressing_type = random.choices(
+            ["debris", "barricade", "columns", "center_pillar"],
+            weights=[5, 4, 3, 2],
+        )[0]
+
+        if dressing_type == "debris":
+            # 2-4 scattered wall tiles in the room interior
+            n_debris = random.randint(2, 4)
+            interior = [
+                (x, y) for x, y in floor_tiles
+                if room.x1 + 2 <= x <= room.x2 - 2 and room.y1 + 2 <= y <= room.y2 - 2
+            ]
+            random.shuffle(interior)
+            placed = 0
+            for x, y in interior:
+                if placed >= n_debris:
+                    break
+                if _safe_to_wall(dungeon, x, y):
+                    dungeon.tiles[y][x] = TILE_WALL
+                    placed += 1
+
+        elif dressing_type == "barricade":
+            # L-shaped wall formation near one corner, 2 tiles in from walls
+            corners = [
+                (room.x1 + 2, room.y1 + 2, [(1, 0), (0, 1)]),   # top-left
+                (room.x2 - 2, room.y1 + 2, [(-1, 0), (0, 1)]),  # top-right
+                (room.x1 + 2, room.y2 - 2, [(1, 0), (0, -1)]),  # bottom-left
+                (room.x2 - 2, room.y2 - 2, [(-1, 0), (0, -1)]), # bottom-right
+            ]
+            if rw >= 6 and rh >= 6:
+                cx, cy, offsets = random.choice(corners)
+                if _safe_to_wall(dungeon, cx, cy):
+                    dungeon.tiles[cy][cx] = TILE_WALL
+                for odx, ody in offsets:
+                    nx, ny = cx + odx, cy + ody
+                    if 0 <= nx < dungeon.width and 0 <= ny < dungeon.height:
+                        if _safe_to_wall(dungeon, nx, ny):
+                            dungeon.tiles[ny][nx] = TILE_WALL
+
+        elif dressing_type == "columns":
+            # 2-3 wall tiles along one wall, 1 tile out, evenly spaced
+            if rw >= 8 and rh >= 6:
+                side = random.choice(["top", "bottom", "left", "right"])
+                n_cols = random.randint(2, 3)
+                if side == "top":
+                    step = max(1, (rw - 4) // (n_cols + 1))
+                    for i in range(1, n_cols + 1):
+                        px = room.x1 + 2 + i * step
+                        py = room.y1 + 1
+                        if room.x1 < px < room.x2 and _safe_to_wall(dungeon, px, py):
+                            dungeon.tiles[py][px] = TILE_WALL
+                elif side == "bottom":
+                    step = max(1, (rw - 4) // (n_cols + 1))
+                    for i in range(1, n_cols + 1):
+                        px = room.x1 + 2 + i * step
+                        py = room.y2 - 1
+                        if room.x1 < px < room.x2 and _safe_to_wall(dungeon, px, py):
+                            dungeon.tiles[py][px] = TILE_WALL
+                elif side == "left":
+                    step = max(1, (rh - 4) // (n_cols + 1))
+                    for i in range(1, n_cols + 1):
+                        px = room.x1 + 1
+                        py = room.y1 + 2 + i * step
+                        if room.y1 < py < room.y2 and _safe_to_wall(dungeon, px, py):
+                            dungeon.tiles[py][px] = TILE_WALL
+                else:  # right
+                    step = max(1, (rh - 4) // (n_cols + 1))
+                    for i in range(1, n_cols + 1):
+                        px = room.x2 - 1
+                        py = room.y1 + 2 + i * step
+                        if room.y1 < py < room.y2 and _safe_to_wall(dungeon, px, py):
+                            dungeon.tiles[py][px] = TILE_WALL
+
+        elif dressing_type == "center_pillar":
+            # 1-2 wall tiles near the room center
+            cx, cy = room.center()
+            if _safe_to_wall(dungeon, cx, cy):
+                dungeon.tiles[cy][cx] = TILE_WALL
+            if random.random() < 0.5:
+                # Add a second pillar adjacent
+                odx, ody = random.choice([(1, 0), (-1, 0), (0, 1), (0, -1)])
+                nx, ny = cx + odx, cy + ody
+                if 0 <= nx < dungeon.width and 0 <= ny < dungeon.height:
+                    if _safe_to_wall(dungeon, nx, ny):
+                        dungeon.tiles[ny][nx] = TILE_WALL
+
+
+def _sprout_closets(dungeon):
+    """Bud small 3x3 or 4x3 closet rooms off existing room walls."""
+    from dungeon import RectRoom
+
+    floor_num = getattr(dungeon, "floor_num", 0)
+    # Closet count scales with floor
+    closet_targets = {0: (0, 1), 1: (1, 2), 2: (2, 3), 3: (2, 4)}
+    lo, hi = closet_targets.get(floor_num, (1, 2))
+    target = random.randint(lo, hi)
+    if target <= 0:
+        return
+
+    placed = 0
+    candidate_rooms = [i for i in range(1, len(dungeon.rooms))]
+
+    for _ in range(target * 10):  # max attempts
+        if placed >= target or not candidate_rooms:
+            break
+
+        room_idx = random.choice(candidate_rooms)
+        room = dungeon.rooms[room_idx]
+        rw = room.x2 - room.x1
+        rh = room.y2 - room.y1
+        if rw < 5 or rh < 5:
+            continue
+
+        side = random.choice(["north", "south", "east", "west"])
+        closet_w = random.randint(3, 4)
+        closet_h = random.randint(3, 4)
+
+        if side == "north":
+            # Attach above the room
+            cx = random.randint(room.x1 + 1, max(room.x1 + 1, room.x2 - closet_w))
+            cy = room.y1 - closet_h
+            door_x = cx + closet_w // 2
+            door_y = room.y1
+        elif side == "south":
+            cx = random.randint(room.x1 + 1, max(room.x1 + 1, room.x2 - closet_w))
+            cy = room.y2
+            door_x = cx + closet_w // 2
+            door_y = room.y2 - 1
+        elif side == "west":
+            cx = room.x1 - closet_w
+            cy = random.randint(room.y1 + 1, max(room.y1 + 1, room.y2 - closet_h))
+            door_x = room.x1
+            door_y = cy + closet_h // 2
+        else:  # east
+            cx = room.x2
+            cy = random.randint(room.y1 + 1, max(room.y1 + 1, room.y2 - closet_h))
+            door_x = room.x2 - 1
+            door_y = cy + closet_h // 2
+
+        # Bounds check
+        if cx < 1 or cy < 1 or cx + closet_w >= dungeon.width - 1 or cy + closet_h >= dungeon.height - 1:
+            continue
+
+        # Check that the closet area is all wall (uncarved space)
+        all_wall = True
+        for ty in range(cy, cy + closet_h):
+            for tx in range(cx, cx + closet_w):
+                if dungeon.tiles[ty][tx] != TILE_WALL:
+                    all_wall = False
+                    break
+            if not all_wall:
+                break
+        if not all_wall:
+            continue
+
+        # Check overlap with existing rooms
+        closet_room = RectRoom(cx, cy, closet_w, closet_h)
+        if any(closet_room.intersects(other) for other in dungeon.rooms):
+            continue
+
+        # Carve the closet and its doorway
+        closet_room.carve(dungeon)
+        if 0 <= door_x < dungeon.width and 0 <= door_y < dungeon.height:
+            dungeon.tiles[door_y][door_x] = TILE_FLOOR
+
+        dungeon.rooms.append(closet_room)
+        placed += 1
+
+
 def _spawn_sublevel_stairs(dungeon, sublevel_key: str):
     """Spawn purple stairs leading to a sublevel. Avoids existing stair tiles."""
     stair_positions = frozenset(
@@ -181,42 +421,50 @@ def _spawn_sublevel_stairs(dungeon, sublevel_key: str):
             return
 
 
+# Per-floor monster target bands (min, max) for Crack Den
+_MONSTER_TARGET = {0: (15, 22), 1: (18, 26), 2: (20, 30), 3: (22, 32)}
+
+
 def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned, floor_event=None):
     """Spawn monsters, items, and cash for the Crack Den zone."""
     dungeon.zone = zone
     dungeon.entities.append(player)
 
     is_zombie_floor = (floor_event == "stench_of_death")
+    monster_min, monster_max = _MONSTER_TARGET.get(floor_num, (18, 26))
+    if is_zombie_floor:
+        monster_min = int(monster_min * 1.5)
+        monster_max = int(monster_max * 1.5)
+    floor_monster_count = 0
 
     # Roll for special rooms and claim rooms before normal spawning
     special_room_indices = set()
     if special_rooms_spawned is not None:
         special_room_indices = _roll_special_rooms(dungeon, floor_num, zone, special_rooms_spawned)
 
+    zone_table = get_spawn_table(zone, floor_num)
+    if not zone_table:
+        zone_table = []
+    enemy_types   = [t[0] for t in zone_table]
+    enemy_weights = [t[1] for t in zone_table]
+
     for room_idx, room in enumerate(dungeon.rooms[1:], start=1):
         if room_idx in special_room_indices:
             continue  # special rooms handle their own spawns
+        if floor_monster_count >= monster_max:
+            break  # hit ceiling, stop spawning
 
         floor_tiles = room.floor_tiles(dungeon)
         if not floor_tiles:
             continue
 
-        # Zone-based monster spawning (per-floor weighted tables)
-        zone_table = get_spawn_table(zone, floor_num)
         if zone_table:
-            enemy_types   = [t[0] for t in zone_table]
-            enemy_weights = [t[1] for t in zone_table]
-
             room_tile_set = frozenset(floor_tiles)
 
             # Dynamic monster count: size-scaling + floor bonus + populated/empty gate
             size_max = max(1, len(floor_tiles) // 10)
             floor_bonus = floor_num // 2
             room_max = size_max + floor_bonus
-
-            # Stench of Death: +50% mob count
-            if is_zombie_floor:
-                room_max = max(room_max, int(room_max * 1.5))
 
             # 65% populated, 35% empty
             if random.random() < 0.65:
@@ -226,9 +474,23 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
             else:
                 n_groups = 0
 
+            # Clamp so we don't overshoot the floor ceiling
+            n_groups = min(n_groups, monster_max - floor_monster_count)
+
+            dealers_in_room = 0
+            # Soft cap on dealers per room: 1 on floor 0, 2 on later floors
+            max_dealers = 1 if floor_num == 0 else 2
+
             for _ in range(n_groups):
+                if floor_monster_count >= monster_max:
+                    break
+
                 enemy_type = random.choices(enemy_types, weights=enemy_weights, k=1)[0]
                 tmpl = MONSTER_REGISTRY[enemy_type]
+
+                # Enforce dealer cap per room
+                if enemy_type == "drug_dealer" and dealers_in_room >= max_dealers:
+                    continue
 
                 free = [(tx, ty) for tx, ty in floor_tiles if not dungeon.is_blocked(tx, ty)]
                 if not free:
@@ -237,12 +499,18 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
                 monster = create_enemy(enemy_type, x, y)
                 monster.spawn_room_tiles = room_tile_set
                 dungeon.entities.append(monster)
+                floor_monster_count += 1
+
+                if enemy_type == "drug_dealer":
+                    dealers_in_room += 1
 
                 # Spawn escorts defined in the template
                 for escort_spec in tmpl.spawn_with:
                     escort_type  = escort_spec.type
                     escort_count = random.randint(*escort_spec.count)
                     for _ in range(escort_count):
+                        if floor_monster_count >= monster_max:
+                            break
                         nearby_free = [
                             (nx, ny) for nx, ny in floor_tiles
                             if abs(nx - x) <= 4 and abs(ny - y) <= 4
@@ -256,6 +524,28 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
                             escort.ai_type = "escort"
                             escort.ai_state = None
                             dungeon.entities.append(escort)
+                            floor_monster_count += 1
+
+    # ── Top-up: if below monster_min, spawn extras in random rooms ────
+    if zone_table and floor_monster_count < monster_min:
+        spawnable = [
+            (i, r) for i, r in enumerate(dungeon.rooms[1:], start=1)
+            if i not in special_room_indices
+        ]
+        random.shuffle(spawnable)
+        for room_idx, room in spawnable:
+            if floor_monster_count >= monster_min:
+                break
+            floor_tiles = room.floor_tiles(dungeon)
+            free = [(tx, ty) for tx, ty in floor_tiles if not dungeon.is_blocked(tx, ty)]
+            if not free:
+                continue
+            x, y = random.choice(free)
+            enemy_type = random.choices(enemy_types, weights=enemy_weights, k=1)[0]
+            monster = create_enemy(enemy_type, x, y)
+            monster.spawn_room_tiles = frozenset(floor_tiles)
+            dungeon.entities.append(monster)
+            floor_monster_count += 1
 
     # ── Stench of Death: guaranteed zombie injection ─────────────────
     if is_zombie_floor:
@@ -276,7 +566,7 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
             dungeon.entities.append(zombie)
             zombies_placed += 1
 
-    # ── Hallway spawning (zone-specific) ──────────────────────────────
+    # ── Hallway spawning (zone-specific, respects floor ceiling) ────
     hallway_table = get_hallway_spawn_table(zone, floor_num)
     if hallway_table:
         hallway_tiles = dungeon.get_hallway_tiles()
@@ -285,8 +575,11 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
             h_weights = [t[1] for t in hallway_table]
 
             n_hallway_monsters = max(1, min(8, len(hallway_tiles) // 15))
+            n_hallway_monsters = min(n_hallway_monsters, monster_max - floor_monster_count)
 
             for _ in range(n_hallway_monsters):
+                if floor_monster_count >= monster_max:
+                    break
                 free = [(hx, hy) for hx, hy in hallway_tiles
                         if not dungeon.is_blocked(hx, hy)]
                 if not free:
@@ -295,6 +588,7 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
                 h_enemy_type = random.choices(h_types, weights=h_weights, k=1)[0]
                 h_monster = create_enemy(h_enemy_type, hx, hy)
                 dungeon.entities.append(h_monster)
+                floor_monster_count += 1
 
     # Spawn staircase
     dungeon._spawn_staircase_for_zone(zone, floor_num)
@@ -351,6 +645,33 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
                 ))
                 cash_total += 1
 
+    # ── Vending Machine: one per floor in a random non-special room ──────
+    from hazards import create_vending_machine
+    from loot import pick_random_consumable
+    non_special_rooms = [
+        (i, r) for i, r in enumerate(dungeon.rooms[1:], start=1)
+        if i not in special_room_indices
+    ]
+    if non_special_rooms:
+        vm_idx, vm_room = random.choice(non_special_rooms)
+        vm_tiles = vm_room.floor_tiles(dungeon)
+        vm_free = [(x, y) for x, y in vm_tiles
+                   if not dungeon.is_blocked(x, y) and (x, y) not in stair_tiles]
+        if vm_free:
+            vx, vy = random.choice(vm_free)
+            n_stock = random.randint(5, 10)
+            _vm_exclude = {"weed_nug", "kush"}
+            stock = []
+            attempts = 0
+            while len(stock) < n_stock and attempts < n_stock * 3:
+                item_id, strain = pick_random_consumable(zone, player_stats)
+                attempts += 1
+                if item_id in _vm_exclude:
+                    continue
+                stock.append((item_id, strain))
+            vm = create_vending_machine(vx, vy, stock=stock)
+            dungeon.entities.append(vm)
+
 # Trap Kitchen bonus: scatter 3 pre-greased foods across non-special rooms
     if getattr(dungeon, "_trap_kitchen_bonus_food", False):
         from loot import ZONE_FOOD_TABLES, _weighted_pick
@@ -394,6 +715,7 @@ SPECIAL_ROOM_DEFS = [
     ("smoke_lounge", {1, 2, 3}, 0.10),
     ("dive_bar",     {1, 2, 3}, 0.10),
     ("trap_kitchen", {1, 2, 3}, 0.10),
+    ("stash_house",  {0, 1, 2, 3}, 0.20),
     ("jerome_room",  {3},       1.00),
 ]
 
@@ -435,6 +757,8 @@ def _roll_special_rooms(dungeon, floor_num, zone, special_rooms_spawned):
             _spawn_dive_bar(dungeon, room, floor_tiles, zone)
         elif room_key == "trap_kitchen":
             _spawn_trap_kitchen(dungeon, room, floor_tiles, zone)
+        elif room_key == "stash_house":
+            _spawn_stash_house(dungeon, room, floor_tiles, zone, floor_num)
         elif room_key == "jerome_room":
             _spawn_jerome_room(dungeon, room, floor_tiles)
 
@@ -502,17 +826,14 @@ def _spawn_smoke_lounge(dungeon, room, floor_tiles, zone):
         stripper.ai_state = None
         dungeon.entities.append(stripper)
 
-    # Guaranteed loot: heavy weed payout
+    # Guaranteed loot: grinder + pack of cones + 7-8 random weed items
     loot_list = []
     loot_list.append(("grinder", None))
-    for _ in range(random.randint(4, 5)):
-        loot_list.append(("kush", random.choice(STRAINS)))
-    for _ in range(3):
-        loot_list.append(("joint", random.choice(STRAINS)))
-    for _ in range(random.randint(2, 3)):
-        loot_list.append(("pack_of_cones", None))
-    for _ in range(2):
-        loot_list.append(("weed_nug", random.choice(STRAINS)))
+    loot_list.append(("pack_of_cones", None))
+    weed_pool = ["kush", "joint", "weed_nug"]
+    for _ in range(random.randint(7, 8)):
+        weed_id = random.choice(weed_pool)
+        loot_list.append((weed_id, random.choice(STRAINS)))
 
     for item_id, strain in loot_list:
         free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
@@ -525,8 +846,8 @@ def _spawn_smoke_lounge(dungeon, room, floor_tiles, zone):
 
 def _spawn_dive_bar(dungeon, room, floor_tiles, zone):
     """The Dive Bar — 5 thugs + 1 proximity_alarm ugly stripper.
-    Guaranteed full set of 6 alcohol drinks."""
-    from loot import DRINKS_SUBTABLE
+    5-7 random alcohol drinks."""
+    from loot import DRINKS_SUBTABLE, _weighted_pick
     room_tile_set = frozenset(floor_tiles)
 
     # 5 Thugs
@@ -548,13 +869,14 @@ def _spawn_dive_bar(dungeon, room, floor_tiles, zone):
         stripper.ai_state = None
         dungeon.entities.append(stripper)
 
-    # Guaranteed loot: 1 of each alcohol drink
-    drink_ids = [drink_id for drink_id, _ in DRINKS_SUBTABLE]
-    for drink_id in drink_ids:
+    # 7-8 random drinks from the weighted table
+    n_drinks = random.randint(7, 8)
+    for _ in range(n_drinks):
         free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
         if not free:
             break
         x, y = random.choice(free)
+        drink_id = _weighted_pick(DRINKS_SUBTABLE, None, use_skill_weighting=False)
         kwargs = create_item_entity(drink_id, x, y)
         dungeon.entities.append(Entity(**kwargs))
 
@@ -604,6 +926,53 @@ def _spawn_trap_kitchen(dungeon, room, floor_tiles, zone):
     dungeon._trap_kitchen_bonus_food = True
 
 
+def _spawn_stash_house(dungeon, room, floor_tiles, zone, floor_num):
+    """The Stash House — cramped room packed with 8-10 enemies guarding a random
+    unique item from Unique Table A. High risk, high reward."""
+    from items import UNIQUE_TABLE_A, create_item_entity
+    room_tile_set = frozenset(floor_tiles)
+
+    # 8-10 enemies from the floor's spawn table
+    zone_table = get_spawn_table(zone, floor_num)
+    if zone_table:
+        enemy_types   = [t[0] for t in zone_table]
+        enemy_weights = [t[1] for t in zone_table]
+        n_enemies = random.randint(8, 10)
+        for _ in range(n_enemies):
+            free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
+            if not free:
+                break
+            x, y = random.choice(free)
+            enemy_type = random.choices(enemy_types, weights=enemy_weights, k=1)[0]
+            monster = create_enemy(enemy_type, x, y)
+            monster.spawn_room_tiles = room_tile_set
+            dungeon.entities.append(monster)
+
+    # One random unique item from Table A — placed at the far end from the entrance
+    if UNIQUE_TABLE_A:
+        item_id = random.choice(UNIQUE_TABLE_A)
+        # Find entrance: room floor tile adjacent to a corridor (non-room floor tile)
+        entrance = None
+        for tx, ty in floor_tiles:
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nx, ny = tx + dx, ty + dy
+                if (nx, ny) not in room_tile_set and 0 <= nx < dungeon.width and 0 <= ny < dungeon.height:
+                    if dungeon.tiles[ny][nx] == TILE_FLOOR:
+                        entrance = (tx, ty)
+                        break
+            if entrance:
+                break
+        # Place item at tile farthest from entrance
+        free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
+        if free:
+            if entrance:
+                ex, ey = entrance
+                free.sort(key=lambda t: -(abs(t[0] - ex) + abs(t[1] - ey)))
+            x, y = free[0]
+            kwargs = create_item_entity(item_id, x, y)
+            dungeon.entities.append(Entity(**kwargs))
+
+
 def _spawn_jerome_room(dungeon, room, floor_tiles):
     """Spawn Jerome's guarded chamber on floor 4."""
     room_tile_set = frozenset(floor_tiles)
@@ -639,8 +1008,10 @@ def _spawn_jerome_room(dungeon, room, floor_tiles):
         room_bot   = door_y + 2
         back_room_tiles = []
 
-        # Wall off the border around the back room so adjacent rooms/corridors
-        # can't breach in.  Skip the door tile itself (door_x, door_y).
+        # Wall off the border around the back room — FORCE overwrite any
+        # existing floor tiles (corridors).  The MST guarantees all rooms
+        # are reachable via other paths, so sealing a stray corridor here
+        # cannot disconnect the map.  Skip only the door tile itself.
         for ry in range(room_top - 1, room_bot + 2):
             for rx in range(room_left - 1, room_right + 2):
                 if rx == door_x and ry == door_y:
@@ -1058,39 +1429,62 @@ def _spawn_hallway_falcons(dungeon, floor_num):
 # ===================================================================
 
 def generate_penthouse(dungeon):
-    """Build a static 10x10 room for Tyrone's Penthouse.
+    """Build the fixed Tyrone's Penthouse layout.
 
-    - Single room, centered in the map
-    - No monsters, no loot
+    39 wide x 14 tall room centered on the map with:
+    - Counter nook built into north wall (box-drawing chars)
+    - Small alcove at bottom-right for exit stairs
+    - Large open floor area
     """
     from dungeon import RectRoom
 
-    rx = (dungeon.width - 10) // 2
-    ry = (dungeon.height - 10) // 2
-    room = RectRoom(rx, ry, 10, 10)
+    # --- room dimensions & origin ---
+    rw, rh = 39, 14
+    ox = (dungeon.width - rw) // 2
+    oy = (dungeon.height - rh) // 2
+
+    # Carve main room (interior: rows 1-12, cols 1-37)
+    room = RectRoom(ox, oy, rw, rh)
     room.carve(dungeon)
     dungeon.rooms.append(room)
+
+    # --- Carve alcove at bottom-right ---
+    # Alcove interior: 5 wide x 3 tall, opening on the left side
+    ax, ay = ox + 33, oy + 9   # alcove top-left (wall)
+    aw, ah = 5, 3              # alcove interior size
+    # Wall off the alcove top + right + bottom (already outer wall for right/bottom)
+    # Top wall of alcove
+    for x in range(ax, ax + aw + 1):
+        if 0 <= x < dungeon.width and 0 <= ay < dungeon.height:
+            dungeon.tiles[ay][x] = TILE_WALL
+    # Left wall of alcove (with opening at middle row for access)
+    for y in range(ay, ay + ah + 2):
+        if y == ay + 2:
+            continue  # leave opening for player to walk in
+        if 0 <= ax < dungeon.width and 0 <= y < dungeon.height:
+            dungeon.tiles[y][ax] = TILE_WALL
+
     dungeon._build_room_tile_map()
 
 
 def spawn_penthouse(dungeon, player, floor_num, zone, player_skills, player_stats, special_rooms_spawned, floor_event=None):
-    """Place player and stairs in the penthouse."""
+    """Populate Tyrone's Penthouse: player, stairs, Tyrone NPC, counter, shop items."""
+    from items import UNIQUE_TABLE_A, ITEM_DEFS, get_item_value, get_item_def
+
     dungeon.zone = zone
 
-    # Place player at room center
-    cx, cy = dungeon.rooms[0].center()
-    player.x = cx
-    player.y = cy
+    rw, rh = 39, 14
+    ox = (dungeon.width - rw) // 2
+    oy = (dungeon.height - rh) // 2
+
+    # --- Place player near entrance (row 4, a few tiles in from left) ---
+    player.x = ox + 3
+    player.y = oy + 4
     dungeon.entities.append(player)
 
-    # Stairs down at far end of the room
-    rx = (dungeon.width - 10) // 2
-    sx, sy = cx, rx + 8  # match original: ry + 8 where ry = (height-10)//2
-    # Recalculate properly
-    ry = (dungeon.height - 10) // 2
-    sx, sy = cx, ry + 8
+    # --- Exit staircase (to Meth Lab) — bottom-right alcove ---
     dungeon.entities.append(Entity(
-        x=sx, y=sy,
+        x=ox + 35, y=oy + 11,
         char=">",
         color=(255, 220, 80),
         name="Stairs Down",
@@ -1098,6 +1492,112 @@ def spawn_penthouse(dungeon, player, floor_num, zone, player_skills, player_stat
         blocks_movement=False,
         reveals_on_sight=True,
     ))
+
+    # --- Counter (box-drawing characters as blocking entities) ---
+    # The counter is a U-shape that connects to the north wall.
+    # Vertical sides run from row 1 (just inside north wall) down to row 3.
+    # Horizontal front spans row 3 between the two sides.
+    counter_color = (180, 140, 100)  # warm wood brown
+
+    # Vertical sides: ║ at x=8 and x=26, rows 1-2 (connecting wall to counter front)
+    for x in [ox + 8, ox + 26]:
+        for y in range(oy + 1, oy + 3):
+            dungeon.entities.append(Entity(
+                x=x, y=y,
+                char="║",
+                color=counter_color,
+                name="Counter",
+                entity_type="hazard",
+                hazard_type="counter",
+                blocks_movement=True,
+                blocks_fov=False,
+            ))
+
+    # Bottom corners where sides meet the front
+    corners = [
+        (ox + 8, oy + 3, "╚"),   # bottom-left
+        (ox + 26, oy + 3, "╝"),  # bottom-right
+    ]
+    for cx, cy, ch in corners:
+        dungeon.entities.append(Entity(
+            x=cx, y=cy,
+            char=ch,
+            color=counter_color,
+            name="Counter",
+            entity_type="hazard",
+            hazard_type="counter",
+            blocks_movement=True,
+            blocks_fov=False,
+        ))
+
+    # Front edge (row 3): ═ between items
+    # 8 items: 5 uniques + 2 hats + 1 gun, spaced 2 apart
+    item_xs = [ox + 9, ox + 11, ox + 13, ox + 15, ox + 17,
+               ox + 19, ox + 21, ox + 23]
+    for x in range(ox + 9, ox + 26):
+        if x not in item_xs:
+            dungeon.entities.append(Entity(
+                x=x, y=oy + 3,
+                char="═",
+                color=counter_color,
+                name="Counter",
+                entity_type="hazard",
+                hazard_type="counter",
+                blocks_movement=True,
+                blocks_fov=False,
+            ))
+
+    # --- Tyrone NPC (behind counter, row 2, centered) ---
+    # Non-hostile NPC with npc_wander AI. Slowly roams behind the counter.
+    tyrone = Entity(
+        x=ox + 17, y=oy + 2,
+        char="T",
+        color=(255, 215, 0),  # gold
+        name="Tyrone",
+        entity_type="npc",
+        blocks_movement=True,
+        blocks_fov=False,
+    )
+    tyrone.ai_type = "npc_wander"
+    tyrone.speed = 30               # slow wanderer
+    tyrone.energy = 0
+    tyrone.alive = True
+    tyrone.hp = 9999
+    tyrone.max_hp = 9999
+    tyrone.status_effects = []
+    tyrone.wander_idle_chance = 0.8  # mostly stands still
+    dungeon.entities.append(tyrone)
+
+    # --- Shop items (8 total on counter edge, row 3) ---
+    # 5 seeded-random uniques (2x value)
+    shop_entries = []  # list of (item_id, price)
+    for uid in random.sample(UNIQUE_TABLE_A, 5):
+        shop_entries.append((uid, get_item_value(uid) * 2))
+
+    # 2 suffix-less tinfoil hats (fixed prices)
+    shop_entries.append(("hat_tinfoil_hat_ripped_plain", 100))
+    shop_entries.append(("hat_tinfoil_hat_excellent_plain", 300))
+
+    # 1 random gun (1.5x value)
+    all_guns = [k for k, v in ITEM_DEFS.items() if v.get("subcategory") == "gun"]
+    gun_id = random.choice(all_guns)
+    shop_entries.append((gun_id, round(get_item_value(gun_id) * 1.5)))
+
+    for i, (item_id, price) in enumerate(shop_entries):
+        defn = get_item_def(item_id) or {}
+        item_entity = Entity(
+            x=item_xs[i], y=oy + 3,
+            char=defn.get("char", "?"),
+            color=defn.get("color", (255, 255, 255)),
+            name=defn.get("name", item_id),
+            entity_type="hazard",
+            hazard_type="shop_item",
+            blocks_movement=True,
+            blocks_fov=False,
+        )
+        item_entity.item_id = item_id
+        item_entity.shop_price = price
+        dungeon.entities.append(item_entity)
 
 
 # ===================================================================

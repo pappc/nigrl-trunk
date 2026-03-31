@@ -1,0 +1,1260 @@
+SPRAY PAINT DESIGNS V4 — 10 NEW COLORS
+=======================================
+NIGRL roguelike | Design document
+Date: 2026-03-30
+
+Purpose: Add 10 completely new spray paint colors to the roster,
+bringing the total to 25. Each design is mechanically distinct from
+all prior paints and targets an underserved playstyle niche.
+
+FULL EXISTING ROSTER (must not overlap):
+  Red       — enemy on tile: +25% damage taken
+  Blue      — player: +5 STS; 25% ability charge preserve
+  Green     — player: +4 Defense
+  Orange    — all entities: 5+2*Graffiti dmg/turn
+  Silver    — entity entry: slip (turn skip + 50% melee vuln)
+  Gold      — kill on tile: +$5 cash
+  Teal      — player: +20% skill XP
+  Lime      — enemy: tox/turn; player: minor tox
+  Grey      — enemy: -(1+Graffiti) outgoing damage
+  Rad       — enemy: rad/turn; player: rad/turn (Meth Lab)
+  Crimson   — player melee: 20% lifesteal
+  Copper    — player: +30 energy/tick; enemy: -20 energy/tick
+  Cobalt    — player: +4 spell damage; 50% charge refund
+  Violet    — player: +(3+Graf) melee dmg; enemies deal +3 back
+  Rust      — enemy: accumulate -1 def/turn (max -10, floor-permanent)
+
+DESIGN GOALS FOR V4:
+  - Gun-build tile (none exist yet)
+  - Dodge/evasion tile (none exist yet)
+  - Temp HP generation tile (none exist yet)
+  - Fear/flee control tile (none exist yet)
+  - CON/HP-threshold scaling tile
+  - On-kill effect beyond cash (different from Gold)
+  - Swagger/defense scaling interaction
+  - Adjacent tile manipulation
+  - Tolerance/TOL scaling
+  - Meth Lab Meth resource interaction
+
+============================
+PAINT 16 — MIDNIGHT (DARK BLUE-BLACK)
+============================
+Item ID:    midnight_spray_paint
+Name:       Midnight Spray Paint
+RGB:        (25, 20, 90)
+Render bg (visible):   (12, 10, 48)
+Render bg (explored):  (6, 5, 24)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 40
+
+Effect:
+  Player on tile — gains a flat +15% dodge chance bonus while
+  standing here (added directly to player_stats.dodge_chance).
+  Works against ALL incoming melee and ranged attacks that go through
+  the standard hit-vs-dodge roll.
+  Enemy on tile — no effect.
+
+Design rationale:
+  No existing paint touches the dodge system. Midnight fills the
+  "evasion build" niche: a high-STS or Stealing-tree player who
+  already has 15-25% dodge from other sources can push their evasion
+  well past 30% while standing on Midnight. For builds without existing
+  dodge sources the tile still offers meaningful protection (15% is
+  roughly 1-in-7 hits avoided). Unlike Green (+4 flat defense that
+  reduces all damage), Midnight is probabilistic — you might dodge
+  three in a row or eat five consecutive hits. Variance is the
+  tactical tension.
+
+  Midnight is the darkest tile on the map, making it visually
+  identifiable as a "shadow" to retreat to under fire. The flavor
+  fits the street setting: painting your corner dark helps you
+  disappear.
+
+Scale with Graffiti:
+  dodge_bonus = 10 + 5*Graffiti_Lvl percent.
+  L0: +10%; L1: +15%; L2: +20%; L3: +25%.
+  Cap effective total dodge at 60% (if player_stats.dodge_chance
+  would exceed 60% after all bonuses, clamp to 60).
+
+Synergies:
+  Blue + Midnight: Blue gives +5 STS (boosting whatever STS-based
+  dodge sources exist). Midnight adds flat dodge on top. Blue on
+  the approach tile, Midnight on the fighting tile maximizes evasion
+  during combat.
+  Copper + Midnight (sequential tiles): Copper grants energy tempo;
+  Midnight grants evasion. A speed-evasion build that moves between
+  the two tiles after each action frustrates enemies that rely on
+  melee trading.
+  Stealing skill tree: passive dodge bonuses from Stealing perks
+  stack with Midnight, potentially pushing dodge over 50% total.
+  If the Stealing perk "Slippery Fingers" or similar grants dodge,
+  standing on Midnight can push it to 45-55%.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile midnight."
+  "Player on tile: +(10+5*Graffiti)%"
+  "dodge chance."
+  "Total dodge capped at 60%."
+
+Implementation notes:
+  In _update_tile_stat_bonuses (engine.py):
+    elif spray == "midnight":
+        graffiti_lvl = self.skills.get("Graffiti").level
+        bonus = 0.10 + 0.05 * graffiti_lvl
+        self.player_stats.dodge_chance = min(
+            0.60, self.player_stats.dodge_chance + bonus
+        )
+  IMPORTANT: tile bonus must be reset (same as tile_defense_bonus) when
+  the player steps off. On step-off:
+    self.player_stats.dodge_chance -= bonus  # then clamp at 0
+  Because player_stats.dodge_chance is built from permanent + ring
+  + tile bonuses in layers, it is safer to store the tile dodge bonus
+  as a new field: tile_dodge_bonus: float = 0.0
+  In _update_tile_stat_bonuses:
+    elif spray == "midnight":
+        self.player_stats.tile_dodge_bonus = 0.10 + 0.05 * graffiti_lvl
+  Then wherever dodge_chance is read (the hit-vs-dodge check in
+  combat.py), use:
+    effective_dodge = player_stats.dodge_chance + player_stats.tile_dodge_bonus
+  New PlayerStats field: tile_dodge_bonus: float = 0.0
+  No new Effect class needed.
+
+Balance notes:
+  +15% dodge at L1 is the rough equivalent of +3-4 Defense against a
+  uniform damage stream (depends on hit frequency). Green gives a
+  guaranteed damage reduction; Midnight gives probabilistic protection
+  with higher theoretical ceiling. Against fast enemies that swing
+  multiple times per turn sequence, Midnight's value scales with hit
+  frequency, while Green's stays flat. Neither strictly dominates.
+
+
+============================
+PAINT 17 — MAGENTA (HOT PINK-RED)
+============================
+Item ID:    magenta_spray_paint
+Name:       Magenta Spray Paint
+RGB:        (240, 40, 160)
+Render bg (visible):   (115, 12, 70)
+Render bg (explored):  (57, 6, 35)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 40
+
+Effect:
+  Player on tile — whenever the player kills an enemy (any damage
+  source) while standing on a magenta tile, generate +10 Temp HP.
+  Temp HP obeys the existing absorption order (Temp HP → Armor → HP)
+  and does NOT stack above current max HP.
+  Enemy on tile — no effect.
+
+Design rationale:
+  Gold gives $5 per kill-on-tile. Magenta gives 10 Temp HP per
+  kill-on-tile. Both are kill-reward tiles; their payoffs serve
+  different build types (economy vs. sustain).
+
+  Temp HP as a kill reward is specifically distinct from Crimson
+  (which gives real HP regen as a % of damage dealt during combat).
+  Magenta is burst-defensive: you get a surge of ablative protection
+  after the kill, protecting you against the NEXT enemy's first hit.
+  Against groups, chaining kills on a magenta tile can maintain a
+  permanent Temp HP buffer. Against single elites it provides one
+  surge of protection after they die.
+
+  Flavor: painting the floor in magenta and making kills feel
+  "electric" — each death charges you up. Pairs with the energy
+  theme of the Crack Den's neon graffiti aesthetic.
+
+Scale with Graffiti:
+  temp_hp_per_kill = 8 + 2*Graffiti_Lvl.
+  L0: +8; L1: +10; L2: +12; L3: +14.
+  Cap total Temp HP at entity.max_hp (can't exceed full HP bar).
+
+Synergies:
+  Orange + Magenta: Orange deals DoT to everyone. The player
+  can use it as a mass-execution tool and collect Temp HP surges
+  as enemies die. However, Orange also damages the player — Temp HP
+  from Magenta partially offsets the Orange self-damage if kills are
+  fast enough.
+  CON-heavy builds: high max HP means each kill restores a larger
+  fraction of their buffer. A CON 12 character (max HP ~150) treating
+  +10 Temp HP as a "top-up" gets less value per kill than a frail
+  BKS caster (max HP 70) treating it as a 14% buffer restoration.
+  Violet + Magenta (adjacent tiles): Violet accelerates kills (more
+  damage per swing), Magenta rewards kills. Killing fast from Violet,
+  then retreating to Magenta if HP is low — two-tile kill loop.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile magenta."
+  "Player on tile: +10 Temp HP"
+  "per kill (any damage source)."
+  "(Scales with Graffiti level.)"
+
+Implementation notes:
+  Hook into the entity death event (same location as the gold tile
+  cash payout, the Graffiti L2 kill heal, etc.) in engine.py:
+    if (self.dungeon.spray_paint.get((self.player.x, self.player.y))
+            == "magenta"):
+        graffiti_lvl = self.skills.get("Graffiti").level
+        temp_gain = 8 + 2 * graffiti_lvl
+        self.player.temp_hp = min(
+            self.player.temp_hp + temp_gain,
+            self.player.max_hp
+        )
+        self.messages.append(
+            f"Magenta: +{temp_gain} Temp HP!"
+        )
+  No new Effect class or PlayerStats field needed.
+  This check runs when self.player is alive and is the one who
+  caused or triggered the kill — use the same death event handler
+  that already runs the gold/graffiti-heal checks.
+
+Balance notes:
+  +10 Temp HP per kill is comparable to ~1 turn of survival against
+  a floor 2 enemy (who might deal 8-12 damage). Against low-HP
+  enemies (grunts, weaklings) that die in 1-2 hits, the Temp HP
+  keeps pace with incoming damage. Against tanky enemies that take
+  5+ hits before dying, the Temp HP doesn't arrive until after
+  significant damage is taken — balancing the benefit.
+
+
+============================
+PAINT 18 — NAVY (GUN-BUFF BLUE)
+============================
+Item ID:    navy_spray_paint
+Name:       Navy Spray Paint
+RGB:        (20, 55, 140)
+Render bg (visible):   (8, 22, 65)
+Render bg (explored):  (4, 11, 32)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 45
+
+Effect:
+  Player on tile — two simultaneous gun bonuses:
+    1. All gun shots fired from this tile gain +(2+Graffiti_Lvl)
+       flat damage bonus per bullet (applied after base gun damage
+       is computed, before defense).
+    2. Gun ammo has a 25% chance to not be consumed per shot (ammo
+       preserved — current_ammo does not decrease on that shot).
+  Enemy on tile — no effect.
+
+Design rationale:
+  No existing paint interacts with the gun system. Navy is the
+  dedicated gun-build tile. The flat damage bonus compensates for
+  the gun system's reliance on ammo types (light/medium/heavy have
+  fixed damage tiers); +2-5 bonus bridges the gap between ammo tiers.
+  The 25% ammo preservation means a full magazine statistically
+  lasts 33% longer (every 4 shots, 1 is free).
+
+  Cobalt serves spell-casters exclusively (spell_damage + charge
+  refund). Navy serves gun builds exclusively (gun damage + ammo
+  efficiency). These are complementary tiles that don't compete.
+
+  Flavor: a sniper's nest, carefully marked in navy. Once you paint
+  it, you own that position — every shot fired from it counts more
+  and costs less.
+
+Scale with Graffiti:
+  Damage bonus = 2 + Graffiti_Lvl.
+  L0: +2; L1: +3; L2: +4; L3: +5.
+  Ammo preservation chance stays flat at 25%.
+  (A higher chance would degenerate into near-infinite ammo for
+  high-level Graffiti builds; 25% is sufficient incentive.)
+
+Synergies:
+  Red + Navy (two-tile setup): Red tile under the enemy amplifies
+  all damage they take (+25%). Navy tile on the player's position
+  adds gun damage per shot AND preserves ammo. Result: every shot
+  from Navy at a Red-painted enemy is amplified from both ends.
+  Sniping skill tree: Sniping already provides crit bonuses and
+  accuracy. Navy's flat damage bonus applies to crit hits too,
+  scaling up the crit multiplier's base. A megacrit from Navy
+  against a Red enemy is multiplicative mayhem.
+  Cobalt vs Navy: a hybrid spell+gun build must choose which tile
+  to commit to. This is an intentional strategic tension for builds
+  using both ability types.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile navy."
+  "Player: +(2+Graffiti) gun dmg/shot."
+  "25% chance: shot uses no ammo."
+
+Implementation notes:
+  GUN DAMAGE BONUS:
+  In gun_system.py (the firing function, after base damage is
+  computed per shot, before defense subtraction):
+    spray = engine.dungeon.spray_paint.get(
+        (engine.player.x, engine.player.y)
+    )
+    if spray == "navy":
+        graffiti_lvl = engine.skills.get("Graffiti").level
+        damage += 2 + graffiti_lvl
+
+  AMMO PRESERVATION:
+  After the standard current_ammo -= 1 line:
+    spray = engine.dungeon.spray_paint.get(
+        (engine.player.x, engine.player.y)
+    )
+    if spray == "navy" and random.random() < 0.25:
+        entity.current_ammo += 1  # refund the shot
+        engine.messages.append("Navy: shot didn't cost ammo!")
+  (Alternatively, gate the ammo decrement: if spray == navy and
+  random() < 0.25 → skip the decrement.)
+
+  Both checks run in the gun firing path in gun_system.py.
+  No new Effect or PlayerStats fields needed.
+
+Balance notes:
+  +3 gun damage at L1 Graffiti on a medium gun dealing ~12-16 base
+  is roughly a 20% damage increase. Significant but gun damage is
+  already lower-upside than melee burst. The ammo bonus is quality-
+  of-life more than power: it extends ammo reserves, making the
+  gun viable for longer fights without reloading every 6 shots.
+  8 charges: reduced from 10 to force placement decisions — a
+  dedicated gun position rather than carpeting corridors.
+  Wait — keeping 10 charges; gun builds need consistent tile access.
+
+
+============================
+PAINT 19 — AMBER (WARM YELLOW-ORANGE)
+============================
+Item ID:    amber_spray_paint
+Name:       Amber Spray Paint
+RGB:        (255, 175, 0)
+Render bg (visible):   (125, 80, 0)
+Render bg (explored):  (62, 40, 0)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 35
+
+Effect:
+  Enemy entering or standing on tile — each turn, if the enemy's
+  current HP is at or below 50% of their max HP (bloodied threshold),
+  they must pass a fear check: 50% chance to become "feared" for
+  2 turns (flee behavior — enemy moves away from player).
+  If their HP is above 50%, no check is made.
+  Player on tile — no effect (player does not fear from amber).
+
+Design rationale:
+  The game has no existing "fear from environmental source" mechanic.
+  Amber provides a fear tile that activates conditionally on enemy HP
+  state — it doesn't apply fear blindly like a confusion tile would.
+  This rewards players who damage enemies before funneling them onto
+  amber. Against full-HP enemies, amber does nothing; against wounded
+  enemies, it breaks their nerve.
+
+  Tactically: place amber in a room entrance or corridor midpoint.
+  Wound an enemy with ranged shots or spells, then fall back. The
+  wounded enemy chasing you steps onto amber and may flee back the
+  way it came — buying you positioning time, creating kiting
+  opportunities, or splitting a group.
+
+  Unlike Silver (guaranteed CC on entry), amber is conditional and
+  repeated-roll: the enemy might resist the fear check multiple turns
+  in a row, or it might flee immediately. Variance matters here.
+
+Scale with Graffiti:
+  Fear check threshold: enemy HP at or below (45 + 5*Graffiti_Lvl)%
+  of max HP.
+  L0: below 45%; L1: below 50%; L2: below 55%; L3: below 60%.
+  At L3, enemies with up to 60% HP remaining can be feared by amber.
+  Fear duration stays flat at 2 turns.
+  Fear chance stays flat at 50% per turn on tile.
+
+Synergies:
+  Orange + Amber: Orange damages all entities on its tile, including
+  enemies. Enemies dragged across orange drop below 50% faster, making
+  amber's threshold proc more likely. Place amber just past orange
+  in a corridor: enemy walks through orange (takes damage), then
+  hits amber (feared if bloodied). A two-tile gauntlet.
+  Lime + Amber (Meth Lab): lime stacks tox (inflates incoming damage),
+  not HP directly. But subsequent weapon hits deal more damage with
+  tox up, so lime accelerates the HP drop that triggers amber's fear.
+  Grey + Amber: grey weakens bloodied enemies' attacks while amber
+  sends them fleeing. Wounded enemy on grey: they hit softer anyway.
+  Chase them to amber: they flee, unable to fight back.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile amber."
+  "Enemy on tile: if HP<=50% max,"
+  "50% chance to flee (2 turns)."
+  "Check repeats each turn on tile."
+
+Implementation notes:
+  In the per-tick entity loop (alongside orange DoT block):
+    if spray == "amber":
+        if monster.alive:
+            threshold_pct = 0.45 + 0.05 * graffiti_lvl
+            if monster.hp <= monster.max_hp * threshold_pct:
+                if not has_effect(monster, "feared"):
+                    if random.random() < 0.50:
+                        apply_effect(monster, engine,
+                                     "feared", duration=2)
+                        engine.messages.append(
+                            "The enemy flees in terror!"
+                        )
+  "feared" effect should already exist in effects.py (it is
+  referenced as an existing status in CLAUDE.md / the effects
+  system). If not, create FearEffect with flee-from-player movement
+  behavior in before_turn hook, duration 2. This is the same flee
+  behavior as other flee AI states.
+  No new PlayerStats field needed.
+
+Balance notes:
+  50% chance per turn means an enemy standing still on amber will
+  fear roughly every other turn. In practice enemies rarely stand
+  still — they move through the tile. The window is typically 1-2
+  turns of exposure per encounter. Expected outcome: maybe 1 fear
+  proc per bloodied enemy per engagement. This is soft CC, not
+  hard CC. The HP threshold gate means healthy enemies are entirely
+  immune, preventing amber from trivializing early encounters.
+
+
+============================
+PAINT 20 — BONE (OFF-WHITE)
+============================
+Item ID:    bone_spray_paint
+Name:       Bone Spray Paint
+RGB:        (235, 220, 185)
+Render bg (visible):   (110, 100, 75)
+Render bg (explored):  (55, 50, 37)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 35
+
+Effect:
+  Player on tile — incoming damage is reduced by a percentage based
+  on the player's current HP vs. max HP. The lower the player's HP,
+  the stronger the damage reduction.
+  Formula:
+    dr_bonus = floor((1.0 - current_hp/max_hp) * 20)
+  This means:
+    At 100% HP: +0% DR (no bonus)
+    At  75% HP: +5% DR
+    At  50% HP: +10% DR
+    At  25% HP: +15% DR
+    At  10% HP: +18% DR
+  The reduction is a percentage applied to incoming damage BEFORE
+  defense subtraction (or after, as a separate multiplier step):
+    effective_damage = raw_damage * (1.0 - bone_dr_bonus/100)
+  Enemy on tile — no effect.
+
+Design rationale:
+  This is a CON-scaling "last stand" tile. High-CON players have more
+  HP and take longer to reach low thresholds — meaning they gain DR
+  slower but from a safer position. Low-CON fragile builds hit low
+  thresholds faster, activating stronger DR sooner as a survival
+  mechanism. The tile is self-correcting: it's weakest when you don't
+  need it and strongest when you're in danger.
+
+  Unlike Green (+4 flat defense, always-on), Bone is a responsive
+  tile that reads the player's current health state and adjusts
+  accordingly. It rewards standing your ground rather than retreating
+  when wounded.
+
+  Flavor: the bone color evokes grim determination — you're down to
+  your last dregs, fighting on the painted bones of the tile.
+
+Scale with Graffiti:
+  dr_multiplier = 20 + 5*Graffiti_Lvl.
+  L0: max 20% DR; L1: max 25% DR; L2: max 30% DR; L3: max 35% DR.
+  Formula at Graffiti L2:
+    dr_bonus = floor((1.0 - current_hp/max_hp) * 30)
+  Cap at 35% DR regardless of Graffiti level (prevents trivialization).
+
+Synergies:
+  Crimson + Bone (adjacent tiles): Crimson provides lifesteal to pull
+  HP back up; Bone rewards being low HP with DR. At low HP, the player
+  stands on Bone (DR active), then swings from Bone to trigger Crimson
+  lifesteal (if Crimson is also their tile). Wait — these are
+  different tiles; the player can only be on one at a time. Setup:
+  paint Bone on the fighting tile, Crimson on the retreat tile.
+  Low-HP player fights from Bone (DR mitigates hits), then steps to
+  Crimson briefly to leech HP back up.
+  Magenta + Bone: Magenta gives Temp HP on kills (buffers incoming
+  damage). Bone DR reduces that incoming damage further. Both are
+  defensive; Magenta is proactive (kill rewards), Bone is reactive
+  (HP-responsive). Overlap nicely without canceling each other.
+  CON-heavy builds: a CON 12 player at 50% HP still has 65 HP
+  remaining — they're not desperate but Bone gives 10-15% DR anyway.
+  A CON 6 player at 50% HP has only 30 HP — same tile gives same
+  relative DR. The % formula equalizes across CON values.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile bone."
+  "Player on tile: damage reduction"
+  "scales with missing HP."
+  "Low HP = up to 20% DR bonus."
+
+Implementation notes:
+  In combat.py, after computing raw damage to the player (pre-defense
+  or post-defense depending on preferred implementation), add a check:
+    spray = engine.dungeon.spray_paint.get(
+        (engine.player.x, engine.player.y)
+    )
+    if spray == "bone" and engine.player.max_hp > 0:
+        graffiti_lvl = engine.skills.get("Graffiti").level
+        max_dr = 20 + 5 * graffiti_lvl
+        missing_hp_ratio = 1.0 - (
+            engine.player.hp / engine.player.max_hp
+        )
+        dr_pct = min(max_dr, int(missing_hp_ratio * max_dr))
+        # Apply as damage multiplier:
+        damage = max(1, int(damage * (1.0 - dr_pct / 100)))
+  Position this check in the incoming-damage-to-player path,
+  alongside the tox multiplier, swagger_defence subtraction, etc.
+  No new Effect or PlayerStats field needed — inline computation.
+
+Balance notes:
+  At full HP (typical tile entry state): 0 bonus. The tile does
+  nothing until the player takes damage. This means the tile is
+  "wasted" on healthy players who paint it proactively, adding
+  planning risk: you might paint bone before a fight but not need
+  it, wasting a charge on a tile that gave zero benefit.
+  The max 20-35% DR is meaningful but not invulnerability — a 10-
+  damage hit at 25% HP becomes 8.5 (round to 9). Against a 20-
+  damage hit at 10% HP with L3: 20 * 0.65 = 13. Still hurts.
+  Synergy cap: Bone DR does not stack with other % DR effects
+  (if any). If a "DR" field already exists on PlayerStats (from
+  White Power trees, etc.), Bone's reduction is applied after that.
+  Alternatively it can be additive if the formula doesn't exceed
+  the global DR cap.
+
+
+============================
+PAINT 21 — SLATE (BLUE-GREY)
+============================
+Item ID:    slate_spray_paint
+Name:       Slate Spray Paint
+RGB:        (90, 110, 135)
+Render bg (visible):   (38, 48, 60)
+Render bg (explored):  (19, 24, 30)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 40
+
+Effect:
+  Player on tile — Swagger defense is doubled while standing here.
+  The swagger_defence formula is normally: int((eff_swagger - 8) / 2).
+  On Slate: effective_defense_from_swagger is doubled:
+    swagger_defence_on_slate = int((eff_swagger - 8) / 2) * 2
+  This effectively doubles the damage mitigation derived from SWG.
+  Swagger itself (the stat value) does NOT change — only the
+  defensive calculation is modified.
+  Enemy on tile — no effect.
+
+Design rationale:
+  Green gives a flat +4 defense to everyone equally. Slate rewards
+  building into Swagger. A player with 8 Swagger gains 0 extra
+  defense (0 * 2 = 0). A player with 10 Swagger gains 2 defense
+  (1 * 2 = 2). A player with 14 Swagger (possible with ring bonuses
+  and perks) gains 6 defense (3 * 2 = 6) — and that grows further
+  with perk stacking.
+
+  This creates a genuine build decision: invest in Swagger (which has
+  other benefits across multiple skill trees like Drive-By, White
+  Power, etc.) and Slate tiles become significantly more valuable.
+  Non-Swagger builds get nothing from Slate (just like non-casters
+  get nothing from Cobalt). Build-gated reward tiles are a recurring
+  design principle in V3/V4.
+
+  Flavor: Slate is the color of concrete and armor plating. Standing
+  on painted slate feels like putting on an invisible vest — but only
+  if you've got the swagger to wear it.
+
+Scale with Graffiti:
+  swagger_defence_multiplier = 2 + Graffiti_Lvl // 2.
+  L0: ×2; L1: ×2; L2: ×2.5; L3: ×2.5; L4: ×3.
+  (At low Graffiti levels the multiplier stays at ×2; at L2+ it
+  grows. This prevents Graffiti + Slate from scaling too early.)
+  At L3 Graffiti, a SWG 14 player gains: int((14-8)/2) * 2.5 = 7.5
+  → 7 defense from Swagger alone. Plus weapon defense, other bonuses.
+
+Synergies:
+  Drive-By skill: provides Swagger bonuses, directly improving Slate's
+  value. A Drive-By build with 14 Swagger standing on Slate has the
+  strongest Slate benefit.
+  White Power Tox Inversion trees: some perks reference Swagger in
+  their damage mitigation calculations. Doubling Swagger defense on
+  Slate amplifies these synergies.
+  Green + Slate (adjacent tiles): Green flat defense on approach tile,
+  Slate doubled-swagger on fighting tile. A layered defense wall.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile slate."
+  "Player on tile: Swagger defense"
+  "is doubled (Swagger builds only)."
+  "No benefit below 8 Swagger."
+
+Implementation notes:
+  The swagger_defence calculation in stats.py (or wherever
+  effective_defense is computed for combat) needs to be modified when
+  the player is on a slate tile. Add a new PlayerStats boolean:
+    tile_swagger_double: bool = False
+  Set it in _update_tile_stat_bonuses:
+    elif spray == "slate":
+        graffiti_lvl = self.skills.get("Graffiti").level
+        mult = 2 + (graffiti_lvl // 2) * 0.5  # 2, 2, 2.5, 2.5, 3
+        self.player_stats.tile_swagger_mult = mult
+  (Use a float multiplier field instead of bool for Graffiti scaling.)
+  New PlayerStats field: tile_swagger_mult: float = 1.0
+  In effective_defense computation in stats.py or combat.py:
+    swg_def = int((eff_swagger - 8) / 2)
+    swg_def = int(swg_def * player_stats.tile_swagger_mult)
+    effective_defense += swg_def
+  Reset tile_swagger_mult to 1.0 when stepping off.
+
+Balance notes:
+  At Swagger 8 (default): completely useless. At Swagger 10: +1 extra
+  defense (not impressive, matches green). At Swagger 12: +2 extra
+  defense (matching green, but build-gated). At Swagger 14 (ring
+  boosts): +3 extra defense (surpassing green, justifying SWG builds).
+  This creates a genuine "SWG must be at least 10 to use this" gate
+  that gives purpose to investing in Swagger as a primary defensive
+  stat. Without Slate, Green is always better than Swagger-defense for
+  neutral builds. With Slate, Swagger builds have a tile that rivals
+  and then exceeds Green.
+
+
+============================
+PAINT 22 — CHARTREUSE (NEON YELLOW-GREEN)
+============================
+Item ID:    chartreuse_spray_paint
+Name:       Chartreuse Spray Paint
+RGB:        (170, 255, 40)
+Render bg (visible):   (75, 120, 12)
+Render bg (explored):  (37, 60, 6)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 40
+
+Effect:
+  Player on tile — each skill XP gain event that occurs while the
+  player stands on chartreuse has a 15% chance to award a bonus
+  SP (Skill Point) directly — NOT going through the
+  potential_exp → real_exp conversion, but instead a direct
+  +1 to the currently-active (most recently gained) skill's
+  available SP pool.
+  Specifically: each time skills.gain_potential_exp(skill_name, xp)
+  resolves into at least 1 real XP point, roll 15% for +1 direct SP.
+  Enemy on tile — no effect.
+
+Design rationale:
+  Teal paint gives +20% skill XP (more XP → faster level-up path).
+  Chartreuse gives DIRECT SP rewards (bypasses the potential/real
+  conversion, the main bottleneck in skill progression).
+
+  These address different parts of the dual XP system:
+  - Teal accelerates potential XP gain (you earn faster).
+  - Chartreuse occasionally skips the bottleneck entirely (free SP).
+
+  In practice, Teal smooths out the XP curve over time. Chartreuse
+  is spiked and unpredictable — you might get 3 free SP in a lucky
+  room or none in an unlucky one. The variance creates excitement.
+
+  Flavor: chartreuse is the color of chemical spills and toxic
+  electricity — it feels "crackling" with potential energy, like XP
+  is jumping out of your skin.
+
+Scale with Graffiti:
+  SP chance = 10 + 5*Graffiti_Lvl percent.
+  L0: 10%; L1: 15%; L2: 20%; L3: 25%.
+  One bonus SP per trigger maximum (not compounding).
+
+Synergies:
+  Teal + Chartreuse (adjacent tiles): Use Teal on your primary
+  engagement tile (more XP per event), then shift to Chartreuse
+  for an active fight if you want SP spikes. Or alternate based
+  on whether you're farming XP vs. spending a hot fight on chartreuse.
+  Graffiti L3 Living Canvas perk (20% on melee = red tile, etc.):
+  the Living Canvas auto-paints tiles, but does not auto-paint
+  chartreuse — it must still be placed manually. So Living Canvas
+  doesn't trivialize chartreuse's charge usage.
+  Deep-Frying / Blackkk Magic builds: these skills earn XP per action
+  in combat. More XP-event triggers per fight = more 15% SP rolls on
+  chartreuse = potentially 2-3 free SP from a single floor.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile chartreuse."
+  "Player on tile: 15% chance per"
+  "XP event to gain +1 free SP."
+  "(Scales with Graffiti level.)"
+
+Implementation notes:
+  In xp_progression.py (or whichever module calls
+  skills.gain_potential_exp), at the point where XP is credited:
+    # After awarding the XP:
+    spray = engine.dungeon.spray_paint.get(
+        (engine.player.x, engine.player.y)
+    )
+    if spray == "chartreuse" and xp_awarded_this_event > 0:
+        graffiti_lvl = engine.skills.get("Graffiti").level
+        sp_chance = 0.10 + 0.05 * graffiti_lvl
+        if random.random() < sp_chance:
+            skill_obj = engine.skills.get(skill_name)
+            if skill_obj is not None:
+                skill_obj.skill_points += 1
+                engine.messages.append(
+                    f"Chartreuse: free SP for {skill_name}!"
+                )
+  Trigger: once per XP event (not once per individual XP point).
+  A "block" of XP awarded for a single action = 1 roll.
+  No new Effect or PlayerStats field needed.
+
+Balance notes:
+  At 15% per XP event and ~5 XP events per floor (conservative),
+  expect 0.75 free SP per floor on average. Over 4 floors in Crack
+  Den: ~3 free SP total. That's roughly equivalent to 1 extra skill
+  level. Significant but not dominant — it's bonus acceleration, not
+  free levels. The uncertainty (could be 0 or could be 5) creates
+  the gambling tension that makes it exciting.
+  Risk: heavily fighting on chartreuse can yield more SP if the build
+  generates many XP events per fight (Stabbing, Smoking, etc.). This
+  is intended — the tile rewards play styles that generate high XP
+  event frequency.
+
+
+============================
+PAINT 23 — UMBER (DARK BROWN-RED)
+============================
+Item ID:    umber_spray_paint
+Name:       Umber Spray Paint
+RGB:        (110, 50, 15)
+Render bg (visible):   (52, 22, 6)
+Render bg (explored):  (26, 11, 3)
+Tool charges: 10
+Zones: crack_den, meth_lab
+Value: 35
+
+Effect:
+  Player on tile — grants a stacking "Grit" buff for each enemy
+  standing within 3 tiles (Chebyshev distance) of the player when
+  the player is on an umber tile. Grit stacks:
+    1 nearby enemy: +0 Grit (no bonus — you're not surrounded)
+    2 nearby enemies: +1 Grit → +1 Strength for the turn
+    3 nearby enemies: +2 Grit → +2 Strength + +1 Defense
+    4+ nearby enemies: +3 Grit → +3 Strength + +2 Defense
+  Grit stacks recalculate each turn based on current nearby enemy
+  count. Grit bonuses are temporary (reset each turn). They do not
+  persist if the player steps off the tile.
+  Enemy on tile — no effect.
+
+Design rationale:
+  This is the "outnumbered hero" tile. Most tiles give their bonus
+  unconditionally; Umber scales with the threat level. The more
+  enemies surround you while you stand on umber, the stronger you get.
+  This creates a compelling question: is it worth staying on the tile
+  when 4 enemies close in, knowing you'll deal more damage but take
+  more hits?
+
+  The minimum threshold of 2 enemies before any Grit appears prevents
+  the tile from giving free bonuses in 1v1 fights. Umber is
+  exclusively meaningful in group encounters.
+
+  Flavor: umber is the color of dried blood and road grime — this tile
+  is painted by someone who has been jumped and survived. Standing on
+  it wakes something up in you.
+
+Scale with Graffiti:
+  Grit thresholds shift down by 1 per 2 Graffiti levels:
+  Base (L0-L1): 2/3/4+ nearby for Grit 1/2/3.
+  L2-L3 Graffiti: 1/2/3+ nearby for Grit 1/2/3.
+  (At L2+, even a 1v1 fight grants Grit 1. Tiles become useful
+  more frequently, rewarding Graffiti investment.)
+
+Synergies:
+  Crimson + Umber (adjacent tiles): fight from Umber to deal more
+  damage in group fights (Grit STR bonus), then retreat to Crimson
+  to lifesteal from the boosted damage against survivors.
+  Violet + Umber: Violet adds flat melee damage (risk/reward).
+  Umber adds STR (scales with STR weapon bonuses). Both active on
+  the same tile would be powerful, but they're different tiles —
+  the player must choose: guaranteed flat damage bonus (Violet) or
+  conditional group-scaling bonus (Umber)?
+  CON-heavy builds: high HP tolerates being surrounded. Umber
+  rewards precisely the tactical position that's most dangerous
+  (surrounded), giving a reason to not retreat.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile umber."
+  "On tile: +Grit per nearby foe."
+  "2 nearby: +1 STR."
+  "3 nearby: +2 STR, +1 DEF."
+  "4+ nearby: +3 STR, +2 DEF."
+
+Implementation notes:
+  In _update_tile_stat_bonuses (engine.py), when spray == "umber":
+    graffiti_lvl = self.skills.get("Graffiti").level
+    threshold_shift = 1 if graffiti_lvl >= 2 else 0
+    t1 = 2 - threshold_shift  # enemies for grit 1
+    t2 = 3 - threshold_shift  # enemies for grit 2
+    t3 = 4 - threshold_shift  # enemies for grit 3
+    count = sum(
+        1 for m in self.dungeon.entities
+        if m.entity_type == "monster" and m.alive
+        and max(abs(m.x - self.player.x),
+                abs(m.y - self.player.y)) <= 3
+    )
+    if count >= t3:
+        bonuses["strength"] = 3
+        bonuses["defense"] = 2
+    elif count >= t2:
+        bonuses["strength"] = 2
+        bonuses["defense"] = 1
+    elif count >= t1:
+        bonuses["strength"] = 1
+    # else: count < t1 → no bonus
+  These bonuses go into the tile_stat_bonuses dict used by
+  PlayerStats.effective_* properties.
+  Because _update_tile_stat_bonuses is called when the player moves,
+  the Grit stacks update on player movement turn. For enemy movement
+  turns (when enemies approach), the count won't update until the
+  player's next action. This slight lag is acceptable and prevents
+  micro-gaming the count by looking around.
+  No new Effect class needed; use the tile_stat_bonuses mechanism.
+
+Balance notes:
+  The STR bonus on Umber applies to weapon damage (STR scaling).
+  At STR 10, +3 STR is like having STR 13 — a significant damage
+  spike. But it only activates when 4 enemies are nearby, which is
+  precisely when the player is at most risk. This is the intended
+  tension: you're incentivized to hold the tile when leaving would
+  be safer. For group-focused enemies (meanders, faction members),
+  Umber creates a dramatic stand: kill fast enough and the tile pays
+  off, get overwhelmed and it wasn't enough.
+
+
+============================
+PAINT 24 — TAWNY (WARM GOLDEN-BROWN)
+============================
+Item ID:    tawny_spray_paint
+Name:       Tawny Spray Paint
+RGB:        (195, 130, 40)
+Render bg (visible):   (90, 58, 14)
+Render bg (explored):  (45, 29, 7)
+Tool charges: 10
+Zones: meth_lab (primary), crack_den
+Value: 45
+
+Effect:
+  Player on tile — generates +1 Meth resource per action taken
+  (any action: move, attack, ability, wait) while standing here.
+  This adds to the player's meth resource counter (entity.meth or
+  equivalent Meth Lab field) on top of existing sources.
+  Player gains +1 Meth per action from this tile; existing
+  Meth gain rates from other sources are unaffected.
+  Enemy on tile — no effect.
+
+  Alternate behavior if standing on tawny but not Meth Lab zone:
+  Instead of Meth resource (which doesn't exist in Crack Den),
+  the player gains +3 Tolerance stat bonus (temporary, like a
+  micro-tolerance-strain) while standing here. Zone-dependent.
+
+Design rationale:
+  No existing paint interacts with the Meth resource system (the
+  Meth Lab zone's combat fuel). Tawny bridges spray paint and the
+  Meth Lab economy: painting your fighting corner tawny means your
+  actions are more fuel-efficient in a Meth binge build.
+
+  This rewards players who plan around the Meth Lab resource. A
+  White Power build that consumes Meth for damage multipliers wants
+  to generate Meth as fast as possible. Tawny turns your fight tile
+  into a Meth production spot: each swing, each step, each ability
+  earns +1 extra Meth.
+
+  Flavor: tawny is the color of crystal residue and amber amber —
+  the floor itself is saturated with the product. Just standing
+  here makes you sharper.
+
+Scale with Graffiti:
+  Meth per action = 1 + Graffiti_Lvl // 2.
+  L0: +1; L1: +1; L2: +2; L3: +2; L4: +3.
+  Crack Den TOL bonus (fallback): +2 + Graffiti_Lvl.
+  L0: +2 TOL; L1: +3 TOL; L2: +4 TOL; L3: +5 TOL.
+
+Synergies:
+  White Power skill trees: many perks interact with Meth resource
+  as a combat fuel. Tawny directly feeds those builds, making the
+  Tawny tile mandatory for committed White Power builds.
+  Meth Lab crafting: if Meth is consumed by abilities or passives,
+  Tawny helps regenerate it during the fight. The "fight here and
+  replenish" loop is a key tactical identity for this tile.
+  TOL interaction (Crack Den fallback): Tolerance affects the
+  player's resistance to status effects (tox threshold, etc.).
+  In Crack Den, Tawny becomes a soft defensive tile for TOL builds.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile tawny."
+  "Meth Lab: +1 Meth resource"
+  "per action while on tile."
+  "Crack Den: +3 Tolerance bonus."
+
+Implementation notes:
+  METH LAB BEHAVIOR:
+  In engine.py, in the player action resolution loop (after each
+  player action is processed and before returning to the energy
+  loop), check:
+    if self.dungeon.zone == "meth_lab":
+        spray = self.dungeon.spray_paint.get(
+            (self.player.x, self.player.y)
+        )
+        if spray == "tawny":
+            graffiti_lvl = self.skills.get("Graffiti").level
+            meth_gain = 1 + graffiti_lvl // 2
+            self.player.meth = min(
+                self.player.meth + meth_gain,
+                MAX_METH  # whatever cap exists
+            )
+  CRACK DEN FALLBACK:
+  In _update_tile_stat_bonuses, if zone != "meth_lab":
+    elif spray == "tawny":
+        graffiti_lvl = self.skills.get("Graffiti").level
+        self.player_stats.tile_stat_bonuses["tolerance"] = (
+            2 + graffiti_lvl
+        )
+  The meth_lab path does NOT modify tile_stat_bonuses.
+  Check entity.meth field availability in entity.py for the Meth
+  Lab zone fields. If the field is named differently (meth_resource,
+  etc.), adjust accordingly.
+  No new Effect class needed.
+
+Balance notes:
+  +1 Meth per action is modest. In a 10-action fight (10 swings)
+  the tile generates +10 Meth. If a Meth ability costs 50 Meth,
+  tawny alone doesn't sustain it — it supplements existing generation.
+  This prevents the tile from being an "infinite Meth" exploit while
+  still providing measurable benefit to Meth-reliant builds.
+  In Crack Den, +3 TOL is a small passive bonus. Sufficient to
+  push tolerance above key thresholds (e.g., tox-damage reduction
+  scaling) but not dominant on its own.
+
+
+============================
+PAINT 25 — INDIGO (DEEP PURPLE-BLUE)
+============================
+Item ID:    indigo_spray_paint
+Name:       Indigo Spray Paint
+RGB:        (65, 25, 180)
+Render bg (visible):   (28, 8, 82)
+Render bg (explored):  (14, 4, 41)
+Tool charges: 8
+Zones: crack_den, meth_lab
+Value: 50
+
+Effect:
+  Player on tile — activates a passive "Aura" state:
+  At the start of each player turn while on indigo, one random
+  adjacent enemy (if any exist within 1-tile Chebyshev distance)
+  is stunned for 1 turn (cannot act on their next turn).
+  This aura is auto-targeting — the player doesn't choose the
+  target; a random eligible adjacent enemy is selected each turn.
+  Only enemies within direct adjacency (radius 1) qualify.
+  The stun is the same "stun" effect already in effects.py.
+  Enemy on tile — no effect.
+  The aura only fires if at least 1 adjacent enemy exists. If no
+  enemies are adjacent, nothing happens (no message, no wasted roll).
+
+Design rationale:
+  Indigo is a control tile for close-quarters fighting. Unlike Silver
+  (which stuns on tile entry — one-time per enemy), Indigo stuns a
+  random adjacent enemy every single player turn while the player
+  stands here. In a surrounded situation, one enemy is always stunned,
+  effectively reducing the enemy's collective action economy.
+
+  This is distinct from all existing paints because it actively alters
+  the combat state (stuns enemies) rather than buffing/debuffing stats.
+  It's the only "active on-tile action" paint.
+
+  8 charges (reduced) because the effect is very powerful against
+  groups. The player must commit placement decisions carefully.
+
+  Flavor: indigo is the color of occult circles and ritual markings.
+  Spray a binding circle on the ground and stand inside it — those who
+  step close enough feel their will shut down for a moment.
+
+Scale with Graffiti:
+  Base: 1 adjacent enemy stunned per player turn.
+  At Graffiti L2+: stun radius extends to 2 tiles (all enemies within
+  2 Chebyshev distance are eligible for the random stun pick, not just
+  adjacent).
+  At Graffiti L3+: the stun lasts 2 turns instead of 1.
+  This scaling makes Graffiti investment meaningful specifically for
+  Indigo-focused play.
+
+Synergies:
+  Violet + Indigo: Violet rewards dealing damage; Indigo randomly
+  stuns one nearby enemy per turn. In a multi-enemy fight: stand on
+  Indigo first (auto-stun one enemy), then advance to Violet for the
+  damage boost once the group is thinned. Two-phase room clearing.
+  Umber + Indigo (adjacently placed): Umber powers up when surrounded
+  (Grit). Indigo stuns one adjacent enemy per turn, reducing their
+  effective counterattack. Together they make being surrounded
+  BENEFICIAL: Umber gives stats for the count, Indigo disables one
+  attacker per turn, lowering effective DPS against you.
+  Blackkk Magic: stuns are synergized by Blackkk Magic perks that
+  benefit from incapacitated enemies. Auto-stun from Indigo can
+  set up free hits for ability-based builds.
+
+Examine popup lines (max 46 chars each):
+  "Spray a tile indigo."
+  "While on tile: stun 1 random"
+  "adjacent enemy per turn."
+  "8 charges. Occult placement."
+
+Implementation notes:
+  At the START of each player turn (before input is processed), in
+  engine.py's player-turn-start processing:
+    spray = self.dungeon.spray_paint.get(
+        (self.player.x, self.player.y)
+    )
+    if spray == "indigo":
+        graffiti_lvl = self.skills.get("Graffiti").level
+        stun_radius = 2 if graffiti_lvl >= 2 else 1
+        stun_dur = 2 if graffiti_lvl >= 3 else 1
+        candidates = [
+            m for m in self.dungeon.entities
+            if (m.entity_type == "monster" and m.alive
+                and max(abs(m.x - self.player.x),
+                        abs(m.y - self.player.y))
+                    <= stun_radius
+                and not has_effect(m, "stunned"))
+        ]
+        if candidates:
+            target = random.choice(candidates)
+            apply_effect(target, self, "stunned",
+                         duration=stun_dur)
+            # Optional: quiet or visible message
+            self.messages.append(
+                f"Indigo aura stuns the {target.name}!"
+            )
+  "stunned" effect already exists in effects.py; reuse as-is.
+  The stun fires at player-turn-start (before the player acts),
+  meaning the player gets to benefit from the stun on their action.
+  Do not stack stuns: if the chosen candidate is already stunned,
+  skip (candidates filter handles this).
+  Charge consumption: the tile itself is consumed normally (it is
+  painted once and lasts until overwritten or floor change). The
+  8 charges on the spray paint item control how many tiles can be
+  placed per item, not how many stun procs occur. Once the tile
+  is placed, the aura fires every turn indefinitely (until the
+  player leaves the tile or the floor ends).
+  No new Effect class needed — reuses stunned effect.
+
+Balance notes:
+  1 stun per player turn against a group of 4 enemies effectively
+  removes 25% of their action economy. This is very strong in
+  corridors (where adjacency limits the candidate pool to 1-2
+  enemies). In open rooms with many adjacent enemies, one of them
+  is always stunned but the rest attack freely. The "random" target
+  means you can't guarantee the most dangerous enemy is stunned —
+  tactical friction that prevents it from being auto-win.
+  8 charges: forces the player to decide if Indigo placement is
+  worth the commitment. Unlike 10-charge paints, every placement
+  of Indigo is a meaningful choice.
+
+
+============================
+FULL V4 COMBO SYNERGIES
+============================
+
+Midnight + Umber (two tiles):
+  Paint Midnight at your preferred fighting tile (+dodge).
+  Paint Umber at a nearby position you retreat to when HP drops.
+  Use Umber when surrounded for the Grit STR boost; fall back to
+  Midnight if enemies thin out and you want evasion protection.
+  Two roles: offense/survival vs. defense/evasion.
+
+Navy + Red (classic gun setup):
+  Red under likely enemy patrol/approach position (+25% damage
+  taken). Navy at your shooting position (+gun dmg, +25% ammo
+  save). Every shot from Navy at a Red-painted enemy gets double
+  amplification. Against a boss with 100 HP, this setup cuts
+  effective fight length significantly.
+
+Amber + Grey (two-tile wounded-enemy gauntlet):
+  Grey in the corridor (wounded enemies approaching have -1 to -4
+  outgoing damage). Amber at the room entrance (wounded enemies
+  below 50% HP fear on entry). Combined: enemies that manage to
+  reach you are weakened AND may flee even at close range.
+
+Bone + Magenta (defensive duo):
+  Magenta gives Temp HP on kills (proactive, fills when healthy).
+  Bone gives DR when low HP (reactive, protects when hurt). Both
+  on adjacent tiles creates a complete survival loop: fight,
+  earn Temp HP from kills, use Temp HP as a buffer, Bone's DR
+  kicks in if raw HP dips, kill more enemies to replenish Temp HP.
+
+Indigo + Violet (the gladiator's pair):
+  Indigo stuns one adjacent enemy every player turn. Violet adds
+  melee damage but also makes adjacent enemies hit harder. Sequence:
+  fight from Indigo first (reduced enemy action economy, one enemy
+  stunned per turn), then shift to Violet for the kill burst once
+  enemies are thinned. Never be on both simultaneously — use them
+  as phases of the same fight.
+
+Slate + Indigo + existing Drive-By build:
+  High-Swagger Drive-By build stands on Slate (doubled swagger
+  defense = possibly +6-8 defense). Adjacent enemies get auto-
+  stunned from Indigo (if painted on the same tile — one tile can
+  only have one paint, so these are different tiles). The Swagger
+  defense makes you nearly untouchable; the stunned adjacency from
+  Indigo tiles placed around the room creates a kill funnel.
+
+Chartreuse + Stabbing skill + Teal (XP farm trio):
+  Teal on primary tile (+20% skill XP). Chartreuse placed nearby
+  for a fight that generates many XP events (Stabbing earns XP
+  per hit). After enough XP events while on Chartreuse, several
+  free SP may be earned. The two tiles serve different XP layers
+  (teal = volume; chartreuse = SP spikes). Alternate between them
+  per fight phase based on which benefit is more needed.
+
+Tawny + Lime + Orange (Meth Lab three-tile zone):
+  Player fights from Tawny (gains Meth resource per action to fuel
+  White Power abilities). Lime placed in enemy approach path
+  (tox builds up). Orange placed in a corner enemies may retreat
+  to (DoT damage). Result: enemy enters toxified, player builds
+  Meth resource, and any enemy escaping gets DoT'd on Orange.
+  A complete zone management system.
+
+
+============================
+FULL V4 IMPLEMENTATION SUMMARY
+============================
+
+New PlayerStats fields required:
+  tile_dodge_bonus: float = 0.0
+    (midnight: set to 0.10 + 0.05*graffiti_lvl; reset on step-off)
+  tile_swagger_mult: float = 1.0
+    (slate: set to 2 + graffiti_lvl//2 * 0.5; reset to 1.0 on step-off)
+  [Optional] tile_stat_bonuses dict already handles umber STR/DEF and
+    tawny TOL via the existing dynamic bonus mechanism.
+
+engine.py changes:
+  _update_tile_stat_bonuses:
+    midnight    — tile_dodge_bonus = 0.10 + 0.05*graffiti_lvl
+    slate       — tile_swagger_mult = 2 + (graffiti_lvl//2)*0.5
+    umber       — STR and DEF into tile_stat_bonuses (count nearby enemies)
+    tawny (CD)  — TOL into tile_stat_bonuses
+    chartreuse  — no stat field; XP hook below
+  Per-tick entity loop (alongside orange/lime/rad/rust blocks):
+    amber — fear check for bloodied enemies on tile
+  Player-turn-start block (new, or piggyback existing hook):
+    indigo — auto-stun 1 random adjacent enemy
+  Player action post-processing (per-action, not per-tick):
+    tawny (ML) — meth resource gain per action
+  Kill event handler (same block as gold/magenta/graffiti kills):
+    magenta — +10 Temp HP per kill
+
+combat.py changes:
+  Incoming damage to player block:
+    bone — compute missing HP ratio, apply DR multiplier
+
+gun_system.py changes:
+  Per-shot damage calc:
+    navy — add (2 + graffiti_lvl) to shot damage
+  Per-shot ammo decrement:
+    navy — 25% chance to skip ammo decrement (or refund 1 ammo)
+
+xp_progression.py (or gain_potential_exp call sites):
+  chartreuse — after XP event resolves, 15% SP bonus roll
+
+items.py:
+  10 new ITEM_DEFS entries following existing spray_paint pattern.
+  Add all 10 to _spray_descs for examine popup.
+
+render.py:
+  10 new elif branches for visible + explored bg colors.
+
+loot.py:
+  Add all 10 to SPRAY_PAINT_COLORS list.
+  Consider weight adjustments: indigo and tawny (ML) at lower weight
+  in Crack Den; tawny at higher weight in Meth Lab.
+
+_SPRAY_TABLE in engine.py:
+  Update to include all 25 paints (15 existing + 10 V4).
+  Suggested lower-weight paints: indigo, tawny, rad (existing).
+
+
+============================
+V4 BALANCE OVERVIEW
+============================
+
+Power ranking (these 10 vs. existing 15):
+
+Tier 1 (highest impact, placement-critical):
+  Indigo  — auto-stun aura; 8 charges forces commitment
+  Umber   — group-scaling offense; reward for risky positioning
+
+Tier 2 (strong, build-dependent):
+  Navy    — gun-build exclusive; strong ammo economy + damage
+  Slate   — Swagger-build exclusive; matchs/exceeds Green at SWG 14
+  Midnight — evasion build payoff; flat % dodge for STS/Steal builds
+
+Tier 3 (utility, broad synergy):
+  Magenta — kill reward Temp HP; useful for any melee/kill build
+  Bone    — reactive DR; strongest when already in danger
+  Amber   — conditional fear CC; situationally powerful in gauntlets
+
+Tier 4 (niche/zone-gated):
+  Chartreuse — SP bonus; high-variance, exciting for XP-hungry builds
+  Tawny      — Meth Lab exclusive Meth gen; worthless outside ML zone
+
+Charge counts:
+  10 charges: midnight, magenta, navy, amber, bone, slate,
+               chartreuse, umber, tawny (standard)
+   8 charges: indigo (powerful aura effect, limited placement)
+
+Values: midnight=40, magenta=40, navy=45, amber=35, bone=35,
+        slate=40, chartreuse=40, umber=35, tawny=45, indigo=50
+
+Color distinctiveness check (no RGB clash with existing 15):
+  Midnight (25,20,90)     — dark, distinguishable from Blue/Cobalt
+  Magenta (240,40,160)    — clearly distinct from Red/Crimson
+  Navy (20,55,140)        — darker/bluer than Cobalt (35,75,210)
+  Amber (255,175,0)       — clearly distinct from Orange (255,160,40)
+                            NOTE: amber is warm, orange is hotter.
+                            Render bg must be noticeably different.
+                            Amber bg visible: (125,80,0) vs
+                            Orange bg visible: (128,70,15).
+                            These are similar. Adjust amber explored
+                            to (62,40,0) — darker. Differentiate at
+                            the render layer by amber having a
+                            more yellow-gold tint vs. orange's
+                            red-orange hue. Recommend revisiting
+                            amber RGB: (245,190,20) for more yellow.
+  Bone (235,220,185)      — pale; clearly distinct from Silver
+  Slate (90,110,135)      — desaturated; clearly distinct from Blue/Grey
+  Chartreuse (170,255,40) — neon; clearly distinct from Lime (100,240,50)
+                            and Teal (40,200,185). Check render bg
+                            versus Rad (180,255,60): very similar RGB!
+                            ADJUST chartreuse bg to emphasize green:
+                            Render bg (visible): (70,120,12)
+                            Rad bg (visible): (85,130,20)
+                            Still close. Recommend distinguishing
+                            these in-game via item name + color of
+                            the spray paint can (char color), not just
+                            tile bg. Chartreuse can is RGB (170,255,40)
+                            vs Rad can RGB (180,255,60) — close but
+                            contextually distinct.
+  Umber (110,50,15)       — dark; distinct from Rust (170,75,30)
+                            in darkness/saturation.
+  Tawny (195,130,40)      — mid-warm; distinct from Copper (195,115,45)
+                            NOTE: very similar to Copper (195,115,45)!
+                            ADJUST tawny RGB to (200,145,55) for more
+                            yellow warmth vs. copper's orange-brown.
+                            Render bg (visible): (95,65,18)
+                            Copper bg (visible): (95,55,15). Still close.
+                            Further distinguish: tawny RGB = (210,150,60)
+                            Render bg (visible) = (100,68,20).
+  Indigo (65,25,180)      — clearly distinct from Blue/Cobalt/Violet
+
+RGB FINAL ADJUSTMENTS (after distinctiveness review):
+  Amber:      RGB = (245, 190, 20) — more yellow, clearer vs. Orange
+              bg visible = (120, 85, 5)  | bg explored = (60, 42, 2)
+  Chartreuse: RGB = (170, 255, 40) — keep; note render similarity with
+              Rad near-floor-level bg; differentiate via can color.
+  Tawny:      RGB = (210, 150, 60) — more golden-yellow vs. Copper's
+              reddish-brown.
+              bg visible = (100, 68, 20) | bg explored = (50, 34, 10)
+

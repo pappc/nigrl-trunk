@@ -1,0 +1,138 @@
+SUMMARY — Chemical Warfare Branching Skill Tree Variations
+===========================================================
+Source doc: nigrl-ideas/chemical-warfare-branching-skill-trees.txt
+
+10 branching topology variations. Each has a shared trunk and player-choice
+branches leading to distinct capstones. All five shapes covered.
+
+SHAPE DISTRIBUTION:
+  Y-split (L3):     V1, V2
+  Diamond (L2→L5):  V3, V4, V5
+  Triple Fork (L4): V6, V7
+  W-shape:          V8, V9
+  Long Trunk Y:     V10
+
+=== VARIATION 1: THE SPREADER (Y-split) ===
+  Trunk: Patient Zero (activated 3/floor, LOS; infect enemy 5 tox/turn + spread)
+         Incubation Period (passive; 3-consecutive-tox-turn enemies take 15% more dmg)
+  Branch A — Mass Contagion:
+    L3a: Carrier — 2 simultaneous P-Zero marks; death at any tox = 3-tile 10-tox burst
+    L4a: Outbreak — 1/floor: all visible enemies gain (current tox + 8); CAPSTONE
+  Branch B — Deep Infection:
+    L3b: Inoculate — 30t cd; lock enemy tox, double tox ticks; kill = perm +1 TOL (max +4)
+    L4b: Hemorrhagic Fever — 50+ tox = 8 HP/turn drain (bypasses armor); free +4 tox on adj; CAPSTONE
+
+=== VARIATION 2: THE JUNKIE (Y-split) ===
+  Trunk: Loaded (passive; consume = +8 tox; 40+ tox = +16)
+         The Market (passive; +2 TOL, +2 CON; kills at 30+ tox = +6 XP, at 60+ = +12)
+  Branch A — Crash Economy:
+    L3a: Spike — 50t cd; 8 turns: tox doubles for all scaling, no incoming penalty; then crash to 0 + tox/15 dmg
+    L4a: Pump and Dump — Spike adds +25 energy/turn; crash immunity 3 turns after; CAPSTONE
+  Branch B — Tox Tolerance:
+    L3b: Metabolic Overload — +3 TOL, -30% tox resist; above 100 tox: +(tox-100)/10 melee bonus
+    L4b: Overdrive — at 80+ tox: free attack every 4th turn; melee bonus doubled; CAPSTONE
+
+=== VARIATION 3: THE ALCHEMIST (Diamond) ===
+  L1: Corrosive Spit — 25t cd LOS; 3+BKS/3 dmg + 20 tox; detonates at 25+ tox; +2 BKS
+  Split at L2:
+    L2a: Terrain Chemist — Spit creates acid pool splash; pools 50% longer; immune to own acid
+    L2b: Acid Blood — melee attacker takes 5+BKS/4 acid splash + 8 tox on hit
+  L3a: Acid Volley — 2/floor AOE acid grenade; 3x3 pool 25t; 8+BKS/2 dmg + 25 tox
+  L3b: Caustic Skin — +2 CON, +20% tox resist; melee attacker gets extra 12 tox; player tox formula uses 250 denom
+  L4 (shared): Dissolution — +2 BKS; corpses on acid leave perm tox puddles; spit detonation drops to 15 tox
+  Final split at L5:
+    L5a: Total Meltdown — 2/run; all floor hazards burst simultaneously (20 tox each, 3+ bursts = stun + 30 dmg); CAPSTONE
+    L5b: Living Reagent — adj enemies take tox/20 acid dmg/turn; Spit becomes 3-charge recharge system; CAPSTONE
+
+=== VARIATION 4: THE MARTYR (Diamond) ===
+  L1: Shared Suffering — when YOU gain tox, adj enemies gain 25% of amount
+  Split at L2:
+    L2a: Condemned — +4 TOL, -25% tox resist (more tox in = more out)
+    L2b: Sympathy Pains — +2 CON, +2 STS; Shared Suffering range 5 tiles; enemy tox gain = 10% temp HP to you
+  L3a: Martyrdom — 60t cd; lose 15% HP, gain 50 tox (fires Shared Suffering); Condemned buff at 100+ tox
+  L3b: Toxic Empathy — Shared Suffering 40% transfer, 5-tile radius; enemy dies at 30+ tox = you heal 4 HP
+  L4 (shared): Broken Body — +2 TOL, +2 CON; your tox multiplies YOUR outgoing melee; can't die to tox alone (min 1 HP)
+  Final split at L5:
+    L5a: Plague Flag — 1/floor 15t: Shared Suffering 90%; outgoing melee multiplier doubled; CAPSTONE
+    L5b: Death Wish — at 25% HP: auto-gain 60 tox + melee applies 15 tox + 3-turn invuln; 1/floor; CAPSTONE
+
+=== VARIATION 5: THE BIOLOGIST (Diamond) ===
+  L1: Field Research — +1 BKS, +1 STS; 3x XP for kills at 40+ tox
+  Split at L2:
+    L2a: Dead Zone — +2 TOL, +1 STS; immune to own ground hazards (2-tile radius); enemies on hazards take 12% more dmg
+    L2b: Exposed Subject — +2 CON, +1 BKS; immune to OWN tox damage multiplier; radiate (tox/15)/turn tox to adj enemies
+  L3a: Biohazard Perimeter — 30t cd ADJACENT_TILE; place 8-tox/turn Contaminate tile; up to 5 active; -20 speed
+  L3b: Controlled Experiment — 2/floor LOS; mark Subject: 20t, triple tox ticks vs them, +8 tox per your hit; death = tox-value burst radius 4
+  L4 (shared): Tox Mastery — +2 BKS, +1 TOL; enemy tox formula uses denom 35 on your hazards; tox bypasses 25% resistance
+  Final split at L5:
+    L5a: Saturation Protocol — 1/floor; entire room = tox hazard (3 tox/turn 15t); enemies don't dodge; CAPSTONE
+    L5b: Kill Lab — Subject marks perm; 3 simultaneous; triple (not double) tox multiplier; death burst 6 tiles; CAPSTONE
+
+=== VARIATION 6: THE CHEMIST (Triple Fork) ===
+  L1: Applied Chemistry — +2 BKS, +1 TOL; melee applies 6 tox; ability → melee combo: +BKS/2 bonus
+  L2: Reagent Handling — +1 BKS, +2 STS; immune to ground tox hazards; standing in acid applies 8 tox/turn to adj enemies
+  L3: Compound Theory — 20t cd LOS; cycle Acid/Venom/Gas compound tags on enemies (each does diff thing)
+  Fork at L4 (choose one):
+    L4a: Acid Bath — acid-tagged death = perm acid pool; enemies ever on your acid get floor-perm 10% dmg vuln; 2xBKS melee on acid; CAPSTONE
+    L4b: Venom Injection — 45t cd adj; 50 tox instant + Deep Venom 10t (tox locked, triple ticks, overflow 3 adj enemies get 5 tox); death = 5-tile 20-tox burst; CAPSTONE
+    L4c: Gas Cloud — 2/floor AOE radius 3; 20-turn invisible cloud; 6 tox/turn + -30% speed; gas-tagged enemies get doubled burst radius inside cloud; CAPSTONE
+
+=== VARIATION 7: THE ZONE CONTROLLER (Triple Fork) ===
+  L1: Contaminate — 20t cd ADJACENT_TILE; place Toxic Creep (6 tox/turn 25t, -15 speed); 4-tile max
+  L2: Noxious Field — +2 TOL, +2 STS, +20% tox resist; Contaminate tiles add Noxious stacks (armor reduction 1/stack max 6)
+  L3: Saturation Run — 2/floor LINE; charge 5 tiles, leave tox trail, STR dmg + knockback 2
+  Fork at L4 (choose one):
+    L4a: Patrol Mode — moving near enemies applies 4 tox; Contaminate tiles expand to 3x3 effect; CAPSTONE
+    L4b: Strike Deployment — 3/floor AOE radius 2; 2-turn fuse acid bomb; 3-tile acid pool burst + knockback + stun; dead enemies leave tox tile; CAPSTONE
+    L4c: Fortress Stance — stationary 2+ turns: Contaminate double tox, +3 armor, +20% tox resist, 20 contact burst on adjacent entry; CAPSTONE
+
+=== VARIATION 8: THE SURGEON (W-shape) ===
+  Trunk: Needle Hands (passive; first melee hit per enemy/floor = 25 tox)
+         Flush (stat; +3 STS, +20% tox resist; first tox source to YOU per floor nullified)
+  Branch A: Ghost Dose — 3/floor LOS; mark enemy: all damage = +6 tox; expiry = heal 1HP per 8 tox accumulated; 2 active
+  Branch B: Chemical Rage — +1 melee per 25 tox; at 75+ tox melee applies 4 extra tox/hit
+  Convergence L4: Tox Mastery — +2 STS, +2 TOL; tox bypasses 30% enemy resistance; 50+ tox enemies 15% stun chance per hit
+  Final split:
+    L5a: Final Dosage — 2/floor LOS; deal enemy's-current-tox as direct dmg; tox drops to 0; kill = 4-tile 25-tox burst; survive = auto-Ghost Dose; CAPSTONE
+    L5b: Berserker Bloom — at 50+ tox: +15 speed, +3 melee, kills bloom 2-tile 15-tox burst; 100+ tox: bloom 4 tiles; no healing; CAPSTONE
+
+=== VARIATION 9: THE CONTAMINATOR (W-shape) ===
+  Trunk: Contaminate — 18t cd ADJACENT_TILE; 5 tox/turn 20t; 5-tile max
+         Toxic Ground — +2 TOL, +20% tox resist; leaving tiles = 3-turn sticky (-10 speed, 2 tox/turn); Contaminate upgrades to 7 tox/turn
+  Branch A: Creep Zone — tiles spread 25%/turn to adjacent tiles (half-strength: 3 tox/turn 10t)
+  Branch B: Acid Volley — 3/floor AOE radius 2; blast + sustained acid pool (6 dmg + 6 tox/turn 18t; upgrades to 9 tox via Toxic Ground)
+  Convergence L4: Hazard Mastery — +1 STS, +2 TOL; enemies ignore hazard pathfinding; tox hazard hit = +15% melee dmg same turn; 8-tile max
+  Final split:
+    L5a: Total Denial — 1/floor; entire room = Contaminate (7 tox/turn + sticky, 25t); enemies walk right in; CAPSTONE
+    L5b: Toxic Swarm — 60+ tox enemies deal 50% damage to adjacent allies; death = 3-tile 20-tox explosion; CAPSTONE
+
+=== VARIATION 10: THE LONG GAME (Long Trunk Y) ===
+  L1: Patient Zero — 3/floor LOS; 15t infection: 5 tox/turn + 3 tox spread to adj enemies/turn
+  L2: Incubation Period — +2 TOL, +1 STS; 20+ tox = 18% damage vulnerability
+  L3: Viral Load — +2 BKS; 2 simultaneous P-Zero marks; marked enemy death = 8 tox to ALL visible enemies (whole room)
+  L4: Outbreak — 1/floor; all visible enemies gain (current tox + 10); +8 XP per enemy at 30+ tox at activation
+  Final split at L5:
+    L5a: Epidemic — permanent passive: any enemy tox damage has 35% chance to bounce 6 tox to random other visible enemy; CAPSTONE
+    L5b: Plague Flag — 1/floor 18t: gaining tox broadcasts 40% to all visible enemies; your tox multiplies your melee; Outbreak gets double bonus if unused; CAPSTONE
+
+NEW ABILITY IDs (all 10 variations combined):
+  V1: patient_zero_b, outbreak_b, inoculate
+  V2: spike_tox
+  V3: corrosive_spit_b, acid_volley_b, total_meltdown
+  V4: martyrdom_b, plague_flag_b
+  V5: biohazard_perimeter, controlled_experiment, saturation_protocol
+  V6: compound_theory, venom_injection, gas_cloud_chem
+  V7: contaminate_z, saturation_run, strike_deployment
+  V8: ghost_dose_w, final_dosage
+  V9: contaminate_c, acid_volley_c, total_denial
+  V10: patient_zero_lg, outbreak_lg, plague_flag_lg
+
+NEW EFFECT SUBCLASSES NEEDED:
+  IncubationPeriodEffect, InoculateEffect, HemorrhagicFeverEffect,
+  SpikeEffect, DeepVenomEffect, FortressModeEffect, BerserkerBloomEffect,
+  ToxicSwarmEffect, PlagueFlag_LGEffect
+
+TOP 3 RECOMMENDED FOR IMPLEMENTATION:
+  1. V10 (Long Game) — cleanest topology; 4-level trunk provides gradual power ramp
+  2. V7 (Zone Controller) — three distinct capstones with minimal engine overlap
+  3. V1 (Spreader) — simplest Y-split; Patient Zero already designed in prior doc

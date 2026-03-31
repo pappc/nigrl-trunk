@@ -1,0 +1,57 @@
+SUMMARY: spray-paint-designs-v3.txt
+=====================================
+5 replacement spray paint colors (replacing rejected V2 Yellow/Purple/Pink/Brown/White).
+Full doc: nigrl-ideas/spray-paint-designs-v3.txt
+
+PAINT ROSTER (V3 replacements, numbered as 11-15 in slot sequence):
+  11 Crimson  (210,35,65)     Player melee: heal 15+5*GrafLvl% of damage dealt. Leech tile.
+  12 Copper   (195,115,45)    Player: +20+5*GrafLvl energy/tick. Enemy: -(15+5*GrafLvl) energy/tick.
+  13 Cobalt   (35,75,210)     Player: +(3+GrafLvl) spell damage. Ability refund 50% (vs Blue's 25%).
+  14 Violet   (150,45,195)    Player: +(3+GrafLvl) melee dmg. Risk: adjacent enemies +3 dmg back. 8 charges.
+  15 Rust     (170,75,30)     Enemy on tile: -1 defense/turn (stacks to -10, floor_duration). Player immune.
+
+KEY DESIGN PATTERNS:
+  - Crimson = vampiric healing (inline in melee hit path; no new Effect)
+  - Copper = energy-system manipulation (added in energy distribution phase; no new Effect)
+  - Cobalt = spell build tile (tile_spell_damage_bonus PlayerStats field + refund extends Blue check)
+  - Violet = explicit risk/reward (player +dmg, adjacent enemies +3 back; 8 charges only)
+  - Rust = stacking armor erosion (new RustedEffect: floor_duration=True, stacks field, max 10)
+
+NEW EFFECT:
+  RustedEffect (id="rusted", floor_duration=True, stacks max 10)
+  — pure defense-reduction holder; read in combat.py effective_defense calc
+
+NEW PLAYERSTATS FIELDS:
+  tile_spell_damage_bonus: int = 0  (cobalt; reset on step-off)
+  tile_melee_damage_bonus: int = 0  (violet; optional, can be inline instead)
+
+FILES TO TOUCH:
+  items.py (5 new ITEM_DEFS + _spray_descs entries)
+  render.py (5 new elif branches x2: visible + explored bg color blocks)
+  engine.py (_update_tile_stat_bonuses for cobalt/violet; per-tick rust loop;
+             energy distribution for copper; ability refund for cobalt;
+             _SPRAY_TABLE updated to 14 paints)
+  combat.py (violet player damage bonus; crimson heal after hit;
+             violet enemy +3 adjacency check; rust defense reduction)
+  effects.py (RustedEffect class)
+  stats.py (2 new PlayerStats fields)
+
+CHARGES:
+  10: crimson, copper, cobalt, rust | 8: violet
+
+VALUES:
+  crimson=45, copper=40, cobalt=45, violet=50, rust=35
+
+ZONES:
+  All 5: crack_den + meth_lab (all are usable in both zones)
+
+COMBO SYNERGIES DOCUMENTED:
+  Crimson+Violet (sequential tank/burst), Copper+Silver (entry-CC + speed),
+  Cobalt+Red (caster kill zone), Rust+Orange+Lime (Meth Lab triple gauntlet),
+  Violet+Stabbing (crit multiplier on bonus damage)
+
+POWER TIERS:
+  Tier 1: Rust, Violet | Tier 2: Copper, Crimson | Tier 3 (build-gated): Cobalt
+
+_SPRAY_TABLE: 14 paints total (all 15 minus Rad which gets lower weight
+  due to Meth Lab exclusivity and self-damage risk for unprepared players).

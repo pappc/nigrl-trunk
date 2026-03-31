@@ -127,6 +127,12 @@ FOOD_MUNCHING_XP = {
     "leftovers": 25,         # Proc'd from Better Later perk
     "protein_powder": 80,    # Floor-duration stat doubling buff
     "muffin": 80,            # Floor-duration charge preservation buff
+    "jolly_rancher": 70,     # Phase walk through walls
+    "yellowcake": 120,       # +100 rad, 10x mutation chance, no weak mutations
+    "holy_wafer": 100,       # +5 Divine Shield stacks
+    "mirror_cake": 70,       # +3 Mirror Entity charges
+    "hard_boiled_egg": 100,  # Death save: revive at half HP
+    "carrot_cake": 70,       # Unlimited FOV for floor
     "jell_o": 100,           # Meth Lab: mirror entity charges
     "meatball_sub": 100,     # Meth Lab: fire meatball charges
     "heinz_baked_beans": 100, # Meth Lab: gas attack charges
@@ -207,13 +213,11 @@ STRAIN_TABLES = {
         ( 1,   9, {"type": "damage_percent",  "amount": 0.1},  None),
     ],
     "Dosidos": [
-        (87, 100, {"type": "dosidos_dimension_door"},                   {"type": "dosidos_bksmt_buff", "amount": 10}),
-        (79,  86, {"type": "dosidos_chain_lightning", "total_hits": 4}, {"type": "dosidos_bksmt_buff", "amount":  9}),
-        (60,  78, {"type": "dosidos_chain_lightning", "total_hits": 2}, {"type": "dosidos_bksmt_buff", "amount":  8}),
-        (45,  59, {"type": "dosidos_ray_of_frost",    "count": 3},      {"type": "dosidos_bksmt_buff", "amount":  7}),
-        (35,  44, {"type": "dosidos_warp"},                              {"type": "dosidos_bksmt_buff", "amount":  5}),
-        (20,  34, {"type": "dosidos_firebolt",        "count": 2},      {"type": "dosidos_bksmt_buff", "amount":  4}),
-        ( 1,  19, {"type": "dosidos_arcane_missile",  "count": 3},      {"type": "dosidos_bksmt_buff", "amount":  2}),
+        (85, 100, {"type": "dosidos_dimension_door", "min_count": 1, "max_count": 2}, {"type": "dosidos_bksmt_buff", "amount": 10}),
+        (72,  84, {"type": "dosidos_chain_lightning", "min_count": 2, "max_count": 5}, {"type": "dosidos_bksmt_buff", "amount":  8}),
+        (50,  71, {"type": "dosidos_ray_of_frost",    "min_count": 3, "max_count": 5}, {"type": "dosidos_bksmt_buff", "amount":  6}),
+        (22,  49, {"type": "dosidos_warp",            "min_count": 2, "max_count": 3}, {"type": "dosidos_bksmt_buff", "amount":  4}),
+        ( 1,  21, {"type": "dosidos_warp",            "min_count": 1, "max_count": 1}, {"type": "dosidos_bksmt_buff", "amount":  2}),
     ],
     "Iron Lung": [
         (95, 100, {"type": "iron_lung_full"},       None),  # Remove all tox; heal tox+CON*2 (floor 20), excess→armor; +tox/20 DEF (50t)
@@ -505,53 +509,37 @@ _ADVANCED_RINGS = _build_advanced_rings()
 #   get_random_chain(zone)  — three independent weighted picks using the zone config.
 # ---------------------------------------------------------------------------
 
-_CHAIN_BASE_ARMOR = 15
-
 # Master attribute tables — single source of truth.
-# Change armor_mod for a material here to affect every chain using that material.
+# Material sets base armor; brand applies a multiplier.
 _CHAIN_MATERIALS = {
-    "Bronze": {"armor_mod": -5,  "color": (205, 127,  50)},
-    "Brass":  {"armor_mod": -1,  "color": (181, 166,  66)},
-    "Steel":  {"armor_mod":  2,  "color": (160, 174, 192)},
-    "Silver": {"armor_mod": 10,  "color": (192, 192, 192)},
+    "Bronze": {"base_armor": 20, "color": (205, 127,  50)},
+    "Steel":  {"base_armor": 25, "color": (160, 174, 192)},
+    "Silver": {"base_armor": 30, "color": (192, 192, 192)},
+    "Gold":   {"base_armor": 35, "color": (255, 215,   0)},
 }
 
-# None key = no brand label in the name.
+# Brand multiplier applied to base armor. None = no brand label in name.
 _CHAIN_BRANDS = {
-    None:       {"multiplier": 1.0},
-    "Fake":     {"multiplier": 0.6},
-    "Designer": {"multiplier": 1.6},
-}
-
-# None key = no style label in the name.
-_CHAIN_STYLES = {
-    None:       {"multiplier": 1.0},
-    "Bummy":    {"multiplier": 0.5},
-    "Ghetto":   {"multiplier": 0.75},
-    "Raw":      {"multiplier": 1.35},
-    "Iced-Out": {"multiplier": 2.0},
+    "Fake":     {"multiplier": 1.0},
+    None:       {"multiplier": 1.5},
+    "Designer": {"multiplier": 2.0},
 }
 
 # Per-zone spawn weight configs.  Each axis is weighted independently.
-# To add a new zone: add a new key with its own weight dicts.
-# To change a zone's rates: edit only that zone's entry.
 CHAIN_ZONE_CONFIGS = {
     "crack_den": {
-        "material_weights": {"Bronze": 1, "Brass": 3, "Steel": 5, "Silver": 2},
-        "brand_weights":    {None: 10, "Fake": 3, "Designer": 2},
-        "style_weights":    {None: 10, "Bummy": 1, "Ghetto": 4, "Raw": 4, "Iced-Out": 1},
+        "material_weights": {"Bronze": 4, "Steel": 3, "Silver": 2, "Gold": 1},
+        "brand_weights":    {"Fake": 4, None: 3, "Designer": 1},
     },
     # ── FUTURE ZONES ─────────────────────────────────────────────────────────
     # NOTE: meth_lab uses its own 4-axis chain system — see _METH_CHAIN_* tables.
     "casino_botanical": {
-        "material_weights": {"Bronze": 1, "Brass": 2, "Steel": 4, "Silver": 4},
-        "brand_weights":    {None: 6, "Fake": 2, "Designer": 5},
-        "style_weights":    {None: 6, "Bummy": 1, "Ghetto": 2, "Raw": 4, "Iced-Out": 4},
+        "material_weights": {"Bronze": 1, "Steel": 3, "Silver": 3, "Gold": 3},
+        "brand_weights":    {"Fake": 2, None: 3, "Designer": 3},
     },
     "the_underprison": {
-        "material_weights": {"Bronze": 4, "Brass": 4, "Steel": 2, "Silver": 1},
-        "brand_weights":    {None: 12, "Fake": 5, "Designer": 1},
-        "style_weights":    {None: 12, "Bummy": 5, "Ghetto": 5, "Raw": 3, "Iced-Out": 1},
+        "material_weights": {"Bronze": 4, "Steel": 3, "Silver": 2, "Gold": 1},
+        "brand_weights":    {"Fake": 5, None: 3, "Designer": 1},
     },
 }
 
@@ -563,54 +551,51 @@ def _chain_key(name):
     return name.lower().replace("-", "_").replace(" ", "_")
 
 
-def _chain_item_id(material, brand, style):
-    return f"chain_{_chain_key(material)}_{_chain_key(brand)}_{_chain_key(style)}"
+def _chain_item_id(material, brand):
+    return f"chain_{_chain_key(material)}_{_chain_key(brand)}"
 
 
-def _chain_display_name(material, brand, style):
-    """Format: (Material) (Style) (Brand) Chain — omit None parts."""
-    parts = [material]
-    if style is not None:
-        parts.append(style)
+def _chain_display_name(material, brand):
+    """Format: (Brand) (Material) Chain — omit None brand."""
+    parts = []
     if brand is not None:
         parts.append(brand)
+    parts.append(material)
     parts.append("Chain")
     return " ".join(parts)
 
 
-def _chain_armor(material, brand, style):
-    """Compute clamped armor value from master tables."""
-    armor_mod    = _CHAIN_MATERIALS[material]["armor_mod"]
-    brand_multi  = _CHAIN_BRANDS[brand]["multiplier"]
-    style_multi  = _CHAIN_STYLES[style]["multiplier"]
-    return max(10, min(60, _math.ceil((_CHAIN_BASE_ARMOR + armor_mod) * brand_multi * style_multi)))
+def _chain_armor(material, brand):
+    """Compute armor value: base_armor * brand_multiplier."""
+    base = _CHAIN_MATERIALS[material]["base_armor"]
+    multi = _CHAIN_BRANDS[brand]["multiplier"]
+    return _math.ceil(base * multi)
 
 
 def _build_chains():
-    """Generate every (material × brand × style) combination from the master tables."""
+    """Generate every (material × brand) combination from the master tables."""
     chains = {}
     for material, mat_data in _CHAIN_MATERIALS.items():
         for brand in _CHAIN_BRANDS:
-            for style in _CHAIN_STYLES:
-                item_id = _chain_item_id(material, brand, style)
-                armor = _chain_armor(material, brand, style)
-                chains[item_id] = {
-                    "name":          _chain_display_name(material, brand, style),
-                    "char":          '"',
-                    "color":         mat_data["color"],
-                    "category":      "equipment",
-                    "subcategory":   "neck",
-                    "equip_slot":    "neck",
-                    "power_bonus":   0,
-                    "defense_bonus": 0,
-                    "armor_bonus":   armor,
-                    "value":         round(50 + (armor - 10) * 3),
-                    "stat_bonus":    {},
-                    "tags":          ["chain"],
-                    "zones":         ["crack_den"],
-                    "use_verb":      None,
-                    "use_effect":    None,
-                }
+            item_id = _chain_item_id(material, brand)
+            armor = _chain_armor(material, brand)
+            chains[item_id] = {
+                "name":          _chain_display_name(material, brand),
+                "char":          '"',
+                "color":         mat_data["color"],
+                "category":      "equipment",
+                "subcategory":   "neck",
+                "equip_slot":    "neck",
+                "power_bonus":   0,
+                "defense_bonus": 0,
+                "armor_bonus":   armor,
+                "value":         round(50 + (armor - 10) * 3),
+                "stat_bonus":    {},
+                "tags":          ["chain"],
+                "zones":         ["crack_den"],
+                "use_verb":      None,
+                "use_effect":    None,
+            }
     return chains
 
 _CHAINS = _build_chains()
@@ -758,22 +743,22 @@ def get_random_meth_chain(zone="meth_lab"):
 # ---------------------------------------------------------------------------
 # Scuffed Jordans definitions
 #
-# Each pair rolls 1–15 for armor and gets +1 to one of 6 stats.
-# 90 total combinations (6 stats × 15 armor values), pre-generated at import.
-# Item IDs: "jordans_{stat_key}_{armor}" e.g. "jordans_constitution_7"
-# Names include stat and armor so the player can distinguish pairs in inventory.
+# Each pair gets +3 to one of 6 stats and either 10 or 15 armor.
+# 12 total combinations (6 stats × 2 armor tiers), pre-generated at import.
+# Item IDs: "jordans_{stat_key}_{armor}" e.g. "jordans_constitution_10"
+# Stats and armor only visible in the examine tooltip, not the item name.
 # ---------------------------------------------------------------------------
 
 def _build_jordans():
-    """Generate all 90 Scuffed Jordans item definitions (6 stats × armor 1–15)."""
+    """Generate all 12 Scuffed Jordans item definitions (6 stats × 2 armor tiers)."""
     jordans = {}
     for stat_attr, id_key, label, (r, g, b) in _RING_STAT_DEFS:
-        for armor in range(1, 16):
+        for armor in (10, 15):
             item_id = f"jordans_{id_key}_{armor}"
             # Slightly worn/scuffed color: darken the stat color
             color = (max(0, r - 40), max(0, g - 40), max(0, b - 40))
             jordans[item_id] = {
-                "name":          f"Scuffed Jordans (+1 {label}, {armor}AR)",
+                "name":          "Scuffed Jordans",
                 "char":          "s",
                 "color":         color,
                 "category":      "equipment",
@@ -782,8 +767,8 @@ def _build_jordans():
                 "power_bonus":   0,
                 "defense_bonus": 0,
                 "armor_bonus":   armor,
-                "value":         round(15 + (armor - 1) * (60 / 14)),
-                "stat_bonus":    {stat_attr: 1},
+                "value":         45 if armor == 10 else 75,
+                "stat_bonus":    {stat_attr: 3},
                 "tags":          ["jordans"],
                 "zones":         ["crack_den", "meth_lab"],
                 "use_verb":      None,
@@ -929,6 +914,47 @@ def _build_hats():
 
 _HATS = _build_hats()
 
+# Suffix-less hats — Tyrone's Penthouse exclusives
+_HATS["hat_tinfoil_hat_ripped_plain"] = {
+    "name":          "Ripped Tinfoil Hat",
+    "char":          "^",
+    "color":         (180, 185, 195),
+    "category":      "equipment",
+    "subcategory":   "hat",
+    "equip_slot":    "hat",
+    "power_bonus":   0,
+    "defense_bonus": 0,
+    "armor_bonus":   0,
+    "stat_bonus":    {},
+    "rad_resistance": -50,
+    "tox_resistance": -50,
+    "tags":          ["hat"],
+    "zones":         [],
+    "value":         100,
+    "use_verb":      None,
+    "use_effect":    None,
+}
+
+_HATS["hat_tinfoil_hat_excellent_plain"] = {
+    "name":          "Excellent Tinfoil Hat",
+    "char":          "^",
+    "color":         (180, 185, 195),
+    "category":      "equipment",
+    "subcategory":   "hat",
+    "equip_slot":    "hat",
+    "power_bonus":   0,
+    "defense_bonus": 0,
+    "armor_bonus":   0,
+    "stat_bonus":    {},
+    "rad_resistance": 50,
+    "tox_resistance": 50,
+    "tags":          ["hat"],
+    "zones":         [],
+    "value":         300,
+    "use_verb":      None,
+    "use_effect":    None,
+}
+
 
 def get_random_hat(zone="crack_den"):
     """Return a random hat item_id using per-axis weighted selection for the given zone."""
@@ -948,8 +974,7 @@ def get_random_hat(zone="crack_den"):
 def get_random_chain(zone="crack_den"):
     """Return a random chain item_id using per-axis weighted selection for the given zone.
 
-    Each axis (material, brand, style) is picked independently from its weight table,
-    so changing one material's weight never affects other axes.
+    Each axis (material, brand) is picked independently from its weight table.
     Meth lab zone uses its own 4-axis chain system.
     """
     if zone in METH_CHAIN_ZONE_CONFIGS:
@@ -964,8 +989,7 @@ def get_random_chain(zone="crack_den"):
 
     material = _wpick(config["material_weights"])
     brand    = _wpick(config["brand_weights"])
-    style    = _wpick(config["style_weights"])
-    return _chain_item_id(material, brand, style)
+    return _chain_item_id(material, brand)
 
 
 ITEM_DEFS = {
@@ -1147,7 +1171,8 @@ ITEM_DEFS = {
         "str_req": 5,
         "reach": 1,
         "weapon_type": "beating",
-        "break_chance": 0.075,
+        "break_hits": 3,
+        "break_final_mult": 5,
         "value": 60,
         "zones": ["crack_den"],
         "use_verb": None,
@@ -1251,6 +1276,54 @@ ITEM_DEFS = {
         "stat_scaling": {"type": "swagger_linear", "divisor": 2},  # +1 per 2 SWAGGER
         "on_hit_bounce": {"chance": 0.25, "damage_pct": 0.50},     # 25% chance to arc to nearest adj enemy
         "value": 42,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "rusty_machete": {
+        "name": "Rusty Machete",
+        "char": "/",
+        "color": (180, 100, 50),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 10,
+        "str_req": 10,
+        "reach": 1,
+        "weapon_type": "slashing",
+        "dual_stat_scaling": {
+            "stats": [
+                {"stat": "strength", "threshold": 10},
+                {"stat": "street_smarts", "threshold": 10},
+            ],
+            "divisor": 4,
+        },
+        "on_hit_tetanus_chance": 0.30,
+        "value": 80,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "homemade_whip": {
+        "name": "Homemade Whip",
+        "char": "/",
+        "color": (140, 90, 50),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 12,
+        "str_req": 10,
+        "reach": 2,
+        "weapon_type": "slashing",
+        "dual_stat_scaling": {
+            "stats": [{"stat": "street_smarts", "threshold": 10}],
+            "divisor": 2,
+        },
+        "value": 90,
         "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
@@ -1621,6 +1694,7 @@ ITEM_DEFS = {
         "primary_skill": "Rolling",
         "zones": ["crack_den"],
         "tool_charges": 20,
+        "tool_charges_min": 5,
         "use_verb": None,
         "use_effect": None,
     },
@@ -1680,6 +1754,594 @@ ITEM_DEFS = {
         "use_verb": "Spray",
         "use_effect": {"type": "spray_paint", "spray_type": "green"},
     },
+    "orange_spray_paint": {
+        "name": "Orange Spray Paint",
+        "char": "!",
+        "color": (255, 160, 40),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 40,
+        "tool_charges": 10,
+        "use_verb": "Spray",
+        "use_effect": {"type": "spray_paint", "spray_type": "orange"},
+    },
+    "silver_spray_paint": {
+        "name": "Silver Spray Paint",
+        "char": "!",
+        "color": (200, 200, 210),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 40,
+        "tool_charges": 10,
+        "use_verb": "Spray",
+        "use_effect": {"type": "spray_paint", "spray_type": "silver"},
+    },
+    "graffiti_gun": {
+        "name": "Graffiti Gun",
+        "char": "G",
+        "color": (180, 180, 180),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 75,
+        "tool_charges": None,
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "ag_sword": {
+        "name": "AG Sword",
+        "char": chr(0xE006),
+        "color": (255, 215, 0),
+        "color_pulse": [(180, 150, 0), (255, 230, 50)],
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 15,
+        "str_req": 15,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},
+        "weapon_type": "slashing",
+        "value": 400,
+        "tags": ["ag_sword", "spec_weapon", "unique"],
+        "name_alternating": [(255, 215, 0), (200, 170, 0)],
+        "grants_ability": "ags_charge",
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "really_old_maul": {
+        "name": "Really Old Maul",
+        "char": chr(0xE010),
+        "color": (255, 140, 40),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 15,
+        "str_req": 14,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},
+        "weapon_type": "beating",
+        "value": 300,
+        "tags": ["really_old_maul", "spec_weapon", "unique"],
+        "name_alternating": [(255, 140, 40), (40, 40, 40)],
+        "grants_ability": "polarize",
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "dragon_dagger": {
+        "name": "Dragon Dagger",
+        "char": "/",
+        "color": (220, 80, 80),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 10,
+        "str_req": 8,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},
+        "weapon_type": "stabbing",
+        "value": 250,
+        "tags": ["dragon_dagger", "spec_weapon", "unique"],
+        "name_gradient": [(180, 40, 40), (255, 140, 60)],
+        "grants_ability": "ddd_puncture",
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "yinyang_ichimonji": {
+        "name": "Yinyang Ichimonji",
+        "char": chr(0xE006),
+        "color": (200, 200, 200),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 8,
+        "str_req": 10,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},
+        "weapon_type": "slashing",
+        "value": 200,
+        "tags": ["ramp_damage", "unique"],
+        "name_gradient": [(30, 30, 30), (255, 255, 255)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "sleeper_agent": {
+        "name": "Sleeper Agent",
+        "char": chr(0xE007),
+        "color": (140, 170, 140),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 8,
+        "str_req": 6,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 3},
+        "weapon_type": "stabbing",
+        "value": 200,
+        "tags": ["sleeper_agent", "unique"],
+        "name_alternating": [(100, 255, 100), (180, 80, 255)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "rune_scraper": {
+        "name": "Rune Scraper",
+        "char": chr(0xE007),
+        "color": (160, 60, 220),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 15,
+        "bks_req": 10,
+        "reach": 1,
+        "bks_scaling": {"divisor": 2},
+        "weapon_type": "stabbing",
+        "value": 250,
+        "tags": ["rune_scraper", "unique"],
+        "name_gradient": [(160, 60, 220), (30, 10, 40)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "whirlwind_axe": {
+        "name": "Whirlwind Axe",
+        "char": chr(0xE00E),
+        "color": (200, 80, 80),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 15,
+        "str_req": 14,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},
+        "weapon_type": "slashing",
+        "value": 250,
+        "tags": ["whirlwind_axe", "unique"],
+        "name_gradient": [(220, 60, 60), (140, 140, 140)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "massive_blunt": {
+        "name": "Massive Blunt",
+        "char": chr(0xE008),
+        "color": (80, 200, 60),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 12,
+        "str_req": 12,
+        "tol_req": 12,
+        "reach": 1,
+        "str_scaling": {"type": "none"},
+        "tol_scaling": {"divisor": 2},
+        "weapon_type": "beating",
+        "value": 250,
+        "tags": ["massive_blunt", "unique"],
+        "name_gradient": [(139, 90, 43), (50, 255, 50)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "double_edged_sword": {
+        "name": "Double Edged Sword",
+        "char": chr(0xE006),
+        "color": (180, 180, 180),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 20,
+        "str_req": 10,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},
+        "weapon_type": "slashing",
+        "value": 120,
+        "tags": ["double_edged"],
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "mithril_axe": {
+        "name": "Mithril Axe",
+        "char": "/",
+        "color": (160, 200, 230),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 8,
+        "str_req": 8,
+        "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above 8
+        "weapon_type": "slashing",
+        "skill_scaling": {"skill": "Slashing", "bonus_per_level": 2},  # +2 dmg per Slashing level
+        "value": 100,
+        "zones": ["crack_den"],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "staff_of_fire": {
+        "name": "Staff of Fire",
+        "char": "/",
+        "color": (255, 100, 30),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 10,
+        "stat_reqs": {"book_smarts": 12},
+        "reach": 1,
+        "weapon_type": "beating",
+        "staff_element": "fire",
+        "staff_charges": 5,
+        "value": 150,
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "staff_of_lightning": {
+        "name": "Staff of Lightning",
+        "char": "/",
+        "color": (255, 255, 80),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 10,
+        "stat_reqs": {"book_smarts": 12},
+        "reach": 1,
+        "weapon_type": "beating",
+        "staff_element": "lightning",
+        "staff_charges": 5,
+        "value": 150,
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "staff_of_ice": {
+        "name": "Staff of Ice",
+        "char": "/",
+        "color": (100, 200, 255),
+        "category": "equipment",
+        "subcategory": "weapon",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "base_damage": 10,
+        "stat_reqs": {"book_smarts": 12},
+        "reach": 1,
+        "weapon_type": "beating",
+        "staff_element": "cold",
+        "staff_charges": 5,
+        "value": 150,
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "rosary": {
+        "name": "Rosary",
+        "char": chr(0xE005),
+        "color": (212, 175, 55),
+        "category": "equipment",
+        "subcategory": "neck",
+        "equip_slot": "neck",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 10,
+        "stat_bonus": {},
+        "tags": ["rosary"],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "amulet_of_equivalent_exchange": {
+        "name": "Amulet of Equivalent Exchange",
+        "char": chr(0xE009),
+        "color": (160, 120, 200),
+        "category": "equipment",
+        "subcategory": "neck",
+        "equip_slot": "neck",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 20,
+        "stat_bonus": {},
+        "tags": ["amulet_ee", "unique"],
+        "name_gradient": [(160, 160, 160), (160, 50, 220), (160, 160, 160)],
+        "grants_abilities": ["soul_cleanse", "soul_mend", "soul_empower"],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "cuban_link": {
+        "name": "Cuban Link",
+        "char": "#",
+        "color": (255, 220, 50),
+        "category": "equipment",
+        "subcategory": "neck",
+        "equip_slot": "neck",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 50,
+        "stat_bonus": {},
+        "reach_bonus": 1,
+        "tags": ["cuban_link", "unique"],
+        "name_alternating": [(255, 255, 80), (160, 120, 40), (212, 175, 55)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "nine_ring": {
+        "name": "The 9 Ring",
+        "char": chr(0xE00A),
+        "color": (255, 220, 50),
+        "category": "equipment",
+        "subcategory": "ring",
+        "equip_slot": "ring",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "stat_bonus": {
+            "constitution": 5,
+            "strength": 5,
+            "book_smarts": 5,
+            "street_smarts": 5,
+            "tolerance": 5,
+            "swagger": 5,
+        },
+        "tags": ["nine_ring", "unique"],
+        "name_gradient": [(180, 150, 0), (255, 255, 80)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "berserkers_ring": {
+        "name": "Berserker's Ring",
+        "char": chr(0xE00A),
+        "color": (200, 200, 210),
+        "category": "equipment",
+        "subcategory": "ring",
+        "equip_slot": "ring",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "stat_bonus": {"strength": 4},
+        "tags": ["berserkers_ring", "unique"],
+        "name_gradient": [(200, 200, 210), (255, 215, 0), (200, 200, 210)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "boots_of_blinding_speed": {
+        "name": "Boots of Blinding Speed",
+        "char": chr(0xE00B),
+        "color": (100, 200, 255),
+        "category": "equipment",
+        "subcategory": "feet",
+        "equip_slot": "feet",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 0,
+        "stat_bonus": {},
+        "energy_per_tick": 50,
+        "fov_penalty": 2,
+        "tags": ["blinding_speed", "unique"],
+        "name_gradient": [(80, 180, 255), (200, 240, 255), (255, 255, 255)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "boots_of_springing": {
+        "name": "Boots of Springing",
+        "char": chr(0xE00B),
+        "color": (160, 120, 70),
+        "category": "equipment",
+        "subcategory": "feet",
+        "equip_slot": "feet",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 0,
+        "stat_bonus": {},
+        "energy_per_tick": 20,
+        "fov_penalty": 0,
+        "tags": ["springing_boots", "unique"],
+        "name_gradient": [(160, 120, 70), (60, 40, 20)],
+        "grants_ability": "spring",
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "boots_of_striding": {
+        "name": "Boots of Striding",
+        "char": chr(0xE00B),
+        "color": (120, 80, 40),
+        "category": "equipment",
+        "subcategory": "feet",
+        "equip_slot": "feet",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 0,
+        "stat_bonus": {},
+        "energy_per_tick": 20,
+        "fov_penalty": 0,
+        "tags": ["striding_boots", "unique"],
+        "name_gradient": [(60, 40, 20), (160, 120, 70)],
+        "grants_ability": "stride",
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "titans_blood_ring": {
+        "name": "Titan's Blood Ring",
+        "char": chr(0xE00A),
+        "color": (200, 30, 30),
+        "category": "equipment",
+        "subcategory": "ring",
+        "equip_slot": "ring",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "stat_bonus": {},
+        "tags": ["titan_blood", "unique"],
+        "name_gradient": [(30, 10, 10), (200, 30, 30), (30, 10, 10)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "ring_of_intimidation": {
+        "name": "Ring of Intimidation",
+        "char": "o",
+        "color": (200, 50, 50),
+        "category": "equipment",
+        "subcategory": "ring",
+        "equip_slot": "ring",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "stat_bonus": {},
+        "tags": ["intimidation_ring", "unique"],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "ring_of_sustenance": {
+        "name": "Ring of Sustenance",
+        "char": chr(0xE00A),
+        "color": (240, 160, 40),
+        "category": "equipment",
+        "subcategory": "ring",
+        "equip_slot": "ring",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "stat_bonus": {},
+        "tags": ["sustenance_ring", "unique"],
+        "name_gradient": [(240, 130, 30), (255, 240, 80)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "brainstorming_cap": {
+        "name": "Brainstorming Cap",
+        "char": chr(0xE00D),
+        "color": (40, 60, 180),
+        "category": "equipment",
+        "subcategory": "hat",
+        "equip_slot": "hat",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 0,
+        "stat_bonus": {"book_smarts": 5},
+        "tags": ["brainstorming_cap", "unique"],
+        "name_gradient": [(30, 40, 160), (220, 230, 255)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "thinking_cap": {
+        "name": "Thinking Cap",
+        "char": chr(0xE00D),
+        "color": (40, 60, 180),
+        "category": "equipment",
+        "subcategory": "hat",
+        "equip_slot": "hat",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 0,
+        "stat_bonus": {"book_smarts": 5},
+        "tags": ["thinking_cap", "unique"],
+        "name_gradient": [(30, 40, 160), (220, 230, 255)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "flagellants_mask": {
+        "name": "Flagellant's Mask",
+        "char": chr(0xE00D),
+        "color": (180, 50, 50),
+        "category": "equipment",
+        "subcategory": "hat",
+        "equip_slot": "hat",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 0,
+        "stat_bonus": {},
+        "tags": ["flagellant", "unique"],
+        "name_gradient": [(180, 50, 50), (80, 20, 20)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
+    "straw_hat": {
+        "name": "Straw Hat",
+        "char": chr(0xE00D),
+        "color": (200, 180, 80),
+        "category": "equipment",
+        "subcategory": "hat",
+        "equip_slot": "hat",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "armor_bonus": 20,
+        "stat_bonus": {
+            "constitution": 2,
+            "strength": 2,
+            "book_smarts": 2,
+            "street_smarts": 2,
+            "tolerance": 2,
+            "swagger": 2,
+        },
+        "tags": ["straw_hat", "unique"],
+        "name_gradient": [(30, 30, 30), (220, 200, 80)],
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
     "voodoo_doll": {
         "name": "Voodoo Doll",
         "char": "d",
@@ -1692,8 +2354,7 @@ ITEM_DEFS = {
         "value": 20,
         "use_verb": "Use",
         "use_effect": {
-            "type": "message",
-            "text": "You stick a pin in the {name}... dark energy flows through you.",
+            "type": "voodoo_detonate",
             "skill_xp": {"Blackkk Magic": 100},
         },
     },
@@ -1769,7 +2430,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "value": 50,
-        "skill": None,
+        "skill": "Smacking",
         "zones": ["crack_den"],
         "use_verb": "Drink",
         "use_effect": {"type": "alcohol", "drink_id": "40oz"},
@@ -1784,10 +2445,101 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "value": 50,
-        "skill": "Smartsness",
+        "skill": "Pyromania",
         "zones": ["crack_den"],
         "use_verb": "Drink",
         "use_effect": {"type": "alcohol", "drink_id": "fireball_shooter"},
+    },
+    "limoncello": {
+        "name": "Limoncello",
+        "char": "!",
+        "color": (255, 240, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 60,
+        "skill": "Electrodynamics",
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "limoncello"},
+    },
+    "blue_lagoon": {
+        "name": "Blue Lagoon",
+        "char": "!",
+        "color": (100, 200, 255),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 50,
+        "skill": "Cryomancy",
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "blue_lagoon"},
+    },
+    "natty_light": {
+        "name": "Natty Light",
+        "char": "!",
+        "color": (180, 200, 230),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "skill": "Drinking",
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "natty_light"},
+        "spawn_quantity": 6,
+    },
+    "jagermeister": {
+        "name": "Jagermeister",
+        "char": "!",
+        "color": (60, 80, 40),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 60,
+        "skill": "Smacking",
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "jagermeister"},
+    },
+    "butterbeer": {
+        "name": "Butterbeer",
+        "char": "!",
+        "color": (230, 190, 100),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 60,
+        "skill": "Drinking",
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "butterbeer"},
+    },
+    "absinthe": {
+        "name": "Absinthe",
+        "char": "!",
+        "color": (100, 220, 100),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 60,
+        "skill": "Drinking",
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "absinthe"},
     },
     "malt_liquor": {
         "name": "Malt Liquor",
@@ -1799,7 +2551,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "value": 50,
-        "skill": None,
+        "skill": ["Beating", "Slashing", "Stabbing"],
         "zones": ["crack_den"],
         "use_verb": "Drink",
         "use_effect": {"type": "alcohol", "drink_id": "malt_liquor"},
@@ -1844,7 +2596,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "value": 50,
-        "skill": None,
+        "skill": "L Farming",
         "zones": ["crack_den"],
         "use_verb": "Drink",
         "use_effect": {"type": "alcohol", "drink_id": "steel_reserve"},
@@ -1858,7 +2610,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 75,
+        "value": 60,
         "skill": "Meth-Head",
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1935,7 +2687,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "value": 75,
-        "skill": "Glow Up",
+        "skill": "Decontamination",
         "zones": ["meth_lab"],
         "use_verb": "Drink",
         "use_effect": {"type": "alcohol", "drink_id": "platinum_reserve"},
@@ -1970,6 +2722,68 @@ ITEM_DEFS = {
         "use_verb": "Drink",
         "use_effect": {"type": "alcohol", "drink_id": "alco_seltzer"},
     },
+    "rainbow_rotgut": {
+        "name": "Rainbow Rotgut",
+        "char": "!",
+        "color": (255, 100, 200),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 60,
+        "skill": ["Cryomancy", "Electrodynamics", "Pyromania"],
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "rainbow_rotgut"},
+    },
+    "root_beer": {
+        "name": '"Root" Beer',
+        "char": "!",
+        "color": (140, 80, 40),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 60,
+        "skill": ["Slashing", "Stabbing", "Beating"],
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "root_beer"},
+    },
+    "sangria_40": {
+        "name": "Sangria 40",
+        "char": "!",
+        "color": (160, 30, 60),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 75,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "alcohol", "drink_id": "sangria_40"},
+    },
+    "midas_brew": {
+        "name": "Midas' Brew",
+        "char": "!",
+        "color": (212, 175, 55),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 125,
+        "weight": 2,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "name_gradient": [(212, 175, 55), (255, 255, 100)],
+        "use_effect": {"type": "midas_brew", "consumed": False},
+    },
     # Nonalcoholic drinks (Dranks) — no skill weighting
     "purple_drank": {
         "name": "Purple Drank",
@@ -1980,7 +2794,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 25,
+        "value": 100,
         "skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -1995,7 +2809,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 25,
+        "value": 100,
         "skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -2010,7 +2824,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 25,
+        "value": 100,
         "skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -2025,7 +2839,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 25,
+        "value": 100,
         "skill": None,
         "zones": ["crack_den"],
         "use_verb": "Drink",
@@ -2046,6 +2860,112 @@ ITEM_DEFS = {
         "use_verb": "Drink",
         "use_effect": {"type": "soft_drink", "drink_id": "orange_drank"},
     },
+    # Kool-Aid — rare consumables, permanent +1 to a stat
+    "red_kool_aid": {
+        "name": "Red Kool-Aid",
+        "char": "!",
+        "color": (255, 50, 50),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 125,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "soft_drink", "drink_id": "red_kool_aid"},
+    },
+    "blue_kool_aid": {
+        "name": "Blue Kool-Aid",
+        "char": "!",
+        "color": (60, 130, 255),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 125,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "soft_drink", "drink_id": "blue_kool_aid"},
+    },
+    "purple_kool_aid": {
+        "name": "Purple Kool-Aid",
+        "char": "!",
+        "color": (180, 60, 255),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 125,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "soft_drink", "drink_id": "purple_kool_aid"},
+    },
+    "green_kool_aid": {
+        "name": "Green Kool-Aid",
+        "char": "!",
+        "color": (50, 220, 70),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 125,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "soft_drink", "drink_id": "green_kool_aid"},
+    },
+    "orange_kool_aid": {
+        "name": "Orange Kool-Aid",
+        "char": "!",
+        "color": (255, 165, 30),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 125,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "soft_drink", "drink_id": "orange_kool_aid"},
+    },
+    "yellow_kool_aid": {
+        "name": "Yellow Kool-Aid",
+        "char": "!",
+        "color": (255, 240, 60),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 125,
+        "skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "soft_drink", "drink_id": "yellow_kool_aid"},
+    },
+    "sparkling_water": {
+        "name": "Sparkling Water",
+        "char": "!",
+        "color": (200, 230, 255),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 100,
+        "skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Drink",
+        "use_effect": {"type": "soft_drink", "drink_id": "sparkling_water"},
+    },
     # Meth Lab consumables
     "blue_meth": {
         "name": "Blue Meth",
@@ -2061,6 +2981,67 @@ ITEM_DEFS = {
         "zones": ["meth_lab"],
         "use_verb": "Use",
         "use_effect": {"type": "meth", "amount": 30},
+    },
+    # Meth lab consumables — instant use, not food
+    "altoid": {
+        "name": "Altoid",
+        "char": "%",
+        "color": (200, 240, 240),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "skill": "White Power",
+        "zones": ["meth_lab"],
+        "use_verb": "Use",
+        "use_effect": {"type": "remove_toxicity", "amount": 50},
+    },
+    "asbestos": {
+        "name": "Asbestos",
+        "char": "%",
+        "color": (180, 180, 160),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "skill": "Chemical Warfare",
+        "zones": ["meth_lab"],
+        "use_verb": "Use",
+        "use_effect": {"type": "add_toxicity", "amount": 50},
+    },
+    "rad_away": {
+        "name": "Rad Away",
+        "char": "%",
+        "color": (100, 200, 255),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "skill": "Decontamination",
+        "zones": ["meth_lab"],
+        "use_verb": "Use",
+        "use_effect": {"type": "remove_radiation", "amount": 50},
+    },
+    "radbar": {
+        "name": "RadBar",
+        "char": "%",
+        "color": (100, 220, 50),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 30,
+        "skill": "Nuclear Research",
+        "zones": ["meth_lab"],
+        "use_verb": "Use",
+        "use_effect": {"type": "add_radiation", "amount": 50},
     },
     "chicken": {
         "name": "Chicken",
@@ -2215,6 +3196,108 @@ ITEM_DEFS = {
         "use_verb": "Eat",
         "use_effect": {"type": "food", "food_id": "protein_powder"},
     },
+    "jolly_rancher": {
+        "name": "Jolly Rancher",
+        "char": "f",
+        "color": (255, 100, 200),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 70,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "jolly_rancher"},
+    },
+    "holy_wafer": {
+        "name": "Holy Wafer",
+        "char": "f",
+        "color": (255, 255, 200),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 100,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "holy_wafer"},
+    },
+    "mirror_cake": {
+        "name": "Mirror Cake",
+        "char": "f",
+        "color": (150, 200, 255),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 70,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "mirror_cake"},
+    },
+    "hard_boiled_egg": {
+        "name": "Hard Boiled Egg",
+        "char": "f",
+        "color": (255, 255, 220),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 100,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "hard_boiled_egg"},
+    },
+    "carrot_cake": {
+        "name": "Carrot Cake",
+        "char": "f",
+        "color": (255, 180, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 70,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["crack_den", "meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "carrot_cake"},
+    },
+    "yellowcake": {
+        "name": "Yellowcake",
+        "char": "f",
+        "color": (255, 255, 80),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 120,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "yellowcake"},
+    },
     "jell_o": {
         "name": "Jell-O",
         "char": "f",
@@ -2266,74 +3349,6 @@ ITEM_DEFS = {
         "use_verb": "Eat",
         "use_effect": {"type": "food", "food_id": "heinz_baked_beans"},
     },
-    "altoid": {
-        "name": "Altoid",
-        "char": "f",
-        "color": (200, 240, 240),
-        "category": "consumable",
-        "subcategory": None,
-        "equip_slot": None,
-        "power_bonus": 0,
-        "defense_bonus": 0,
-        "value": 15,
-        "primary_skill": None,
-        "secondary_skill": None,
-        "tertiary_skill": None,
-        "zones": ["meth_lab"],
-        "use_verb": "Eat",
-        "use_effect": {"type": "food", "food_id": "altoid"},
-    },
-    "asbestos": {
-        "name": "Asbestos",
-        "char": "f",
-        "color": (180, 180, 160),
-        "category": "consumable",
-        "subcategory": None,
-        "equip_slot": None,
-        "power_bonus": 0,
-        "defense_bonus": 0,
-        "value": 15,
-        "primary_skill": None,
-        "secondary_skill": None,
-        "tertiary_skill": None,
-        "zones": ["meth_lab"],
-        "use_verb": "Eat",
-        "use_effect": {"type": "food", "food_id": "asbestos"},
-    },
-    "rad_away": {
-        "name": "Rad Away",
-        "char": "f",
-        "color": (100, 200, 255),
-        "category": "consumable",
-        "subcategory": None,
-        "equip_slot": None,
-        "power_bonus": 0,
-        "defense_bonus": 0,
-        "value": 15,
-        "primary_skill": None,
-        "secondary_skill": None,
-        "tertiary_skill": None,
-        "zones": ["meth_lab"],
-        "use_verb": "Eat",
-        "use_effect": {"type": "food", "food_id": "rad_away"},
-    },
-    "radbar": {
-        "name": "RadBar",
-        "char": "f",
-        "color": (100, 220, 50),
-        "category": "consumable",
-        "subcategory": None,
-        "equip_slot": None,
-        "power_bonus": 0,
-        "defense_bonus": 0,
-        "value": 30,
-        "primary_skill": None,
-        "secondary_skill": None,
-        "tertiary_skill": None,
-        "zones": ["meth_lab"],
-        "use_verb": "Eat",
-        "use_effect": {"type": "food", "food_id": "radbar"},
-    },
     "mature_spider_egg": {
         "name": "Mature Spider Egg",
         "char": "o",
@@ -2369,6 +3384,66 @@ ITEM_DEFS = {
         "use_effect": None,
     },
     # --- Guns ----------------------------------------------------------------
+    "decimator": {
+        "name": "Decimator",
+        "char": chr(0xE00C),
+        "color": (255, 120, 40),
+        "category": "equipment",
+        "subcategory": "gun",
+        "equip_slot": "sidearm",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 300,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+        "base_damage": (0, 0),
+        "gun_range": 6,
+        "ammo_type": "heavy",
+        "mag_size": 1,
+        "reload_speed": 0,
+        "gun_class": "small",
+        "reload_per_floor": 1,
+        "tags": ["decimator", "unique"],
+        "name_gradient": [(255, 120, 40), (200, 30, 30)],
+        "firing_modes": {
+            "accurate": {"hit": 100, "energy": 50},
+            "fast":     {"hit": 100, "energy": 50},
+        },
+    },
+    "thunder_gun": {
+        "name": "Thunder Gun",
+        "char": chr(0xE00F),
+        "color": (255, 255, 80),
+        "category": "equipment",
+        "subcategory": "gun",
+        "equip_slot": "weapon",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 350,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+        "base_damage": (1, 30),
+        "gun_range": 6,
+        "ammo_type": "medium",
+        "mag_size": 10,
+        "reload_speed": 100,
+        "gun_class": "medium",
+        "aoe_type": "target",
+        "tags": ["thunder_gun", "unique"],
+        "name_gradient": [(255, 255, 80), (80, 120, 255)],
+        "firing_modes": {
+            "accurate": {"hit": 90, "energy": 90},
+            "fast":     {"hit": 50, "energy": 30},
+        },
+    },
     "ruger_mark_v": {
         "name": "Ruger Mark V",
         "char": ")",
@@ -2763,15 +3838,25 @@ SKILL_VALUE_MULTIPLIERS = {
 }
 
 
-def get_item_value(item_id: str) -> int:
+_METH_LAB_STRAINS = frozenset({
+    "Iron Lung", "Skywalker OG", "Street Scholar",
+    "Kushenheimer", "Nigle Fart", "Purple Halt",
+})
+
+
+def get_item_value(item_id: str, strain: str = None) -> int:
     """Return the base value of an item.
 
     Reads the 'value' field from ITEM_DEFS. Falls back to 10 for unknown items.
+    Joints with meth lab strains are valued higher.
     """
     item_def = ITEM_DEFS.get(item_id)
     if item_def is None:
         return 10
-    return item_def.get("value", 10)
+    base = item_def.get("value", 10)
+    if item_id == "joint" and strain and strain in _METH_LAB_STRAINS:
+        return 100
+    return base
 
 
 def get_skill_xp(item_id: str, skill_name: str) -> int:
@@ -2849,6 +3934,38 @@ RECIPES = {
         "consumed": ["blue_meth"],          # pack_of_cones loses a charge
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Unique item tables
+# ---------------------------------------------------------------------------
+
+UNIQUE_TABLE_A = [
+    "ag_sword",
+    "really_old_maul",
+    "dragon_dagger",
+    "yinyang_ichimonji",
+    "sleeper_agent",
+    "rune_scraper",
+    "whirlwind_axe",
+    "massive_blunt",
+    "amulet_of_equivalent_exchange",
+    "cuban_link",
+    "nine_ring",
+    "berserkers_ring",
+    "boots_of_blinding_speed",
+    "boots_of_springing",
+    "boots_of_striding",
+    "titans_blood_ring",
+    "ring_of_intimidation",
+    "ring_of_sustenance",
+    "brainstorming_cap",
+    "thinking_cap",
+    "flagellants_mask",
+    "straw_hat",
+    "decimator",
+    "thunder_gun",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -2937,6 +4054,8 @@ def build_inventory_display_name(item_id, strain, quantity, prefix=None, charges
     if prefix is not None and charges is not None and max_charges is not None:
         pdef = get_food_prefix_def(prefix)
         adj = pdef["display_adjective"] if pdef else prefix.title()
+        if qty > 1:
+            return f"{qty} {adj} {_pluralize(base_name, item_id)}{strain_part} ({charges}/{max_charges})"
         return f"{adj} {base_name}{strain_part} ({charges}/{max_charges})"
 
     # Tools with limited charges (e.g. Pack of Cones)
@@ -2965,7 +4084,9 @@ _STACKABLE_CATEGORIES = {"material", "consumable", "ammo"}
 def is_stackable(item_id):
     """Return True if this item's category allows stacking (material or consumable)."""
     defn = ITEM_DEFS.get(item_id)
-    return bool(defn and defn.get("category") in _STACKABLE_CATEGORIES)
+    if not defn or defn.get("category") not in _STACKABLE_CATEGORIES:
+        return False
+    return True
 
 
 def find_recipe(item_id_a, item_id_b):
@@ -3023,6 +4144,11 @@ def get_actions(item_id):
 
     if defn.get("throw_verb"):
         actions.append(defn["throw_verb"])
+
+    if item_id == "graffiti_gun":
+        actions.append("Fire")
+        actions.append("Load")
+        actions.append("Unload")
 
     if can_combine(item_id):
         actions.append("Use on...")
@@ -3134,6 +4260,14 @@ def generate_examine_lines(item_id, engine=None):
                 desc = "Special scaling"
             lines.append([("Scaling: ", C_LABEL), (desc, C_INFO)])
 
+        # Skill scaling description
+        sk_scaling = defn.get("skill_scaling")
+        if sk_scaling:
+            sk_name = sk_scaling["skill"]
+            sk_bpl = sk_scaling.get("bonus_per_level", 1)
+            sk_desc = f"+{sk_bpl} per {sk_name} level"
+            lines.append([("Skill Scaling: ", C_LABEL), (sk_desc, C_INFO)])
+
         # Current total damage
         if engine:
             weapon = engine.equipment.get("weapon")
@@ -3176,6 +4310,11 @@ def generate_examine_lines(item_id, engine=None):
                     elif stat_scaling["type"] == "swagger_linear":
                         div = stat_scaling.get("divisor", 2)
                         bonus = getattr(engine.player_stats, "effective_swagger", 0) // div
+                # Skill scaling bonus
+                if sk_scaling:
+                    sk_obj = engine.skills.skills.get(sk_scaling["skill"])
+                    if sk_obj:
+                        bonus += sk_obj.level * sk_scaling.get("bonus_per_level", 1)
                 total = base_dmg + bonus
                 lines.append([("Damage if equipped: ", C_LABEL), (str(total), C_VALUE)])
 
@@ -3342,6 +4481,112 @@ def generate_examine_lines(item_id, engine=None):
             if etype == "strain_roll":
                 lines.append([("Smoke to trigger a random strain", C_INFO)])
                 lines.append([("effect (roll 1-100).", C_INFO)])
+                # Strain-specific effect descriptions
+                _strain_descs = {
+                    "OG Kush": [
+                        "Healing strain. Roll 1-100:",
+                        "95+: Full heal. 66+: 50-100 HP.",
+                        "20-39: 20 HP. 10-19: Nothing.",
+                        "1-9: Lose 10% HP.",
+                    ],
+                    "Agent Orange": [
+                        "Cleansing strain. Roll 1-100:",
+                        "90+: Remove all debuffs + Zoned Out.",
+                        "50+: Remove debuffs.",
+                        "11-49: Random DoT debuff.",
+                        "1-10: AO debuff (all DoTs at once).",
+                    ],
+                    "Columbian Gold": [
+                        "Volatile strain. Roll 1-100:",
+                        "99+: Invulnerable (10t).",
+                        "91+: Power buff + self-dmg.",
+                        "31-90: 10-20 flat self-dmg.",
+                        "1-10: Lose 50% HP.",
+                    ],
+                    "Blue Lobster": [
+                        "Chaotic strain. Roll 1-100:",
+                        "Every tier does something random.",
+                        "Effects vary wildly each smoke.",
+                    ],
+                    "Jungle Boyz": [
+                        "Combat strain. Roll 1-100:",
+                        "81+: Glory Fists (+5 STR, 5%/hit perm +1 stat).",
+                        "61+: Lifesteal (8t).",
+                        "41+: Crippling Attacks (10t).",
+                        "21+: Fiery Fists (ignite, 10t).",
+                        "1-20: Self Reflection (10t).",
+                    ],
+                    "Dosidos": [
+                        "Arcane strain. Roll 1-100:",
+                        "85+: Dimension Door charges.",
+                        "72+: Chain Lightning charges.",
+                        "50+: Ray of Frost charges.",
+                        "1-49: Warp charges.",
+                        "Thrown: +BKS buff on monsters.",
+                    ],
+                    "Iron Lung": [
+                        "Tank strain (CON). Roll 1-100:",
+                        "95+: Purge all tox, big heal,",
+                        "  excess HP becomes armor.",
+                        "45+: Remove 50 tox, heal, +DEF.",
+                        "30-44: +50 tox but heal 50 HP.",
+                        "1-29: +100 tox (bad hit).",
+                    ],
+                    "Skywalker OG": [
+                        "Force strain (STR). Roll 1-100:",
+                        "100: Green Lightsaber + Force III.",
+                        "75+: Force III (+30 rad).",
+                        "45+: Force II (+20 rad).",
+                        "26+: Force I (no rad cost).",
+                        "11-25: +40 rad. 1-10: -30 rad.",
+                    ],
+                    "Street Scholar": [
+                        "Gun strain (STS). Roll 1-100:",
+                        "75+: Calc Aim III (auto-reload,",
+                        "  100% acc, +BKS on kill).",
+                        "45+: Calc Aim II (auto-reload).",
+                        "25+: Calc Aim I (+crit mult).",
+                        "11-24: Jam guns. 1-10: Dump ammo.",
+                    ],
+                    "Kushenheimer": [
+                        "Nuclear strain (BKS). Roll 1-100:",
+                        "80+: Rad Nova charges, +12 spell",
+                        "  dmg, +1 perm BKS.",
+                        "60+: +10 spell dmg, +3 charges.",
+                        "40+: +7 spell dmg, +2 charges.",
+                        "1-39: +rad, minor or no buff.",
+                    ],
+                    "Nigle Fart": [
+                        "Toxic strain (TOL). Roll 1-100:",
+                        "80+: +30 tox, spillover aura,",
+                        "  +4 Pandemic, perm TOL chance.",
+                        "40+: +50 tox, aura, +3 Pandemic.",
+                        "20+: +70 tox, +2 Pandemic.",
+                        "1-19: +100 tox, +1 Pandemic.",
+                    ],
+                    "Purple Halt": [
+                        "Mutation strain (SWG). Roll 1-100:",
+                        "90+: Force mutation, NO rad cost.",
+                        "55+: Force mutation, rad consumed.",
+                        "20-54: -15 rad (whiff).",
+                        "1-19: -40 rad, +1 SWG (15t).",
+                    ],
+                    "Snickelfritz": [
+                        "Ditch weed. Don't smoke this.",
+                    ],
+                }
+                # Find the strain from the item entity context
+                strain_key = use_eff.get("strain")
+                if not strain_key and engine:
+                    # Try to get strain from the item being examined
+                    try:
+                        exam_item = engine.player.inventory[engine.selected_item_index]
+                        strain_key = getattr(exam_item, "strain", None)
+                    except (IndexError, AttributeError):
+                        pass
+                if strain_key and strain_key in _strain_descs:
+                    for desc_line in _strain_descs[strain_key]:
+                        lines.append([(desc_line, C_VALUE)])
                 skill = defn.get("primary_skill")
                 if skill:
                     lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
@@ -3350,17 +4595,46 @@ def generate_examine_lines(item_id, engine=None):
                 drink_id = use_eff.get("drink_id", "")
                 _drink_descs = {
                     "40oz": [
-                        "Restores 50% armor.",
+                        "Restores armor to full.",
                         "+5 Swagger for 50 turns.",
                         "+1 hangover stack.",
                     ],
                     "fireball_shooter": [
                         "Grants 3 Breath Fire charges.",
+                        "Fireball Breath (100t): items",
+                        "ignite nearest enemy on use.",
+                        "+1 hangover stack.",
+                    ],
+                    "blue_lagoon": [
+                        "Grants 3 Ice Nova charges.",
+                        "Frozen Breath (100t): items",
+                        "chill nearest enemy on use.",
+                        "+1 hangover stack.",
+                    ],
+                    "natty_light": [
+                        "6-pack. Crack one open.",
+                        "+25 HP per beer.",
+                        "+1 all stats (100t) per beer.",
+                        "1/6 chance of +1 hangover per beer.",
+                    ],
+                    "jagermeister": [
+                        "+2 STR for 15 turns.",
+                        "Each melee hit: +2 more STR",
+                        "for the rest of the buff.",
+                        "+1 hangover stack.",
+                    ],
+                    "butterbeer": [
+                        "+25% Briskness for 100 turns.",
+                        "+1 hangover stack.",
+                    ],
+                    "absinthe": [
+                        "Resets all visible monsters to passive.",
+                        "3-turn grace period (enemies won't re-aggro).",
                         "+2 hangover stacks.",
                     ],
                     "malt_liquor": [
-                        "+8 STR, -2 CON, +20 armor",
-                        "for 50 turns.",
+                        "+8 STR, -2 CON, +20 Temp HP",
+                        "for 50 turns. Stacks.",
                         "+1 hangover stack.",
                     ],
                     "wizard_mind_bomb": [
@@ -3427,6 +4701,18 @@ def generate_examine_lines(item_id, engine=None):
                         "Debuff immunity for 50 turns.",
                         "+1 hangover stack.",
                     ],
+                    "rainbow_rotgut": [
+                        "50 turn buff. Melee hits apply",
+                        "ignite, shocked, or chill (1/3 each).",
+                        "+1 hangover stack.",
+                    ],
+                    "root_beer": [
+                        "30 turn buff. Immobile.",
+                        "-10 incoming damage (all sources).",
+                        "+50 Temp HP (absorbs damage).",
+                        "Breaks if spell shield is depleted.",
+                        "+1 hangover stack.",
+                    ],
                 }
                 desc_lines = _drink_descs.get(drink_id, ["Alcohol effect."])
                 for dl in desc_lines:
@@ -3452,6 +4738,22 @@ def generate_examine_lines(item_id, engine=None):
                     lines.append([("Lasts until floor change. Stacks.", C_INFO)])
                     lines.append([("Each drink: +20 HP, +20 armor,", C_INFO)])
                     lines.append([("-20 rad/tox, cleanse 1 debuff.", C_INFO)])
+                    lines.append([("Prevents hangover from drinks.", C_GOOD)])
+                elif drink_id in ("red_kool_aid", "blue_kool_aid", "purple_kool_aid",
+                                  "green_kool_aid", "orange_kool_aid", "yellow_kool_aid"):
+                    _kool_aid_desc = {
+                        "red_kool_aid":    "Permanent +1 Strength.",
+                        "blue_kool_aid":   "Permanent +1 Book-Smarts.",
+                        "purple_kool_aid": "Permanent +1 Street-Smarts.",
+                        "green_kool_aid":  "Permanent +1 Tolerance.",
+                        "orange_kool_aid": "Permanent +1 Constitution.",
+                        "yellow_kool_aid": "Permanent +1 Swagger.",
+                    }
+                    lines.append([(_kool_aid_desc[drink_id], C_GOOD)])
+                    lines.append([("OH YEAH!", C_INFO)])
+                elif drink_id == "sparkling_water":
+                    lines.append([("Clears ALL toxicity and radiation.", C_GOOD)])
+                    lines.append([("Nonalcoholic. No hangover.", C_INFO)])
                 # Dranks have no skill tag — no "Trains:" line
 
             elif etype == "food":
@@ -3481,6 +4783,7 @@ def generate_examine_lines(item_id, engine=None):
                             dur = eff.get("duration", 0)
                             lines.append([("+2 all stats for ", C_GOOD), (f"{dur} turns.", C_GOOD)])
                             lines.append([("50% melee ignite chance.", C_GOOD)])
+                            lines.append([("+10 Firebolt charges.", C_GOOD)])
                             lines.append([("Ignites you when it expires.", C_BAD)])
                         elif ft == "grant_ability_charges":
                             aid = eff.get("ability_id", "?").replace("_", " ").title()
@@ -3500,6 +4803,27 @@ def generate_examine_lines(item_id, engine=None):
                             lines.append([("Lasts until floor change.", C_GOOD)])
                             lines.append([("50% chance to not consume", C_GOOD)])
                             lines.append([("a charge on ability use.", C_GOOD)])
+                        elif ft == "phase_walk":
+                            dur = eff.get("duration", 0)
+                            lines.append([(f"Walk through walls for {dur} turns.", C_GOOD)])
+                            lines.append([("Teleported to safety if inside", C_INFO)])
+                            lines.append([("a wall when effect expires.", C_INFO)])
+                        elif ft == "holy_wafer":
+                            lines.append([("+5 Divine Shield stacks.", C_GOOD)])
+                            lines.append([("Each absorbs one direct hit.", C_GOOD)])
+                            lines.append([("Ranged: 50% miss w/o using stack.", C_INFO)])
+                            lines.append([("Permanent until consumed.", C_GOOD)])
+                        elif ft == "hard_boiled_egg":
+                            lines.append([("Death save: revive at half HP.", C_GOOD)])
+                            lines.append([("Lasts 100 turns. Stacks.", C_GOOD)])
+                        elif ft == "eagle_eye":
+                            lines.append([("Unlimited view distance.", C_GOOD)])
+                            lines.append([("Lasts until floor change.", C_GOOD)])
+                        elif ft == "yellowcake_buff":
+                            lines.append([("Lasts until floor change.", C_GOOD)])
+                            lines.append([("10x mutation chance.", C_GOOD)])
+                            lines.append([("Weak mutations blocked.", C_GOOD)])
+                            lines.append([("Only strong/huge mutations.", C_INFO)])
                         elif ft == "remove_toxicity":
                             amt = eff.get("amount", 0)
                             lines.append([("Removes: ", C_LABEL), (f"{amt} Toxicity", C_GOOD)])
@@ -3513,6 +4837,31 @@ def generate_examine_lines(item_id, engine=None):
                             amt = eff.get("amount", 0)
                             lines.append([("Adds: ", C_LABEL), (f"{amt} Radiation", C_BAD)])
 
+            elif etype == "meth":
+                amt = use_eff.get("amount", 30)
+                lines.append([(f"Restores Meth resource.", C_GOOD)])
+                lines.append([(f"Amount scales with Tolerance.", C_INFO)])
+
+            elif etype == "remove_toxicity":
+                amt = use_eff.get("amount", 50)
+                lines.append([(f"Removes {amt} Toxicity.", C_GOOD)])
+                lines.append([("Instant use.", C_INFO)])
+
+            elif etype == "add_toxicity":
+                amt = use_eff.get("amount", 50)
+                lines.append([(f"Adds {amt} Toxicity.", C_BAD)])
+                lines.append([("Instant use.", C_INFO)])
+
+            elif etype == "remove_radiation":
+                amt = use_eff.get("amount", 50)
+                lines.append([(f"Removes {amt} Radiation.", C_GOOD)])
+                lines.append([("Instant use.", C_INFO)])
+
+            elif etype == "add_radiation":
+                amt = use_eff.get("amount", 50)
+                lines.append([(f"Adds {amt} Radiation.", C_BAD)])
+                lines.append([("Instant use.", C_INFO)])
+
             elif etype == "torch_burn":
                 lines.append([("Burns an item when used on it.", C_INFO)])
 
@@ -3523,7 +4872,11 @@ def generate_examine_lines(item_id, engine=None):
         # Skills trained — check new "skill" key first, then legacy "primary_skill"
         skill = defn.get("skill") or defn.get("primary_skill")
         if skill and (not use_eff or use_eff.get("type") not in ("strain_roll",)):
-            lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
+            if isinstance(skill, list):
+                lines.append([("Trains: ", C_LABEL), ("Best of:", C_VALUE)])
+                lines.append([("  " + ", ".join(skill), C_VALUE)])
+            else:
+                lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
 
     # --- MATERIALS ---
     elif category == "material":
@@ -3566,6 +4919,34 @@ def generate_examine_lines(item_id, engine=None):
                 other_name = ITEM_DEFS.get(a, {}).get("name", a)
                 recipes_found.append((other_name, result_name, reusable))
 
+        # Tool-specific descriptions
+        _tool_descs = {
+            "pack_of_cones": [
+                ("Rolling papers for joints.", C_INFO),
+                ("Combine with a weed nug to roll", C_INFO),
+                ("a joint. Each roll uses 1 charge.", C_INFO),
+            ],
+            "grinder": [
+                ("Grinds weed nugs into kush.", C_INFO),
+                ("Combine with a nug to grind it.", C_INFO),
+            ],
+            "fry_daddy": [
+                ("Deep fryer for cooking food.", C_INFO),
+                ("Combine with food to fry it.", C_INFO),
+            ],
+            "bic_torch": [
+                ("A lighter. Combine items to", C_INFO),
+                ("burn them together.", C_INFO),
+            ],
+            "xl_bic_torch": [
+                ("A big lighter. Combine items to", C_INFO),
+                ("burn them together.", C_INFO),
+            ],
+        }
+        if item_id in _tool_descs:
+            for text, color in _tool_descs[item_id]:
+                lines.append([(text, color)])
+
         # Check prefix tool
         if item_id in PREFIX_TOOL_ITEMS:
             prefix = PREFIX_TOOL_ITEMS[item_id]
@@ -3582,6 +4963,42 @@ def generate_examine_lines(item_id, engine=None):
                 if etype == "torch_burn":
                     lines.append([("Use on items to burn them", C_INFO)])
                     lines.append([("together.", C_INFO)])
+                elif etype == "spray_paint":
+                    spray_type = defn["use_effect"].get("spray_type", "")
+                    _spray_descs = {
+                        "red": [
+                            ("Spray a tile red.", C_INFO),
+                            ("Enemies on red tiles take", C_INFO),
+                            ("+25% damage from all sources.", C_GOOD),
+                        ],
+                        "blue": [
+                            ("Spray a tile blue.", C_INFO),
+                            ("+5 Street-Smarts while", C_GOOD),
+                            ("standing on it.", C_INFO),
+                            ("25% chance to preserve", C_GOOD),
+                            ("ability charges.", C_INFO),
+                        ],
+                        "green": [
+                            ("Spray a tile green.", C_INFO),
+                            ("+4 Defense while standing", C_GOOD),
+                            ("on it.", C_INFO),
+                        ],
+                        "orange": [
+                            ("Spray a tile orange.", C_INFO),
+                            ("Entities on it take", C_INFO),
+                            ("5 + 2x Graffiti Lvl damage", (255, 160, 40)),
+                            ("per turn.", C_INFO),
+                        ],
+                        "silver": [
+                            ("Spray a tile silver.", C_INFO),
+                            ("Entities entering slip and", C_INFO),
+                            ("must spend a turn standing.", (200, 200, 210)),
+                            ("+50% melee damage taken", (255, 100, 100)),
+                            ("while slipped.", C_INFO),
+                        ],
+                    }
+                    for text, color in _spray_descs.get(spray_type, []):
+                        lines.append([(text, color)])
 
         skill = defn.get("skill") or defn.get("primary_skill")
         if skill:
@@ -3628,9 +5045,20 @@ def create_item_entity(item_id, x, y, strain=None):
         kwargs["mag_size"] = mag
         kwargs["current_ammo"] = mag
 
+    # Staves start with staff_charges
+    if defn.get("staff_charges"):
+        kwargs["charges"] = defn["staff_charges"]
+        kwargs["max_charges"] = 99
+
     # Tools with limited charges (e.g. Pack of Cones)
     if defn.get("tool_charges"):
-        kwargs["charges"] = defn["tool_charges"]
-        kwargs["max_charges"] = defn["tool_charges"]
+        max_ch = defn["tool_charges"]
+        min_ch = defn.get("tool_charges_min", max_ch)
+        kwargs["charges"] = _random.randint(min_ch, max_ch)
+        kwargs["max_charges"] = max_ch
+
+    # Items that spawn with a specific quantity (e.g. Natty Light 6-pack)
+    if defn.get("spawn_quantity"):
+        kwargs["quantity"] = defn["spawn_quantity"]
 
     return kwargs

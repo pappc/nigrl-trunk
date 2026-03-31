@@ -1,0 +1,1391 @@
+WHITE POWER — 10 Branching Skill Tree Variations (Tox Inversion Edition)
+========================================================================
+Design doc for the NIGRL roguelike (Crack Den / Meth Lab skill).
+Core mechanic: TOX INVERSION. These are BRANCHING trees with player-choice
+topology. The player selects one branch at each split and cannot unlock the
+other.
+
+== DESIGN DIRECTION: TIN CAN TANK ==
+
+White Power is the tank tree. The signature fantasy:
+  - Extremely hard to kill (armor, Temp HP, DR, tox inversion)
+  - Low damage output as a deliberate, identity-defining tradeoff
+  - Swagger-focused: every 2 SWG above 8 = +1 flat defense
+  - Tox inversion as core mechanic: absorbing the Meth Lab's poison
+    makes you harder to kill but hits softer
+
+== TOX INVERSION MECHANIC (Reference) ==
+
+Normal tox formula (all entities):
+  incoming_dmg_multiplier = 1.0 + (tox / 100) ^ 0.6
+  At tox 25:  ~1.16x damage taken
+  At tox 50:  ~1.26x damage taken
+  At tox 100: ~1.50x damage taken
+  At tox 200: ~2.00x damage taken (dangerous spiral)
+
+White Power inverted formula (when tox_inversion_active == True):
+  incoming_dmg_multiplier = 1.0 - 0.5 * (tox / 100) ^ 0.6
+  outgoing_dmg_multiplier = 1.0 - 0.5 * (tox / 100) ^ 0.6
+
+  At tox 0:   1.00x both (no change, normal play)
+  At tox 25:  ~0.92x both (~8% reduction each way)
+  At tox 50:  ~0.87x both (~13% reduction each way)
+  At tox 100: ~0.75x both (~25% reduction each way)
+  At tox 200: ~0.63x both (~37% reduction each way)
+
+The cap on outgoing penalty is 0.63x (cannot reduce below 37% of damage).
+The cap on damage reduction from inversion alone is also 0.63x (prevents
+permanent near-invincibility). High tox: you're a fortress that hits like
+a wet sock.
+
+Engine flag: engine.player_stats.tox_inversion_active = False (new field)
+When True, the damage_received formula in combat.py replaces the normal
+tox multiplier with the inversion formula. The outgoing damage penalty
+applies in _compute_player_attack_power().
+
+NEW EFFECTS needed (this doc):
+  ToxInversionEffect — passive; replaces tox multiplier sign; stacks NOT
+    required (it is a mode, not a stackable buff). Applied as a permanent
+    passive once unlocked, not a timed effect.
+  ScabEffect — short-duration: first hit after taking damage dealt back
+  FortressStanceEffect — stationary stacking DR
+  IvoryAuraEffect — temp HP regen based on tox delta
+  CalcifiedEffect — % of DR converts to counterattack damage
+  KilnEffect — armor regenerates faster per floor segment
+  SlakeEffect — tox consumed for healing in a burst
+  RiotShieldEffect — blocks the next hit completely (full absorb)
+  CrustEffect — each hit taken adds +1 SWG for 10 turns (capped)
+  BunkerEffect — dodge chance scales inversely with current HP ratio
+
+NEW ENGINE STATE needed (this doc):
+  engine.player_stats.tox_inversion_active: bool
+  engine.player_stats.wp_inversion_tox_threshold: int (default 0 = always)
+  engine.wp_fortress_stacks: int (per-floor, reset on move; FortressStance)
+  engine.wp_crust_stacks: int (per-floor, decaying per-turn)
+  engine.wp_scab_charged: bool (per-hit, resets after firing)
+  engine.wp_kiln_regen_bonus: int (armor regen per floor segment)
+  engine.wp_riot_shield_charges: int (cross-floor, consumed on hit)
+  engine.wp_last_armor_value: int (for Kiln tracking)
+  engine.wp_bunker_mode: bool (flag for HP-scaling dodge)
+
+== STAT REFERENCES ==
+  Player HP: 30 + CON*10. At CON 10: 130 HP
+  Swagger defense: int((effective_swagger - 8) / 2)
+    SWG 8=0, 10=+1, 12=+2, 14=+3, 16=+4, 18=+5, 20=+6, 24=+8
+  Temp HP absorbed BEFORE armor BEFORE HP
+  Armor: base value refills each floor; blocked before HP
+  Energy: 100/tick. +30 speed = ~23% faster.
+
+== EXISTING WHITE POWER PERKS (in-code) ==
+  L1: Bleached    — stat: +4 SWG, passive +20% tox resistance
+  L2: White Out   — activated: 3/floor, gain 25 tox, +8 SWG, -25% dmg 50t
+  L3: Pure        — stat: +4 SWG, double XP from tox resisted
+  L4: Whitewash   — activated: +4 CON, 1/floor: consume tox/2 as Temp HP
+
+== TREE TOPOLOGY SHAPES (same 10 as previous doc) ==
+  Y-split (L3)     — L1, L2 trunk; split L3: L3a+L4a vs L3b+L4b
+  Diamond          — L1; split L2; converge L4; split L5. Two capstones.
+  Triple Fork      — L1, L2, L3 trunk; split L4 into three capstones
+  W-shape          — L1/L2 trunk; split L3; converge L5; split L6
+  Long Trunk Y     — L1-L4 trunk; split L5. Two capstones.
+  Inverted Y       — Two L1 choices; two L2; converge L3; single L4 capstone
+  Ladder/Zigzag    — L1 shared; L2 choose; L3 shared; L4 choose; L5 capstone
+  Trident          — L1-L2 shared; triple split L3; two paths reconverge L5; one solo
+  Double Diamond   — L1; split L2; converge L3; split L4; converge L5
+  Asymmetric Y     — L1-L2 trunk; split L3: short cap vs long 3-node branch
+
+
+==========================================================================
+VARIATION 1: "THE REACTOR" — Tox Battery
+==========================================================================
+Shape: Y-split (L3)
+Fantasy: Swallow the poison and become a walking nuclear flask. Tox
+  inversion unlocked in the trunk. Branches split between pure turtle
+  (keep tox high, stay inverted) and active reactor (burn tox for
+  explosive defense moments).
+
+TREE DIAGRAM:
+
+    L1: Corroded Shell
+          |
+    L2: Lead Lining
+          |
+         / \
+        /   \
+  [BRANCH A]      [BRANCH B]
+  L3a: Saturated     L3b: Controlled Burn
+        |                    |
+  L4a: Critical Mass    L4b: Meltdown Protocol
+     (CAPSTONE)             (CAPSTONE)
+
+TRUNK:
+
+L1 — CORRODED SHELL (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, tolerance +2
+  Passive: TOX INVERSION unlocked (tox_inversion_active = True).
+    Your toxicity no longer multiplies incoming damage — instead it reduces
+    it (and your outgoing damage by the same proportion). The poison is
+    working for you now.
+  Engine: player_stats.tox_inversion_active = True at L1 unlock.
+  Desc: "You didn't avoid the sludge. You became the sludge."
+  Balance: This is the identity-defining perk. All White Power investment
+    flows from here. Starting tox ~0 at game start = no immediate impact;
+    full payoff arrives in the Meth Lab zone. Low risk in Crack Den.
+
+L2 — LEAD LINING (passive)
+  Perk type: passive
+  Effect: +3 DR (permanent_dr on PlayerStats). Additionally, at the start
+    of each floor gain Temp HP equal to your current toxicity / 5
+    (round down, min 1, max 20). E.g., at 50 tox = 10 Temp HP.
+  Desc: "Good insulation. Great for keeping things out."
+  Balance: At mid-game tox ~25-50: 5-10 Temp HP per floor. Flat +3 DR
+    meaningful against the typical 4-8 enemy damage on floor 1-2.
+    Combined with L1 inversion, you're already significantly tankier.
+
+BRANCH A — THE TURTLE: Stay Saturated
+
+L3a — SATURATED (passive)
+  Perk type: passive
+  Effect: If your current toxicity is 40 or higher:
+    - Gain an additional +2 DR (stacks with Lead Lining, total +5 DR)
+    - Each hit you absorb generates a Scab charge (engine.wp_scab_charged).
+      The next attack you make while scab-charged deals +swagger_defence
+      bonus damage (then scab clears). One scab charge at a time.
+  Desc: "The crust is load-bearing. Do not remove."
+  Balance: Incentivizes staying toxic — synergy with Chemical Warfare
+    tox-accumulation builds. Scab counterattack is modest (+2-6 dmg
+    per swing depending on SWG investment) but gives the turtle a bite.
+
+L4a — CRITICAL MASS (passive + activated) [CAPSTONE]
+  Perk type: passive + activated
+  Stat bonus: constitution +2, tolerance +2
+  Passive: At 80+ tox, the tox inversion formula doubles in strength:
+    incoming multiplier = 1.0 - 1.0 * (tox/100)^0.6
+    At tox 80:  ~0.66x incoming (34% reduction)
+    At tox 100: ~0.50x incoming (50% reduction — half damage at 100 tox!)
+    Outgoing penalty: standard 0.75x at 100 tox (not doubled; asymmetric).
+    You take much less damage than you deal at peak tox.
+  Activated: 1/floor. Trigger REACTOR: instantly add 30 tox to yourself
+    and activate 15-turn window where your Scab charge fires AUTOMATICALLY
+    every hit (no manual attack needed; auto-fires on the same hit that
+    charged it). Reactor window ends when scab fires 5 times or 15t elapses.
+  Desc: "Go critical. You're a reactor, not a man."
+  Balance: Strong capstone but very vulnerable to tox removal (CW
+    synergy or purge accidentally destroys your defense). High tox
+    also means VERY low outgoing damage. Pure survival investment.
+  New ability: reactor_pulse (PER_FLOOR, 1 charge)
+
+BRANCH B — ACTIVE REACTOR: Burn Tox for Moments
+
+L3b — CONTROLLED BURN (passive + activated)
+  Perk type: passive + activated
+  Effect: Passive: +2 SWG (swagger stacks toward inversion payoff).
+    Activated: 2/floor. Consume 25 tox. For 20 turns:
+      - +4 SWG (stacks with stat SWG; inversion scales off total tox)
+      - +15% dodge chance
+      - Enemies that hit you during this window take 2 reflected tox
+    After window expires: 10 tox returned (net cost: 15 tox per use).
+  Desc: "Burn it clean. You'll cook it back up later."
+  Balance: Tox churn loop: burn tox for a defensive window, re-accumulate
+    between uses. Requires active play. Lower passive floor than Branch A.
+
+L4b — MELTDOWN PROTOCOL (passive + activated) [CAPSTONE]
+  Perk type: passive + activated
+  Passive: Every 10 tox you lose (from any source — Controlled Burn,
+    purges, item use) generates 3 Temp HP (up to 30 Temp HP per purge).
+    Losing tox now heals you rather than exposing you.
+  Activated: 1/floor. MELTDOWN: consume ALL current tox. For each 10 tox
+    consumed: +2 DR for 30 turns, +3 Temp HP (immediate). Cap: 200 tox =
+    +40 DR and 60 Temp HP for 30 turns. After 30 turns: -2 CON for 10
+    turns (crash; recovery period). Outgoing damage -30% during DR window.
+  Desc: "Every purge is a reload. Every flush is a fortress."
+  Balance: Requires tox stockpiling to maximize burst. The crash means
+    you need to plan exits or have tox sources ready to rebuild defense.
+  New ability: meltdown_wp (PER_FLOOR, 1 charge)
+  New effect: MeltdownCrashEffect (debuff: -2 CON, 10t)
+
+
+==========================================================================
+VARIATION 2: "THE SHELL GAME" — Armor Cycling
+==========================================================================
+Shape: Diamond (L1; split L2; converge L4; split L5)
+Fantasy: Tox inversion in the trunk but both branches focus on ARMOR —
+  generating it, refreshing it, layering it. Final split: permanent iron
+  fortress vs. reactive riot shield moments.
+
+TREE DIAGRAM:
+
+        L1: Sheet Metal
+           /       \
+    [A]  /           \  [B]
+  L2a: Galvanized  L2b: Corroded Hull
+    L3a: Kiln          L3b: Tin Can
+           \           /
+        L4: Scrap Heap (converge)
+           /       \
+    [A]  /           \  [B]
+  L5a: Iron Coffin   L5b: Riot Wall
+    (CAPSTONE)         (CAPSTONE)
+
+TRUNK:
+
+L1 — SHEET METAL (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Passive: TOX INVERSION unlocked. Additionally: armor capacity +3
+    (base armor increased by 3 permanently; refills each floor).
+  Desc: "You got more sheet metal on you than a double-wide."
+  Balance: +3 armor is modest on top of inversion unlock. Armor increase
+    means each floor you start with 3 more points of damage absorption.
+
+BRANCH A — KILN PATH: Armor Regeneration
+
+L2a — GALVANIZED (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: Engine.wp_kiln_regen_bonus += 2. Each time your armor drops to 0,
+    it begins regenerating at 2 points per 5 turns (instead of only
+    refilling at floor start). This regen is active until armor is full,
+    then pauses. Armor regen does NOT stack with itself.
+  Desc: "The dents fill back in. Not fast, but they fill."
+  Balance: Meaningful sustain in long fights or multi-room sequences.
+    At +3 armor from L1 + base armor (~5): up to 8 armor cycling via regen.
+
+L3a — KILN (passive)
+  Perk type: passive
+  Effect: Armor regen rate (from Galvanized) doubled to 4/5t. Additionally:
+    while armor is regenerating (above 0 but below max), gain +1 DR.
+    Desc: "Firing at temperature."
+  Balance: Doubles regen efficiency. The +1 DR while regenerating creates
+    a "sweet spot" where partial armor is better than full armor.
+
+BRANCH B — TIN CAN PATH: Armor Stacking
+
+L2b — CORRODED HULL (passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +2
+  Effect: Your base armor capacity increases by an additional +5 (total +8
+    from this tree so far). Additionally: enemies that reduce your armor
+    below half its maximum take 1 reflected physical damage per hit
+    (thorns-style; triggers off armor consumption, not HP damage).
+  Desc: "Takes a lot of rounds to dent a tin can. They always find out."
+  Balance: +5 armor is substantial. Thorns 1 is minor but chips over time.
+
+L3b — TIN CAN (passive)
+  Perk type: passive
+  Effect: Each floor, the first 3 hits you absorb deal 0 damage to your
+    HP (armor absorbs it regardless of whether armor is full or depleted —
+    essentially 3 bonus "armor buffer" hits per floor). After 3 hits are
+    absorbed this way, normal damage rules resume. Counter resets on
+    new floor. Engine: engine.wp_tincan_hits_remaining (per-floor int).
+  Desc: "Three free. After that, everybody pays."
+  Balance: Very strong on low floors (enemies deal 4-8 per hit; 3 free
+    absorbs = up to 24 free damage). Weaker vs. high-damage single hits.
+
+CONVERGENCE:
+
+L4 — SCRAP HEAP (stat + passive) [shared by all paths]
+  Perk type: stat + passive
+  Stat bonus: constitution +2, tolerance +2
+  Effect: TOX INVERSION now also grants +1 flat DR per 25 current tox
+    (max +4 DR at 100 tox), in addition to the percentage reduction.
+    This stacks with Lead Lining and other DR sources.
+    E.g., at 100 tox: +4 DR + ~25% incoming reduction from inversion.
+  Desc: "You're not just resistant. You're infrastructure."
+  Balance: Convergence perk makes both paths equally powerful heading
+    into the capstone split. The flat DR scaling is the payoff for
+    maintaining tox through the midgame.
+
+FINAL SPLIT:
+
+L5a — IRON COFFIN (passive) [CAPSTONE]
+  Perk type: passive
+  Effect: Your armor now has a FLOOR: it can never drop below
+    swagger_defence value (e.g., at SWG 14 = 3 armor floor). Enemy
+    attacks that would deplete armor below this floor are absorbed by
+    the floor value. Additionally: while armor is at its floor value
+    (depleted to minimum), you gain +25% dodge chance.
+    Passive: +3 SWG, +2 CON.
+  Desc: "There's always metal between you and them. Always."
+  Balance: Dodge at low armor is a powerful safety net. Combined with
+    Galvanized regen or Tin Can's buffer, armor management becomes a
+    strategic resource. Outgoing damage heavily penalized by high tox.
+
+L5b — RIOT WALL (activated) [CAPSTONE]
+  Perk type: activated (2/floor)
+  Effect: Passive: +4 SWG, +2 CON.
+    Activated: 2/floor. RIOT SHIELD UP: for 3 turns, the NEXT hit
+    you take is COMPLETELY negated (absorbed; 0 damage to Temp HP,
+    armor, or HP). After the negation fires, you gain Temp HP equal
+    to the damage that would have been dealt (min 5, max 40). The
+    shield does not block multiple hits — after one negation the
+    cooldown starts. Remaining charges are cross-floor.
+  New ability: riot_shield_up (PER_FLOOR, 2 charges)
+  Desc: "You don't dodge it. You stand there and let it not hurt you."
+  Balance: 2/floor means 2 guaranteed "free" hits per floor, each
+    potentially worth 10-25+ Temp HP (at high-floor enemy damage).
+    Very strong. Outgoing -25% from high tox still applies.
+
+
+==========================================================================
+VARIATION 3: "THE FORTRESS" — Triple Fork Swagger
+==========================================================================
+Shape: Triple Fork (L1-L3 trunk; split L4 into three capstones)
+Fantasy: Long trunk stacks swagger to absurd levels, then forks into
+  three very different ways to USE that swagger. Tox inversion in trunk.
+
+TREE DIAGRAM:
+
+    L1: Chalk White
+          |
+    L2: Thick Skin
+          |
+    L3: Bunker Mentality
+       /    |    \
+      /     |     \
+  L4a:    L4b:   L4c:
+  Ivory   Scab   Riot
+  Tower   House  Gear
+ (CAPS)  (CAPS) (CAPS)
+
+TRUNK:
+
+L1 — CHALK WHITE (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +1
+  Passive: TOX INVERSION unlocked. Also: +15% tox resistance.
+  Desc: "White as chalk. Hard as chalk. You eat hits like chalk."
+
+L2 — THICK SKIN (passive)
+  Perk type: passive
+  Effect: +4 SWG, +3 DR. Each time you take a hit that reduces your
+    HP (not just armor/Temp HP), gain a Crust stack (engine.wp_crust_stacks).
+    Each Crust stack: +0.5 SWG (fractional; rounds down) for 10 turns,
+    max 6 stacks = +3 effective SWG. Stacks reset on new floor start.
+  Desc: "Every punch just adds another layer."
+  Balance: Encourages absorbing hits rather than dodging them. Synergizes
+    with the inversion mechanic: take hits, become harder to hit via SWG.
+
+L3 — BUNKER MENTALITY (passive)
+  Perk type: passive
+  Stat bonus: constitution +2, tolerance +2
+  Effect: When you are STATIONARY (do not move for 2+ consecutive turns),
+    gain Fortress Stacks (engine.wp_fortress_stacks, +1/stationary turn,
+    max 5). Each Fortress Stack = +1 DR and +0.5 SWG.
+    Moving clears all Fortress Stacks immediately.
+    At 5 stacks: +5 DR, +2.5 SWG (rounds to +2) — combined with inversion
+    at 100 tox: total damage reduction is substantial.
+  Desc: "Plant your feet. Become the wall."
+  Balance: Rewards corner-camping playstyle. Enemies come to you.
+    Strong in narrow corridors; weaker in open-room fights.
+    +5 DR stacked at max means most small hits are near-negated.
+
+FORK CAPSTONES:
+
+L4a — IVORY TOWER (passive) [CAPSTONE]
+  Perk type: passive
+  Stat bonus: swagger +6, constitution +2
+  Effect: Fortress Stacks now persist for 3 turns after you move (grace
+    period). Also: while at max Fortress Stacks (5), your tox inversion
+    formula is doubled in strength (same as Critical Mass in V1).
+    Additionally: the outgoing damage penalty from tox inversion is HALVED
+    while at 4+ Fortress Stacks — you fight back harder while entrenched.
+  Desc: "From up here, they all look small. Most things bounce off."
+  Balance: Best of both worlds for stationary builds. Outgoing damage
+    penalty reduction while fortified makes this the most balanced
+    damage/defense capstone. Requires active position management.
+
+L4b — SCAB HOUSE (passive) [CAPSTONE]
+  Perk type: passive
+  Stat bonus: constitution +4, tolerance +2
+  Effect: Every hit you receive (to any layer: Temp HP, armor, or HP)
+    generates a Scab Charge (engine.wp_scab_charged). Unlike V1's scab,
+    this version accumulates: max 5 charges at once (cross-floor).
+    Each charge: next melee attack deals +3 damage (flat, not %).
+    At 5 charges (15 bonus damage): still low-output due to tox penalty,
+    but it fires automatically without managing a window.
+    Also: Crust stacks now cap at 12 (not 6), doubling their SWG bonus.
+  Desc: "Every hit you eat is a hit stored. They're paying interest."
+  Balance: High tox = penalty on outgoing, but Scab charges partially
+    compensate. Net effect: you tank tons of damage and deal modest but
+    reliable counterattack bonus. Very slow output but great survivability.
+
+L4c — RIOT GEAR (activated) [CAPSTONE]
+  Perk type: activated (1/floor)
+  Stat bonus: swagger +4
+  Effect: Passive: Fortress Stacks now also add +2 Temp HP each
+    (5 stacks = +10 Temp HP per stationary turn, up to 50 Temp HP
+    per entrenched period).
+  Activated: 1/floor. FULL LOCKDOWN: 5-turn window.
+    During Lockdown: all hits reduced by 50% (additive with inversion and
+    DR; total reduction can exceed 80%). At end of Lockdown, release:
+    deal 1 damage to all enemies in r=3 per Fortress Stack consumed
+    (max 5 * 1 = 5 damage per enemy, AOE; not a huge burst but
+    area-of-effect pressure). All Fortress Stacks are consumed on release.
+  New ability: full_lockdown (PER_FLOOR, 1 charge)
+  Desc: "They come. They bounce. You exhale. They bleed."
+  Balance: 50% reduction for 5 turns with AOE exhale is strong burst
+    defense. Low damage output maintained (5 damage AOE is modest).
+
+
+==========================================================================
+VARIATION 4: "THE PILGRIM" — W-shape Swagger-to-HP
+==========================================================================
+Shape: W-shape (L1/L2 shared; split L3; converge L5; split L6)
+Fantasy: Long Swagger accumulation trunk, tox inversion midway, branches
+  explore two flavors of scaling, then converge on a final testament to
+  endurance before one last tradeoff at the capstone.
+
+TREE DIAGRAM:
+
+    L1: White Habit
+          |
+    L2: Plaster
+         / \
+        /   \
+  [A] L3a     L3b [B]
+  Grout       Cement
+     |           |
+  [A] L4a     L4b [B]
+  Wall Paper  Foundation
+        \     /
+    L5: Monolith (converge)
+         / \
+        /   \
+  L6a: Tombstone   L6b: Mausoleum
+     (CAPSTONE)       (CAPSTONE)
+
+TRUNK:
+
+L1 — WHITE HABIT (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, tolerance +1
+  Effect: +20% tox resistance. You begin accumulating White Power XP.
+  Desc: "A habit, not a hobby. Worn like armor."
+
+L2 — PLASTER (passive)
+  Perk type: passive
+  Stat bonus: swagger +2
+  Effect: TOX INVERSION unlocked. Additionally: whenever you would gain
+    toxicity (from any source), gain Temp HP equal to 10% of the tox
+    gained (round down, min 1). E.g., absorbing 20 tox = 2 Temp HP.
+    This fires BEFORE the tox is applied, so even resisted tox generates
+    Temp HP if at least 1 tox passes through.
+  Desc: "The poison fills the cracks. That's how walls work."
+  Balance: Steady Temp HP gain in the Meth Lab zone. Low value per
+    tick but adds up over a floor. Rewards actively absorbing tox.
+
+BRANCH A — GROUT PATH: Swagger stacking
+
+L3a — GROUT (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: Your swagger defense formula improves: every 2 SWG above 8
+    now grants +1.5 defense (rounds down), instead of +1 defense.
+    At SWG 20: normally +6 def; Grout gives +9 def.
+  Desc: "Fill the gaps. Every gap. Fill them all."
+  Balance: Significant amplifier for high-SWG builds. Combined with
+    tree's many +SWG perks, defense becomes substantial. Still no
+    outgoing damage improvement.
+
+L4a — WALL PAPER (passive)
+  Perk type: passive
+  Effect: Once per floor, when an attack would reduce you below 25% HP,
+    trigger PAPER WALL: that hit deals only 1 damage (minimum, not 0).
+    After Paper Wall fires, gain +3 DR for 5 turns. Resets on new floor.
+    Paper Wall does NOT fire again on the same floor after triggering.
+  Engine: engine.wp_paper_wall_used (per-floor bool)
+  Desc: "It looks like nothing. It holds like nothing. Then it saves you."
+  Balance: One guaranteed near-death save per floor. Strong permadeath
+    insurance. The +3 DR afterwards helps survive the aftermath.
+
+BRANCH B — CEMENT PATH: HP pool stacking
+
+L3b — CEMENT (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: constitution +3
+  Effect: Your maximum HP bonus from CON increases: each CON point above
+    base (8) now grants +12 HP instead of +10. Retroactive on existing CON.
+    At CON 10: normally 130 HP; Cement gives 130 + 4 bonus = 134 HP.
+    At CON 12: normally 150 HP; Cement gives 150 + 8 bonus = 158 HP.
+  Desc: "You're not wide. You're deep. There's more of you to hit through."
+  Balance: +2 HP per CON above base. Modest but scales with future CON
+    investment. Combined with +3 CON from this perk: net ~+30+ HP.
+
+L4b — FOUNDATION (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: At the start of each floor, if your current HP is at maximum,
+    gain Temp HP equal to 15% of your max HP (round up). These bonus
+    Temp HP persist until consumed. Also: the first hit you take on
+    any floor deals 0 damage to your actual HP (only burns Temp HP
+    and armor); if neither exists, that first hit is negated entirely.
+  Desc: "Start clean. End standing."
+  Balance: Rewards entering each floor at full HP (managed play). The
+    free-first-hit and Temp HP incentivize careful floor exits.
+
+CONVERGENCE:
+
+L5 — MONOLITH (stat + passive) [shared by all paths]
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +3, tolerance +2
+  Effect: TOX INVERSION strengthened: the outgoing damage penalty is
+    removed entirely. At any tox level, your outgoing damage is NORMAL.
+    Only the defensive benefit of inversion remains (tox still reduces
+    incoming damage). You hit just as hard as before; you just take much
+    less damage at high tox.
+  Desc: "A monolith doesn't negotiate. It stands. You stand."
+  Balance: This is the major payoff of the W-shape's long path.
+    Removing the outgoing penalty is enormous — the tank now hits at
+    full strength while being reduced-damage-incoming. This is the
+    strongest single perk in this tree; gated behind 5 perks.
+  IMPLEMENTATION NOTE: Set player_stats.wp_no_outgoing_penalty = True.
+    In _compute_player_attack_power(), skip the tox inversion
+    outgoing multiplier when this flag is True.
+
+FINAL SPLIT:
+
+L6a — TOMBSTONE (passive) [CAPSTONE]
+  Perk type: passive
+  Stat bonus: constitution +4, swagger +2
+  Effect: Death saves (if implemented via existing death_save mechanics)
+    fire TWICE before true death (once per floor, same as base). While
+    below 30% HP, the inversion formula is doubled in strength (incoming
+    only; since Monolith removed outgoing penalty, the doubling only
+    applies defensively). At 30% HP + 100 tox: ~50% incoming reduction.
+    You become truly unkillable at low health.
+  Desc: "They chiseled your name in. They were a little early."
+  Balance: Encourages playing at low HP. Combined with Monolith's
+    no-outgoing-penalty, this is a genuinely terrifying low-HP tank:
+    full damage output + massive incoming reduction + death save.
+
+L6b — MAUSOLEUM (passive + activated) [CAPSTONE]
+  Perk type: passive + activated (1/run)
+  Stat bonus: swagger +4
+  Effect: Passive: +5 armor capacity. Armor regen 3/5t (independent
+    of Galvanized; if both are active, rates add).
+    Activated: ONCE per run. MAUSOLEUM: spend 3 turns completely
+    immobile (stun yourself; you cannot act). At the end of 3 turns,
+    fully restore HP, armor, and Temp HP; remove all negative effects;
+    gain 50 Temp HP bonus above max. This is not a regeneration — it
+    is a full reset. The 3-turn window is dangerous; use in safety.
+  New ability: mausoleum_rest (ONCE)
+  Desc: "It's not a tomb yet. You just needed a minute."
+  Balance: The 1/run full restore is the most powerful defensive
+    cooldown in the game, offset by the 3-turn stun risk. In a
+    permadeath game, any skill that prevents death justifies extreme cost.
+
+
+==========================================================================
+VARIATION 5: "THE IMMUNE SYSTEM" — Inverted Y Debuff Focus
+==========================================================================
+Shape: Inverted Y (two L1 starting choices; L2 each path; converge L3; L4 capstone)
+Fantasy: Two philosophies of tanking from the start: armor-stacking
+  vs. debuff-immunity. Both lead to the same immune endpoint.
+  Tox inversion in both starting paths (slightly different flavor).
+
+TREE DIAGRAM:
+
+  [A] L1a: Hard Shell    L1b: Numb [B]
+       |                      |
+  [A] L2a: Carapace      L2b: Anesthetic [B]
+            \                /
+        L3: Pristine Vessel (converge)
+                    |
+        L4: Pure Immunity (CAPSTONE)
+
+PATH A — ARMOR ROUTE:
+
+L1a — HARD SHELL (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +2
+  Effect: TOX INVERSION unlocked (armor-focused flavor). Also: +4 armor
+    capacity. +10% tox resistance.
+  Desc: "Shell first. Everything else second."
+
+L2a — CARAPACE (passive)
+  Perk type: passive
+  Effect: +6 armor capacity (total +10 armor from this path). Armor
+    absorbs the first 2 damage of any hit before the remaining is
+    applied to HP (minimum 0 from armor, but armor provides a
+    guaranteed 2-point buffer per hit regardless of stack order).
+    Also: +2 DR.
+  Desc: "You don't walk in. You roll in. Nothing gets through."
+  Balance: +10 armor is very high. The 2-point guaranteed buffer is
+    a defensive multiplier for high-armor builds.
+
+PATH B — DEBUFF IMMUNITY ROUTE:
+
+L1b — NUMB (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: tolerance +4, swagger +2
+  Effect: TOX INVERSION unlocked (debuff-flavor). Also: stun/fear
+    duration halved (round down). +20% tox resistance.
+  Desc: "You feel everything. You just don't care anymore."
+
+L2b — ANESTHETIC (passive)
+  Perk type: passive
+  Effect: FULL DEBUFF IMMUNITY to the following: stun, fear, slow
+    (movement-reducing effects). Poison/tox can still be applied
+    (and in fact you want it, for inversion). Additionally: whenever
+    a debuff is resisted (would have applied but didn't), gain
+    2 Temp HP. At 5+ debuffs resisted per floor, gain a permanent
+    +1 SWG for that floor only (resets; does not persist).
+  Desc: "Used to hurt. Somewhere along the way, stopped."
+  Balance: Debuff immunity is strong vs. specific enemies
+    (Ugly Stripper feared, enemies with stun attacks). Temp HP
+    generation is modest per proc but adds up in debuff-heavy zones.
+
+CONVERGENCE:
+
+L3 — PRISTINE VESSEL (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +2, tolerance +2
+  Effect: Tox inversion formula strengthened: now uses coefficient 0.6
+    (instead of 0.5) on incoming reduction:
+    incoming_mult = 1.0 - 0.6 * (tox/100)^0.6
+    At tox 100: 1.0 - 0.6 = 0.4x incoming (60% reduction at 100 tox!).
+    Outgoing penalty remains at 0.5 coefficient (asymmetric: you take
+    much less than you deal, with high tox).
+  Desc: "Clean on the inside. Nothing gets in that isn't invited."
+  Balance: This is strong — 60% incoming reduction at 100 tox is
+    near-invulnerability territory. But tox 100 requires active
+    accumulation and the outgoing penalty still applies.
+
+L4 — PURE IMMUNITY (passive + activated) [CAPSTONE]
+  Perk type: passive + activated (2/floor)
+  Stat bonus: constitution +2, swagger +2
+  Effect: Passive: your tox resistance is now INVERTED — instead of
+    reducing tox gained, it adds to your inversion strength. Each 10%
+    tox resistance = +0.05 bonus to inversion coefficient (additive
+    with Pristine Vessel's 0.6). At 40% tox resistance: coefficient
+    = 0.6 + 0.2 = 0.8; at 100 tox you take 1.0 - 0.8 = 0.2x damage.
+    Cap: inversion coefficient capped at 0.9 (minimum 0.1x incoming).
+  Activated: 2/floor. IMMUNE WINDOW: for 8 turns, you are immune to
+    all status effects AND cannot gain tox. During this window, the
+    inversion formula locks at its current tox value (does not decay
+    even though you are immune to tox gain). After: tox resumes.
+  New ability: immune_window (PER_FLOOR, 2 charges)
+  Desc: "You took it all and it made you stronger. Now it can't even
+    touch you."
+  Balance: The tox-resistance-to-inversion conversion is very powerful
+    for builds that invested in tox resistance items. Cap of 0.9
+    prevents absolute immunity (at least 10% of hits land). Strong
+    capstone with clear build investment path.
+
+
+==========================================================================
+VARIATION 6: "THE GRAVEYARD SHIFT" — Ladder/Zigzag Temp HP Factory
+==========================================================================
+Shape: Ladder/Zigzag (L1 shared; L2 choice; L3 shared; L4 choice; L5 capstone)
+Fantasy: Build and spend Temp HP as a resource. Every node either
+  generates, amplifies, or converts Temp HP. Tox inversion makes you
+  durable between temp HP reloads.
+
+TREE DIAGRAM:
+
+    L1: Bleached Hide (shared)
+         |
+    L2 [choose]:
+  L2a: Bone Paste     L2b: Tallow
+         |                  |
+    L3: White Noise (shared)
+         |
+    L4 [choose]:
+  L4a: Graveyard Shift  L4b: Grave Goods
+         |                  |
+    L5: RESTING PLACE (capstone, shared)
+
+TRUNK (shared):
+
+L1 — BLEACHED HIDE (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: TOX INVERSION unlocked. +20% tox resistance.
+  Desc: "First layer. The one that matters most."
+
+L2 CHOICE:
+
+L2a — BONE PASTE (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: At the start of each floor, gain Temp HP = (current tox / 4)
+    rounded down, minimum 5. At 0 tox: 5 free Temp HP. At 100 tox:
+    25 Temp HP. At 200 tox: 50 Temp HP per floor start.
+  Desc: "Paste the cracks before you walk in."
+
+L2b — TALLOW (passive)
+  Perk type: passive
+  Stat bonus: tolerance +2
+  Effect: Each time you consume tox (via purge ability, natural decay
+    from tox resistance over time, or item use), gain Temp HP = tox
+    consumed / 5, minimum 1. Additionally: each enemy you kill while
+    you have active Temp HP generates 2 Temp HP (kill-sustain loop).
+  Desc: "Render it down. The poison makes the grease that keeps the gears turning."
+
+SHARED NODE:
+
+L3 — WHITE NOISE (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +2, tolerance +2
+  Effect: Your Temp HP cap is increased: Temp HP can now stack up to
+    40 (not 20, if a default exists). Additionally: each hit that
+    removes Temp HP (not armor or HP) gives you a 20% chance to NOT
+    lose that Temp HP (the hit still "fires" but is absorbed by a
+    reactive re-gen). Engine: random roll per Temp HP absorption.
+  Desc: "The buffer holds. Most of the time, the buffer holds."
+  Balance: 20% mitigation on Temp HP consumption is modest but
+    meaningful over a floor's worth of hits.
+
+L4 CHOICE:
+
+L4a — GRAVEYARD SHIFT (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: While below 50% HP, gain Temp HP equal to 3 per enemy in
+    your FOV (each turn, checked at turn start, max 12/turn from this
+    source). Essentially: being surrounded and low HP generates a
+    steady Temp HP shield. This effect is "passive regen" conditional.
+  Engine: count visible enemies each turn; award (count * 3) capped
+    at 12 Temp HP, only if player HP < 50%.
+  Desc: "The graveyard feeds you. The dead keep you walking."
+  Balance: High risk/reward. Being surrounded is dangerous but this
+    perk scales exactly with that danger. Synergy with Bunker Mentality.
+
+L4b — GRAVE GOODS (passive)
+  Perk type: passive
+  Stat bonus: swagger +2
+  Effect: When you kill an enemy, gain Temp HP = enemy's max HP / 10
+    (round down, minimum 2, maximum 15 per kill). This is a kill-
+    sustain mechanic for the tank: you slowly rebuild shields via
+    combat. Also: if you have 20+ Temp HP when making a melee attack,
+    that attack deals +3 flat damage (spending the shield offensively).
+  Desc: "Everything they had, you take. Especially the part that kept them alive."
+  Balance: Kill sustain rewards active combat over corner-camping.
+    The +3 melee at 20+ Temp HP partially recovers the damage penalty.
+
+SHARED CAPSTONE:
+
+L5 — RESTING PLACE (passive + activated) [CAPSTONE]
+  Perk type: passive + activated (1/floor)
+  Stat bonus: constitution +2, swagger +4, tolerance +2
+  Effect: Passive: Temp HP cap increased to 60. Any Temp HP above your
+    current HP total (when Temp HP would exceed HP + armor) rolls over
+    as bonus DR until consumed: each 5 overflow Temp HP = +1 DR
+    (temporary, until those temp HP would have been spent).
+  Activated: 1/floor. GRAVEYARD SURGE: instantly restore Temp HP to
+    your cap (up to 60). This fires instantly, no delay. You go from
+    0 to 60 Temp HP in one action. Cooldown: 1/floor only.
+  New ability: graveyard_surge (PER_FLOOR, 1 charge)
+  Desc: "There's always one more night shift. Always."
+  Balance: Instantly topping 60 Temp HP 1/floor is a massive defensive
+    reset. The overflow-to-DR conversion gives a consistent reason to
+    maintain a large Temp HP pool.
+
+
+==========================================================================
+VARIATION 7: "THE PARISH" — Trident Tox Sacrifice
+==========================================================================
+Shape: Trident (L1-L2 shared; three split at L3; L3a+L3b reconverge at L5; L3c solo)
+Fantasy: Three responses to the inversion mechanic. The solo path
+  (L3c: Martyr) leans into self-damage as power. The two main paths
+  explore tox-as-shield vs. tox-as-tool, then merge for a final testament.
+
+TREE DIAGRAM:
+
+    L1: Pale Habit
+          |
+    L2: Bleach Coat
+      /    |    \
+    /      |     \
+L3a:     L3b:    L3c: (SOLO)
+Parish   Sinner  Martyr
+Armor    Cycle     |
+  |         |    L4c: Stigma
+  |         |      |
+  \         /    L5c: Immolation (CAPSTONE)
+   \       /
+  L5: Sanctuary (shared capstone for A+B)
+
+SHARED TRUNK:
+
+L1 — PALE HABIT (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4
+  Effect: TOX INVERSION unlocked. +20% tox resistance.
+  Desc: "White as a habit. Hard as the faith behind it."
+
+L2 — BLEACH COAT (passive)
+  Perk type: passive
+  Stat bonus: swagger +2, constitution +2
+  Effect: +2 DR. Each time the tox inversion mechanic reduces incoming
+    damage (i.e., you have tox > 0 and tox_inversion_active), the
+    amount of damage prevented by the inversion is tracked.
+    Every 20 total damage prevented by inversion this floor: +1 SWG
+    for the rest of the floor. Max +5 SWG per floor from this source.
+    Engine: engine.wp_inversion_prevented_dmg (per-floor counter).
+  Desc: "The coat takes the hit. The coat gets stiffer."
+  Balance: Rewards the inversion being active and meaningful.
+    At typical floor damage, might accrue +2-3 SWG/floor from this.
+
+PATH A — PARISH ARMOR:
+
+L3a — PARISH ARMOR (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: +6 armor capacity. Tox inversion also applies to armor
+    depletion: incoming hits to armor deal (tox_inversion_multiplier * damage)
+    to armor instead of full damage. Armor lasts much longer when
+    you're toxed up. Armor regen 2/5t (same as Galvanized from V2).
+  Desc: "The parish protects its own. Thick walls. Old faith."
+
+PATH B — SINNER CYCLE:
+
+L3b — SINNER CYCLE (passive + activated)
+  Perk type: passive + activated (3/floor)
+  Effect: Passive: each time you gain tox from any source, 20% of
+    that tox is converted to Temp HP (round up, minimum 1). E.g.,
+    absorbing 30 tox: 6 Temp HP immediately.
+  Activated: 3/floor. CONFESS: consume 25 tox. For 15 turns: +25%
+    dodge chance, +2 DR. After: those 25 tox are returned (net cost 0
+    tox; it's a cooldown, not a drain). One confession at a time.
+  Desc: "Sin more. Confess it. Put it right back."
+
+SOLO PATH C — MARTYR ROUTE:
+
+L3c — MARTYR (passive)
+  Perk type: passive
+  Effect: You may VOLUNTARILY take 5 damage (from your HP, not Temp HP
+    or armor) as a free action on your turn. This generates 3 Martyr
+    Stacks (engine.wp_martyr_stacks, max 15, cross-floor). Each Martyr
+    Stack = +1 flat DR (max +15 DR at 15 stacks). The voluntary damage
+    cannot be mitigated by armor or Temp HP — it always comes from HP.
+  Desc: "You ask it of yourself first. Makes it easier to take from others."
+  Balance: Risk/reward self-harm loop. At 15 stacks = +15 DR, you're
+    nearly immune to small hits, but you spent 25 HP to get there.
+    With inversion at 100 tox: you might take 50% less incoming anyway.
+
+L4c — STIGMA (passive)
+  Perk type: passive
+  Stat bonus: tolerance +3
+  Effect: Each Martyr Stack now also adds 0.5% dodge chance (at 15 stacks
+    = 7.5% dodge, rounded to 7%). Also: the voluntary 5-damage self-hit
+    generates 2 Temp HP (net: -3 effective HP per stack purchase, since
+    you spend 5 and get 2 Temp HP back). Building stacks costs less now.
+  Desc: "The wounds have power. You knew they would."
+
+L5c — IMMOLATION (activated) [SOLO CAPSTONE]
+  Perk type: activated (1/run)
+  Effect: ONCE per run. IMMOLATION: spend ALL Martyr Stacks.
+    For each stack spent: deal 5 damage to all visible enemies (AOE);
+    gain 10 Temp HP. At 15 stacks: 75 damage to all visible enemies +
+    150 Temp HP. After Immolation: -5 max HP permanently (the toll).
+    Also: -15 DR after stacks are gone, but Temp HP absorbs immediately.
+  New ability: immolation_wp (ONCE)
+  Desc: "You gave everything. It was worth it. The wounds close now."
+  Balance: Extremely powerful burst (75 AOE damage to ALL visible enemies
+    is potentially fight-ending) but -5 max HP permanently is the cost.
+    1/run only. Rewards building stacks all game.
+
+RECONVERGED CAPSTONE (A + B paths):
+
+L5 — SANCTUARY (passive + activated) [A/B CAPSTONE]
+  Perk type: passive + activated (2/floor)
+  Stat bonus: swagger +4, constitution +2
+  Effect: Passive: tox inversion now applies at HALF strength to
+    allies/friendly entities (if any mechanic grants them). More
+    importantly: enemies that hit you and have the "fear" or "flee"
+    AI state have a 30% chance to be calmed (end their fear state
+    and resume normal AI). You become so unmovable that enemies lose
+    their fear response upon hitting you.
+  Activated: 2/floor. SANCTUARY: for 10 turns, you cannot be moved
+    (knockback negated), stunned, or feared. During Sanctuary: incoming
+    hits deal 0 damage to HP (only armor and Temp HP). If neither
+    exists, hits are negated entirely. Takes no action to maintain.
+  New ability: sanctuary_wp (PER_FLOOR, 2 charges)
+  Desc: "Nothing moves here without permission. Nothing hurts here that
+    doesn't earn it."
+
+
+==========================================================================
+VARIATION 8: "THE CALCIFIER" — Double Diamond DR-to-Offense
+==========================================================================
+Shape: Double Diamond (L1; split L2; converge L3; split L4; converge L5)
+Fantasy: Two waves of choices, each offering a different angle on DR.
+  The theme is calcification — turning defense into offense through thorns,
+  counterattack, and DR-based damage formulas.
+
+TREE DIAGRAM:
+
+        L1: Calcium White
+           /        \
+      L2a: Ossify   L2b: Calcify
+           \        /
+        L3: Mineral (converge)
+           /        \
+      L4a: Fossil   L4b: Stalactite
+           \        /
+        L5: PETRIFIED (capstone, converge)
+
+TRUNK:
+
+L1 — CALCIUM WHITE (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +1
+  Effect: TOX INVERSION unlocked. +2 DR.
+  Desc: "Dense. White. Hard. You get the idea."
+
+FIRST SPLIT:
+
+L2a — OSSIFY (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: +3 DR. Thorns: each hit you receive reflects 1 physical
+    damage to the attacker (unconditional; not conditional on armor).
+    This fires even when you mitigate the hit via inversion or DR.
+    Thorns damage is fixed at 1; not scaling.
+  Desc: "Every strike costs them something."
+
+L2b — CALCIFY (passive)
+  Perk type: passive
+  Stat bonus: swagger +2
+  Effect: +2 DR. Your armor now counts as additional DR: while armor
+    is above 0, effective DR = permanent_dr + (current_armor / 3)
+    rounded down. At 9 armor: +3 bonus DR. At 6 armor: +2 bonus DR.
+    The armor bonus DR is lost when armor is depleted.
+  Desc: "The layers don't just stop hits. They multiply the ones you turn away."
+
+CONVERGENCE:
+
+L3 — MINERAL (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +2, tolerance +2
+  Effect: +3 DR. The tox inversion formula now applies at DOUBLE
+    strength to thorns/reflect damage: your reflected damage benefits
+    from the ENEMY's hypothetical inversion (inverted calculation on
+    outgoing reflect). In practice: reflected damage is multiplied
+    by (1.0 + 0.25 * (player_tox/100)^0.6) instead of being fixed.
+    At 100 tox: thorns deal ~1.25 instead of 1 (modest boost, but
+    consistent). Engine: apply reflect multiplier in combat.py.
+  Desc: "The mineral grows. The growth has edges."
+
+SECOND SPLIT:
+
+L4a — FOSSIL (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: Your DR now has a "soft cap" layer: the first 5 points of
+    any hit (before DR) are reflected as thorns damage (fixed 5,
+    regardless of DR). Then DR reduces the remaining hit.
+    This means a 10-damage hit: reflect 5 thorns, then DR reduces 5.
+    A 20-damage hit: reflect 5 thorns, DR reduces 15. Consistent
+    5-damage thorns on every hit regardless of scale.
+  Desc: "Old. Dense. Still sharp."
+
+L4b — STALACTITE (passive)
+  Perk type: passive
+  Stat bonus: swagger +4
+  Effect: Calcified DR (from L2b's formula) now converts at a better
+    rate: armor / 2 as bonus DR (rounded down) instead of / 3.
+    At 9 armor: +4 bonus DR. Also: when your armor is full (at maximum),
+    your thorns damage is tripled for the first hit of each combat
+    (the first enemy to hit you per combat room).
+    Engine: track engine.wp_room_first_hit (per-room bool).
+  Desc: "The spike forms when conditions are perfect. It waits."
+
+CONVERGENCE CAPSTONE:
+
+L5 — PETRIFIED (passive) [CAPSTONE]
+  Perk type: passive
+  Stat bonus: constitution +4, swagger +4, tolerance +2
+  Effect: The tox inversion formula is strengthened: coefficient 0.7
+    (instead of 0.5) on incoming; coefficient 0.3 on outgoing (you
+    hit at 70% of normal at 100 tox instead of 75%). Asymmetric.
+    Also: your total DR now directly adds to thorns damage at a ratio
+    of DR/3 (rounded down). At +8 total DR: thorns = 1 + 2 = 3 per hit.
+    At +12 DR: thorns = 1 + 4 = 5 per hit. The fortress bites back.
+    Also passive: +10% tox resistance.
+  Desc: "Stone. Old stone. Old stone with teeth."
+  Balance: DR-scaling thorns is the signature capstone. Combined with
+    Fossil's fixed-5 thorns: total reflect per hit can reach 5 + (DR/3).
+    At +12 DR: 5 + 4 = 9 thorns per hit. Strong but requires DR investment.
+
+
+==========================================================================
+VARIATION 9: "THE COVENANT" — Asymmetric Y: Quick Covenant vs. Long March
+==========================================================================
+Shape: Asymmetric Y (L1-L2 shared; split at L3: Branch A = L3a capstone; Branch B = L3b+L4b+L5b)
+Fantasy: A brutal early choice. Branch A gives a quick powerful
+  capstone; Branch B is a deeper investment with a more dramatic payoff.
+  Both center on the tox inversion mechanic.
+
+TREE DIAGRAM:
+
+    L1: White Covenant
+          |
+    L2: Iron Will
+          |
+         / \
+        /   \
+  [SHORT]     [LONG]
+  L3a: Pact    L3b: Oath
+  (CAPSTONE)        |
+                L4b: Testament
+                     |
+                L5b: The Word
+                  (CAPSTONE)
+
+TRUNK:
+
+L1 — WHITE COVENANT (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, tolerance +2
+  Effect: TOX INVERSION unlocked. +25% tox resistance. Additionally:
+    while tox inversion is active AND you have tox > 25, gain +1
+    speed (energy per tick = 101 instead of 100; ~1% faster). Minor
+    but thematic — the toxin energizes you.
+  Desc: "You made a deal. The deal is simple: the poison is yours now."
+
+L2 — IRON WILL (passive)
+  Perk type: passive
+  Stat bonus: swagger +4, constitution +2
+  Effect: +3 DR. DEBUFF RESISTANCE: all debuff durations applied to
+    you are reduced by 25% (rounded down; minimum 1 turn). Also: at
+    the start of each floor, if you have active tox, the first enemy
+    you attack takes +3 damage (bonus from the will to fight through it).
+    Engine: engine.wp_iron_will_first_hit (per-floor bool).
+  Desc: "Every morning, the same resolve. Every floor, the same first hit."
+
+SHORT BRANCH:
+
+L3a — PACT (passive + activated) [CAPSTONE — short path]
+  Perk type: passive + activated (2/floor)
+  Stat bonus: swagger +6, constitution +2, tolerance +2
+  Effect: Passive: +4 DR. The tox inversion formula coefficient raised
+    to 0.65: at 100 tox, incoming = 1.0 - 0.65 = 0.35x (~65% reduction).
+    Strong passive tank wall.
+  Activated: 2/floor. THE PACT: for 10 turns, you are immune to tox
+    gain AND all incoming damage is reduced by an additional flat 50%
+    (multiplicative after inversion). At 100 tox during Pact:
+    0.35x (inversion) * 0.5x (pact) = 0.175x effective damage received.
+    After Pact ends: take 10 tox instantly (the cost of the deal).
+  New ability: the_pact (PER_FLOOR, 2 charges)
+  Desc: "The pact holds. For now. The cost comes after."
+  Balance: The short path rewards players who invest early (3 perks to
+    capstone). The capstone is strong but requires building up to 100 tox
+    to maximize the Pact value. Early floors: Pact + inversion at 50 tox
+    = 0.87x (inversion) * 0.5x (pact) = 0.44x = 56% incoming reduction.
+
+LONG BRANCH:
+
+L3b — OATH (passive)
+  Perk type: passive
+  Stat bonus: constitution +2
+  Effect: +3 armor capacity. Each time the tox inversion formula reduces
+    incoming damage (any amount), the amount saved is accumulated into
+    an "Oath Pool" (engine.wp_oath_pool, per-floor, resets each floor).
+    When the Oath Pool reaches 30 damage absorbed, immediately gain
+    10 Temp HP. Resets and begins accumulating again. E.g., at 100 tox
+    with 25% incoming reduction: every 120 incoming damage = one 10 Temp HP
+    trigger. Floor-dependent frequency.
+  Desc: "Every hit you take, you keep a tab. They owe you."
+
+L4b — TESTAMENT (passive)
+  Perk type: passive
+  Stat bonus: swagger +4, tolerance +2
+  Effect: The Oath Pool cap is doubled to 60, but when it triggers it
+    generates 25 Temp HP instead of 10. Also: the Oath Pool now
+    carries over between floors (it does not reset on new floor —
+    engine.wp_oath_pool is run-persistent). Additionally: +2 DR.
+  Desc: "The tab carries forward. The debt compounds."
+
+L5b — THE WORD (passive + activated) [CAPSTONE — long path]
+  Perk type: passive + activated (1/floor)
+  Stat bonus: swagger +4, constitution +4, tolerance +2
+  Effect: Passive: tox inversion coefficient raised to 0.75.
+    At 100 tox: incoming = 1.0 - 0.75 = 0.25x (75% reduction!).
+    Outgoing penalty also increases at this coefficient: 0.75 * (tox/100)^0.6.
+    At 100 tox: deal only 0.25x of normal damage. The tradeoff is extreme.
+    Also: Oath Pool triggers now also deal 5 damage to the last attacker
+    (automatic thorns on each Oath trigger).
+  Activated: 1/floor. GOSPEL: consume entire Oath Pool (whatever it holds).
+    For each 30 in the pool: +5 SWG for 30 turns. Pool can build to any
+    size; converting a 90-pool gives +15 SWG for 30 turns temporarily.
+    Combined with permanent SWG from tree: very high SWG window.
+  New ability: gospel_wp (PER_FLOOR, 1 charge)
+  Desc: "Everything you absorbed. Everything. The word goes out."
+  Balance: The long path requires 5 perks total. Payoff is the strongest
+    tox inversion coefficient in the entire doc (0.75) at the cost of
+    also the most severe outgoing penalty. The player is a near-invincible
+    wet noodle at 100 tox. But the SWG-spike via Gospel can reclaim some
+    combat effectiveness temporarily.
+
+
+==========================================================================
+VARIATION 10: "THE MONUMENT II" — Long Trunk Y Full Tox Ramp
+==========================================================================
+Shape: Long Trunk Y (L1-L4 shared trunk; split at L5 into two capstones)
+Fantasy: The deepest investment in the tox inversion system. Every
+  trunk perk adds a new dimension to how inversion works. The final
+  split asks: do you become an immovable object or an unstoppable
+  wall that slowly grinds enemies down?
+
+TREE DIAGRAM:
+
+    L1: Pale Foundation
+          |
+    L2: White Walls
+          |
+    L3: The Bunker
+          |
+    L4: Inert
+          |
+         / \
+        /   \
+  L5a: Petrified Wall   L5b: Grinding Stone
+     (CAPSTONE)              (CAPSTONE)
+
+TRUNK:
+
+L1 — PALE FOUNDATION (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: swagger +4, constitution +1
+  Effect: TOX INVERSION unlocked. +20% tox resistance. The foundation
+    of the entire tree — without this, no other perk in this tree
+    is accessible.
+  Desc: "Start with the foundation. Everything else is just walls."
+
+L2 — WHITE WALLS (passive)
+  Perk type: passive
+  Stat bonus: swagger +2, constitution +2
+  Effect: +3 DR. Also: tox inversion now reduces incoming damage from
+    ALL sources: melee, gun, AOE effects, environmental tox damage.
+    (By default, inversion only applies to direct melee/ranged; this
+    extension includes hazard tile damage, explosion splash, etc.)
+    Additionally: +10% tox resistance.
+  Desc: "A wall doesn't choose what it stops. It stops everything."
+  IMPLEMENTATION NOTE: Apply inversion multiplier to hazard damage
+    checks in engine.py (_run_energy_loop fire tile processing) and
+    any AOE damage dispatch in spells.py.
+
+L3 — THE BUNKER (passive)
+  Perk type: passive
+  Stat bonus: constitution +2, tolerance +2
+  Effect: +3 armor capacity. While at 60+ tox:
+    - Gain +2 SWG (temporary; fades instantly if tox drops below 60)
+    - Gain +1 DR (same condition)
+    The tox inversion "sweet spot" at 60+ tox:
+      incoming = 1.0 - 0.5 * (60/100)^0.6 = 1.0 - 0.5*0.729 ≈ 0.635x
+    At this level: ~37% incoming reduction + +2 SWG + +1 DR. Meaningful
+    floor to reach and maintain.
+  Desc: "Below the threshold, it's just a building. Above it, it's a bunker."
+
+L4 — INERT (passive)
+  Perk type: passive
+  Stat bonus: swagger +2, tolerance +3, constitution +2
+  Effect: You are now IMMUNE to the tox damage multiplier at all levels
+    (the normal formula 1.0 + (tox/100)^0.6 no longer applies to you).
+    This was already partially true via inversion, but this perk makes it
+    ABSOLUTE: tox can never increase your incoming damage under any
+    circumstance (no White Out-style reversal, no debuffs that strip
+    inversion, etc.). The inversion remains active on top.
+    Also: +25% tox resistance (cumulative with other sources; now around
+    55-65% tox resistance total with normal items/gear).
+  Desc: "The chemicals gave up trying to kill you. Now they just... live in you."
+  Balance: This is a keystone. It means even if inversion is somehow
+    stripped (debuff, special enemy ability), you're immune to the normal
+    tox penalty — worst case, tox is neutral. Best case (inversion active),
+    tox is defensive. No downside to having maximum tox.
+
+CAPSTONE SPLIT:
+
+L5a — PETRIFIED WALL (passive + activated) [CAPSTONE]
+  Perk type: passive + activated (1/floor)
+  Stat bonus: swagger +6, constitution +2
+  Effect: Passive: tox inversion coefficient raised to 0.6 (from 0.5).
+    At 100 tox: incoming = 1.0 - 0.6 = 0.4x (60% reduction). The outgoing
+    penalty is also 0.6 coefficient (symmetric). At 100 tox: 40% reduction
+    both ways. Combined with +DR, armor, Bunker bonuses: you're taking
+    25-35% of normal incoming damage.
+  Activated: 1/floor. STONE WALL: 10-turn window.
+    During Stone Wall: you cannot be knocked back, stunned, or moved.
+    All incoming damage is multiplied by 0.5 (additional to inversion).
+    At 100 tox + Stone Wall: 0.4 * 0.5 = 0.2x incoming (80% reduction).
+    After Stone Wall: expiry restores to normal inversion levels.
+  New ability: stone_wall (PER_FLOOR, 1 charge)
+  Desc: "There is no getting through. There never was."
+  Balance: The pure defensive capstone. At 100 tox + Stone Wall active:
+    effectively taking only 20% of hits. Outgoing is also 40% of normal
+    at 100 tox, making this the low-damage-high-defense extreme.
+
+L5b — GRINDING STONE (passive) [CAPSTONE]
+  Perk type: passive
+  Stat bonus: swagger +4, constitution +2, strength +2
+  Effect: Passive: tox inversion's OUTGOING penalty is removed entirely
+    (same as V4's Monolith). You deal full damage regardless of tox level.
+    The incoming reduction remains at standard 0.5 coefficient.
+    Additionally: each enemy hit by your melee attacks receives 3 tox
+    (stacking on the enemy, not you). Toxed-up enemies die slower
+    (their own tox multiplier applies to them normally — they take MORE
+    damage from other sources while toxed, which includes your hits).
+    At 100+ enemy tox: enemy takes ~1.5x incoming damage from all sources.
+    You apply 3 tox/hit; at normal hit frequency, enemies reach 100 tox
+    in ~34 hits (slower than you'd like; but it stacks from other sources).
+  Desc: "You hit like a wall of stone. They didn't realize stone can grind."
+  Balance: The damage-recovery capstone in a damage-penalty tree.
+    You remove the outgoing penalty AND get to poison enemies (multiplying
+    enemy vulnerability). Combined with Inert's absolute tox immunity:
+    you have maximum tox (max defense from inversion) while dealing
+    full damage + applying enemy tox vulnerability. The most "offensive"
+    White Power capstone in the entire doc.
+  IMPLEMENTATION NOTE: Apply 3 tox to target entity in combat.py
+    in the melee resolution block when wp_grinding_stone_equipped flag
+    is True. Use entity.toxicity field (already exists on entity).
+
+
+==========================================================================
+DESIGN IMPLEMENTATION NOTES
+==========================================================================
+
+== NEW PLAYERSTATS FIELDS (cumulative across all 10 variations) ==
+
+  tox_inversion_active: bool = False
+    Set True at L1 of any tree. When True, replaces normal tox damage
+    multiplier with inversion formula in combat.py.
+
+  wp_no_outgoing_penalty: bool = False
+    Set True by Monolith (V4) and Grinding Stone (V10). Skips outgoing
+    penalty in _compute_player_attack_power().
+
+  wp_inversion_coefficient: float = 0.5
+    Default 0.5. Raised by: Pristine Vessel (0.6), Pure Immunity (up to 0.9),
+    Pact path (0.65), The Word (0.75), Petrified Wall/Stone Wall path (0.6).
+    The formula: incoming_mult = 1.0 - wp_inversion_coefficient * (tox/100)^0.6
+
+  wp_inversion_outgoing_coefficient: float = 0.5
+    Default same as incoming coefficient. Some perks decouple them
+    (asymmetric inversion).
+
+  wp_grinding_stone_active: bool = False
+    Set True by Grinding Stone capstone. Apply 3 tox/hit in combat.py.
+
+  wp_paper_wall_used: bool = False (per-floor reset)
+    Tracks if Wall Paper's near-death save has fired this floor.
+
+  wp_iron_will_first_hit: bool = False (per-floor reset)
+    Tracks if Iron Will's first-hit bonus has fired this floor.
+
+== NEW ENGINE STATE ==
+
+  engine.wp_fortress_stacks: int = 0 (per-floor, cleared on move)
+  engine.wp_crust_stacks: int = 0 (decays per turn)
+  engine.wp_scab_charged: bool = False (per-hit)
+  engine.wp_martyr_stacks: int = 0 (cross-floor, run-persistent)
+  engine.wp_oath_pool: float = 0.0 (cross-floor, run-persistent)
+  engine.wp_inversion_prevented_dmg: int = 0 (per-floor counter)
+  engine.wp_tincan_hits_remaining: int = 0 (per-floor, set at floor start)
+  engine.wp_room_first_hit: bool = True (per-room, reset on room entry)
+  engine.wp_kiln_regen_bonus: int = 0 (active armor regen rate)
+  engine.wp_last_armor_value: int = 0 (for Kiln tracking)
+
+== IMPLEMENTATION PRIORITY ==
+
+  High priority (unlocks the whole system):
+    1. player_stats.tox_inversion_active field + inversion formula in combat.py
+    2. player_stats.wp_inversion_coefficient (variable coefficient)
+    3. tox inversion applied to outgoing damage in _compute_player_attack_power
+
+  Medium priority (enables most perks):
+    4. wp_fortress_stacks tracking (per-turn; checked if player didn't move)
+    5. wp_oath_pool accumulation (per-hit; calculated from inversion delta)
+    6. Temp HP cap increase (extend existing system)
+    7. Armor regen per 5 turns (new per-tick check in energy loop)
+
+  Lower priority (capstone-specific):
+    8. wp_grinding_stone_active + tox-on-hit to enemies
+    9. wp_no_outgoing_penalty bypass
+    10. riot_shield_up, mausoleum_rest, immolation_wp ability IDs
+
+== TOX INVERSION FORMULA (REFERENCE IMPLEMENTATION) ==
+
+  In combat.py, in the damage resolution block:
+    if engine.player_stats.tox_inversion_active and entity == engine.player:
+        coeff = engine.player_stats.wp_inversion_coefficient  # default 0.5
+        tox_ratio = min(entity.toxicity / 100.0, 2.0)         # cap at 200 tox
+        reduction = coeff * (tox_ratio ** 0.6)
+        tox_mult = max(0.10, 1.0 - reduction)                  # floor at 10% (never 0)
+    else:
+        tox_mult = 1.0 + (entity.toxicity / 100) ** 0.6       # normal formula
+
+  In _compute_player_attack_power():
+    if engine.player_stats.tox_inversion_active and not engine.player_stats.wp_no_outgoing_penalty:
+        coeff = engine.player_stats.wp_inversion_outgoing_coefficient  # default 0.5
+        tox_ratio = min(engine.player.toxicity / 100.0, 2.0)
+        outgoing_mult = max(0.40, 1.0 - coeff * (tox_ratio ** 0.6))  # floor 40%
+        atk_power = int(atk_power * outgoing_mult)
+
+== NEW ABILITY IDs (cumulative) ==
+
+  V1:  reactor_pulse (PER_FLOOR, 1 charge)
+       meltdown_wp (PER_FLOOR, 1 charge)
+  V2:  riot_shield_up (PER_FLOOR, 2 charges)
+  V3:  full_lockdown (PER_FLOOR, 1 charge)
+  V4:  mausoleum_rest (ONCE)
+  V5:  immune_window (PER_FLOOR, 2 charges)
+  V6:  graveyard_surge (PER_FLOOR, 1 charge)
+  V7:  immolation_wp (ONCE)
+       sanctuary_wp (PER_FLOOR, 2 charges)
+  V8:  (passive only; no new abilities)
+  V9:  the_pact (PER_FLOOR, 2 charges)
+       gospel_wp (PER_FLOOR, 1 charge)
+  V10: stone_wall (PER_FLOOR, 1 charge)
+
+== BALANCE BENCHMARKS ==
+
+  Tox inversion at 0.5 coefficient vs. normal tox formula:
+    0 tox:   1.0x both formulas — no difference
+    25 tox:  normal 1.16x; inverted 0.92x — delta: 0.24x at low tox
+    50 tox:  normal 1.26x; inverted 0.87x — delta: 0.39x at mid tox
+    100 tox: normal 1.50x; inverted 0.75x — delta: 0.75x at standard tox
+    200 tox: normal 2.00x; inverted 0.63x — delta: 1.37x at max tox
+
+  At 0.75 coefficient (V9 The Word capstone, strongest):
+    100 tox: inverted 0.25x incoming — taking 25% of normal damage
+    200 tox: inverted ~0.11x incoming — taking ~11% of normal damage (floor applied)
+
+  At 0.5 coefficient (standard), combined with +8 DR and 10 Temp HP/floor:
+    Floor 1-2 enemies deal ~4-8 damage. After -8 DR: many hits deal 0 HP damage.
+    White Power tank becomes near-unkillable at floor 1-2 at moderate tox.
+    This is intentional — the tradeoff is dealt via outgoing penalty.
+
+  Outgoing penalty at standard 0.5 coefficient:
+    100 tox: deal 75% of normal damage
+    200 tox: deal ~63% of normal damage
+    Fights take longer to resolve but player does not die.
+    Synergy with Grinding Stone capstone (V10) removes this penalty.
+
+== CROSS-TREE SYNERGIES ==
+
+  Chemical Warfare (CW): Primary tox-accumulation partner. CW provides
+    the tox needed to maximize inversion; WP converts that tox to defense.
+    Together: maximum tox build (80-100+ tox maintained) with strong
+    incoming reduction and CW's offensive capabilities.
+
+  Meth-Head: Speed + tox. WP slows fight pacing (lower damage output);
+    Meth-Head's speed bonus compensates by landing more hits per time unit.
+
+  Mutation: Rad/tox dual-resistance. Tox resistance perks from Mutation
+    feed into V5's Pure Immunity (tox resistance → inversion coefficient bonus).
+
+  L Farming / Swagger items: Any external SWG bonus amplifies WP's
+    Swagger defense formula. External SWG from items stacks directly
+    with tree's SWG bonuses. +Swagger ring = more armor floor in V2 Iron Coffin.
+
+  Drinking / Alco-Seltzer: The purge-50-tox item interacts with inversion:
+    V1 Branch B (Meltdown) benefits from periodic tox purges. V6 Tallow
+    benefits from any tox loss. Careful: excessive purging can lower inversion.
+
+  Stabbing: With Grinding Stone (V10) removing outgoing penalty,
+    a stabbing build with high tox can maintain near-full attack power
+    while being damage-reduced incoming. Strong hybrid potential.

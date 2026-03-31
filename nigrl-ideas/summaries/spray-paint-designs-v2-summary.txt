@@ -1,0 +1,56 @@
+SUMMARY: spray-paint-designs-v2.txt
+====================================
+10 new spray paint colors (Paints 6-15). Full doc: nigrl-ideas/spray-paint-designs-v2.txt
+
+PAINT ROSTER (new):
+  6  Yellow     (230,220,40)   Player: +3 STS +3 BKS simultaneously. Hybrid stat tile.
+  7  Purple     (160,40,210)   Enemy on tile: 30% per turn -> confused (1t, random move).
+  8  Pink       (255,100,160)  Player: +15 max HP while standing (non-healing).
+  9  Gold       (255,190,30)   Kill enemy on tile: +$5 cash drop. Economy tile. 8 charges.
+  10 Teal       (40,200,185)   Player: +20% skill XP from all sources while standing.
+  11 Brown      (120,75,20)    Enemy on tile: +50 move cost (33% slower movement, no skip).
+  12 Lime       (100,240,50)   All entities: enemy +6+2*GrafLvl tox/turn, player +3 tox/turn.
+  13 Grey       (160,160,160)  Enemy on tile: -(1+GrafLvl) to their outgoing melee damage.
+  14 Rad        (180,255,60)   All entities: enemy +10+2*GrafLvl rad/turn, player +6 rad/turn. Meth Lab.
+  15 White      (245,245,245)  Player: sense enemy direction within (2+GrafLvl) tiles per turn.
+
+KEY DESIGN PATTERNS:
+  - Lime/Rad = Meth Lab tox/rad delivery (enemy-focused; self-damage risk)
+  - Grey = attacker-tile modifier (new in combat.py; attacker.tile -> reduce dmg dealt)
+  - Gold = economy kill reward (entity_died event bus, gold tile check)
+  - White = pure information (no combat math; directional sensing only)
+  - Pink = tile_max_hp_bonus (new PlayerStats field; clamp HP on step-off)
+  - Teal = tile_xp_bonus (new PlayerStats field; multiplies all skill XP gains)
+  - Brown = move-cost modifier (inline in monster move-cost block, no new Effect)
+  - Purple = new ConfusedPaintEffect (id="confused_paint", dur=1, random move before_turn)
+
+NEW PLAYERSTATS FIELDS:
+  tile_max_hp_bonus: int = 0
+  tile_xp_bonus: float = 0.0
+
+NEW EFFECT:
+  confused_paint (debuff, dur=1, before_turn: random walkable adjacent move)
+
+FILES TO TOUCH:
+  items.py (10 new ITEM_DEFS + 10 _spray_descs entries)
+  render.py (10 new elif branches x2 blocks: visible + explored)
+  engine.py (_update_tile_stat_bonuses, per-tick loop, move-cost block,
+             entity_died gold hook, white sense pass, _SPRAY_TABLE)
+  combat.py (grey attacker-tile mod; extend _apply_tile_amp or new fn)
+  effects.py (ConfusedPaintEffect class)
+  stats.py (2 new fields + integrate into max_hp + XP calcs)
+
+COMBO SYNERGIES DOCUMENTED:
+  Lime+Red, Grey+Orange, White+Silver, Brown+Lime, Gold+Street Art L2
+
+ZONES:
+  Lime, Rad: meth_lab primary (also crack_den OK for lime)
+  Rad: meth_lab ONLY (soft restriction via loot table)
+  Gold: crack_den only (economy focus zone)
+  All others: crack_den + meth_lab
+
+CHARGES:
+  Most: 10 | Gold: 8 | Rad: 8
+
+_SPRAY_TABLE update: all 15 paints listed; Gold and Rad at end (lower
+  effective weight if duplicated for others in future balance pass).

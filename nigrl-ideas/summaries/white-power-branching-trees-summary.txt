@@ -1,0 +1,138 @@
+SUMMARY — White Power Branching Skill Tree Variations
+======================================================
+Source doc: nigrl-ideas/white-power-branching-skill-trees.txt
+
+10 branching topology variations. Swagger/tox-resistance defensive tree.
+All 10 shape types used — no shape repeated.
+
+SHAPE DISTRIBUTION:
+  Y-split (L3):     V1
+  Diamond (L2→L5):  V2
+  Triple Fork (L4): V3
+  W-shape:          V4
+  Inverted Y:       V5
+  Ladder/Zigzag:    V6
+  Trident:          V7
+  Double Diamond:   V8
+  Asymmetric Y:     V9
+  Long Trunk Y:     V10
+
+=== VARIATION 1: THE MONUMENT (Y-split) ===
+  Trunk: Bleached (+4 SWG, +25% tox resist)
+         Ivory Skin (Temp HP = SWG value on floor start)
+  Branch A — The Wall:
+    L3a: Porcelain — SWG>12 = extra Temp HP; reactive -3 hit on big incoming
+    L4a: Untouchable — 2/floor: 8t double swagger_defence; perm +2 SWG if floor <5 dmg
+  Branch B — The Blade:
+    L3b: Gleaming Edge — melee bonus = swagger_defence/2; crit refreshes Ivory Skin
+    L4b: Blinding White — 3/floor AOE-3 stun 2t; Gleaming Edge tripled 15t; CAPSTONE
+
+=== VARIATION 2: THE CONFESSOR (Diamond) ===
+  L1: White Out (revised) — 3/floor: purge tox, Temp HP = tox/5, +30% resist 20t
+  Split at L2:
+    L2a: Spotless — 0-tox: -2 flat DR + perm +1 TOL on kill-at-0 (max +3)
+    L2b: Loaded Barrel — +0.5 melee per tox (cap +15 at 40 tox)
+  L3a: Clean Slate — 40t cd: instant tox purge; 30t immune window → tox→Temp HP
+  L3b: Pressure Cooker — 50+ tox +5 melee; 75+ tox +3 speed/25 tox; 2/floor purge slam
+  L4 (shared): Absolution — +4 SWG, +2 TOL; post-purge: 10t dodge+acc debuff
+  Final split at L5:
+    L5a: Grace — Absolution window: +30% dmg mult; kill extends window 3t; CAPSTONE
+    L5b: Eruption — 1/floor: vent all tox as AOE-4 dmg; r2 stun 3t; +20 Temp HP; CAPSTONE
+
+=== VARIATION 3: THE BAPTISM (Triple Fork) ===
+  L1: Bleached (+4 SWG, +20% resist)
+  L2: Pristine Body (+3 SWG, +2 TOL, +20% resist, debuff duration -1)
+  L3: Scoured — +3 CON; 3/floor: purge all tox+debuffs; +1 Temp HP per debuff removed
+  Fork at L4 (choose one):
+    L4a: White Marble — +6 SWG, +2 CON; armor refills per-hit; 50%tox pre-resist if SWG18+; CAPSTONE
+    L4b: Plague Carrier — immune to own tox multiplier; melee applies 4 tox/hit; tox attacks reflected; CAPSTONE
+    L4c: Swagger Strike — swagger_defence added as flat melee dmg; per-kill +1 SWG stack (cap +8/floor); CAPSTONE
+
+=== VARIATION 4: THE WHITEWASH (W-shape) ===
+  Trunk: Bleached (+4 SWG, +20%)
+         White Out (original: 3/floor gain 25 tox, +8 SWG, -25% dmg 50t)
+  Branch A (offense): Chalk Line — White Out penalty halved; melee applies 3 tox during
+  Branch B (tank): Ivory Tower — White Out penalty → +10% DR instead; +1 armor per 25 SWG
+  Convergence L5: Purification Ritual — 1/floor: consume all tox → Temp HP (tox/4) + buffs 20t
+  Final split:
+    L6a: Immaculate — post-ritual 30t tox immune; perm +2 SWG +1 CON if expires naturally; CAPSTONE
+    L6b: Void Purity — 3/run: 15t 40% dmg mult + full status immunity; costs 50 tox after; CAPSTONE
+
+=== VARIATION 5: THE BLEACH JOB (Inverted Y) ===
+  Starting choice:
+    L1a: Ivory Throne — +6 SWG, +1 CON, +15% resist (defensive start)
+    L1b: White Flag — 3/floor: gain 30 tox for 30 WP XP; confuse low-tox enemies; +30% resist
+  L2a: Unbroken — +4 SWG; SWG above start = -2 flat DR
+  L2b: Toxin Cycle — purge → Temp HP; resisted tox = 0.2 XP/point (XP machine)
+  L3 convergence: Baptism By Bleach — +4 SWG, +2 TOL; 2/floor: purge self, 8 tox to r2 enemies
+  L4 capstone: Pure White — env tox immune; 0-tox floor end = perm +1 CON (max +4); CAPSTONE
+
+=== VARIATION 6: THE LADDER (Zigzag) ===
+  L1 shared: Bleached (+4 SWG, +20%)
+  L2 choice: Iron Skin (+4 SWG, +2 CON, +2 floor armor) OR Tox Cache (+30% resist, 100 resist→Purity Charge)
+  L3 shared: White Noise (+2 TOL; 15% debuff negate; negated tox = 0.5x toward cache)
+  L4 choice: Purge Wave (2/floor+charges: AOE-3 tox/4 dmg + 6 tox to enemies, self-purge)
+          OR Corruption (0-tox: +4 melee; 50+ tox: +8 melee + 3 tox/hit; charges spike to 60 tox)
+  L5 shared: Pristine Force — +4 SWG; first hit/turn = +swagger_defence bonus dmg; CAPSTONE
+
+=== VARIATION 7: THE TEMPLE (Trident) ===
+  L1: Bleached (+4 SWG, +20%)
+  L2: White Chapel (+3 SWG, +2 TOL, +20%, 10% less dmg from debuffed enemies)
+  L3 triple split:
+    L3a: Cleanse Wall — 3/floor: purge all + debuffs; +4 SWG + fear-immune 15t → branches to L5a/L5b
+    L3b: Deify — +3 CON; 0-tox regen 1 HP/3t; kills at 0 tox = +2 XP → branches to L5a/L5b
+    L3c: Martyr — SOLO PATH; vol. damage → Martyr Stacks (max 20); each = +1 melee dmg
+  Solo path (L3c):
+    L4c: Sacrifice — +3 TOL; 2/floor: spend 25% stacks as r2 armor-pierce AOE; heal half
+    L5c: Immolation — 1/run: spend ALL stacks; all-visible dmg (stacks*4); heal stacks*2 + Temp HP overheal; CAPSTONE
+  Reconverged (L3a/L3b):
+    L5a: Anointed — auto-Cleanse Wall at <30% HP once/floor; Deify tripled to 1 HP/turn; CAPSTONE
+    L5b: Sanctified — White Chapel DR tripled to 30% at 0 tox; first hit per floor negated; CAPSTONE
+
+=== VARIATION 8: THE PURIFIER (Double Diamond) ===
+  L1: Bleached (+4 SWG, +20%)
+  First split at L2:
+    L2a: Purge Protocol — 3/floor purge; Temp HP = tox/5; 5t after purge: attacker gains 4 reflected tox
+    L2b: Resist Protocol — +3 TOL, +2 CON, +30% resist; below 15 tox = +3 melee + 10% dodge
+  Convergence L3: White Balance — +4 SWG; clean moments → Balance Charge (max 5, cross-floor)
+  Second split at L4:
+    L4a: Jade Purity — 2/floor+charges: LOS 8+(SWG/3) dmg armor-pierce; double if clean; charges = +1 SWG/floor
+    L4b: Bone Density — +4 CON, +2 SWG; unspent charges at floor-end = +2 perm HP (max +20/run); 2+ charges = -3 DR
+  Convergence L5: Absolute Purity — 2/run: spend all charges; 15 Temp HP/charge + +4 SWG/charge 30t + full immunity 30t;
+                  passive: tox resistance uncapped (above 100% = reflect); CAPSTONE
+
+=== VARIATION 9: THE BLEACH STORM (Asymmetric Y) ===
+  Trunk: Bleached (+4 SWG, +25%)
+         White Out (original: 3/floor, +8 SWG, -25% dmg 50t, gain 25 tox)
+  SHORT branch (capstone at L3):
+    L3a: Stainless — +6 SWG, +2 TOL, +2 CON; White Out penalty REMOVED; White Out adds 15% miss chance; CAPSTONE
+  LONG branch (3 nodes to L5):
+    L3b: First Coat — White Out SWG +12 (not +8); +30% resist (55% total); -25% dmg remains
+    L4b: Second Coat — White Out penalty halved to -12%; White Out expiry = +5 Temp HP
+    L5b: Final Coat — 1-3/floor (base 1 + 1 per natural White Out expiry); AOE-3: SWG/4 + 6 dmg, -3 enemy atk 10t; White Out -6% dmg; CAPSTONE
+
+=== VARIATION 10: THE LONG MARCH (Long Trunk Y) ===
+  L1: Bleached (+4 SWG, +20%)
+  L2: White Out (original)
+  L3: Pure — +4 SWG; double XP from tox resisted; tox inert during White Out (no dmg mult)
+  L4: Crystal White — +4 SWG, +3 CON, +2 TOL; first tox source per floor negated (hard immunity); kills during White Out +3 XP
+  Final split at L5:
+    L5a: Alabaster Shield — 2/floor: 15t FULL INVULNERABILITY (no dmg/effects; can move); Temp HP = blocked dmg after expiry; White Out → +12 SWG; CAPSTONE
+    L5b: Wrathbone Slam — 3/floor AOE-2: SWG full value as armor-pierce dmg + 1-tile knockback; 15t +swagger_defence melee; White Out → +12 SWG 75t; CAPSTONE
+
+NEW ABILITY IDs:
+  V1: blinding_white, alabaster_skin
+  V2: white_out_r1, clean_slate, pressure_release, baptism_cleanse, eruption_wp
+  V3: scour_b
+  V4: white_out_v4, lye_bath, purification_ritual, void_purity
+  V5: white_flag, baptism_cleanse_v5
+  V6: purge_wave
+  V7: cleanse_wall, sacrifice_wp, immolation_wp
+  V8: purge_protocol, jade_purity, absolute_purity
+  V9: white_out_v9, final_coat
+  V10: white_out_v10, alabaster_shield, wrathbone_slam
+
+TOP 3 RECOMMENDED:
+  1. V10 (Long March) — 4-level trunk maximizes ramp; both capstones are iconic
+  2. V3 (Baptism) — Triple Fork with clearly differentiated capstone identities
+  3. V9 (Bleach Storm) — Asymmetric Y creates sharp early vs. late investment tradeoff

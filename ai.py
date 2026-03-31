@@ -296,8 +296,13 @@ def chase(monster, player, dungeon, engine, creature_positions=None,
 
 def wander(monster, player, dungeon, engine, creature_positions=None,
            step_map=None):
-    """Take one random unblocked step.
+    """Take one random unblocked step with a chance to idle.
+    wander_idle_chance on the monster controls how often it skips (0.0-1.0).
     Returns "move" or "idle"."""
+    idle_chance = getattr(monster, "wander_idle_chance", 0.0)
+    if idle_chance > 0 and random.random() < idle_chance:
+        return "idle"
+
     dx, dy = _step_random(monster, dungeon, creature_positions)
     dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
 
@@ -316,25 +321,43 @@ def wander(monster, player, dungeon, engine, creature_positions=None,
 def wander_in_room(monster, player, dungeon, engine, creature_positions=None,
                    step_map=None):
     """Take one random unblocked step, but only to tiles within the monster's
-    spawn room.  Keeps room_guard monsters from drifting into corridors before
-    the player enters their room.
+    spawn room.  Biased toward the room center so monsters don't drift into
+    corners and get stuck.
     Returns "move" or "idle"."""
+    idle_chance = getattr(monster, "wander_idle_chance", 0.0)
+    if idle_chance > 0 and random.random() < idle_chance:
+        return "idle"
     room_tiles = getattr(monster, "spawn_room_tiles", None)
     self_pos = (monster.x, monster.y)
-    dirs = list(_DIRECTIONS)
-    random.shuffle(dirs)
-    for dx, dy in dirs:
+
+    # Build list of valid candidate moves
+    candidates = []
+    for dx, dy in _DIRECTIONS:
         nx, ny = monster.x + dx, monster.y + dy
-        # Don't wander onto the player — that's handled by state transition to CHASING
         if nx == player.x and ny == player.y:
             continue
         if room_tiles is not None and (nx, ny) not in room_tiles:
             continue
         if _tile_free(nx, ny, dungeon, creature_positions, self_pos):
-            dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
-            monster.move(dx, dy)
-            return "move"
-    return "idle"
+            candidates.append((dx, dy, nx, ny))
+
+    if not candidates:
+        return "idle"
+
+    # 40% chance: pick the candidate closest to room center (anti-corner bias)
+    # 60% chance: pick randomly (keeps movement natural)
+    if room_tiles and random.random() < 0.4:
+        # Compute room center
+        cx = sum(t[0] for t in room_tiles) / len(room_tiles)
+        cy = sum(t[1] for t in room_tiles) / len(room_tiles)
+        candidates.sort(key=lambda c: (c[2] - cx) ** 2 + (c[3] - cy) ** 2)
+        dx, dy = candidates[0][0], candidates[0][1]
+    else:
+        dx, dy, _, _ = random.choice(candidates)
+
+    dx, dy = _apply_modify_movement(dx, dy, monster, player, dungeon)
+    monster.move(dx, dy)
+    return "move"
 
 
 def flee(monster, player, dungeon, engine, creature_positions=None,
@@ -473,14 +496,25 @@ def suicide_chase(monster, player, dungeon, engine, creature_positions=None,
 
 def throw_vial(monster, player, dungeon, engine, creature_positions=None,
                step_map=None):
-    """Stationary ranged attack: throw a toxic vial at the player if in range + LOS.
-    Never moves when attacking. Returns "attack" or "idle"."""
+    """Chemist ranged attack: throw a 3x3 toxic vial (5-turn cooldown) or flat
+    damage ranged attack when vial is on cooldown. Stationary when attacking."""
     mx, my = monster.x, monster.y
     px, py = player.x, player.y
     dist = max(abs(mx - px), abs(my - py))
 
+    # Tick cooldown
+    cd = getattr(monster, "vial_cooldown", 0)
+    if cd > 0:
+        monster.vial_cooldown = cd - 1
+
     if dist <= 5 and _has_los(dungeon, mx, my, px, py):
-        engine.handle_chemist_vial(monster)
+        if getattr(monster, "vial_cooldown", 0) <= 0:
+            # Throw 3x3 vial
+            engine.handle_chemist_vial(monster)
+            monster.vial_cooldown = 5
+        else:
+            # Flat damage ranged attack (no toxicity)
+            engine.handle_chemist_ranged(monster)
         return "attack"
 
     # Out of range or no LOS — wander
@@ -755,8 +789,10 @@ def floor_alarm_triggered(monster, player, dungeon):
 
 
 def combat_in_monster_room(monster, player, dungeon):
-    """True when the player has attacked a monster in the same room this monster
-    is currently standing in (not spawn room — current position)."""
+    """True when this monster was directly attacked (provoked), or the player
+    has attacked any monster in the same room this monster is standing in."""
+    if getattr(monster, "provoked", False):
+        return True
     room_idx = dungeon.get_room_index_at(monster.x, monster.y)
     if room_idx is None:
         return False
@@ -973,12 +1009,16 @@ BEHAVIORS = {
     },
 
     # ── Room guard ───────────────────────────────────────────────────────
-    # Wanders within its spawn room.  Once the player steps into that room,
-    # it permanently switches to chasing (follows the player anywhere).
+    # Wanders within its spawn room.  Once the player steps into that room
+    # OR the monster is provoked (hit from a hallway), it permanently
+    # switches to chasing (follows the player anywhere).
     "room_guard": {
         "initial_state": AIState.WANDERING,
         "transitions": {
-            AIState.WANDERING: [(player_in_monster_room, AIState.CHASING)],
+            AIState.WANDERING: [
+                (player_in_monster_room, AIState.CHASING),
+                (was_provoked, AIState.CHASING),
+            ],
             # No revert — once triggered it chases forever.
         },
         "actions": {
@@ -1320,6 +1360,17 @@ BEHAVIORS = {
             AIState.CHASING:   occultist_attack,
         },
     },
+
+    # ── NPC Wander ───────────────────────────────────────────────────────
+    # Non-hostile NPC that slowly wanders.  No transitions — never chases
+    # or attacks.  Used for shopkeepers and other friendly entities.
+    "npc_wander": {
+        "initial_state": AIState.WANDERING,
+        "transitions":   {},
+        "actions": {
+            AIState.WANDERING: wander,
+        },
+    },
 }
 
 
@@ -1349,6 +1400,11 @@ def get_initial_state(ai_type):
 
 def _evaluate_transitions(behavior, monster, player, dungeon):
     """Check transition rules for the current state.  First match wins."""
+    # Absinthe grace period: suppress transitions while active
+    grace = getattr(monster, "absinthe_grace", 0)
+    if grace > 0:
+        monster.absinthe_grace = grace - 1
+        return
     transitions = behavior["transitions"].get(monster.ai_state, [])
     for condition, new_state in transitions:
         if condition(monster, player, dungeon):
@@ -1553,6 +1609,10 @@ def do_ai_turn(monster, player, dungeon, engine,
     # ── Status effects: before-turn hooks ────────────────────────────────
     # (ticking is done by engine.py's _end_of_turn after all monsters move)
     if _apply_before_turn(monster, player, dungeon):
+        return "idle"
+
+    # ── Loitering untargetable: player is invisible, monsters idle ──────
+    if any(getattr(e, 'id', '') == 'loitering_untargetable' for e in player.status_effects):
         return "idle"
 
     # ── Meatball summon AI ───────────────────────────────────────────────

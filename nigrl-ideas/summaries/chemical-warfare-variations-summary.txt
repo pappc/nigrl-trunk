@@ -1,0 +1,85 @@
+SUMMARY — Chemical Warfare Skill Tree Variations
+=================================================
+Source doc: nigrl-ideas/chemical-warfare-skill-tree-variations.txt
+
+10 complete L1-L4 tree proposals. Each has a distinct playstyle identity.
+
+VARIATION 1 — Toxic Tank
+  Fantasy: High personal tox as armor-by-proximity. Enemies adjacent take tox.
+  L1 passive: Tainted Blood — melee applies 8 tox (16 if you have 50+ tox)
+  L2 stat: +4 TOL, +3 CON, -20% tox resistance
+  L3 passive: Contact High — 3 tox/turn aura; scales with personal tox
+  L4 activated 2/floor: Last Resort — dump 40 tox to 3-tile radius; stun if 100+ tox first
+
+VARIATION 2 — Plague Spreader
+  Fantasy: Infect one enemy, chain-poison the room. No personal tox needed.
+  L1 activated 3/floor: Patient Zero — infect enemy (5 tox/turn, spreads 2 to adjacents)
+  L2 stat: +2 TOL, +2 STS
+  L3 passive: Outbreak — death at 30+ tox creates 3-tile 10-tox burst; chains
+  L4 activated 1/floor: Epidemic — 20 turns: 40% chance any tox damage bounces to random visible enemy
+
+VARIATION 3 — Acid Mage
+  Fantasy: Terrain-control caster, BKS scaling, acid pool management.
+  L1 activated 30t cd: Corrosive Spit — 3+BKS/3 dmg + 15 tox; detonates at 30+ tox
+  L2 passive: Terrain Chemist — acid pools last longer, apply 5 tox/turn
+  L3 activated 2/floor: Acid Volley — lob AOE acid grenade, 3x3 pool 20 turns
+  L4 stat+passive: +3 BKS; corpses on acid leave permanent tox puddles; detonation threshold 15 tox
+
+VARIATION 4 — Poison Assassin
+  Fantasy: Apply burst tox then evacuate, steal enemy tox for XP, never carry it yourself.
+  L1 passive: Needle Hands — first hit per enemy applies 20 tox (tracked per floor)
+  L2 stat: +3 STS, +20% tox resistance
+  L3 activated 40t cd: Chemical Mugging — STR dmg + 30 tox + steal 50% of their tox as XP
+  L4 activated 3/floor: Ghost Dose — mark enemy; every damage source adds 5 tox; heal HP on expiry
+
+VARIATION 5 — Volatile Body
+  Fantasy: Personal tox = damage output. Higher tox = more power, more risk. Extreme glass cannon.
+  L1 passive: Chemical Rage — +1 melee dmg per 20 tox (no cap)
+  L2 stat: +2 CON, +2 STR, -20% tox resistance
+  L3 activated 60t cd: Detonator — vent tox as AOE blast (tox/5 dmg, 3-tile); tox drops to 0
+  L4 passive: Pressure Cooker — +3 all stats at 75+ tox; Detonator 40t cd, 4-tile radius
+
+VARIATION 6 — Junkie Economist
+  Fantasy: Tox as spendable currency with earn/spend loops around consumables.
+  L1 passive: Tox Market — consuming any item grants +5 tox; kills at 50+ tox grant XP
+  L2 stat: +3 TOL, +2 CON
+  L3 activated 2/floor: Market Correction — spend 30 tox: heal 15 HP + 30 speed 15t
+  L4 activated 1/floor: Pump and Dump — 5t: tox treated as double (no extra damage); then crash to 0, take tox/10 damage
+
+VARIATION 7 — Biohazard Zone Controller
+  Fantasy: Terrain denial, channel enemies through toxic ground, gun synergy.
+  L1 activated 25t cd: Contaminate — create Toxic Creep on adjacent tile (5 tox/turn, slows)
+  L2 stat: +2 TOL, +2 STS, +15% tox resistance; immune to own toxic terrain
+  L3 passive: Dead Zone — enemies on your toxic terrain take 10% more damage from all sources
+  L4 activated 1/floor: Toxic Minefield — seed 5 Toxic Creep puddles in current room; saturation stun at 3 puddles/turn
+
+VARIATION 8 — Junk Science
+  Fantasy: Crafting-adjacent, synthesize consumables from your own toxicity.
+  L1 passive: Improvised Chemistry — use item at 20+ tox: grants +10 tox to nearest enemy automatically
+  L2 stat: +3 BKS, +2 TOL
+  L3 activated 2/floor: Synthesize — spend 25 tox: create random consumable (tiered loot table)
+  L4 passive: Synthesize 3/floor; unique compound upgraded; +5 XP/kill per synthesized item held (max 3)
+
+VARIATION 9 — Corrosive Brawler
+  Fantasy: Melee DPS amplifier, consecutive-hit mechanics, acid damage stacking.
+  L1 passive: Acid Knuckles — +2 acid dmg melee; +1 per consecutive hit on same target (max +8)
+  L2 stat: +3 STR, +2 CON, -10% tox resistance
+  L3 activated 35t cd: Corrosive Slam — 2x STR + full Acid Knuckles stack + 25 tox; stun if 50+ tox
+  L4 stat+passive: +4 STR; Acid Knuckles tox transfer 3/stack/hit; slam stun threshold drops to 25 tox
+
+VARIATION 10 — Condemned
+  Fantasy: Shared mutual tox curse. Everything you suffer, enemies suffer too. Extreme high-tox.
+  L1 passive: Shared Suffering — when you gain tox, adjacent enemies gain 25% of the amount
+  L2 stat: +4 TOL, -20% tox resistance (by design — more tox in = more out to enemies)
+  L3 activated 70t cd: Martyrdom — lose 15% max HP, gain 50 tox (fires Shared Suffering); Condemned buff at 100+ tox
+  L4 activated 1/floor: Plague Flag — 15t: Shared Suffering at 75%; your tox multiplier also applies to outgoing melee damage
+
+NEW ABILITY IDs NEEDED:
+  last_resort, patient_zero, epidemic, corrosive_spit, acid_volley,
+  chemical_mugging, ghost_dose, market_correction, pump_and_dump,
+  contaminate, toxic_minefield, synthesize, corrosive_slam, martyrdom, plague_flag
+
+TOP 3 RECOMMENDATIONS FOR IMPLEMENTATION:
+  1. V1 (Tank) — closest to existing tree identity, fewest new systems
+  2. V9 (Brawler) — simplest passive loops, all hooks already exist
+  3. V2 (Spreader) — Outbreak is the most elegant single passive of the set

@@ -1,0 +1,946 @@
+================================================================================
+ABILITY-GRANTING UNIQUE ITEMS — Design Document
+10 Unique Equippable Items that Grant Abilities
+NIGRL Roguelike
+================================================================================
+
+Research Notes (from codebase)
+-------------------------------
+- grants_ability (str): supported on weapon, sidearm, feet slots — revoked on unequip
+- grants_abilities (list[str]): supported on neck slot — all revoked on unequip
+- soul_count: attribute set directly on the entity (neck item instance), tracked in engine.py
+  kill handler at "Amulet of Equivalent Exchange"
+- Resource items (like Amulet of EE) store their counter as an attribute on the item entity,
+  check it in execute functions via engine.neck / engine.equipment["weapon"] etc.
+- ability_cooldowns dict: {ability_id: turns_remaining}, ticked each energy loop
+- ChargeType.INFINITE + ability_cooldowns = standard cooldown pattern
+- ChargeType.PER_FLOOR + max_charges = per-floor limit pattern
+- For hat/ring/sidearm grants_ability: inventory_mgr.py already handles weapon/sidearm/feet.
+  Hat and ring slots do NOT currently process grants_ability on equip/unequip — new code needed
+  for those slots (see Implementation Notes per item)
+- Entity fields relevant: toxicity, radiation, infection, meth, temp_hp, armor, hp
+- Status effect hooks available: modify_incoming_damage, on_player_melee_hit, modify_energy_gain,
+  before_turn, modify_movement, tick, apply, expire
+- Player stats: constitution, strength, book_smarts, street_smarts, tolerance, swagger
+- New stat fields proposed in previous designs: melee_damage_bonus (PlayerStats), surge_charges
+
+================================================================================
+CATEGORY A: RESOURCE/CURRENCY SYSTEM ITEMS
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 1: Crown of the Corner Boy
+Slot: Hat | Char: 0xE00D (hat graphical tile) | Color: (255, 200, 60) gold
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+A battered gold-painted plastic crown — the kind you'd wear at a fast food birthday party —
+repurposed as street royalty headwear. Every enemy you put in the dirt fills your "rep" meter.
+Spend rep on three abilities: intimidate enemies into fleeing, call a temporary henchman to your
+side, or blow the whole stack on a fearsome battle cry that locks every visible enemy in place.
+It's the urban warlord build: accumulate clout, spend clout, dominate.
+
+ITEM DEFINITION (items.py ITEM_DEFS entry)
+  "crown_of_the_corner_boy": {
+      "name": "Crown of the Corner Boy",
+      "char": chr(0xE00D),
+      "color": (255, 200, 60),
+      "category": "equipment",
+      "subcategory": "hat",
+      "equip_slot": "hat",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"swagger": 2},
+      "tags": ["crown_corner_boy", "unique"],
+      "name_gradient": [(255, 200, 60), (220, 120, 20), (255, 200, 60)],
+      "grants_abilities": ["corner_intimidate", "corner_henchman", "corner_war_cry"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: REP (Respect)
+- Stored as: engine.player (hat item instance not used — attribute on engine: engine.rep_count)
+  Or, mirroring the Amulet of EE pattern: store as engine.hat.rep_count, checked/set
+  via engine.hat reference.
+- Accumulation: +1 rep per kill while hat is equipped (checked in engine.py kill handler)
+- Display: New effect "rep_count" (visual-only, like soul_count) applied on equip; stores
+  display value. Updated each tick to match engine.hat.rep_count.
+- Rep persists across floors while equipped; resets to 0 on unequip.
+
+ABILITY 1: Corner Intimidate
+  ability_id: "corner_intimidate"
+  name: "Corner Intimidate"
+  description: "Spend 3 rep to frighten the nearest visible enemy, sending it fleeing for 6 turns."
+  TargetType: SELF (auto-picks nearest visible enemy)
+  ChargeType: INFINITE
+  Cost: 3 rep
+  Execute logic:
+    - Check engine.hat.rep_count >= 3
+    - Find nearest visible enemy in engine.dungeon.entities
+    - Apply effect "fear" (duration=6) to that enemy — uses existing FearEffect
+    - Deduct 3 rep from engine.hat.rep_count
+    - Message: "Corner Intimidate! [name] backs the fuck up! (-3 rep)"
+
+ABILITY 2: Corner Henchman
+  ability_id: "corner_henchman"
+  name: "Corner Henchman"
+  description: "Spend 8 rep to summon a Henchman ally for 20 turns. He attacks any enemy adjacent to him."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 8 rep
+  Execute logic:
+    - Check engine.hat.rep_count >= 8
+    - Spawn a new "henchman" entity adjacent to player (first free adjacent tile)
+    - Henchman: char='h', color=(200,160,60), entity_type="monster", is_summon=True,
+      summon_lifetime=20, ai_type="escort", hp=25, power=6, defense=1
+    - Deduct 8 rep
+    - Message: "Corner Henchman! Your boy rolls up! (-8 rep)"
+  Note: uses existing is_summon=True system — henchman will not be auto-attacked by player,
+  and will use escort AI to follow player and attack enemies.
+  IMPLEMENTATION NOTE: "henchman" needs a MonsterTemplate in enemies.py (or created inline)
+
+ABILITY 3: Corner War Cry
+  ability_id: "corner_war_cry"
+  name: "Corner War Cry"
+  description: "Spend ALL rep (min 12) to stun every visible enemy for 1 turn per 4 rep spent."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL rep (minimum 12 to activate)
+  Execute logic:
+    - Check engine.hat.rep_count >= 12
+    - total_rep = engine.hat.rep_count
+    - stun_duration = total_rep // 4  (e.g., 12 rep = 3 turns, 20 rep = 5 turns)
+    - Apply "stun" effect to every visible enemy (engine.dungeon.visible[e.y, e.x] == True)
+    - Set engine.hat.rep_count = 0
+    - Message: "WAR CRY! All visible enemies stunned for [stun_duration] turns! (-[total_rep] rep)"
+
+BALANCE:
+- Rep at 1/kill is slow early but picks up. 12 rep for War Cry = 12 kills, roughly 1 floor.
+- Corner Intimidate at 3 rep is the cheap "get out of jail" option — you can fire it every few kills.
+- Henchman at 8 rep is the big investment — a summon companion that fights for you.
+- War Cry incentivizes hoarding rep for big moments. Dumping all rep = max stun duration.
+- +2 Swagger makes it worthwhile as headgear even if you never use the abilities.
+- Synergizes with high-kill playthroughs (Stabbing, Beating skill trees).
+
+IMPLEMENTATION NOTES:
+- engine.py kill handler: add "if self.hat and 'crown_corner_boy' in (get_item_def(self.hat.item_id) or {}).get('tags', []): self.hat.rep_count = getattr(self.hat, 'rep_count', 0) + 1"
+- inventory_mgr.py equip_item(): hat slot currently does NOT call grant_ability on equip.
+  Add grants_abilities processing to the hat equip block (mirror neck slot logic).
+- Add "rep_count" display effect similar to "soul_count" (visual-only, no gameplay effect).
+- abilities.py: three new AbilityDef entries. FearEffect already exists in effects.py.
+  StunEffect already exists. henchman entity can be spawned inline without a full template.
+- engine.py unequip: add grants_abilities revoke for hat slot.
+
+--------------------------------------------------------------------------------
+ITEM 2: The Knuckle Diary
+Slot: Weapon (beating) | Char: / | Color: (180, 140, 100) worn leather
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+A dog-eared spiral notebook wrapped in athletic tape, stiff with dried blood, used as an improvised
+blunt weapon. Every time you land a crit with this relic you "write an entry" — scrawl a tally of
+your destruction in its pages. Spend those entries on three abilities: snap a quick combo hit,
+shatter an enemy's defense temporarily, or unleash a full retrospective — a flurry of strikes
+equal to your entry count.
+
+ITEM DEFINITION
+  "knuckle_diary": {
+      "name": "The Knuckle Diary",
+      "char": "/",
+      "color": (180, 140, 100),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "beating",
+      "power_bonus": 4,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"street_smarts": 1},
+      "str_scaling": {"type": "tiered", "divisor": 2},
+      "tags": ["knuckle_diary", "unique"],
+      "name_alternating": [(180, 140, 100), (220, 80, 80)],
+      "grants_abilities": ["diary_quick_hit", "diary_break_defense", "diary_retrospective"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+  NOTE: grants_abilities is currently only wired for neck slot. For weapon slot,
+  we either use the existing grants_ability (single) or extend inventory_mgr.py to support
+  grants_abilities list on weapon/sidearm. Simplest path: add grants_abilities support
+  to weapon equip block in inventory_mgr.py (mirror neck logic).
+
+RESOURCE: ENTRIES (diary tally marks)
+- Stored as: engine.equipment["weapon"].entry_count (attribute set on item entity)
+- Accumulation: +1 entry per critical hit dealt while weapon is equipped
+- Tracked in: engine.py's melee crit code (combat.py handle_attack triggers a callback, or
+  check in engine.py after handle_attack returns — check if it was a crit)
+- Entries persist across floors; reset to 0 on unequip.
+- Max entries: 10 (cap at 10, display shows "10 entries" at cap)
+
+CRIT DETECTION: In engine.py, after handle_attack: if the attack was a crit (currently,
+  combat.py returns (damage, is_crit) — check is_crit, or detect via engine.last_attack_was_crit
+  flag set in combat.py). The simplest approach: add engine.knuckle_diary_entries tracking in
+  the same kill-handler block, triggered on any crit with the weapon equipped.
+
+ABILITY 1: Diary Quick Hit
+  ability_id: "diary_quick_hit"
+  name: "Diary Quick Hit"
+  description: "Spend 2 entries to instantly deal a bonus attack against an adjacent enemy. Free action."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: 2 entries
+  Execute logic (_execute_at style):
+    - Check weapon is equipped and is "knuckle_diary"
+    - Check entry_count >= 2
+    - Deal STR + power_bonus damage to target (no defense, no crits) — pure bonus hit
+    - No action cost (free action: do NOT set engine.player_attacked_this_turn flag)
+    - Deduct 2 entries
+    - Message: "Quick Hit! [name] takes [dmg] dmg! (-2 entries)"
+  IMPLEMENTATION: free action requires careful handling — set engine._free_action = True
+  before returning, which bypasses the normal turn cost. Or check engine.player_free_action
+  (already proposed in previous designs).
+
+ABILITY 2: Diary Break Defense
+  ability_id: "diary_break_defense"
+  name: "Diary Break Defense"
+  description: "Spend 3 entries to shatter an adjacent enemy's defense to 0 for 8 turns."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: 3 entries
+  Execute logic:
+    - Check entry_count >= 3
+    - Apply new effect "broken_defense" (duration=8) to target — sets target.defense = 0
+      while active; expire restores original defense
+    - Deduct 3 entries
+    - Message: "Break Defense! [name]'s defense crumbles! (-3 entries)"
+  NEW EFFECT NEEDED: "broken_defense" — stores original defense, zeroes it on apply,
+  restores on expire.
+
+ABILITY 3: Diary Retrospective
+  ability_id: "diary_retrospective"
+  name: "Diary Retrospective"
+  description: "Spend ALL entries to strike an adjacent enemy once per entry. Spends entire tally."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Cost: ALL entries (minimum 3 to activate)
+  Execute logic:
+    - Check entry_count >= 3
+    - For each entry (up to entry_count), deal one full melee attack via handle_attack
+    - Each attack can crit independently (do NOT accumulate new entries during this burst)
+    - Set entry_count = 0
+    - Message: "RETROSPECTIVE! [count] strikes! (-[count] entries)"
+  BALANCE: With 10 entries this is 10 attacks — devastating but you just dumped all your ammo.
+
+BALANCE:
+- Power bonus 4 + STR tiered makes it competitive as a beating weapon.
+- +1 Street Smarts raises crit chance, synergizes with the entry-accumulation loop.
+- Entries cap at 10 — hoarding doesn't get out of control.
+- Retrospective with 10 entries is similar to Whirlwind but single-target; different risk profile.
+- Quick Hit free action is the bread-and-butter spend for mid-combat bursts.
+
+IMPLEMENTATION NOTES:
+- inventory_mgr.py: extend grants_abilities support to weapon equip/unequip blocks.
+- combat.py or engine.py: detect crits and increment entry_count on knuckle_diary.
+- abilities.py: three new AbilityDef entries.
+- effects.py: new BrokenDefenseEffect (stores/restores defense).
+- New engine state: knuckle_diary_entry_adding_active (bool, set during Retrospective
+  burst to block new entry accumulation mid-burst).
+
+--------------------------------------------------------------------------------
+ITEM 3: The Hustle Ring
+Slot: Ring | Char: 0xE00A | Color: (80, 200, 120) green
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+A chunky green plastic ring with a dollar sign cutout — the kind sold at a corner store for 50
+cents. Every square you move earns you "hustle" — keep moving, keep stacking. Pop the hustle on
+mobility abilities: rush through walls of enemies, leave a trail of speed boost tiles, or cash
+it all in for a short window where every step also heals you.
+
+ITEM DEFINITION
+  "hustle_ring": {
+      "name": "The Hustle Ring",
+      "char": chr(0xE00A),
+      "color": (80, 200, 120),
+      "category": "equipment",
+      "subcategory": "ring",
+      "equip_slot": "ring",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "stat_bonus": {"street_smarts": 1, "tolerance": 1},
+      "tags": ["hustle_ring", "unique"],
+      "name_gradient": [(80, 200, 120), (30, 100, 60)],
+      "grants_abilities": ["hustle_rush", "hustle_trail", "hustle_recovery"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+  NOTE: Ring slot does NOT currently support grants_ability/grants_abilities.
+  Implementation requires adding this support to inventory_mgr.py ring equip block.
+
+RESOURCE: HUSTLE (move tally)
+- Stored as: engine.hustle_ring_steps (int, set to 0 on ring unequip)
+- Accumulation: +1 per tile the player moves while ring is equipped
+  (in engine.handle_move, after successful movement, check for hustle_ring tag on any ring)
+- Max hustle: 20. Display via a new "hustle_count" status effect (visual only).
+
+ABILITY 1: Hustle Rush
+  ability_id: "hustle_rush"
+  name: "Hustle Rush"
+  description: "Spend 6 hustle to instantly move 3 tiles in a chosen direction, passing through enemies (they take STR damage)."
+  TargetType: ADJACENT_TILE (player picks a direction)
+  ChargeType: INFINITE
+  Cost: 6 hustle
+  Execute logic (_execute_at with adjacent tile direction):
+    - Check hustle >= 6
+    - Derive direction (dx, dy) from chosen adjacent tile
+    - For each of 3 steps in that direction:
+        - If terrain blocked: stop
+        - If enemy on tile: deal STR damage to enemy, continue moving through
+        - Move player to tile
+    - Compute FOV after move
+    - Deduct 6 hustle
+    - Message: "Hustle Rush! You blow through for [tiles] tiles! (-6 hustle)"
+
+ABILITY 2: Hustle Trail
+  ability_id: "hustle_trail"
+  name: "Hustle Trail"
+  description: "Spend 10 hustle to paint the last 5 tiles you walked with speed-boost spray. Allies and player gain +10 energy/tick on those tiles for 8 turns."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 10 hustle
+  Execute logic:
+    - Check hustle >= 10
+    - Retrieve engine._player_move_history (list of last 5 (x,y) positions)
+      If that list doesn't exist, create it in handle_move (keep a deque(maxlen=5))
+    - For each position in move history:
+        - Mark tile as "hustle_trail" in dungeon.spray_paint (new spray type)
+        - Set a timer of 8 turns
+    - During energy loop: if player or any monster is on a hustle_trail tile, +10 energy/tick
+    - After 8 turns: clear hustle_trail spray from those tiles
+    - Deduct 10 hustle
+    - Message: "Hustle Trail! Your path glows with momentum! (-10 hustle)"
+  IMPLEMENTATION: simplest path — add "hustle_trail" spray type to dungeon.spray_paint dict
+  with a timeout tracked in engine. Energy bonus via engine._run_energy_loop.
+
+ABILITY 3: Hustle Recovery
+  ability_id: "hustle_recovery"
+  name: "Hustle Recovery"
+  description: "Spend ALL hustle (min 8) to enter a flow state: for 1 turn per hustle spent, every step heals 2 HP."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL hustle (minimum 8)
+  Execute logic:
+    - Check hustle >= 8
+    - duration = engine.hustle_ring_steps
+    - Apply new effect "hustle_recovery_flow" (duration = duration)
+      During flow state: modify_movement hook heals player by 2 HP each time they move
+    - Set hustle_ring_steps = 0
+    - Message: "Flow State! Heal 2 HP per step for [duration] turns! (-[hustle] hustle)"
+  NEW EFFECT NEEDED: "hustle_recovery_flow" — overrides modify_movement to call player.heal(2).
+
+BALANCE:
+- Hustle accumulates at 1/step so 6-hustle cost is ~6 steps from last floor entry or use.
+- Trail is a 10-hustle investment that rewards movement-centric play.
+- Recovery at 8+ hustle gives ~8-20 steps of healing — meaningful in tough fights where you
+  need to maintain distance and heal simultaneously.
+- +1 STS, +1 TOL are minor but thematic (street agility + drug endurance).
+
+IMPLEMENTATION NOTES:
+- inventory_mgr.py: add grants_abilities support to ring equip/unequip blocks.
+- engine.py handle_move: check hustle_ring equipped, increment engine.hustle_ring_steps.
+  Also track engine._player_move_history = deque(maxlen=5).
+- effects.py: new HustleRecoveryFlowEffect with modify_movement hook calling entity.heal(2).
+- New engine state: hustle_ring_steps (reset on ring unequip).
+- dungeon.spray_paint: add "hustle_trail" type with expiry timer.
+
+--------------------------------------------------------------------------------
+ITEM 4: Tap-In Talisman
+Slot: Neck | Char: * | Color: (255, 100, 40) orange
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+A beaten-up pager dangling from a lanyard — the kind your dealer used in the 90s. Every time you
+take damage you "earn a page" — the system logs each hit. Spend those pages on three abilities:
+call a dodge window that makes the next hit miss, dump all pages for a massive temp-HP shield
+proportional to damage you've eaten, or trigger a trauma response that briefly multiplies all
+your outgoing damage.
+
+ITEM DEFINITION
+  "tap_in_talisman": {
+      "name": "Tap-In Talisman",
+      "char": "*",
+      "color": (255, 100, 40),
+      "category": "equipment",
+      "subcategory": "neck",
+      "equip_slot": "neck",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 15,
+      "stat_bonus": {"constitution": 1},
+      "tags": ["tap_in_talisman", "unique"],
+      "name_gradient": [(255, 100, 40), (200, 50, 20), (255, 100, 40)],
+      "grants_abilities": ["tap_dodge_window", "tap_shield", "tap_trauma_response"],
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+RESOURCE: PAGES (hit counter)
+- Stored as: engine.neck.page_count (mirroring soul_count pattern)
+- Accumulation: +1 page each time the player takes HP damage while talisman is equipped.
+  Tracked in engine.py's damage-taken pathway (entity._on_damage_callback fires; engine
+  should check if the player took damage and the talisman is equipped).
+  Alternatively: hook in the energy loop where damage is dealt to player.
+- Max pages: 15. Display via new "page_count" visual effect.
+- Pages persist across floors; reset to 0 on unequip.
+
+ABILITY 1: Tap Dodge Window
+  ability_id: "tap_dodge_window"
+  name: "Tap Dodge Window"
+  description: "Spend 2 pages to gain a 100% dodge chance for 2 turns."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 2 pages
+  Execute logic:
+    - Check page_count >= 2
+    - Apply new effect "dodge_window" (duration=2)
+      dodge_window effect: sets player_stats.dodge_chance += 90 on apply, removes on expire.
+      (100% clamped by system's 90% cap — effectively guaranteed dodge for 2 turns)
+    - Deduct 2 pages
+    - Message: "Tap Dodge! Next hits will miss for 2 turns. (-2 pages)"
+
+ABILITY 2: Tap Shield
+  ability_id: "tap_shield"
+  name: "Tap Shield"
+  description: "Spend ALL pages (min 5) to generate temp HP equal to 3x pages spent."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: ALL pages (minimum 5)
+  Execute logic:
+    - Check page_count >= 5
+    - temp = page_count * 3
+    - engine.player.temp_hp = min(engine.player.temp_hp + temp, 60)  # cap at 60
+    - Set page_count = 0
+    - Message: "Tap Shield! +[temp] temp HP! (-[pages] pages)"
+  BALANCE: 5 pages = 15 temp HP. 15 pages = 45 temp HP. 60 cap prevents runaway.
+
+ABILITY 3: Tap Trauma Response
+  ability_id: "tap_trauma_response"
+  name: "Tap Trauma Response"
+  description: "Spend 6 pages to enter a trauma state: +50% outgoing damage for 5 turns. Costs 3 HP to activate."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Cost: 6 pages + 3 HP
+  Execute logic:
+    - Check page_count >= 6 and player.hp > 3
+    - Apply new effect "trauma_response" (duration=5):
+        apply: add 1.5 to player_stats.outgoing_damage_mults
+        expire: remove 1.5 from player_stats.outgoing_damage_mults
+    - Deal 3 HP self-damage (no death — clamp at 1 HP if player would die)
+    - Deduct 6 pages
+    - Message: "Trauma Response! +50% dmg for 5 turns. (-6 pages, -3 HP)"
+
+BALANCE:
+- Takes damage to get pages; spending pages to dodge future damage is a virtuous loop.
+- Tap Shield converts defensive suffering into a proactive shield — the more pain you take,
+  the bigger the payoff.
+- Trauma Response has a HP cost, so it's never free even with full pages.
+- +15 armor + +1 CON make this a solid defensive neck item even ignoring abilities.
+
+IMPLEMENTATION NOTES:
+- engine.py: hook page_count increment on player damage-taken. The _on_damage_callback
+  runs on all damage; check if entity is player and talisman is in engine.neck.
+- Add page_count visual effect "tap_in_page_count" similar to soul_count.
+- effects.py: DodgeWindowEffect (modifies dodge_chance), TraumaResponseEffect (adds/removes
+  from outgoing_damage_mults).
+- abilities.py: three new AbilityDef entries.
+- inventory_mgr.py: on neck unequip, reset page_count = 0 (add to existing neck unequip block).
+
+================================================================================
+CATEGORY B: SINGLE ABILITY-GRANTING ITEMS
+================================================================================
+
+--------------------------------------------------------------------------------
+ITEM 5: Crackhead Rocket Shoes
+Slot: Feet | Char: 0xE00B | Color: (255, 50, 50) bright red
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+Battered high-tops with what appears to be a half-assed jury-rigged propulsion system made from
+WD-40 cans duct-taped to the heels. Grants "Rocket Blast" — you can point yourself at an enemy
+and blast across the room like a missile, dealing massive collision damage. But 10% of the time,
+the cans misfire and blast YOU backward instead.
+
+ITEM DEFINITION
+  "crackhead_rocket_shoes": {
+      "name": "Crackhead Rocket Shoes",
+      "char": chr(0xE00B),
+      "color": (255, 50, 50),
+      "category": "equipment",
+      "subcategory": "feet",
+      "equip_slot": "feet",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {},
+      "energy_per_tick": 30,
+      "fov_penalty": 0,
+      "tags": ["rocket_shoes", "unique"],
+      "name_gradient": [(255, 50, 50), (220, 180, 50), (255, 50, 50)],
+      "grants_ability": "rocket_blast",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Rocket Blast
+  ability_id: "rocket_blast"
+  name: "Rocket Blast"
+  description: "Blast to an enemy in LOS (up to 8 tiles). Deal STR*2 + 6 collision damage. 10% misfire: blast backward instead, taking STR damage. 12-turn cooldown."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE
+  max_range: 8.0
+  Execute logic (_execute_at with tx, ty):
+    - Confirm target is a living monster at (tx, ty) in FOV
+    - 10% misfire check:
+        If misfire: move player AWAY from target (opposite direction) 3 tiles,
+        deal STR damage to player, message "MISFIRE! You blast backward! -STR dmg"
+        return True (charge consumed, cooldown starts)
+    - On success:
+        - Move player to tile adjacent to target (one step away from tx, ty toward player)
+        - Deal max(1, STR*2 + 6 - target.defense) collision damage to target
+        - Apply "stun" effect (duration=2) to target (impact stun)
+        - Message: "ROCKET BLAST! [target.name] takes [dmg] dmg and is stunned! (x2 turns)"
+    - Set ability_cooldowns["rocket_blast"] = 12
+  NOTE: "move to adjacent tile" means player ends up next to the target, not on them.
+  Pathfind: landing tile = player pos + normalized direction * (dist-1), clamped to passable.
+
+BALANCE:
+- +30 energy/tick makes this one of the fastest feet items in the game.
+- Rocket Blast is devastating (STR*2+6 = 22-30 damage at STR 8-12 before defense) with a stun.
+- 10% misfire is a real risk in tight corridors — could kill you.
+- 12-turn cooldown means you can't spam it.
+- No armor bonus trades defense for pure offense/speed.
+- Synergizes with Stabbing/Beating builds that want to close distance fast.
+
+IMPLEMENTATION NOTES:
+- abilities.py: new AbilityDef "rocket_blast" with execute/execute_at.
+- The "move to adjacent tile" logic needs to compute the step toward the target and find
+  the last passable tile before the enemy — similar to knockback logic but in reverse.
+- Misfire direction: compute vector from player to target, invert it for the blast-back.
+- StunEffect already exists in effects.py.
+- inventory_mgr.py: grants_ability on feet already supported — no new infrastructure.
+
+--------------------------------------------------------------------------------
+ITEM 6: Deadman's Gloves
+Slot: Weapon (any melee) | Char: ] | Color: (60, 60, 60) dark gray
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+Tattered fingerless gloves stained with old blood — the kind found on a corpse. Grants
+"Dead Man's Grip" — you lunge onto a dying enemy (below 25% HP) and execute them instantly,
+absorbing their remaining HP as temp HP. It's a high-risk ability because you need to be
+adjacent and you spend an action, but the payoff is massive burst healing from a kill.
+
+ITEM DEFINITION
+  "deadmans_gloves": {
+      "name": "Deadman's Gloves",
+      "char": "]",
+      "color": (60, 60, 60),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "beating",
+      "power_bonus": 3,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"constitution": 1},
+      "str_scaling": {"type": "tiered", "divisor": 3},
+      "tags": ["deadmans_gloves", "unique"],
+      "name_gradient": [(60, 60, 60), (160, 30, 30)],
+      "grants_ability": "dead_mans_grip",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Dead Man's Grip
+  ability_id: "dead_mans_grip"
+  name: "Dead Man's Grip"
+  description: "Execute an adjacent enemy at 25% HP or below. Absorb their remaining HP as temp HP (capped at 30). 8-turn cooldown."
+  TargetType: ADJACENT
+  ChargeType: INFINITE
+  Execute logic (_execute_at):
+    - Confirm target is a living monster at (tx, ty)
+    - Check target.hp <= target.max_hp * 0.25 — if not: message "Dead Man's Grip: target
+      isn't low enough! (need ≤25% HP)" return False
+    - gained_temp = min(target.hp, 30)
+    - engine.player.temp_hp = min(engine.player.temp_hp + gained_temp, 60)
+    - Kill target: target.alive = False, engine.event_bus.emit("entity_died", ...)
+    - Message: "DEAD MAN'S GRIP! [name] is executed! +[gained_temp] temp HP!"
+    - Set ability_cooldowns["dead_mans_grip"] = 8
+
+BALANCE:
+- Only works on enemies below 25% HP — requires softening them up first.
+- Temp HP from the kill is powerful but capped at 30 per use, 60 total.
+- 8-turn cooldown means you can use it roughly once per fight against a weakened enemy.
+- +3 power + CON +1 makes it viable as a normal weapon too.
+- Synergizes beautifully with Beating skill tree (Bash knocks enemies low, then execute).
+- Does NOT count crits or on-hit effects — pure execute mechanics.
+
+IMPLEMENTATION NOTES:
+- abilities.py: new AbilityDef "dead_mans_grip" with execute_at callable.
+- The kill triggers engine.event_bus.emit("entity_died") — needs entity and killer params.
+- Temp HP cap: clamp to 60 (same cap as Tap Shield).
+- grants_ability on weapon slot already fully supported.
+
+--------------------------------------------------------------------------------
+ITEM 7: The Borrowed Watch
+Slot: Ring | Char: 0xE00A | Color: (200, 200, 200) silver
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+A silver wristwatch you definitely didn't steal. Grants "Time Steal" — for 6 turns you
+"borrow" action energy from the nearest enemy, draining 30 energy per tick from them and adding
+it to your own pool. During Time Steal you move and attack nearly twice as fast while your target
+stumbles in slow motion. But when it ends, the watch "pays back" by halving your energy pool.
+
+ITEM DEFINITION
+  "borrowed_watch": {
+      "name": "The Borrowed Watch",
+      "char": chr(0xE00A),
+      "color": (200, 200, 200),
+      "category": "equipment",
+      "subcategory": "ring",
+      "equip_slot": "ring",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "stat_bonus": {"street_smarts": 2},
+      "tags": ["borrowed_watch", "unique"],
+      "name_gradient": [(200, 200, 200), (150, 150, 255)],
+      "grants_ability": "time_steal",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+  NOTE: Ring slot does NOT currently support grants_ability. Requires inventory_mgr.py update.
+
+ABILITY: Time Steal
+  ability_id: "time_steal"
+  name: "Time Steal"
+  description: "Drain 30 energy/tick from the nearest enemy and add it to yours for 6 turns. On expire: your energy pool is halved. 20-turn cooldown."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Execute logic:
+    - Find nearest visible enemy (same as Corner Intimidate logic)
+    - Store target instance_id as engine.time_steal_target_id
+    - Apply new effect "time_steal_active" (duration=6, floor_duration=False) to player:
+        tick hook: find enemy with stored instance_id; if alive and in FOV:
+            drain min(enemy.energy, 30) from enemy.energy; add 30 to player.energy
+        expire hook: player.energy = max(0, player.energy // 2)
+              engine.messages.append("Time Steal expires — the watch takes its cut!")
+    - Set ability_cooldowns["time_steal"] = 20
+    - Message: "Time Steal! Draining [target.name]'s momentum! (6 turns)"
+
+BALANCE:
+- +30 energy per tick is massive (same as Crackhead Rocket Shoes' passive bonus but temporary).
+  Combined with player's base 100/tick this gives ~130/tick for 6 turns.
+- The target getting -30 energy/tick slows them significantly (from 100/tick to 70/tick).
+- Expire penalty of halved energy is a real cost — you become sluggish after it ends.
+- 20-turn cooldown makes this a one-fight ability.
+- +2 Street Smarts gives solid crit chance even without the ability.
+- Synergizes with high-burst builds that want one lethal window of advantage.
+
+IMPLEMENTATION NOTES:
+- inventory_mgr.py: add grants_ability support to ring equip/unequip blocks.
+- effects.py: new TimeStealActiveEffect — tick drains enemy energy, expire halves player energy.
+  Needs access to engine to find the target. Effects already receive engine in tick().
+- engine state: time_steal_target_id (str, instance_id of the stolen-from target).
+- The energy.energy field is already on Entity — modifying it directly is valid.
+
+--------------------------------------------------------------------------------
+ITEM 8: Prophet's Jawbone
+Slot: Weapon (beating) | Char: ) | Color: (240, 200, 130) ivory
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+An actual human jawbone wrapped in leather cord — biblical reference, absolutely unhinged street
+weapon. Grants "Speak The Word" — a targeted verbal blast that sends a shockwave of righteous
+fury down a line from the player, knocking all enemies in the ray backward and deafening them
+(making them wander blindly for 6 turns). It's the "part the crowd" weapon — clear a corridor
+so you can move through or escape.
+
+ITEM DEFINITION
+  "prophets_jawbone": {
+      "name": "Prophet's Jawbone",
+      "char": ")",
+      "color": (240, 200, 130),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "beating",
+      "power_bonus": 5,
+      "defense_bonus": 0,
+      "armor_bonus": 0,
+      "stat_bonus": {"swagger": 2},
+      "str_scaling": {"type": "tiered", "divisor": 2},
+      "tags": ["prophets_jawbone", "unique"],
+      "name_gradient": [(240, 200, 130), (180, 100, 40)],
+      "grants_ability": "speak_the_word",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: Speak The Word
+  ability_id: "speak_the_word"
+  name: "Speak The Word"
+  description: "Blast a line from player in a chosen direction. All enemies in the ray are knocked 2 tiles back and deafened (wander blindly) for 6 turns. 18-turn cooldown."
+  TargetType: ADJACENT_TILE (player picks a direction tile)
+  ChargeType: INFINITE
+  Execute logic (_execute_at with adjacent tile):
+    - Derive direction (dx, dy)
+    - Cast ray from player position in direction for 8 tiles
+    - Collect all enemies on tiles in the ray
+    - For each enemy in order (closest first):
+        - Apply "deafened" effect (duration=6): deafened = monster wanders randomly,
+          ignores player (effectively sets ai_state to WANDERING), can't chase
+        - Knock enemy 2 tiles in the ray direction (standard knockback loop: check walls,
+          deal 3 damage on wall collision)
+    - Set ability_cooldowns["speak_the_word"] = 18
+    - Message: "SPEAK THE WORD! [count] enemies scattered and deafened! (6 turns)"
+  NEW EFFECT NEEDED: "deafened" — sets entity.sight_radius = 0 on apply, restores on expire.
+  With sight_radius = 0, the enemy cannot detect the player and stays in WANDERING state.
+
+BALANCE:
+- 5 power + +2 SWG makes it a strong beating weapon.
+- Speak The Word clears corridors — essential for escape or creating lanes.
+- Deafened effect synergizes with Stealing skill (sneaking past deafened enemies).
+- 18-turn cooldown means you can't chain-use it in every room.
+- Knockback deals wall damage (3 damage per collision) — corridor use is devastating.
+- No defense tradeoff vs. the Crowbar (pry ability) — different utility focus.
+
+IMPLEMENTATION NOTES:
+- abilities.py: new AbilityDef "speak_the_word" with ADJACENT_TILE targeting.
+- effects.py: new DeafenedEffect — stores original sight_radius, sets to 0 on apply,
+  restores on expire. Also overrides the ai before_turn to force WANDERING behavior.
+- Ray casting follows the same pattern as LINE_FROM_PLAYER abilities.
+- Knockback follows existing knockback loop from Bash/_execute_at_bash.
+
+--------------------------------------------------------------------------------
+ITEM 9: The Plague Doctor Mask
+Slot: Hat | Char: 0xE00D | Color: (60, 80, 60) dark green-gray
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+A beak-shaped plague doctor mask fashioned from paper mache, old syringes, and herbal remedies
+from the corner store. Grants "Miasma Cloud" — you exhale a cloud of toxic miasma that blankets
+your current tile and all 8 adjacent tiles. All enemies in the cloud take 5 tox per tick for
+4 turns. Perfect for toxicity-specialist builds in the Meth Lab zone.
+
+ITEM DEFINITION
+  "plague_doctor_mask": {
+      "name": "Plague Doctor Mask",
+      "char": chr(0xE00D),
+      "color": (60, 80, 60),
+      "category": "equipment",
+      "subcategory": "hat",
+      "equip_slot": "hat",
+      "power_bonus": 0,
+      "defense_bonus": 0,
+      "armor_bonus": 10,
+      "stat_bonus": {"tolerance": 3},
+      "fov_penalty": 1,
+      "tags": ["plague_doctor_mask", "unique"],
+      "name_gradient": [(60, 80, 60), (120, 150, 100)],
+      "grants_ability": "miasma_cloud",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+  NOTE: Hat slot does NOT currently support grants_ability. Requires inventory_mgr.py update.
+
+ABILITY: Miasma Cloud
+  ability_id: "miasma_cloud"
+  name: "Miasma Cloud"
+  description: "Exhale toxic miasma on all 8 surrounding tiles + your own tile. Enemies in range gain 5 toxicity/tick for 4 turns. 15-turn cooldown."
+  TargetType: SELF
+  ChargeType: INFINITE
+  Execute logic:
+    - Collect all enemies within Chebyshev distance 1 from player (all 8 adjacent tiles)
+    - For each enemy found:
+        - Apply new effect "miasma_infected" (duration=4): each tick adds 5 to enemy.toxicity
+          (capped at enemy's max_tox if defined, or 200 otherwise)
+    - Spawn visual miasma hazard: mark the 9 tiles (self + 8 around) with a "miasma" spray
+      type in dungeon.spray_paint for 4 turns (cosmetic green tint in render)
+    - Set ability_cooldowns["miasma_cloud"] = 15
+    - Message: "Miasma Cloud! Toxic haze erupts around you! (4 turns, [count] enemies infected)"
+
+BALANCE:
+- 5 tox/tick for 4 turns = 20 total toxicity per enemy — meaningful in Meth Lab where
+  toxicity multiplies incoming damage.
+- -1 FOV penalty is a real tradeoff; the mask literally limits your vision.
+- +3 Tolerance is enormous — it's the best Tolerance item in the game, making drugs far
+  stronger and encouraging drug-heavy builds.
+- 15-turn cooldown makes it useful in large rooms but not spammable.
+- Synergizes perfectly with Meth Lab zone toxicity mechanics and Chemical Warfare skill tree.
+- Hits player tile too — player gains 5 toxicity per turn. This is a risk if player has no
+  tox resistance. Design intent: the mask wearer is immune (via +3 Tolerance and Chemical
+  Warfare tox resistance), making this a specialist item.
+  OPTIONAL: add tox_resistance bonus of 15 to item stat_bonus to reflect in-lore protection.
+
+IMPLEMENTATION NOTES:
+- abilities.py: new AbilityDef "miasma_cloud" with SELF targeting.
+- effects.py: new MiasmaInfectedEffect — tick adds 5 to entity.toxicity.
+- dungeon.spray_paint: add "miasma" spray type (rendered as dim green tint).
+- inventory_mgr.py: add grants_ability support to hat equip/unequip blocks.
+- Player tox on self: add engine.player.toxicity += 5 * 4 in execute? Or just don't apply
+  to player (thematic: the mask protects the wearer). Design choice for developer.
+
+--------------------------------------------------------------------------------
+ITEM 10: Bail Bondsman's Briefcase
+Slot: Weapon (beating) | Char: | | Color: (80, 60, 40) brown leather
+--------------------------------------------------------------------------------
+
+CONCEPT SUMMARY
+A genuine leather briefcase — the kind a bail bondsman carries to the courthouse. Used as a blunt
+weapon here, obviously. Grants "The Bond" — slap down a BOLO (Be On Lookout) on any visible
+enemy. The marked enemy is tracked across the floor: every time any OTHER enemy takes damage,
+the BOLO target takes 30% of it too (sympathetic damage link). The bond breaks when the BOLO
+target dies. One bond at a time.
+
+ITEM DEFINITION
+  "bail_bondsmans_briefcase": {
+      "name": "Bail Bondsman's Briefcase",
+      "char": "|",
+      "color": (80, 60, 40),
+      "category": "equipment",
+      "subcategory": "weapon",
+      "equip_slot": "weapon",
+      "weapon_type": "beating",
+      "power_bonus": 4,
+      "defense_bonus": 2,
+      "armor_bonus": 0,
+      "stat_bonus": {"book_smarts": 1, "swagger": 1},
+      "str_scaling": {"type": "tiered", "divisor": 2},
+      "tags": ["bail_briefcase", "unique"],
+      "name_gradient": [(80, 60, 40), (160, 130, 80), (80, 60, 40)],
+      "grants_ability": "the_bond",
+      "zones": [],
+      "use_verb": None,
+      "use_effect": None,
+  }
+
+ABILITY: The Bond
+  ability_id: "the_bond"
+  name: "The Bond"
+  description: "Mark a visible enemy with a BOLO. While marked, whenever any other enemy takes damage, the BOLO target takes 30% of that damage too. One target at a time. Lasts the floor."
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: PER_FLOOR
+  max_charges: 1
+  Execute logic (_execute_at with tx, ty):
+    - Confirm target is a living monster
+    - If engine.bolo_target_id is set: clear old target's "bolo_mark" effect
+    - Apply new effect "bolo_mark" (floor_duration=True) to target
+    - engine.bolo_target_id = target.instance_id
+    - Message: "The Bond! BOLO on [target.name] — linked for the floor!"
+  DAMAGE ECHO MECHANISM:
+    In combat.py _deal_damage (or engine.py damage handler): after dealing damage to any enemy,
+    check if engine.bolo_target_id is set; find the BOLO target; if alive and not the target
+    that just took damage: deal floor(damage * 0.3) to BOLO target.
+    This triggers entity_died if BOLO target dies from echo damage.
+  NOTE: damage echo should NOT recursively echo (don't echo the echo).
+
+BALANCE:
+- 1/floor charge makes it a premium strategic ability — you set it once and commit.
+- 30% echo is powerful in multi-enemy rooms; if you fight 5 enemies each taking 20 damage,
+  the BOLO target takes 6+6+6+6 = 24 extra damage from the echo chain.
+- Single target means you should pick the strongest enemy to be the BOLO target.
+- The bond only lasts the floor — descending resets it.
+- +4 power + 2 defense makes it a solid all-rounder briefcase weapon.
+- Synergizes with AOE builds (Whirlwind, AOE spells) — AOE hits multiple enemies at once,
+  each generating separate echo pulses to the BOLO target.
+
+IMPLEMENTATION NOTES:
+- abilities.py: new AbilityDef "the_bond" with SINGLE_ENEMY_LOS, PER_FLOOR, max_charges=1.
+- combat.py: in _deal_damage, after dealing damage to a monster: check engine.bolo_target_id,
+  find target, deal echo damage if applicable. Need engine reference in _deal_damage.
+  (engine is already passed as parameter to deal_damage — check existing signature).
+- effects.py: new BoloMarkEffect (visual only — marks the enemy with floor_duration=True).
+  On expire (floor change): clear engine.bolo_target_id.
+- engine state: bolo_target_id (str | None, reset on floor transition).
+- Floor reset: in engine.py floor-change code, set bolo_target_id = None and clear any
+  bolo_mark effects from surviving enemies.
+
+================================================================================
+SLOT DISTRIBUTION SUMMARY
+================================================================================
+Weapon (beating): Knuckle Diary (resource), Deadman's Gloves, Prophet's Jawbone, Bail Bondsman's Briefcase
+Feet:             Crackhead Rocket Shoes
+Hat:              Crown of the Corner Boy (resource), Plague Doctor Mask
+Neck:             Tap-In Talisman (resource)
+Ring:             The Hustle Ring (resource), The Borrowed Watch
+
+Category A (Resource System): Crown of the Corner Boy, Knuckle Diary, The Hustle Ring, Tap-In Talisman
+Category B (Single Ability):  Crackhead Rocket Shoes, Deadman's Gloves, The Borrowed Watch, Prophet's Jawbone, Plague Doctor Mask, Bail Bondsman's Briefcase
+
+================================================================================
+NEW INFRASTRUCTURE REQUIRED (Summary)
+================================================================================
+
+1. inventory_mgr.py: Add grants_abilities list support to weapon, hat, ring equip/unequip blocks.
+   Currently only neck (grants_abilities list) and weapon/sidearm/feet (single grants_ability)
+   are supported. Needed for: Crown of Corner Boy (hat), Hustle Ring (ring), Knuckle Diary
+   (weapon multi-ability). The Borrowed Watch (ring grants_ability single) also needs ring support.
+
+2. engine.py kill handler: Add resource increment hooks for Crown of Corner Boy (rep) and
+   Knuckle Diary (entries on crit). Add page_count increment on player damage-taken for Talisman.
+
+3. engine.py floor transition code: Reset BOLO target (bolo_target_id = None) on floor change.
+   Also tick off hustle_trail spray expiry.
+
+4. combat.py _deal_damage: Add BOLO echo damage for Bail Bondsman's Briefcase.
+
+5. effects.py: New effect classes needed:
+   - rep_count / page_count (visual display only, like soul_count)
+   - broken_defense (stores/restores entity.defense)
+   - hustle_recovery_flow (modify_movement hook that heals on each move)
+   - dodge_window (grants 90 dodge chance on apply, removes on expire)
+   - trauma_response (adds 1.5x to outgoing_damage_mults, removes on expire)
+   - time_steal_active (drains enemy energy in tick, halves player energy on expire)
+   - deafened (zeroes entity.sight_radius, restores on expire)
+   - miasma_infected (adds 5 toxicity per tick to enemy)
+   - bolo_mark (visual floor-duration marker on enemy)
+
+6. New engine state variables:
+   - rep_count (via engine.hat.rep_count — set on item entity like soul_count)
+   - page_count (via engine.neck.page_count)
+   - hustle_ring_steps (int on engine, reset on ring unequip)
+   - engine._player_move_history (deque maxlen=5 of (x,y) tuples)
+   - time_steal_target_id (str | None)
+   - bolo_target_id (str | None)
+   - knuckle_diary_burst_active (bool, blocks entry accumulation during Retrospective)
+
+7. abilities.py: 13 new AbilityDef entries across all 10 items.
+
+================================================================================
+RENDERING NOTES
+================================================================================
+- Crown of Corner Boy: uses existing 0xE00D hat tile (gold tint via color)
+- Plague Doctor Mask: uses 0xE00D hat tile (dark green tint)
+- All ring items: 0xE00A tile (already used for other rings)
+- Feet items: 0xE00B tile (already used for other boots)
+- Weapon items: ASCII characters (], |, /, )) — no new graphical tiles needed
+- Neck item: ASCII * for the pager/talisman
+- Miasma spray type: rendered as dim green tint on floor tiles (similar to existing spray paints)
+- Hustle trail spray type: rendered as dim green glow on tiles
+
+No new graphical tiles (0xE00X+) are required for any of these 10 items, assuming we
+reuse the existing hat/ring/boots tiles. Unique coloring differentiates them visually.

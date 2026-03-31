@@ -1,0 +1,107 @@
+SPRAY PAINT DESIGNS V4 — SUMMARY
+=================================
+Source: nigrl-ideas/spray-paint-designs-v4.txt
+10 new paints (Paints 16-25). Total roster now 25.
+
+PAINT QUICK REFERENCE:
+
+16. Midnight (25,20,90)
+    Player: +(10+5*Graffiti)% dodge. Total dodge capped at 60%.
+    New field: tile_dodge_bonus: float = 0.0 on PlayerStats.
+    Implementation: _update_tile_stat_bonuses; dodge check in combat.py.
+    10 charges | Value 40 | both zones
+
+17. Magenta (240,40,160)
+    Player: +(8+2*Graffiti) Temp HP per kill (any damage source).
+    Hook: kill event handler (alongside gold/graffiti-heal checks).
+    No new fields. Temp HP capped at max_hp.
+    10 charges | Value 40 | both zones
+
+18. Navy (20,55,140)
+    Player: +(2+Graffiti) gun damage/shot. 25% ammo-not-consumed per shot.
+    Implementation: gun_system.py damage calc + ammo decrement path.
+    No new fields needed.
+    10 charges | Value 45 | both zones
+
+19. Amber (245,190,20) [adjusted from 255,175,0 for distinctiveness]
+    Enemy: if HP <= (45+5*Graffiti)% max HP, 50% fear check/turn (2t).
+    Conditional fear CC — only active below bloodied threshold.
+    Implementation: per-tick entity loop; reuses "feared" effect.
+    10 charges | Value 35 | both zones
+
+20. Bone (235,220,185)
+    Player: damage reduction = (missing HP ratio) * (20+5*Graffiti) %.
+    Reactive DR — 0 bonus at full HP, up to 35% at very low HP.
+    Implementation: incoming-damage-to-player branch in combat.py.
+    No new fields.
+    10 charges | Value 35 | both zones
+
+21. Slate (90,110,135)
+    Player: Swagger defense doubled (mult = 2 + graffiti//2 * 0.5).
+    Build-gated: useless at SWG 8, strong at SWG 12+.
+    New field: tile_swagger_mult: float = 1.0 on PlayerStats.
+    Implementation: _update_tile_stat_bonuses; swagger_def calc.
+    10 charges | Value 40 | both zones
+
+22. Chartreuse (170,255,40)
+    Player: (10+5*Graffiti)% chance per XP event to gain +1 free SP.
+    Bypasses potential/real XP conversion — direct SP spike.
+    Implementation: hook in xp_progression.py at gain_potential_exp.
+    No new fields.
+    10 charges | Value 40 | both zones
+
+23. Umber (110,50,15)
+    Player: Grit = nearby enemy count (Chebyshev 3). 2=+1STR, 3=+2STR+1DEF, 4+=+3STR+2DEF.
+    Group-scaling offense — stronger when more surrounded.
+    Implementation: _update_tile_stat_bonuses counts living enemies in radius.
+    No new fields (uses tile_stat_bonuses dict).
+    10 charges | Value 35 | both zones
+
+24. Tawny (210,150,60) [adjusted from 195,130,40 for distinctiveness vs Copper]
+    Meth Lab: +1 Meth resource per action. Crack Den fallback: +(2+Graffiti) TOL.
+    Zone-dependent dual behavior.
+    Implementation: post-action hook (ML) / _update_tile_stat_bonuses (CD).
+    No new fields.
+    10 charges | Value 45 | meth_lab primary, crack_den
+
+25. Indigo (65,25,180)
+    Player: auto-stun 1 random adjacent enemy each player turn (1-2t).
+    At Graffiti L2+: radius extends to 2 tiles. L3+: stun = 2 turns.
+    Implementation: player-turn-start hook; reuses "stunned" effect.
+    No new fields. 8 charges only.
+    8 charges | Value 50 | both zones
+
+KEY DESIGN NICHES FILLED:
+  Evasion build     — Midnight (first dodge tile)
+  Gun build         — Navy (first gun-interaction tile)
+  Kill reward       — Magenta (Temp HP, distinct from Gold's cash)
+  Fear CC           — Amber (conditional on bloodied threshold)
+  Reactive defense  — Bone (missing HP scaling DR)
+  Swagger build     — Slate (SWG defense multiplier)
+  SP spikes         — Chartreuse (direct SP bypass, distinct from Teal's XP%)
+  Group fight       — Umber (Grit: more enemies = more STR/DEF)
+  Meth Lab build    — Tawny (Meth resource generation)
+  Aura CC           — Indigo (auto-stun adjacency; unique on-tile active effect)
+
+NEW FIELDS REQUIRED:
+  PlayerStats.tile_dodge_bonus: float = 0.0
+  PlayerStats.tile_swagger_mult: float = 1.0
+
+FILES REQUIRING CHANGES:
+  items.py          — 10 ITEM_DEFS entries + _spray_descs
+  render.py         — 10 new elif branches (visible + explored bg)
+  engine.py         — _update_tile_stat_bonuses, per-tick loop, kill handler,
+                       player-turn-start hook, post-action hook, _SPRAY_TABLE
+  combat.py         — incoming damage path (bone DR)
+  gun_system.py     — shot damage calc + ammo decrement (navy)
+  stats.py          — 2 new PlayerStats fields; swagger_def calc (slate)
+  xp_progression.py — chartreuse SP roll at XP event
+  loot.py           — add 10 to SPRAY_PAINT_COLORS
+
+COLOR NOTES (distinctiveness warnings):
+  Amber vs Orange: both warm yellow-orange. Amber adjusted to (245,190,20)
+  for more yellow. Differentiate via bg render and item can color.
+  Chartreuse vs Rad: both neon yellow-green. Differentiate via can color
+  in inventory (chartreuse brighter/greener; rad more lime-yellow).
+  Tawny vs Copper: both warm brown-gold. Tawny adjusted to (210,150,60)
+  for distinctly more yellow warmth.

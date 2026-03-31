@@ -1,0 +1,1224 @@
+NUCLEAR RESEARCH — 10 Branching Skill Tree Variations
+=======================================================
+Design doc for the NIGRL roguelike (Meth Lab zone skill).
+These are BRANCHING trees with player-choice topology — NOT linear L1-L4.
+The player selects one branch at each split and cannot unlock the other.
+
+Nuclear Research theme reference:
+  - Rad Bomb is the SIGNATURE ability — appears in every tree.
+  - Book-Smarts scales spell damage. Reference formula: base + BKS/2 (or BKS)
+  - Rad cost for Rad Bomb: 25 rad (refunded at 100+ rad)
+  - Mutation safety passive ("block mutations below 150 rad") must appear in every tree.
+  - Rad gain formula: amount * (1 - rad_resistance/100) * (1 + rad_gain_multiplier_bonus)
+  - Nuclear Research L1 extra rad: +round(rad_gained * effective_BKS / 100)
+  - Mutation thresholds: Weak 75+ rad (50 rad cost), Strong 125+ rad (125 rad cost),
+    Huge 250+ rad (200 rad cost). Passive trigger: (rad//50)*0.001 per energy tick.
+  - Player HP: 30 + CON*10. Swagger defence: int((eff_swg-8)/2).
+  - Crit chance: street_smarts * 3%. Energy: 100/tick base. +30 = ~23% faster.
+  - MEGA_CRIT_MULTIPLIER = 4.
+  - Stat names: constitution, strength, street_smarts, book_smarts, tolerance, swagger
+  - ChargeType: INFINITE+cooldown | PER_FLOOR | TOTAL | ONCE | FLOOR_ONLY
+  - TargetType: SELF | SINGLE_ENEMY_LOS | LINE_FROM_PLAYER | AOE_CIRCLE | ADJACENT | ADJACENT_TILE
+
+XP source for Nuclear Research: casting Rad Bomb (50 XP/cast), dealing rad-based
+damage to enemies, converting consumables via Nutrient Producer, surviving at high rad levels.
+
+Flavor reference — names drawn from nuclear physics:
+  fission, fusion, meltdown, critical mass, enrichment, isotope, half-life,
+  fallout, reactor, chain reaction, containment, breeder, neutron, prompt criticality,
+  decay, yield, detonation, ground zero, flash point, mushroom, fallout, shielding,
+  moderator, criticality, quench, scram, dead hand, dead zone.
+
+Shape glossary:
+  Y-split (L3)        — L1, L2 trunk; branch at L3: L3a/L4a vs L3b/L4b. 6 perks, 2 capstones.
+  Diamond             — L1 shared; L2a/L2b split; L3a/L3b branches; L4 shared convergence;
+                        L5a/L5b final split. 8 perks, 2 capstones.
+  Triple Fork (L4)    — L1, L2, L3 shared trunk; split at L4 into L4a/L4b/L4c. 6 perks, 3 capstones.
+  W-shape             — L1/L2 shared; L3a/L4a and L3b/L4b branches; L5 shared convergence;
+                        L6a/L6b final split. 8 perks, 2 capstones.
+  Long Trunk Y        — L1, L2, L3, L4 shared trunk; branch at L5 into L5a/L5b. 6 perks, 2 capstones.
+  Inverted Y          — TWO starting branches (L1a/L1b); each with L2; converge at shared L3-L4.
+  Ladder/Zigzag       — L1 shared; L2 choose A/B; L3 shared; L4 choose A/B; L5 shared capstone.
+  Trident             — L1-L2 shared; L3a/L3b/L3c split; L3a+L3b reconverge at L5; L3c stays solo.
+  Double Diamond      — L1 shared; L2 split; L3 convergence; L4 split; L5 capstone.
+  Asymmetric Y        — L1-L2 shared; split at L3: Branch A = L3a only (short); Branch B = L3b+L4b+L5b (long).
+
+New engine state needed (all 10 variations combined):
+  rad_bomb_detonations (int, run-wide; count of Rad Bomb detonations)
+  fission_splinter_count (int, per-cast; how many Fission sub-bombs are placed)
+  critical_mass_ready (bool; set by Critical Mass buff, cleared on next ability fire)
+  chain_reaction_kills (int, per-floor; rad-damage kills that triggered chain reactions)
+  half_life_marked_id (str|None; entity id bearing Half-Life mark; cleared on death/floor)
+  isotope_marked_id (str|None; entity id bearing Isotope mark; cleared on death/floor)
+  fusion_charge (int, 0-200; built from rad drain, used by Fusion Detonation)
+  fusion_draining (bool; True while Fusion is accumulating)
+  fallout_zone_tiles (list[tuple[int,int]]; tile coords currently radioactive terrain)
+  fallout_zone_duration (int; turns remaining on Fallout Zone hazard)
+  reactor_core_active (bool; Reactor Core passive aura is running)
+  reactor_core_turns (int; turns remaining on Reactor Core aura)
+  enrichment_stacks (int, 0-5; bonus damage stacks on next Rad Bomb from Enrichment)
+  prompt_criticality_hits (int; consecutive turns at 200+ rad; resets on drop below 200)
+  dead_hand_cooldown (int; turns until Dead Hand can trigger again)
+  rad_nova_used_this_floor (bool; for FLOOR_ONLY variants)
+  contaminate_targets (set[str]; entity ids currently contaminated via Contaminate ability)
+  ground_zero_tile (tuple|None; tile where Ground Zero hazard is placed)
+  scram_cooldown (int; turns until SCRAM can fire again)
+  meltdown_fuse (int; turns until Meltdown detonates; -1 = not active)
+  meltdown_tile (tuple|None; tile where Meltdown crystal is placed)
+  decay_chain_bonus (float; accumulated damage multiplier from Decay Chain passive)
+
+New PlayerStats fields needed (all 10 variations combined):
+  rad_bomb_damage_bonus (int; flat additive to Rad Bomb base damage beyond the BKS formula)
+  rad_bomb_area_bonus (int; bonus tiles added to Rad Bomb blast radius, default 0)
+  rad_bomb_charges_bonus (int; extra per-floor charges on Rad Bomb, default 0)
+  rad_bomb_fuse_reduction (int; turns removed from Rad Bomb fuse, default 0; min fuse = 1)
+  rad_spell_damage_mult (float; multiplicative bonus to all Nuclear Research spell damage)
+  rad_cost_reduction (int; flat rad cost reduction on all spells, min 0)
+  nuke_crit_bonus (float; bonus crit multiplier for rad spells only, stacks with crit_multiplier_bonus)
+  contaminate_dot_bonus (int; flat bonus to Contaminate DOT per tick)
+  fallout_zone_radius_bonus (int; extra radius on Fallout Zone, default 0)
+  reactor_aura_radius (int; tiles radius of Reactor Core passive irradiation, default 1)
+  mutation_block_threshold (int; default 150; rad level below which mutations are blocked)
+    — Note: every tree variation that includes the mutation safety passive sets this.
+      Some variations raise it to 200, some keep it at 150.
+
+New effects needed (all 10 variations combined):
+  CriticalMassEffect — buff: next spell is guaranteed crit + 2x damage; consumed on fire; dur 20t
+  ContaminateEffect  — DOT: target gains 3 rad/turn for 8t; stacks independently per application;
+                       on death: irradiate all adjacent enemies for 20 rad
+  HalfLifeEffect     — mark: next time enemy HP drops to <=50%, they take instant burst damage
+                       equal to (current HP / 2 rounded up); the mark is then consumed
+  IsotopeMarkEffect  — mark: on kill, the entity's tile becomes a Fallout Zone hazard (6t dur,
+                       3 rad/turn to anything passing through); chains 1 time only
+  FalloutZoneEffect  — hazard: persistent radioactive terrain (4 rad/turn to entity on tile);
+                       interacts with Fallout Zone Hazard entity type (see below)
+  ReactorAuraEffect  — passive ambient aura: at turn start, any enemy within reactor_aura_radius
+                       tiles gains 3 rad (unresisted by rad_resistance); dur = reactor_core_turns
+  DecayChainEffect   — passive: each consecutive floor-tick dealing rad damage to enemies
+                       increases decay_chain_bonus by 0.05 (max 0.5); resets on floor change
+  FusionChargeEffect — ongoing: while active, player gains +10 rad/turn but cannot cast spells;
+                       clears when fusion_detonation is fired or player reaches 0 rad
+  PromptCritEffect   — triggered: at 200+ rad for 5 consecutive turns, next Rad Bomb guaranteed
+                       to deal MEGA_CRIT (×4) damage; consumed on detonation
+  ScramEffect        — defensive: reduces incoming damage by 30% for 3 turns; 1/floor
+  EnrichmentEffect   — stacking buff: each stack adds +5 damage to next Rad Bomb; max 5 stacks;
+                       consumed fully on detonation; stacks persist across turns
+
+New ability IDs (all 10 variations combined):
+  rad_bomb_b          — existing (Rad Bomb, upgraded versions share same ID with stat bonuses)
+  rad_nova_b          — instant AOE around player; no delay; costs 50 rad; 1/floor
+  meltdown_b          — massive delayed nuke; 5-turn fuse; 9×9 area; costs 75 rad; 1/floor
+  contaminate_b       — ranged DOT; single target; applies ContaminateEffect; 3/floor; costs 15 rad
+  fallout_zone_b      — place radioactive terrain; 3×3 area; 12t duration; costs 30 rad; 2/floor
+  critical_mass_b     — self-buff; costs 40 rad; next spell CRIT; dur 20t; 1/floor
+  fission_b           — splits next Rad Bomb into 3 mini-bombs (each 40% damage, separate tiles);
+                        replaces normal Rad Bomb for that cast; costs 25 rad extra; 1/floor
+  fusion_detonation_b — drains all current rad into one hit; target single enemy; dmg = rad/2;
+                        no charges limit but costs all rad; FLOOR_ONLY
+  half_life_b         — mark single enemy; triggers on <=50% HP burst; costs 20 rad; 2/floor
+  isotope_b           — mark single enemy; on kill → Fallout Zone; costs 20 rad; 3/floor
+  chain_reaction_b    — passive trigger: rad-damage kills cause adjacent enemies to take
+                        (10 + BKS/4) rad damage; no cost (passive)
+  reactor_core_b      — toggle aura; costs 5 rad/turn while active; irrdiates all in radius;
+                        turn on/off as free action (SELF target)
+  enrichment_b        — spend 15 rad → +1 Enrichment stack (max 5); activated; unlimited uses
+  ground_zero_b       — mark a tile (ADJACENT_TILE); next Rad Bomb detonation teleports epicenter
+                        to that tile (overrides placement); costs 0 extra; 1/floor
+  dead_hand_b         — passive trigger: if player reaches 0 HP, detonate all active Rad Bomb
+                        crystals instantly; if no crystals active, place one and detonate same
+                        turn; 1/run (ONCE); grants 50 Nuclear Research XP on trigger
+  scram_b             — defensive ability; costs 20 rad; apply ScramEffect; 1/floor; SELF
+  prompt_criticality_b — passive: watching engine for 5 consecutive turns at 200+ rad;
+                          AbilityDef.is_passive = True; no targeting
+
+New hazard types (all 10 variations combined):
+  hazard_type = "fallout_zone" — char='~', color=(100,220,50), blocks_movement=False;
+    applies 4 rad/turn to any entity on the tile; duration tracked by fallout_zone_duration;
+    spawned by fallout_zone_b ability and Isotope mark kills
+  hazard_type = "rad_crystal"  — char='*', color=(80,255,180); the Rad Bomb placed crystal;
+    existing in concept, formalize as entity type with fuse_turns field
+
+Balance reference:
+  - Rad Bomb base: 15+BKS/2 damage in 5×5 area. At BKS 10 = 20 dmg; BKS 12 = 21 dmg.
+  - Upgraded Rad Bomb (L4 original): 20+BKS damage. At BKS 10 = 30 dmg; BKS 12 = 32 dmg.
+  - Enemy HP ranges: floor 1-2 enemies ~20-40 HP; floor 3-4 ~40-80 HP; bosses 150-250 HP.
+  - Rad Nova: instant 5×5 hits ~3-5 enemies for (10+BKS) damage each = decent floor clear.
+  - Meltdown: 9×9 area at (30+BKS*2) damage is approximately 2× a regular Rad Bomb in area
+    and ~60-70% more damage — once-per-floor so it's the "nuke button."
+  - Fusion Detonation at full 200 rad = 100 damage to one target. At BKS bonus scaling it's
+    a one-shot for most non-boss enemies. High opportunity cost (full rad drain).
+  - Contaminate DOT: 3 rad/turn × 8 turns = 24 total rad applied to enemy. Pairs with
+    Reactor Core and Chain Reaction for passive irradiation builds.
+  - Fission: 3 × 40% of Rad Bomb = 120% of single Rad Bomb across three points, 1 extra rad cost.
+    Best vs grouped clusters; worse than normal vs isolated single targets.
+
+
+==========================================================================
+VARIATION 1: "GROUND ZERO" — Bomb Specialist vs. Fallout Controller
+==========================================================================
+Shape: Y-split (L3)
+Fantasy: Master the Rad Bomb, then choose: become the bomb (bigger, faster detonation)
+         or become the fallout (persistent radioactive terrain + contamination DOT).
+
+TREE DIAGRAM:
+
+    L1: Irradiated Intellect
+              |
+    L2: Rad Bomb
+              |
+       ______/ \_______
+      /                 \
+[BRANCH A]           [BRANCH B]
+L3a: Short Fuse       L3b: Half-Life
+      |                     |
+L4a: Fission             L4b: Fallout Zone
+  (capstone)               (capstone)
+
+
+TRUNK:
+
+L1 — IRRADIATED INTELLECT (stat)
+  Perk type: stat
+  Bonuses: book_smarts +3
+  Passive: Radiation gained is increased by BKS% of the amount gained.
+    (e.g., at BKS 12, gaining 10 rad becomes 10 + round(10*12/100) = 11 rad)
+  Additional passive: block mutations below 150 rad.
+  Desc: "The smarter you are, the hotter you run. Background radiation is just
+         a free education."
+
+L2 — RAD BOMB (activated)
+  Perk type: activated
+  Ability: rad_bomb_b
+  Charge type: PER_FLOOR (3/floor)
+  Target type: ADJACENT_TILE (places crystal within 2 tiles; fuse = 3 turns)
+  Effect: Place a glowing crystal (*) on an adjacent tile. After 3 turns, it detonates:
+          deals 15 + BKS/2 damage (rounded down) to all entities in a 5×5 area centered
+          on the crystal. Costs 25 rad per cast; refunded if player has 100+ rad at
+          cast time. Grants 50 Nuclear Research XP per detonation.
+  Desc: "Three seconds to stand somewhere else."
+
+BRANCH A — Bomb Specialist
+
+L3a — SHORT FUSE (passive)
+  Perk type: passive
+  Effect: Rad Bomb fuse reduced from 3 turns to 2 turns (rad_bomb_fuse_reduction = 1).
+          Additionally, each Rad Bomb detonation generates +1 Enrichment stack automatically
+          (enrichment_stacks += 1 on each detonation, up to the 5-stack cap).
+          The enrichment stacks carry to the next bomb, creating runaway momentum.
+  Desc: "Patience is for people who aren't on fire."
+
+L4a — FISSION (activated, capstone)
+  Perk type: activated
+  Ability: fission_b
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF (consumed on next Rad Bomb cast, not a separate target)
+  Effect: Activate Fission before placing a Rad Bomb. The next Rad Bomb you place
+          becomes THREE mini-crystals placed simultaneously, spread across
+          adjacent tiles (player picks the first; the other two are auto-placed
+          at the closest walkable tiles). Each mini-bomb deals 40% of normal
+          Rad Bomb damage (with full BKS scaling applied). Total potential
+          damage = 120% of a normal bomb if all three hit different targets,
+          but each target can only be caught in one blast. Costs 25 extra rad
+          (total 50 rad for the cast). Grants 50 XP per mini-bomb detonation.
+  Desc: "Why blow up one room when you can blow up three?"
+
+BRANCH B — Fallout Controller
+
+L3b — HALF-LIFE (activated)
+  Perk type: activated
+  Ability: half_life_b
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Mark a visible enemy with Half-Life (costs 20 rad). The mark persists until
+          triggered or the enemy dies. The next time that enemy's HP drops to 50% or below
+          (from any source), the mark triggers: the enemy instantly takes burst rad damage
+          equal to half their current HP (rounded up). The mark is then consumed.
+          Grants 25 Nuclear Research XP on trigger.
+  Desc: "Every unstable nucleus has a breaking point. You just find it faster."
+
+L4b — FALLOUT ZONE (activated, capstone)
+  Perk type: activated
+  Ability: fallout_zone_b
+  Charge type: PER_FLOOR (2/floor)
+  Target type: ADJACENT_TILE (places center tile; 3×3 affected area)
+  Effect: Create a persistent radioactive terrain hazard (fallout_zone hazard type) centered
+          on the target tile. The zone persists for 12 turns. Any entity (enemy or player)
+          standing on a Fallout Zone tile receives 4 rad per turn (unresisted by rad_resistance
+          for enemies; player's own rad_resistance applies for player). Enemies accumulate
+          rad and can trigger irradiated damage penalties per the tox/rad multiplier system.
+          Costs 30 rad per cast. Pairs with Half-Life: enemies marched into zones hit
+          the 50% HP trigger faster. Grants 20 XP per enemy-turn spent in the zone.
+  Desc: "The battle is over. The ground isn't."
+
+Implementation notes:
+  - Short Fuse: rad_bomb_fuse_reduction = 1; add detonation hook in engine that fires
+    enrichment_stacks += 1 after each Rad Bomb detonation if this perk is active.
+  - Fission: replace normal rad_bomb entity spawn with three entities; auto-place algo:
+    find 2 nearest walkable tiles to player that aren't the chosen tile.
+  - Half-Life: apply HalfLifeEffect to entity; in combat.py damage hook check
+    entity.hp <= entity.max_hp//2 and strip mark → deal burst.
+  - Fallout Zone: spawns fallout_zone hazard at 3×3 tiles; track via engine.fallout_zone_tiles.
+
+Balance notes:
+  - Short Fuse + Fission: 2-turn fuse + triple bomb = very aggressive placement window.
+    The extra rad cost (50 vs 25) and 1/floor limit keep it from being spammable.
+  - Fallout Zone synergy with Half-Life: strong but enemies must actually walk into zones;
+    active monsters chase player, so placement near chokepoints is skill-based.
+
+
+==========================================================================
+VARIATION 2: "THE REACTOR" — Aura Builder vs. Single-Target Nuke
+==========================================================================
+Shape: Diamond
+Fantasy: Early game you build toward sustainable rad output via passive aura and DOTs;
+         late game you pick between a persistent reactor god-mode or a Fusion one-shot cannon.
+
+TREE DIAGRAM:
+
+    L1: Irradiated Intellect
+           /      \
+          /        \
+  L2a: Reactor Core  L2b: Contaminate
+          \          /
+           \        /
+    L3: Critical Mass (convergence)
+           /      \
+          /        \
+  L4a: Meltdown    L4b: Fusion Detonation
+   (capstone)         (capstone)
+
+
+TRUNK:
+
+L1 — IRRADIATED INTELLECT (stat)
+  (Same as V1 trunk L1 — BKS +3, rad gain bonus, mutation block at 150 rad.)
+  Also grants Rad Bomb: 3/floor, 5×5, 15+BKS/2 damage, 25 rad cost.
+  All Diamond paths require this before branching.
+
+BRANCH SPLIT at L2 (pick one):
+
+L2a — REACTOR CORE (activated)
+  Perk type: activated
+  Ability: reactor_core_b
+  Charge type: INFINITE (toggle; costs 5 rad per player turn while active)
+  Target type: SELF
+  Effect: Toggle an ambient radiation aura (radius = reactor_aura_radius, default 1 tile).
+          While active, every enemy within range gains 3 rad per player turn (unresisted).
+          Cost: 5 rad per turn (player's own rad_resistance does NOT reduce this drain —
+          you're the reactor, not the target). Toggle off to stop the drain. Cannot be
+          active at 0 rad. Grants +2 Nuclear Research XP per enemy irradiated per turn.
+          While Reactor Core is active, Rad Bomb detonations gain +3 damage per enemy
+          in the aura at moment of detonation (up to +12 for 4 enemies).
+  Desc: "You are the source."
+
+L2b — CONTAMINATE (activated)
+  Perk type: activated
+  Ability: contaminate_b
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Apply a ContaminateEffect to a visible enemy (costs 15 rad). The target gains
+          3 rad per turn for 8 turns. On expiry or death, 20 rad splashes to all
+          adjacent enemies. Multiple Contaminate stacks on the same target are
+          tracked independently (each has its own 8-turn timer). Grants 10 XP per
+          application; 15 XP on contamination expiry splash.
+  Desc: "One carrier is worth a hundred bullets."
+
+CONVERGENCE at L3 (both paths unlock this):
+
+L3 — CRITICAL MASS (activated)
+  Perk type: activated
+  Ability: critical_mass_b
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF
+  Effect: Spend 40 rad to enter Critical Mass state (CriticalMassEffect, dur 20t).
+          Your next Nuclear Research ability (Rad Bomb, Meltdown, Fission, Rad Nova, etc.)
+          automatically deals a guaranteed CRITICAL HIT with nuke_crit_bonus applied
+          (bonus crit multiplier: +1.0 above base, so MEGA_CRIT × 2 = ×8 total).
+          Mutation block threshold raised to 200 rad while this buff is active.
+          Grants 50 XP when the buffed ability fires.
+  Desc: "There is no safe amount. There is only the yield."
+
+FINAL SPLIT at L4 (pick one):
+
+L4a — MELTDOWN (activated, capstone)
+  Perk type: activated
+  Ability: meltdown_b
+  Charge type: FLOOR_ONLY (1/floor, resets on floor change)
+  Target type: ADJACENT_TILE (places crystal within 2 tiles; fuse = 5 turns)
+  Effect: Place a Meltdown crystal (*). After 5 turns it detonates: 9×9 blast area,
+          deals 30 + BKS*2 damage. At BKS 12 = 54 damage across a 9×9 area.
+          All surviving enemies hit are irradiated: gain 30 rad regardless of
+          rad_resistance. Costs 75 rad. If fired while Critical Mass is active,
+          the guaranteed crit applies (up to ×8 damage = up to 432 dmg at BKS 12 —
+          screen-clearing nuke). Grants 150 XP on detonation.
+  Desc: "You were not supposed to have this many isotopes."
+
+L4b — FUSION DETONATION (activated, capstone)
+  Perk type: activated
+  Ability: fusion_detonation_b
+  Charge type: FLOOR_ONLY (can use whenever, but drains ALL current rad)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Drain every point of current rad into a single beam at a visible target.
+          Deals damage equal to current rad / 2 (before drain). At 200 rad = 100 damage;
+          at 150 rad = 75 damage. Enemy killed by Fusion Detonation explodes in a 3×3
+          rad burst: nearby enemies gain 40 rad regardless of resistance.
+          After firing, player rad drops to 0. Cannot fire at 0 rad. Costs no flat rad
+          (the drain IS the cost). If fired while Critical Mass is active: damage = rad × 1.5
+          (before drain), so 200 rad = 300 damage (one-shots any non-boss in the game).
+          Grants 100 XP per cast.
+  Desc: "Every electron you've ever absorbed. All at once. Goodbye."
+
+Implementation notes:
+  - Reactor Core: engine._run_energy_loop() checks reactor_core_active each player-turn;
+    iterates entities within reactor_aura_radius; calls irradiate(entity, 3, bypass_resist=True).
+    Rad drain: subtract 5 from player.radiation each player turn. Auto-disable at 0.
+  - Critical Mass: CriticalMassEffect.on_player_spell_fire() sets force_crit=True,
+    applies nuke_crit_bonus; then expiry removes effect. Check in spells.py execute path.
+  - Fusion Detonation: calculate damage = player.radiation // 2, then set player.radiation = 0.
+    On kill: spawn fallout burst at 3×3 tiles irradiating survivors.
+
+
+==========================================================================
+VARIATION 3: "CHAIN REACTION" — Bomb Mastery vs. Cascade Killer
+==========================================================================
+Shape: Triple Fork (L4)
+Fantasy: A long trunk of escalating bomb investment splits into three specializations:
+         go deeper on bombs (Fission), pivot to killing chains (Chain Reaction passive),
+         or create the ultimate terrain denial (Ground Zero repositioner).
+
+TREE DIAGRAM:
+
+         L1: Irradiated Intellect
+                    |
+         L2: Rad Bomb
+                    |
+         L3: Enrichment
+                    |
+         ___________|____________
+        /            |            \
+   [A]             [B]           [C]
+L4a: Fission   L4b: Chain     L4c: Ground Zero
+ (capstone)     Reaction       (capstone)
+                (capstone)
+
+
+TRUNK:
+
+L1 — IRRADIATED INTELLECT (stat)
+  (BKS +3, rad gain bonus, mutation block at 150 rad — same core as V1.)
+
+L2 — RAD BOMB (activated)
+  (3/floor, 5×5, 15+BKS/2 damage, 25 rad cost — same core as V1.)
+
+L3 — ENRICHMENT (activated)
+  Perk type: activated
+  Ability: enrichment_b
+  Charge type: INFINITE (unlimited uses)
+  Target type: SELF
+  Effect: Spend 15 rad to gain 1 Enrichment stack (max 5). Each Enrichment stack adds
+          +5 flat damage to your next Rad Bomb detonation. Stacks do NOT carry across floors.
+          When the next Rad Bomb detonates, all stacks are consumed and the bonus is applied
+          (5 stacks = +25 damage on top of the 15+BKS/2 formula). This can be pre-loaded
+          before entering a dangerous room. Grants 10 XP per stack applied to a detonation.
+  Desc: "The more you put in, the bigger the yield. Basic physics."
+
+BRANCH A — Maximum Yield
+
+L4a — FISSION (activated, capstone)
+  (Same as V1 Branch A L4a — three mini-bombs, 40% each, 1/floor, 50 rad total cost.)
+  Added synergy here: if Enrichment stacks are active when Fission fires, each mini-bomb
+  individually inherits (stacks × +3 damage) — slightly reduced per-bomb but total output
+  can exceed the single-bomb enriched version.
+  Desc: "More fronts. More coverage. More chaos."
+
+BRANCH B — The Cascade
+
+L4b — CHAIN REACTION (passive, capstone)
+  Perk type: passive
+  Ability: chain_reaction_b (AbilityDef.is_passive = True)
+  Effect: Whenever an enemy dies from rad damage (including Rad Bomb, Contaminate DOT,
+          Reactor Core aura, or any rad source), every enemy adjacent to that corpse
+          instantly takes (10 + BKS/4) rad damage (unresisted). This can trigger
+          subsequent chain reactions if the adjacent enemies also die, but each chain
+          is capped at 1 propagation hop per detonation event (so: original kill →
+          adjacent damage → if those die, no further chain from THOSE deaths that same
+          event). Grants 15 Nuclear Research XP per chain reaction enemy hit.
+  Desc: "Proximity is destiny."
+
+BRANCH C — Precision Targeting
+
+L4c — GROUND ZERO (activated, capstone)
+  Perk type: activated
+  Ability: ground_zero_b
+  Charge type: PER_FLOOR (1/floor)
+  Target type: ADJACENT_TILE
+  Effect: Mark a tile as Ground Zero (visible marker). The next Rad Bomb you place
+          will teleport its explosion epicenter to the Ground Zero tile at detonation
+          (the crystal is still physically placed by the player normally, but at the
+          moment of detonation, the blast center shifts to the marked tile). This
+          allows indirect firing around corners: place the crystal somewhere safe,
+          redirect the blast into a room you cannot enter. Ground Zero tile remains
+          marked until the next Rad Bomb detonates or you use this ability again.
+          Stacks with Enrichment: a redirected enriched Rad Bomb delivers the full
+          enriched damage at the target tile, making it a true sniper nuke.
+          Grants 30 XP on a successful redirected detonation.
+  Desc: "The bomb goes here. The explosion goes there."
+
+Implementation notes:
+  - Enrichment: each enrichment_stacks += 1 on ability fire; deducted at Rad Bomb detonation.
+    enrichment_stacks resets on floor change. Stacks persist on entity across turns.
+  - Chain Reaction: hook in combat.py or engine death handler: on_entity_death check
+    entity.damage_source == "rad"; if True, iterate adjacent tiles for living enemies,
+    apply chain_reaction_damage = 10 + BKS//4; mark event as chain_reaction=True to
+    prevent further propagation that same death event.
+  - Ground Zero: set engine.ground_zero_tile = target_tile on ability fire; in Rad Bomb
+    detonation logic, if ground_zero_tile is not None, use it as center; clear after use.
+
+
+==========================================================================
+VARIATION 4: "THE DEAD HAND" — Containment vs. Berserker
+==========================================================================
+Shape: W-shape
+Fantasy: Two diverging paths meet at a critical junction, then diverge again to two very
+         different endgames — self-preservation or suicidal maximum yield.
+
+TREE DIAGRAM:
+
+    L1: Irradiated Intellect
+              |
+    L2: Rad Bomb
+      /               \
+L3a: SCRAM          L3b: Prompt
+      |              Criticality
+L4a: Isotope              |
+  Mark             L4b: Reactor Core
+      \               /
+       \             /
+    L5: Dead Hand (convergence)
+          /       \
+         /         \
+L6a: Containment  L6b: Meltdown
+  Protocol          Cascade
+  (capstone)        (capstone)
+
+
+TRUNK (shared):
+
+L1 — IRRADIATED INTELLECT (stat)
+  (BKS +3, rad gain bonus, mutation block at 150 rad — same core.)
+
+L2 — RAD BOMB (activated)
+  (3/floor, 5×5, 15+BKS/2 damage, 25 rad cost — same core.)
+
+BRANCH A — Defensive Line
+
+L3a — SCRAM (activated)
+  Perk type: activated
+  Ability: scram_b
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF
+  Effect: Emergency defensive mode. Spend 20 rad to apply ScramEffect for 3 turns:
+          all incoming damage reduced by 30%. Flavor: like a nuclear reactor SCRAM —
+          emergency shutdown to prevent runaway. Grants 15 XP on use.
+  Desc: "Insert control rods. Contain the reaction. Not today."
+
+L4a — ISOTOPE MARK (activated)
+  Perk type: activated
+  Ability: isotope_b
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Mark a visible enemy with IsotopeMarkEffect (costs 20 rad). When the
+          marked enemy dies (from any source), their corpse tile instantly becomes
+          a Fallout Zone hazard (3×3, 6 turns, 4 rad/turn to entities on tiles).
+          The explosion also immediately deals (BKS) rad damage to entities within
+          the 3×3 zone at moment of death. Stacks with Chain Reaction (V3) synergy.
+          Grants 25 XP on trigger.
+  Desc: "Mark it. Wait. Everything that walks over the body learns a lesson."
+
+BRANCH B — Offensive Overload
+
+L3b — PROMPT CRITICALITY (passive)
+  Perk type: passive (AbilityDef.is_passive = True)
+  Effect: If the player maintains 200+ rad for 5 consecutive turns without spending rad,
+          a PromptCritEffect triggers: the next Rad Bomb detonation is guaranteed to deal
+          MEGA_CRIT damage (×4 multiplier, same as MEGA_CRIT_MULTIPLIER). After triggering,
+          the counter resets (must rebuild 5-turn streak at 200+ rad again). Mutation block
+          threshold is raised to 200 rad as a side effect — otherwise staying at 200 rad
+          would be very dangerous without this buffer.
+  Desc: "Everything past the threshold is just geometry."
+
+L4b — REACTOR CORE (activated)
+  (Same as V2 L2a — but here it sits deeper in the tree, implying this path is the
+  offensive high-rad build rather than V2's early-aura approach.)
+  Added upgrade here: while Reactor Core is active AND player rad ≥ 150, Rad Bomb gains
+  +5 extra damage per aura tick since last bomb detonation (max +20 total bonus).
+
+CONVERGENCE at L5 (both paths unlock this):
+
+L5 — DEAD HAND (activated)
+  Perk type: activated
+  Ability: dead_hand_b
+  Charge type: ONCE (1/run)
+  Target type: SELF (passive trigger)
+  Effect: If the player reaches 0 HP, Dead Hand triggers instead of death:
+          all active Rad Bomb crystals on the map detonate simultaneously (even if the
+          fuse has not completed). If no crystals are currently placed, one is auto-placed
+          at the player's current tile and detonates the same instant. The detonation still
+          uses all current enrichment stacks and ground_zero_tile if set. Player is left
+          at 1 HP after the detonation. Can only trigger once per run. Grants 200 XP.
+  Desc: "The machine doesn't stop when the operator dies. It was never designed to."
+
+FINAL SPLIT at L6 (pick one):
+
+L6a — CONTAINMENT PROTOCOL (passive, capstone)
+  Perk type: passive
+  Effect: Dead Hand's protection radius doubled (no longer just the player's tile —
+          if no crystals are placed, the auto-crystal is placed at the tile of the
+          nearest enemy instead of the player's tile). Additionally, after Dead Hand
+          triggers, gain ScramEffect automatically for 5 turns (30% damage reduction),
+          and Rad Bomb charges are refilled by 2 on the next floor. Finally, mutation
+          block threshold raised permanently to 200 rad (up from 150).
+  Desc: "Survive the failure state. Plan for the next floor."
+
+L6b — MELTDOWN CASCADE (activated, capstone)
+  Perk type: activated
+  Ability: meltdown_b (upgraded by this perk)
+  Charge type: FLOOR_ONLY (1/floor)
+  Effect: Unlocks Meltdown ability as described in V2 L4a. Additionally, if Meltdown
+          detonates in the same floor-turn as a Dead Hand trigger, the Meltdown's
+          damage is tripled (Meltdown + Dead Hand same turn = entire room likely wiped).
+          After any Meltdown detonation, all Fallout Zone hazards on the floor are
+          refreshed to full duration. Grants 200 XP on detonation.
+  Desc: "You were never going to make it out clean. Might as well be spectacular."
+
+Implementation notes:
+  - SCRAM: ScramEffect.modify_incoming_damage() multiplies damage by 0.70; dur 3 turns.
+  - Prompt Criticality: each player turn at 200+ rad, increment prompt_criticality_hits;
+    if hits >= 5, set critical_mass_ready = True (reuse flag); on next bomb detonation
+    apply MEGA_CRIT. Reset hits counter to 0 after trigger and after rad drops below 200.
+  - Dead Hand: hook in engine.handle_player_death(): if dead_hand_b ability exists and
+    not already triggered this run, intercept death, fire all crystals, set player HP = 1.
+    Add run-wide flag dead_hand_triggered. Grants 200 XP via xp_progression.
+
+
+==========================================================================
+VARIATION 5: "DECAY CHAIN" — Long Trunk, Two Capstones
+==========================================================================
+Shape: Long Trunk Y
+Fantasy: A long investment in pure bomb mastery, escalating power all the way to L4,
+         then one final choice: become the undying Decay Chain (passive rad multiplier)
+         or go glass-cannon with Half-Life/Fusion.
+
+TREE DIAGRAM:
+
+    L1: Irradiated Intellect
+              |
+    L2: Rad Bomb
+              |
+    L3: Short Fuse
+              |
+    L4: Critical Mass
+         /       \
+        /         \
+L5a: Decay Chain  L5b: Fusion
+  (capstone)       Detonation
+                   (capstone)
+
+
+TRUNK:
+
+L1 — IRRADIATED INTELLECT (stat)
+  (BKS +3, rad gain bonus, mutation block at 150 rad — same core.)
+
+L2 — RAD BOMB (activated)
+  (3/floor, 5×5, 15+BKS/2 damage, 25 rad cost — same core.)
+  Upgraded by L4: damage becomes 20+BKS.
+
+L3 — SHORT FUSE (passive)
+  (Same as V1 Branch A L3a — fuse reduced from 3 to 2 turns; each detonation +1 Enrichment stack.)
+
+L4 — CRITICAL MASS (activated)
+  (Same as V2 L3 convergence — 1/floor, 40 rad cost, next spell guaranteed crit at ×8.)
+  Also upgrades Rad Bomb: base damage now 20+BKS (the standard L4 upgrade from the
+  original linear Nuclear Research tree).
+
+BRANCH A — The Grinder
+
+L5a — DECAY CHAIN (passive, capstone)
+  Perk type: passive
+  Effect: Activates DecayChainEffect passively each floor. Each consecutive player turn
+          where you deal at least 1 point of rad damage to any enemy (via Rad Bomb,
+          Contaminate DOT, Chain Reaction, Reactor Core, etc.) increments decay_chain_bonus
+          by 0.05 (5%). Maximum bonus: +0.50 (50% multiplicative damage increase). The
+          bonus resets on floor change. Practical effect: a player who consistently deals
+          rad damage from turn 1 of a floor will reach +50% damage within 10 turns, making
+          the upgraded Rad Bomb deal up to 1.5× damage. Pairs perfectly with Short Fuse
+          (faster bombs = never losing the streak) and Critical Mass (the crit fires a
+          fully-stacked Decay Chain bomb for potentially ×12 total multiplier at ×8 crit
+          and ×1.5 decay). Grants 5 XP per full decay_chain_bonus increment (every +0.05).
+  Desc: "Every reaction feeds the next. You are the half-life. The chain never ends."
+
+BRANCH B — The Singularity
+
+L5b — FUSION DETONATION (activated, capstone)
+  (Same as V2 L4b — drains all rad, single target, damage = rad/2, 3×3 explosion on kill.)
+  Critical Mass synergy: if Critical Mass is active when Fusion fires, damage = rad × 1.5
+  before drain. At 200 rad with CM active: 300 damage, which is enough to kill anything
+  in the Meth Lab zone including bosses.
+  Desc: "The chain is over. There is only the yield."
+
+Implementation notes:
+  - Decay Chain: add decay_chain_bonus float (0.0 to 0.5) to engine state; each player turn
+    where any rad damage was dealt that turn (flag rad_damage_dealt_this_turn per turn):
+    decay_chain_bonus = min(0.5, decay_chain_bonus + 0.05). Apply multiplicatively to all
+    Nuclear Research spell damage: final_dmg = base_dmg × (1 + decay_chain_bonus).
+    Reset on floor_change event.
+  - Long Trunk L1-L4 is a large investment (4 perks before branching). Compensate by making
+    L3 and L4 individually powerful: Short Fuse is immediately impactful, Critical Mass is
+    a weekly nuke button.
+
+
+==========================================================================
+VARIATION 6: "FISSION/FUSION" — Inverted Y (Two Entry Paths)
+==========================================================================
+Shape: Inverted Y
+Fantasy: Two completely different early-game philosophies converge on a shared nuclear toolkit,
+         then end at the same capstone. The Bomb Scholar enters via BKS stat maximization;
+         the Rad Vampire enters via resource-siphoning aggression.
+
+TREE DIAGRAM:
+
+  [PATH A]              [PATH B]
+  L1a: Enriched Mind    L1b: Fissile Material
+         |                     |
+  L2a: Contaminate      L2b: Reactor Core
+                \       /
+                 \     /
+              L3: Rad Bomb (convergence)
+                      |
+              L4: Chain Reaction
+                      |
+              L5: Meltdown (capstone — shared)
+
+
+PATH A — The Scholar:
+
+L1a — ENRICHED MIND (stat)
+  Perk type: stat
+  Bonuses: book_smarts +4
+  Passive: Rad gain bonus (same BKS% formula as Irradiated Intellect); mutation block at 150 rad.
+  Additional: Each point of BKS above 10 grants +1 charge to all Nuclear Research abilities
+    per floor (e.g., at BKS 12, Contaminate gets 3+2 = 5 charges/floor). Caps at +3 bonus charges.
+  Desc: "You studied. You understand yield, half-life, neutron flux.
+         The others are just guessing."
+
+L2a — CONTAMINATE (activated)
+  (Same as V2 L2b — 3/floor, single target DOT, 3 rad/turn × 8 turns, 15 rad cost.)
+  Scholar upgrade: Contaminate also grants the player 5 rad when applied to a target
+  (BKS-scaled rad gain still applies to this gain). The scholar recycles isotopes.
+
+PATH B — The Aggressor:
+
+L1b — FISSILE MATERIAL (passive)
+  Perk type: passive
+  Bonuses: book_smarts +2 (less than Path A but more aggressive early game)
+  Passive: When the player deals melee damage, they gain 2 rad. When the player takes damage,
+    they gain 3 rad. This makes combat itself a rad-generating activity. Mutation block at 150 rad.
+  Desc: "Every hit is an exchange of energy. You learned to keep the change."
+
+L2b — REACTOR CORE (activated)
+  (Same as V2 L2a — toggle aura, 5 rad/turn drain, irradiates enemies within 1 tile.)
+  Aggressor upgrade: while in melee range (any adjacent enemy), Reactor Core's radius
+  increases to 2 tiles and irradiation per turn increases to 5 rad per enemy.
+
+CONVERGENCE at L3 (both paths unlock):
+
+L3 — RAD BOMB (activated)
+  Note: In this inverted-Y design, Rad Bomb arrives at L3 (after the initial path investment).
+  Perk type: activated
+  Ability: rad_bomb_b
+  Charge type: PER_FLOOR (3/floor; +charges from BKS if Path A)
+  Effect: Standard Rad Bomb (15+BKS/2 damage, 5×5, 3t fuse, 25 rad cost).
+          Path A synergy: Contaminate DOT + Rad Bomb = enemies taking DOT from above
+            and bomb from below. Contaminate irradiates; Bomb detonates.
+          Path B synergy: Reactor Core pre-weakens clustered enemies; Bomb finishes the
+            most damaged. Rad Bomb cost is often refunded (100+ rad easily hit via
+            Fissile Material combat rad gain).
+
+L4 — CHAIN REACTION (passive)
+  (Same as V3 Branch B L4b — rad kills trigger adjacent rad damage 10+BKS/4, 1-hop max.)
+
+L5 — MELTDOWN (activated, capstone — shared for both paths)
+  (Same as V2 L4a — 9×9 blast, 30+BKS×2 damage, 30 rad irradiation to survivors, 75 rad cost.)
+  Both paths reach this. The path taken shapes HOW you use it:
+    - Path A: Pre-Contaminate the room, then Meltdown. Chain Reaction spreads the kill.
+    - Path B: Reactor Core depletes the room while tanking hits; Meltdown is the finisher.
+  Grants 150 XP on detonation.
+
+Implementation notes:
+  - Inverted Y requires the tree system to handle two mutually exclusive L1 choices.
+    Existing pattern: gate later perks on which L1 was taken. One implementation: present
+    both L1 options at first skill point; lock out the other permanently.
+  - Fissile Material: hook in combat.py apply_melee_damage() → player irradiate(2);
+    in modify_incoming_damage → player irradiate(3).
+  - BKS +charge bonus: in rad_bomb_b and contaminate_b charge calculation:
+    charges += max(0, min(3, effective_bks - 10)).
+
+
+==========================================================================
+VARIATION 7: "CRITICAL GEOMETRY" — Ladder/Zigzag
+==========================================================================
+Shape: Ladder/Zigzag
+Fantasy: Two crossroads, four distinct combinations. The player builds a specific
+         spell toolkit from paired choices. First pick determines offense vs control;
+         second pick determines scaling vs burst.
+
+TREE DIAGRAM:
+
+    L1: Irradiated Intellect (shared)
+              |
+    L2: [PICK A or B]
+     L2a: Rad Nova     L2b: Half-Life
+              |
+    L3: Contaminate (shared)
+              |
+    L4: [PICK A or B]
+     L4a: Decay Chain  L4b: Enrichment
+              |
+    L5: Meltdown (shared capstone)
+
+Four build combinations:
+  Nova + Decay: AOE spam build (nova + meltdown + passive stack ramp)
+  Nova + Enrichment: front-loaded bomb build (nova + enriched bomb)
+  Half-Life + Decay: marked kill-chain build (chain kills feeding decay streak)
+  Half-Life + Enrichment: single-target nuke build (mark → bomb enriched for execute)
+
+
+TRUNK:
+
+L1 — IRRADIATED INTELLECT (stat)
+  (BKS +3, rad gain bonus, mutation block at 150 rad — same core.)
+  Also grants Rad Bomb (L1 here instead of L2, since the tree starts branching immediately
+  at L2 and Rad Bomb needs to be established first).
+  Charges: 3/floor.
+
+L2 CHOICE (pick one):
+
+L2a — RAD NOVA (activated)
+  Perk type: activated
+  Ability: rad_nova_b
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SELF (5×5 area centered on player, instant)
+  Effect: Instant AOE blast centered on the player. No fuse delay.
+          Deals (10 + BKS) damage to all enemies in 5×5 (same size as Rad Bomb).
+          Costs 50 rad. Cannot hit the player. Generates 2 Enrichment stacks on fire.
+          Grants 50 XP per cast.
+  Desc: "No fuse. No crystal. Just you and the wave."
+
+L2b — HALF-LIFE (activated)
+  (Same as V1 Branch B L3b — 2/floor, single target mark, triggers at <=50% HP burst.)
+
+L3 SHARED — CONTAMINATE (activated)
+  (Same as V2 L2b — 3/floor, single target DOT, 3 rad/turn × 8 turns, 15 rad cost.)
+  Both L2 picks unlock this at L3. Synergies differ:
+    - Rad Nova + Contaminate: nova to damage groups; contaminate survivors for DOT ramp.
+    - Half-Life + Contaminate: contaminate to erode HP; half-life triggers faster.
+
+L4 CHOICE (pick one):
+
+L4a — DECAY CHAIN (passive)
+  (Same as V5 Branch A L5a — running rad-damage streak; +5% damage per turn up to +50%.)
+  Upgrades all Nuclear Research abilities including Meltdown.
+
+L4b — ENRICHMENT (activated)
+  (Same as V3 Trunk L3 — spend 15 rad per stack, max 5 stacks, +5 damage per stack on next bomb.)
+  Upgrade here: Enrichment stacks also boost Rad Nova and Meltdown (not just Rad Bomb):
+    - Each stack = +5 Meltdown damage; +3 Rad Nova damage (reduced scale for AoE balance).
+
+L5 SHARED CAPSTONE — MELTDOWN (activated)
+  (Same as V2 L4a — 9×9, 30+BKS×2, 75 rad cost, 1/floor, 30 rad irradiation to survivors.)
+  Combined synergies by build:
+    - Nova + Decay: Use Decay Chain to ramp, fire Meltdown at peak.
+    - Nova + Enrichment: Stack Enrichment 5×, fire Meltdown for +25 bonus damage.
+    - Half-Life + Decay: Mark a strong enemy; kill with Meltdown (zone clears + half-life triggers on survivors).
+    - Half-Life + Enrichment: Mark target; enrich 5×; Meltdown one-shots boss + clears room.
+
+Implementation notes:
+  - Four distinct build identities from 3 ability picks total per path.
+  - Ladder shape: requires the game to allow skipping/branching within a linear progression.
+    Implementation: L2 and L4 are flagged as "choice nodes" — player presented with 2 options,
+    picks one, the other is locked. L3 and L5 are always unlocked regardless of choices.
+  - Rad Nova: AOE_CIRCLE target centered on player; no crystal placement; instant damage call.
+    AOE rule applies: ceil(1/2) = 1 max hit per target (no multi-hit from single nova cast).
+
+
+==========================================================================
+VARIATION 8: "GROUND ZERO PROTOCOL" — Trident
+==========================================================================
+Shape: Trident
+Fantasy: A core shared trunk branches into three arms at L3; two arms reconverge at a
+         shared L5 milestone (the Dead Hand insurance), while the third stays solo with
+         its own powerful endgame.
+
+TREE DIAGRAM:
+
+         L1: Irradiated Intellect
+                    |
+         L2: Rad Bomb
+            /    |     \
+           /     |      \
+     [ARM A] [ARM B]  [ARM C (solo)]
+      L3a:    L3b:      L3c:
+  Contaminate  Short   Reactor Core
+       |       Fuse         |
+      L4a:    L4b:         L4c:
+  Fallout Zone Enrichment  Chain
+                           Reaction
+           \       /       (capstone)
+            \     /
+       L5: Dead Hand
+        (convergence
+         for A+B only)
+           /       \
+          /         \
+    L6a: Isotope  L6b: Critical
+      Protocol      Mass
+      (capstone)    Overload
+                    (capstone)
+
+
+TRUNK (shared L1-L2):
+
+L1 — IRRADIATED INTELLECT (stat)
+  (BKS +3, rad gain bonus, mutation block at 150 rad.)
+
+L2 — RAD BOMB (activated)
+  (3/floor, 5×5, 15+BKS/2 damage, 25 rad cost.)
+
+ARM A — The Contaminator (converges at L5):
+
+L3a — CONTAMINATE (activated)
+  (Same as V2 L2b — 3/floor, single target DOT, 3 rad/turn × 8 turns, 15 rad cost.)
+
+L4a — FALLOUT ZONE (activated)
+  (Same as V1 Branch B L4b — 3×3 terrain hazard, 12 turns, 4 rad/turn, 30 rad cost, 2/floor.)
+
+ARM B — The Bomb Engineer (converges at L5):
+
+L3b — SHORT FUSE (passive)
+  (Same as V1 Branch A L3a — fuse reduced to 2 turns; each detonation +1 Enrichment stack.)
+
+L4b — ENRICHMENT (activated)
+  (Same as V3 Trunk L3 — unlimited use, 15 rad per stack, max 5 stacks, +5 per stack on bomb.)
+
+ARM C — The Reactor (stays solo):
+
+L3c — REACTOR CORE (activated)
+  (Same as V2 L2a — toggle aura, 5 rad/turn drain, 3 rad/turn to enemies within 1 tile.)
+
+L4c — CHAIN REACTION (passive, capstone for ARM C)
+  (Same as V3 Branch B L4b — rad kills trigger adjacent rad damage 10+BKS/4, 1-hop chain.)
+  Reactor Core + Chain Reaction = enemies irradiated by aura until they reach lethal rad levels,
+  then death cascades to neighbors. ARM C is the passive annihilation build.
+  No Dead Hand for ARM C players — they traded safety for the autonomous killing machine.
+
+CONVERGENCE at L5 (ARM A + ARM B only):
+
+L5 — DEAD HAND (activated)
+  (Same as V4 L5 trunk — 1/run death prevention; detonates all crystals; player survives at 1 HP.)
+
+FINAL SPLIT from L5 (ARM A + ARM B pick one):
+
+L6a — ISOTOPE PROTOCOL (activated, capstone)
+  Perk type: activated
+  Ability: isotope_b (upgraded version)
+  Effect: Full Isotope Mark ability (same as V4 L4a). Additionally: each Fallout Zone
+          hazard currently active on the floor adds +5 to the Isotope explosion damage
+          at the moment of mark trigger. If 3 Fallout Zones are active, Isotope adds +15
+          to the burst. Mutation block threshold raised to 200 rad.
+          If Dead Hand triggered this run, Isotope gains +1 charge permanently per floor.
+  Desc: "Mark the strong ones. Let the terrain eat the rest."
+
+L6b — CRITICAL MASS OVERLOAD (activated, capstone)
+  Perk type: activated
+  Ability: critical_mass_b (upgraded version)
+  Effect: Full Critical Mass ability (same as V2 L3 — 1/floor, 40 rad, guaranteed crit ×8).
+          Upgrade: after Critical Mass fires and the buffed ability detonates, the player gains
+          a second free Critical Mass charge immediately (reloads the 1/floor limit once).
+          Effectively: 2 guaranteed-crit spells per floor (the second is free). The chain
+          also triggers: if the first Critical Mass bomb kills 3+ enemies, rad_bomb_charges
+          refills by 1.
+  Desc: "The first one gets their attention. The second one gets everything else."
+
+Implementation notes:
+  - Trident with reconverge: implement as ARM C being a fully separate sub-path; ARM A and ARM B
+    are separate branches that both gate on L5 unlock. ARM C perks (L3c, L4c) are mutually
+    exclusive with ARM A and ARM B perks.
+  - In skills.py: the branch selection at L3 should record which arm the player chose
+    (arm_a, arm_b, arm_c) and gate subsequent perks accordingly.
+
+
+==========================================================================
+VARIATION 9: "ISOTOPE FARM" — Double Diamond
+==========================================================================
+Shape: Double Diamond
+Fantasy: Two points of player choice, always converging back to shared power — the
+         result is four possible pathways through the middle but all arrive at the
+         same end-state, with slight internal differences.
+
+TREE DIAGRAM:
+
+    L1: Irradiated Intellect (shared)
+         /          \
+  L2a: Reactor     L2b: Half-Life
+        \          /
+    L3: Chain Reaction (convergence)
+         /          \
+  L4a: Fission     L4b: Meltdown
+         \          /
+    L5: Isotope Protocol (shared capstone)
+
+
+TRUNK:
+
+L1 — IRRADIATED INTELLECT (stat)
+  (BKS +3, rad gain bonus, mutation block at 150 rad.)
+  Also grants Rad Bomb (3/floor, 15+BKS/2 damage, 5×5, 25 rad cost).
+
+FIRST SPLIT at L2 (pick one):
+
+L2a — REACTOR CORE (activated)
+  (Same as V2 L2a — toggle aura, 5 rad/turn drain, 3 rad/turn irradiation to adjacent enemies.)
+
+L2b — HALF-LIFE (activated)
+  (Same as V1 Branch B L3b — 2/floor, marks target, burst at <=50% HP.)
+
+CONVERGENCE at L3:
+
+L3 — CHAIN REACTION (passive)
+  (Same as V3 Branch B L4b — rad kills trigger adjacent spread 10+BKS/4, 1-hop max.)
+  Both L2 paths unlock this. Synergy:
+    - Reactor Core + Chain Reaction: ambient irradiation slowly kills enemies; each death
+      cascades. The room dies from within.
+    - Half-Life + Chain Reaction: mark strong target; kill it; Chain Reaction clears weak
+      surrounding enemies.
+
+SECOND SPLIT at L4 (pick one):
+
+L4a — FISSION (activated)
+  (Same as V1 Branch A L4a — three mini-bombs, 40% each, 1/floor, 50 rad total cost.)
+  Combined with Chain Reaction: three explosion epicenters × chain reaction = massive
+  cascade if enemies are clustered (each of 3 bombs can independently trigger chain kills).
+
+L4b — MELTDOWN (activated)
+  (Same as V2 L4a — 9×9 blast, 30+BKS×2 damage, 75 rad cost, 1/floor.)
+  Combined with Chain Reaction: a Meltdown that kills multiple enemies triggers chain
+  reactions from all of them simultaneously (1-hop from each kill = up to 8 chain hits).
+
+CONVERGENCE at L5 (shared capstone):
+
+L5 — ISOTOPE PROTOCOL (activated, capstone — shared)
+  Perk type: activated
+  Ability: isotope_b
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Full Isotope Mark (same as V4 L4a — costs 20 rad; on kill → 3×3 Fallout Zone
+          for 6 turns; burst BKS damage to entities in 3×3 at moment of kill).
+          Upgrade at capstone level: Isotope marks can be active on up to 3 enemies
+          simultaneously (isotope_marked_ids: list[str], max length 3). When multiple
+          marked enemies die near each other, their fallout zones overlap, creating a
+          denser radioactive region.
+          Final synergy: Chain Reaction × Isotope = a chain kill triggered by a rad kill
+          also checks if the cascade victims are Isotope-marked (if so, they ALSO drop
+          Fallout Zones on death). A single well-placed Rad Bomb can create a radioactive
+          graveyard of six overlapping Fallout Zones.
+          Grants 30 XP per trigger.
+  Desc: "Every corpse is a monument. Every grave is a weapon."
+
+Implementation notes:
+  - Double Diamond requires two choice nodes and two convergence nodes.
+    Implementation: L2 choices gate L3 (which is always available but its unlock display
+    shows after either L2 is picked). L4 choices gate L5.
+  - isotope_marked_ids upgrade: change isotope_marked_id from str|None to list[str] with
+    max length 3. Update all death-handler checks to iterate the list.
+  - Fission × Chain Reaction: each of the 3 mini-bombs has its own detonation event;
+    each can independently trigger chain reaction from its kills. Cap total chain
+    reactions per turn to 12 to avoid excessive cascade.
+
+
+==========================================================================
+VARIATION 10: "MAD SCIENTIST" — Asymmetric Y
+==========================================================================
+Shape: Asymmetric Y
+Fantasy: The short branch is the conservative academic (3-perk path, early and safe);
+         the long branch is the deranged experimentalist (5-perk path, high risk, highest reward).
+
+TREE DIAGRAM:
+
+    L1: Irradiated Intellect
+              |
+    L2: Rad Bomb
+         /          \
+        /             \
+[BRANCH A]         [BRANCH B]
+(short, safe)       (long, mad)
+L3a: Critical Mass  L3b: Fissile Material
+   (capstone)             |
+                     L4b: Enrichment
+                          |
+                     L5b: Decay Chain
+                          |
+                     L6b: Prompt Criticality
+                       + Fusion Detonation
+                       (dual capstone)
+
+
+TRUNK:
+
+L1 — IRRADIATED INTELLECT (stat)
+  (BKS +3, rad gain bonus, mutation block at 150 rad.)
+
+L2 — RAD BOMB (activated)
+  (3/floor, 5×5, 15+BKS/2 damage, 25 rad cost.)
+
+BRANCH A — The Academic (short, early capstone):
+
+L3a — CRITICAL MASS (activated, capstone for Branch A)
+  (Same as V2 L3 convergence — 1/floor, 40 rad cost, guaranteed crit ×8 on next spell.)
+  Branch A players are done at L3. They have Rad Bomb + Critical Mass. Simple, reliable,
+  and available earlier in the run than Branch B's power. Mutation block at 150 rad.
+  Added Branch A bonus: since the path is short, grant +1 extra Rad Bomb charge/floor
+  permanently (total 4/floor). Academic players make more bombs and use the single
+  nuke button wisely.
+  Desc: "Three tools. Use them well."
+
+BRANCH B — The Experimentalist (long, high reward):
+
+L3b — FISSILE MATERIAL (passive)
+  (Same as V6 L1b — +2 BKS; gain 2 rad on dealing melee damage, 3 rad on taking damage.)
+  The experimentalist willingly takes hits to fuel their experiments.
+
+L4b — ENRICHMENT (activated)
+  (Same as V3 Trunk L3 — unlimited use, 15 rad per stack, max 5 stacks, +5 per stack on bomb.)
+
+L5b — DECAY CHAIN (passive)
+  (Same as V5 Branch A L5a — streak-based +50% max multiplicative damage ramp.)
+  At this point the Branch B player has: Rad Bomb + Fissile Material (rad from combat) +
+  Enrichment (stacks) + Decay Chain (streaked ramp). Every bomb is enriched, every
+  streak-maintained floor means +50% damage, and the build is naturally feeding itself.
+
+L6b — PROMPT CRITICALITY + FUSION DETONATION (dual capstone)
+  Perk type: mixed (passive + activated in a single perk unlock)
+  On unlock, grants BOTH:
+
+  Prompt Criticality (passive):
+    (Same as V4 Branch B L3b — 5 consecutive turns at 200+ rad → next Rad Bomb gets
+     MEGA_CRIT ×4 modifier. Resets after trigger.)
+    Mutation block threshold upgraded to 200 rad by this perk.
+
+  Fusion Detonation (activated):
+    (Same as V2 L4b — drain all rad, single target, damage = rad/2; 3×3 burst on kill.)
+    Upgrade here: if Decay Chain bonus is at max (0.50) when Fusion fires, the damage
+    formula becomes (rad/2) × 1.5 — reflecting that the chain is at full power.
+    At 200 rad with full Decay Chain: 150 damage to one target. Single highest-damage
+    ability in the game.
+
+  Combined fantasy: the experimentalist maintains 200+ rad through combat hits (Fissile
+  Material) and enriched bombing (Enrichment + Decay Chain). After 5 turns at 200+ rad,
+  Prompt Criticality fires the next Rad Bomb at ×4 for a massive area nuke. If that's
+  not enough, Fusion Detonation is always available as a backup single-target delete
+  (or the closer if the nuke leaves one survivor).
+
+  Grants 100 XP when the dual capstone is first unlocked.
+  Desc: "You are no longer doing science. Science is doing you."
+
+Implementation notes:
+  - Asymmetric Y: Branch A has 1 perk (L3a capstone), Branch B has 4 perks (L3b-L6b).
+    Implementation: at L3 choice, player picks A or B. Branch A immediately shows the
+    capstone as purchasable. Branch B begins a 4-perk chain. Both choices permanently
+    lock out the other branch.
+  - Dual capstone perk: in skills.py, implement as a single perk that calls grant_ability()
+    twice (once for prompt_criticality_b, once for fusion_detonation_b) and applies the
+    passive stat effect for the mutation block threshold upgrade.
+  - Balance note: Branch A is deliberately lower skill cap. The academic build is for players
+    who want a reliable nuke button without micro. Branch B is for players who want to push
+    numbers and are comfortable managing rad levels, enrichment stacks, and streak timing.
+
+
+==========================================================================
+CROSS-TREE SYNERGIES (Nuclear Research with other Meth Lab skills)
+==========================================================================
+
+With Mutation:
+  - Nuclear Research L1 "mutation block below 150 rad" is essential if combining both trees.
+    Players who invest in both are accumulating heavy rad; the block prevents junk mutations
+    while allowing intentional mutation at high rad. The V4 variant raises block to 200 rad,
+    which is especially valuable for Mutation/Nuclear Research dual builds.
+  - Prompt Criticality requires 200+ rad for 5 turns. Mutation's Huge tier triggers at 250+ rad.
+    If the player is sitting at 200+ rad for Prompt Criticality, a mutation could fire.
+    The block prevents weak/strong mutations; only Huge tier is possible at 250+.
+
+With Chemical Warfare:
+  - Contaminate DOT (rad application) pairs with Chemical Warfare's tox stacking. An enemy
+    simultaneously contaminated and poisoned takes increasing damage from both multipliers.
+  - Fallout Zone terrain + Chemical Warfare's acid pool terrain = overlapping hazard fields
+    that deny room movement. Enemy is forced to take both rad and tox while standing still.
+
+With Glow Up:
+  - Glow Up's Emission passive (spread rad to enemies on player rad gain) doubles well with
+    Reactor Core: the aura generates rad for the player (from nearby enemies dying at high rad)
+    which triggers Emission, which further irradiates adjacent enemies.
+
+With Meth-Head:
+  - Meth-Head speed buffs allow faster bomb placement and detonation management.
+    Short Fuse + high speed = 2-turn fuse is very manageable at fast move speed.
+
+With Rolling:
+  - Rolling's smoke cloud ability can mask bomb placement (enemies may move into the bomb's
+    area without seeing the crystal). Tactical synergy.
+
+==========================================================================
+BALANCE SUMMARY
+==========================================================================
+
+Power curve targets:
+  L1-L2 trunk (shared): Available from Meth Lab floor 1. Should feel useful immediately.
+    Rad Bomb base damage 15+BKS/2 at BKS 8 = 19 damage. Floor 1-2 enemies: 20-40 HP.
+    Three charges means roughly one bomb per major encounter per floor.
+
+  L3-L4 (branch entry): Mid-game Meth Lab. Abilities should feel like significant upgrades.
+    Upgraded Rad Bomb (20+BKS) at BKS 10 = 30 damage. Starting to one-shot floor 3 enemies.
+
+  L5-L6 capstones: Late Meth Lab / endgame. Should be floor-defining moments.
+    Meltdown at BKS 12 = 54 damage across 9×9 — clears most rooms entirely.
+    Fusion Detonation at 200 rad = 100 damage — one-shots all non-boss enemies.
+
+Rad costs and sustainability:
+  - 25 rad per Rad Bomb (refunded at 100+) = sustainable for a player maintaining 100+ rad.
+  - Contaminate costs 15 rad × 3/floor = 45 rad/floor minimum. Manageable.
+  - Reactor Core: 5 rad/turn × 10 turns active per floor = 50 rad/floor drain. Expensive.
+    Players must manage when to toggle or rad will collapse before Meltdown is castable.
+  - Meltdown at 75 rad cost is a near-full-drain if player is at ~100-125 rad.
+    The cost forces a decision: Meltdown now or wait to rebuild rad for better timing.
+
+Mutation risk management:
+  - All 10 trees include the mutation block at 150 rad (base or upgraded to 200).
+    Without this, Rad Bomb players sitting at 100+ rad would be constantly mutating.
+  - Players who go for Prompt Criticality (200+ rad builds) need the 200-rad block
+    (V4 L6a, V10 Branch B) to safely operate in the 200+ zone.
+  - Fusion Detonation's drain to 0 rad clears the mutation risk entirely — useful if the
+    player is in dangerous mutation territory.
+
+BKS scaling targets:
+  - At BKS 8 (minimum investment): Rad Bomb 15+4 = 19. Meltdown 30+16 = 46.
+  - At BKS 10 (moderate): Rad Bomb 15+5 = 20. Meltdown 30+20 = 50.
+  - At BKS 12 (maximum): Rad Bomb 15+6 = 21 (base). Upgraded: 20+12 = 32. Meltdown 30+24 = 54.
+  - The BKS scaling rewards stat investment but is not crippling at low BKS —
+    the spell still functions as a crowd-clear at BKS 8.
+
+Recommended implementation priority:
+  1. V1 (Y-split) — simplest; establishes the two core Nuclear Research branch identities.
+  2. V5 (Long Trunk Y) — closest to the existing linear tree; easiest transition.
+  3. V3 (Triple Fork) — adds the Chain Reaction passive which opens many cross-tree synergies.
+  4. V7 (Ladder) — tests the "choice node at L2 and L4" mechanic.
+  5. Remaining shapes after those foundations are proven.

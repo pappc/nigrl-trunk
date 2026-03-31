@@ -1,0 +1,811 @@
+SMARTSNESS — 10 Skill Tree Variations (L1-L3)
+=============================================
+Design doc for the NIGRL roguelike.
+All variations replace the existing placeholder L1-L3 perks (+2 BKS,
+Force Be With You, Arcane Intelligence). Each is a complete, self-contained
+tree proposal. The developer picks one variation to implement.
+
+Smartsness theme: General magic / supportive skill. Covers utility, control,
+  buffs, debuffs, vision, displacement, shields, and mixed BKS-scaling spells.
+  Tone: dark, irreverent street smarts — the kind of power that comes from
+  reading the situation, not swinging blindly.
+
+Smartsness XP source: casting abilities from ABILITY_REGISTRY, landing
+  status effects on enemies, dealing BKS-scaled spell damage, using items
+  with use_effect (applies when consumed).
+
+System references:
+  - Stats: constitution (CON), strength (STR), street_smarts (STS),
+           book_smarts (BKS), tolerance (TOL), swagger (SWG)
+  - Player HP: 30 + CON*10. At CON 10 = 130 HP.
+  - Swagger defence: int((eff_swg - 8) / 2). At SWG 8=0, 10=+1, 12=+2.
+  - Crit chance: STS * 3%. MEGA_CRIT_MULTIPLIER = 4.
+  - Energy: 100/tick base. Speed +30 = ~23% faster.
+  - Book Smarts SP rate: min(0.5, 0.1 + 0.3*sqrt(BKS/80)).
+  - Temp HP absorbed BEFORE armor, armor before HP.
+  - ChargeType: INFINITE+cooldown | PER_FLOOR | TOTAL | ONCE | FLOOR_ONLY
+  - TargetType: SELF | SINGLE_ENEMY_LOS | LINE_FROM_PLAYER |
+                AOE_CIRCLE | ADJACENT | ADJACENT_TILE
+  - AbilityDef fields: target_type, charge_type, charges, cooldown, execute
+  - Effects: subclass Effect, @register, lifecycle hooks apply/tick/expire/
+    before_turn/modify_movement/modify_energy_gain/modify_incoming_damage/
+    on_player_melee_hit
+  - Spell damage reference: Fireball does 15+BKS dmg at L6. Ice Lance does
+    3*CryoLvl+BKS/2. Blackkk Magic DOT scales 1-5 per stack. Use similar
+    formulas for BKS-scaling spells here.
+  - Abilities from other trees for cross-reference: Freeze (4/floor),
+    Dash (FLOOR_ONLY), Gouge (ADJACENT), Bash (10t cooldown),
+    Bitch Slap (25t cooldown), Emission (1/floor), Zombie Stare (15t cooldown).
+
+Cross-tree synergies to leverage:
+  - Cryomancy / Electrodynamics: BKS matters for bolt scaling; Smartsness
+    BKS boosts all three elemental trees
+  - Blackkk Magic: debuff stacking; Smartsness debuffs can set up Curse of DOT
+  - Stealing: STS boosts; Smartsness utility (displacement, vision) aids theft
+  - Arachnigga: crowd control layering; web synergy
+  - Nuclear Research: BKS investment shared; Rad Bomb damage lifted
+  - Elementalist: Elemental Staves require 12 BKS; Smartsness can push into that
+
+
+=======================================================================
+VARIATION 1 — "Big Brain"
+Fantasy: Raw intellectual horsepower. Stack BKS as high as possible,
+let the stat itself do the work — more skill points, better spells,
+sharper perception. A support chassis for every caster build in the game.
+=======================================================================
+
+L1 — OVERNIGHT STUDY (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: +3 BKS
+  Passive: Each floor you descend to grants +1 BKS (temporary, lasts until
+           you descend again). This stacks on top of permanent BKS.
+  Desc: "You read the whole floor like a textbook. By the time you go deeper
+        you're dumber again, but it was nice while it lasted."
+  Balance: +3 permanent BKS at L1 is generous but appropriate — Elementalist
+           requires 12 BKS and benefits enormously. Floor bonus tops at
+           +4 combined on deep floors; scales into Cryomancy/Nuclear Research.
+  Implementation: engine.floor_bks_bonus (int, resets on each descend,
+           applied as temp_stat_bonus["book_smarts"]).
+
+L2 — GALAXY BRAIN (passive)
+  Perk type: passive
+  Effect: Your critical hit chance gains a bonus equal to BKS/5 (rounded
+          down). At BKS 10 = +2% crit. At BKS 15 = +3% crit. This bonus is
+          additive with the base STS*3% formula. In addition, on any critical
+          hit, gain 10 Smartsness XP.
+  Desc: "You don't land crits by luck. You land them by having already
+        figured out where they were gonna be."
+  Balance: BKS 15 = +3% crit, modest. Primary value is the XP loop — crits
+           feed skill progression, encouraging BKS investment.
+
+L3 — ARCANE INTELLIGENCE (passive)
+  Perk type: passive
+  Effect: All abilities and spells cost 30% less energy to use (their
+          execute action deducts 30% less from the energy pool). Additionally,
+          BKS now grants +1 max HP per 2 points above 10 (so BKS 12 = +1 HP,
+          BKS 14 = +2 HP, BKS 16 = +3 HP). This HP bonus is permanent and
+          adds to the CON*10 formula.
+  Desc: "You've optimized the flow states. Every spell costs half the effort;
+        every point of knowledge is worth something in blood too."
+  Balance: 30% energy reduction is the old Arcane Intelligence, now locked
+           behind L3. BKS-to-HP is weak (BKS 16 = only +3 HP) but meaningful
+           for heavy BKS investment builds. Cryomancy + Electrodynamics
+           benefit most from the energy cost cut.
+  Implementation: ability energy cost multiplied by 0.70 in spells.py
+           execute dispatch. HP bonus computed in stats.py max_hp property.
+
+Design notes: Pure stat-and-scaling tree. Rewards players who want BKS as a
+  universal multiplier. Three passives with no activated abilities — the
+  simplest possible Smartsness for players who don't want a spell-heavy kit.
+  Strong synergy with every BKS-scaling spell in the game. Best paired with
+  Cryomancy, Electrodynamics, Nuclear Research, or Blackkk Magic.
+
+
+=======================================================================
+VARIATION 2 — "Mind Jacker"
+Fantasy: Get inside their heads. Confuse, redirect, and repurpose enemies
+as temporary meat shields. Control is the damage. High skill ceiling — the
+player who reads the room wins; the one who doesn't wastes every charge.
+=======================================================================
+
+L1 — SCRAMBLE (activated)
+  Perk type: activated
+  Ability: scramble
+  Charge type: PER_FLOOR (4/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Target a visible enemy. For 6 turns that enemy's movement is
+          randomized — each turn it moves to a random adjacent open tile
+          instead of chasing. It still attacks normally if the player
+          walks adjacent to it. Doesn't affect BOSS-tagged enemies.
+  Desc: "Short-circuit the lizard brain. They forget what they were doing
+        for a little while."
+  Balance: 6 turns of disorientation, 4/floor. Comparable to Freeze (5 frozen
+           stacks, 4/floor) but non-damaging. Scrambled enemies still dangerous
+           if approached; positioning required.
+  Implementation: ScrambledEffect (new), before_turn hook overrides movement
+           target selection to random open tile.
+
+L2 — BORROWED MUSCLE (passive)
+  Perk type: passive
+  Effect: Enemies you attack while they are Scrambled grant you a temporary
+          melee damage bonus: +BKS/4 melee damage (rounded down, min +1) for
+          5 turns after the hit. Multiple hits on Scrambled enemies do not
+          stack the bonus but refresh the duration.
+  Desc: "Fighting a confused man is easy. You're not even really fighting —
+        you're just ending a demonstration."
+  Balance: BKS 10 = +2 dmg, BKS 14 = +3 dmg, BKS 16 = +4 dmg. Short window
+           (5 turns), requires setup (Scramble first). Encourages using
+           Scramble offensively rather than purely defensively.
+  Implementation: engine.scramble_melee_bonus (int, timer tracks turns
+           remaining via TemporaryMeleeBonus effect or similar flag).
+
+L3 — PUPPETMASTER (activated)
+  Perk type: activated
+  Ability: puppetmaster
+  Charge type: PER_FLOOR (2/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Take full control of a visible enemy for 3 turns. During control,
+          that enemy acts on the player's turn (same energy budget as its
+          normal action) and attacks adjacent enemies. At the end of 3 turns
+          or if the controlled enemy is killed, control breaks and the enemy
+          resumes normal AI (if alive). Cannot control BOSS-tagged enemies.
+          Using Scramble on the target first extends control to 5 turns.
+  Desc: "Not just confused — working for you. Briefly."
+  Balance: 2/floor, 3-turn window. Strong in crowded rooms. Boss immunity
+           prevents trivialization. Scramble synergy rewards Variation 2's
+           own kit. Compare to Summon Spider (5/floor ally summon) — this is
+           shorter but uses existing enemy stats.
+  Implementation: PuppetmasterEffect (new), overrides ai_type to "meander"
+           targeting nearest non-player entity; restores original ai_type on
+           expire/death. engine.puppet_entity_id (str|None).
+
+Design notes: Full control / confusion tree. Interesting risk — controlled
+  enemies can be killed by other enemies before doing useful work. Scramble at
+  L1 is immediately useful for repositioning threats. L3 is a skill-expressive
+  capstone. Pairs well with Stealing (confusion enables Pickpocket setup) and
+  Arachnigga (web traps + confused enemies can't escape).
+
+
+=======================================================================
+VARIATION 3 — "Warchief"
+Fantasy: Buff yourself before the fight, walk in already dangerous.
+Temporary stat explosions, brief invincibility windows, and a capstone that
+turns every kill into more power. The "go mode" tree.
+=======================================================================
+
+L1 — GET RIGHT (activated)
+  Perk type: activated
+  Ability: get_right
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SELF
+  Effect: Gain +3 STR and +3 STS for 15 turns. These are temporary stat
+          bonuses (added to temporary_stat_bonuses dict). They apply to melee
+          damage, crit chance, and skill checks. Cooldown resets to available
+          on floor entry (counted against 3/floor cap).
+  Desc: "Thirty seconds of clarity. Your hands stop shaking. Everything in
+        the room gets smaller."
+  Balance: +3 STR +3 STS for 15 turns, 3/floor. Strong opening move. 15 turns
+           is short — one or two fights. Comparable to Abandoning L4 which
+           doubles ALL stats for 10 turns (1/floor); this is weaker but more
+           frequent.
+
+L2 — HARDENED (passive)
+  Perk type: passive
+  Effect: +2 CON, +2 SWG permanently. Additionally, the first time you take
+          damage on each floor, gain 10 Temp HP. This Temp HP triggers once
+          per floor only (first hit per floor).
+  Desc: "You've been hit enough times that your body started doing something
+        about it. The first one never hurts anymore."
+  Balance: +2 CON (+20 HP), +2 SWG (+1 defense). First-hit Temp HP = 10.
+           Modest stat package, useful defensive cushion. Rewards aggressive
+           play (get hit on purpose to proc Temp HP early).
+  Implementation: engine.hardened_proc_used (bool, reset per floor).
+
+L3 — FEED THE BEAST (passive)
+  Perk type: passive
+  Effect: Each melee kill grants Frenzy (stacking, up to 5 stacks). Each
+          Frenzy stack gives +2 melee damage and +3 speed. Stacks expire 2
+          turns after the last kill. If you reach 5 stacks, gain an
+          additional free attack against a random adjacent enemy (once per
+          5-stack activation).
+  Desc: "The more they fall the more dangerous you get. Room three is nothing
+        after room one started it."
+  Balance: 5 stacks = +10 melee damage, +15 speed. Significant but requires
+           sustained combat. Compare to Swashbuckling (+1 slash dmg / +1%
+           dodge per stack, 20t, slashing only) — Feed the Beast is stronger
+           raw damage and melee-type agnostic but decays faster between fights.
+  Implementation: FrenzyEffect (new), stacking count tracked on effect,
+           free-attack trigger at exactly 5 stacks (once per 5-stack peak).
+           engine.feed_beast_free_atk_used (bool per 5-stack peak).
+
+Design notes: Buff-before-fight identity. Get Right front-loads the combat
+  window; Hardened provides sustain; Feed the Beast rewards staying aggressive.
+  No control or utility — purely offensive empowerment. Pairs well with
+  Stabbing (Windfury + Frenzy stacks multiply hits), Slashing (Execute + Frenzy
+  at 5 stacks deletes low-HP enemies), and Pyromania (Ignite sets up the kill
+  chain to maintain stacks).
+
+
+=======================================================================
+VARIATION 4 — "Blind Eye"
+Fantasy: Vision is power. See everything, share nothing. Expand your
+awareness to scout ahead, spot ambushes, and read hidden enemies — then
+punish enemies who can't see YOU. Dark utility tree with a creepy tone.
+=======================================================================
+
+L1 — THIRD EYE (passive + stat)
+  Perk type: stat + passive
+  Stat bonus: +2 BKS
+  Passive: Your FOV radius is permanently increased by 2 tiles (applies to
+           dungeon.visible computation). Additionally, you can see 1 tile
+           through walls (tile contents, not full FOV) when adjacent to a wall.
+  Desc: "+2 BKS. You see further and you see more. The walls got thinner."
+  Balance: +2 tiles FOV is meaningful — fewer ambushes, more time to react.
+           Wall-piercing (1 tile) is a soft "can hear through walls" scout tool.
+           No direct combat value, pure information advantage.
+  Implementation: fov_radius + 2 in _compute_fov(). Wall-pierce: check one tile
+           past adjacent wall during render, mark as visible but dim.
+           PlayerStats.sight_radius_bonus field (already in proposed fields).
+
+L2 — BLIND SPOT (activated)
+  Perk type: activated
+  Ability: blind_spot
+  Charge type: PER_FLOOR (3/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Afflict a visible enemy with Blind (8 turns). Blinded enemies
+          reduce their sight radius to 1 tile (they can only react to
+          immediately adjacent targets). Blinded enemies cannot use ranged
+          attacks or special attacks with a range component. They wander
+          randomly until sight recovers.
+  Desc: "Cut their feed. Watch them spin."
+  Balance: 8-turn sight disable, 3/floor. Renders ranged enemies (gun enemies,
+           throwing enemies) completely neutered for the window. Even melee
+           enemies are safer at 2+ tiles. Compare to Scramble (V2 L1) which
+           randomizes movement — Blind is cleaner but less total chaos.
+  Implementation: BlindedEffect (new), modify sight_radius to 1 during duration,
+           ranged special attacks skip if target is player and entity is Blinded.
+
+L3 — UNSEEING EYE (passive)
+  Perk type: passive
+  Effect: Enemies that cannot currently see you (outside their reduced sight
+          radius due to Blind, or naturally beyond their sight range) take 40%
+          more damage from all your attacks (melee, ranged, and abilities).
+          This bonus does NOT apply if the enemy is simply facing away — they
+          must be genuinely unaware (IDLE or WANDERING AI state, not CHASING).
+  Desc: "If they don't know you're there, every hit counts double. That's
+        not cruelty. That's efficiency."
+  Balance: 40% bonus against unaware enemies is very strong. Gated behind
+           "genuinely unaware" AI state — CHASING enemies don't count even if
+           technically out of sight range. Synergizes with Blind Spot (force
+           enemies to lose sight of you), Stealing (Silent approach), and
+           Sneaking-adjacent playstyles.
+  Implementation: in combat.py damage resolution, check if target.ai_state is
+           AIState.IDLE or AIState.WANDERING and target is not in player FOV
+           (dungeon.visible check). If so, apply 1.40 multiplier.
+
+Design notes: Information-economy tree. Third Eye gives permanent scouting
+  advantage; Blind Spot creates ambush windows; Unseeing Eye capitalizes on
+  them. High synergy with Stealing (Pickpocket enemies who can't see you) and
+  Arachnigga (web a blinded enemy, they can't escape). Countered by open rooms
+  with few walls and enemies already alerted.
+
+
+=======================================================================
+VARIATION 5 — "The Grift"
+Fantasy: Every interaction is transactional. Spend resources to get power
+spikes, convert junk into utility, turn items into weapons. The scavenger-
+mage — nothing is wasted, everything is leveraged.
+=======================================================================
+
+L1 — QUICK APPRAISAL (passive)
+  Perk type: passive
+  Effect: +2 BKS, +2 STS. When you pick up any item, you immediately learn
+          its full description (no blind-identification step needed). Cash
+          piles you walk over yield +10% bonus value (the entity cash value
+          is multiplied by 1.1 before pickup, rounded up).
+  Desc: "+2 BKS, +2 STS. One look is enough. You know what it's worth and
+        what it does before you've stopped moving."
+  Balance: Auto-ID is purely QoL but potent in a game with cursed/unknown
+           items. +10% cash is minor per pickup, meaningful over a full run.
+  Implementation: on item pickup in inventory_mgr.py, skip any identification
+           flags. cash_value * 1.1 rounding up on pickup.
+
+L2 — LIQUIDATE (activated)
+  Perk type: activated
+  Ability: liquidate
+  Charge type: INFINITE (15t cooldown)
+  Target type: SELF
+  Effect: Instantly destroy the lowest-value item in your inventory (auto-
+          selected, no confirmation) and gain either: (a) cash equal to 120%
+          of that item's value, OR (b) a random consumable worth up to half
+          the item's value (player chooses A or B on activation). Cannot
+          destroy equipped items. If inventory is empty, the ability fails
+          and the charge is not consumed.
+  Desc: "Everything converts. You just have to know the rate."
+  Balance: 15t cooldown, auto-selects lowest-value item (never surprises you
+           with something important). Cash option: always profitable if you
+           have junk. Consumable option: gambling for something useful.
+           Pairs with Dismantling tree (destroy for different currencies).
+  Implementation: on Liquidate execute, sort player inventory by item_value
+           ASC, destroy first non-equipped item, apply chosen bonus.
+           Sub-menu (choose A or B) uses same pattern as ring-slot replacement.
+
+L3 — SUNK COST (passive)
+  Perk type: passive
+  Effect: Each time you use Liquidate, permanently gain +1 to a random stat
+          (chosen from the six stats, equal probability). This stacks
+          without cap — every Liquidate is a stat roll. Additionally, items
+          destroyed via Liquidate have a 20% chance to grant their full
+          use_effect before being destroyed (as if you had used them normally).
+  Desc: "You burned the last of your supplies. Somehow you came out ahead."
+  Balance: +1 random stat per Liquidate is potent over a long run (15t
+           cooldown = many uses per floor). But it's truly random — equal
+           chance to boost CON or STS, no steering. The 20% use_effect
+           proc is the big surprise: destroying a first aid kit might also
+           heal you. Risk/reward: you lose the item either way.
+  Implementation: on Liquidate destroy, roll random stat, increment base stat.
+           Roll 0-4 (0=CON,1=STR,2=BKS,3=STS,4=TOL) or 0-5 including SWG.
+
+Design notes: Economy-manipulation identity. Quick Appraisal turns pickups
+  into informed decisions; Liquidate creates a flexible resource loop;
+  Sunk Cost makes the loop into a stat-generation engine. High interaction
+  with item-heavy builds (Abandoning, Dismantling). The random stat roll at L3
+  keeps every run different — sometimes you get five CON bumps, sometimes all
+  BKS. Low floor for casual play, high ceiling for optimizers.
+
+
+=======================================================================
+VARIATION 6 — "Reactive Shield"
+Fantasy: Punishment for hitting you. Layered damage mitigation that
+actively fights back — the more they swing, the deadlier you become. Purely
+defensive but with aggressive implications. The "don't touch me" tree.
+=======================================================================
+
+L1 — SMART ARMOR (passive)
+  Perk type: passive
+  Effect: +2 SWG, +2 CON. At the start of each floor, gain 5 armor points.
+          This is a flat armor bonus that reduces incoming melee and ranged
+          damage before HP (processed in the damage absorption order after
+          Temp HP). It does NOT persist between floors — refreshes on descend.
+  Desc: "+2 SWG, +2 CON. You walk into every room wearing five invisible
+        points of 'not today.'"
+  Balance: 5 armor per floor is modest. +2 SWG (+1 defense) + 5 armor totals
+           about 6 damage reduction against the first several hits. Worse
+           against many small hits; better against a few large ones.
+  Implementation: engine.smart_armor_bonus (int, reset per floor, added to
+           effective armor in combat.py damage formula).
+
+L2 — REBOUND (passive)
+  Perk type: passive
+  Effect: When you take melee damage that exceeds 10 points in a single hit,
+          the attacker takes reflected damage equal to BKS/3 (rounded down,
+          min 1). This is not modified by the attacker's defense. Triggers
+          once per hit, not per turn. Does not trigger from non-melee sources
+          (tox ticks, fire, status effects).
+  Desc: "At a certain point the impact just redirects. Not your problem
+        anymore."
+  Balance: BKS 9 = 3 reflected. BKS 12 = 4. BKS 15 = 5. Low damage on its
+           own but forces enemies to pay for every swing. The 10-point
+           threshold gates it off weak attacks (rats, low-floor enemies).
+  Implementation: in combat.py, after player damage calc, if raw damage > 10
+           and source is melee entity, apply rebound damage to attacker
+           bypassing defense.
+
+L3 — FEEDBACK LOOP (passive)
+  Perk type: passive
+  Effect: Each time Rebound triggers, gain 1 Feedback stack (max 8, persists
+          until end of floor). Each Feedback stack gives +1 melee damage and
+          +1 spell damage. At 8 stacks, your next melee attack or ability is
+          guaranteed to deal maximum possible damage (no roll — use the max
+          of the damage range). The 8-stack burst consumes all stacks (resets
+          to 0) after firing.
+  Desc: "Pain is data. You've been collecting a lot of data."
+  Balance: 8 stacks = +8 melee/spell damage before the burst. Burst is
+           deterministic max roll, which on high-damage spells (Fireball,
+           Ice Lance) can be significant. But stacking requires taking 8+ hits
+           above the 10-point threshold — a dangerous path.
+  Implementation: FeedbackEffect (new), stacking count in effect params.
+           Max-roll logic: in _compute_player_attack_power or spell execute,
+           check if engine.feedback_stacks == 8, if so use max dmg value
+           and reset.
+
+Design notes: Pure masochistic defense-into-offense. Smart Armor reduces
+  early-game spike deaths; Rebound makes trading hits more equitable; Feedback
+  Loop rewards the patient player who takes a beating before capitalizing.
+  Interesting tension: you WANT to be hit (to build stacks) but each hit is
+  also dangerous. Pairs with White Power (SWG stacking for more defense),
+  L Farming (Unfazed SWG stacking + Armor Up block), and CON-heavy builds.
+
+
+=======================================================================
+VARIATION 7 — "Hex Caster"
+Fantasy: Debuff specialist. Stack debilitating curses that shred enemy
+stats, slow their actions, and leave them stumbling. Not direct damage —
+attrition through compounding penalties. The slow-burn crowd controller.
+=======================================================================
+
+L1 — DULLING WORD (activated)
+  Perk type: activated
+  Ability: dulling_word
+  Charge type: PER_FLOOR (4/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Afflict a visible enemy with Dulled (12 turns). A Dulled enemy
+          deals 20% less damage on all attacks. The debuff is visible (a
+          '!' overlay on the target, red color). Multiple applications do
+          not stack — reapplication refreshes duration.
+  Desc: "One word. Their hands get heavy, their aim goes south. They still
+        swing. They just stop connecting properly."
+  Balance: 20% damage reduction, 12 turns, 4/floor. Comparable to Blackkk
+           Magic Curse of Ham (50% less damage, attack speed penalty, 3/floor)
+           but narrower effect, more charges, no cone — a softer debuff with
+           better uptime.
+  Implementation: DulledEffect (new), modify_incoming_damage hook on the
+           ENEMY entity (not player) reduces outgoing damage by 20%.
+
+L2 — LEAD FEET (activated)
+  Perk type: activated
+  Ability: lead_feet
+  Charge type: INFINITE (20t cooldown)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Afflict a visible enemy with Lead Feet (10 turns). Lead Feet
+          reduces the target's speed by 30 (reducing its energy gain per
+          tick, making it act roughly 23% less often). Stacks with Dulled
+          — an enemy with both debuffs is significantly slowed and weakened.
+  Desc: "They're still coming. Just slower. A lot slower."
+  Balance: -30 speed, 10 turns, 20t cooldown. At base enemy speed 100 this
+           is a 23% action rate reduction. Less dramatic than a stun but
+           persistent. Compare to Pyromania Ignite (damage DOT) — Lead Feet
+           is pure control, no damage.
+  Implementation: LeadFeetEffect (new), modify_energy_gain hook multiplies
+           speed contribution by 0.70 (or subtracts 30 from speed).
+
+L3 — HEX AMPLIFIER (passive)
+  Perk type: passive
+  Effect: Enemies bearing any debuff you applied (Dulled, Lead Feet, Cursed,
+          Blinded, Scrambled, or any negative status from an ability) take
+          BKS/4 (rounded down, min 2) bonus damage from all your attacks
+          (melee, ranged, and abilities). This is a flat additive bonus
+          applied after base damage calculation. The Dulling Word damage
+          reduction on the enemy and your attack bonus are both present
+          simultaneously.
+  Desc: "The hex doesn't just slow them down. It opens them up."
+  Balance: BKS 10 = +2 bonus, BKS 12 = +3, BKS 16 = +4. Meaningful but
+           not overwhelming. Scales with BKS investment. Requires setup
+           (must land a debuff first) — rewards commitment to the Hex Caster
+           identity. Works with debuffs from OTHER trees too (Blackkk Magic
+           curses, Arachnigga venom, etc.).
+  Implementation: in combat.py and ability execute, check target.effects for
+           any debuff-category effect applied by player. If present, add
+           BKS//4 to raw damage.
+
+Design notes: Debuff-layer identity. Dulling Word is the opener; Lead Feet
+  is the follow-up for dangerous targets; Hex Amplifier makes the setup
+  directly profitable in damage terms. High cross-tree synergy — any debuff
+  from any tree (Blackkk Magic curses, Cryomancy Chill, Electrodynamics
+  Shock, Arachnigga Venom) triggers Hex Amplifier. Best in multi-skill builds
+  that apply varied debuff types.
+
+
+=======================================================================
+VARIATION 8 — "Displacement Theory"
+Fantasy: Move things around — teleport yourself, shove enemies, redirect
+attacks, blink out of danger. Pure positional mastery. The parkour mage.
+=======================================================================
+
+L1 — FORCE PUSH (activated)
+  Perk type: activated
+  Ability: force_push
+  Charge type: INFINITE (15t cooldown)
+  Target type: ADJACENT
+  Effect: Shove an adjacent enemy directly away from the player by 4 tiles.
+          Each tile of movement checks for wall collision — the enemy stops
+          on the last valid tile. Each collision tile (wall stop) deals 6
+          damage to the enemy. If the enemy passes through or stops on a
+          tile occupied by another enemy, both take 4 collision damage.
+  Desc: "You don't have to hurt them right now. You just need them to be
+        somewhere else."
+  Balance: 15t cooldown. Up to 6 damage on wall-stop. Passable corridors =
+           full 4-tile displacement, no damage. Against walls = guaranteed 6
+           damage. Compare to existing Force Be With You (old L2) — this is
+           now the L1 version with a cooldown instead of charges.
+  Implementation: ability execute pushes entity via trajectory path check,
+           applies collision damage in combat.py.
+
+L2 — BLINK (activated)
+  Perk type: activated
+  Ability: blink
+  Charge type: PER_FLOOR (3/floor)
+  Target type: ADJACENT_TILE (but executed as 5-tile radius blink)
+  Effect: Instantly teleport to any open tile within 5 tiles (cursor-
+          targeted). Does not provoke opportunity attacks or trigger on-
+          enter tile effects in the teleported path. Counts as a full action
+          (costs normal action energy). On arrival, gain 5 Temp HP (the
+          momentum of the blink).
+  Desc: "Three floors of fighting have taught you that being somewhere else
+        is the best defense. 5 Temp HP on landing — the energy of arrival."
+  Balance: 3/floor blink is powerful escape. 5 Temp HP is minor but rewards
+           proactive use over panic use. Compare to Dash (Jaywalking L2,
+           FLOOR_ONLY, 3-tile line) — Blink is 5-tile omnidirectional,
+           3/floor, better overall but more limited charges.
+  Implementation: Blink execute: render targeting overlay within radius 5,
+           player moves to selected tile bypassing collision normally.
+           engine.blink_temp_hp (5) applied after teleport.
+
+L3 — SPATIAL TRANSFER (activated)
+  Perk type: activated
+  Ability: spatial_transfer
+  Charge type: PER_FLOOR (1/floor)
+  Target type: SINGLE_ENEMY_LOS
+  Effect: Swap positions with a visible enemy up to 8 tiles away.
+          The enemy does not get a free attack during the swap (it is
+          stunned for 1 turn as the transfer completes). Both entities
+          arrive at the new tile as if they walked there. Useful for:
+          pulling a distant enemy next to another enemy, throwing yourself
+          behind an enemy, using an enemy as a ranged bullet, or getting
+          out of a mob. Does not work on BOSS-tagged enemies.
+  Desc: "You stop thinking about where you are and start thinking about
+        where you should be. Turns out those are often different places."
+  Balance: 1/floor, extreme versatility. The 1-turn stun prevents the swap
+           from being instantly lethal. Boss immunity. Pulling a dangerous
+           enemy INTO a mob of weaker enemies can be a room-wipe. High
+           skill ceiling — the player must think about the entire room map.
+  Implementation: on execute, swap player and target coords, apply 1-turn
+           stun to target (existing stun effect), mark as 1/floor.
+           engine.spatial_transfer_used (bool, reset per floor).
+
+Design notes: Pure mobility and displacement. Every perk moves something.
+  Force Push is the low-cooldown workhorse; Blink is the escape valve; Spatial
+  Transfer is the finisher/room-reshaper. No damage perks at all — relies on
+  terrain and enemy interaction for kills. Pairs with Stabbing (Lunge + Blink
+  sets up ideal Lunge angles), Slashing (Whirlwind after Force Push clusters),
+  and Arachnigga (web an area, Force Push enemies into it).
+
+
+=======================================================================
+VARIATION 9 — "Curse Eater"
+Fantasy: Absorb and weaponize the bad stuff that happens to you. Debuffs
+heal you, status effects become fuel, and the harder the room hurts you
+the harder you hit back. Anti-fragile magic. Masochist's dream.
+=======================================================================
+
+L1 — METABOLIZE (passive)
+  Perk type: passive
+  Effect: Whenever a negative status effect expires on you (stun ends,
+          fear ends, Dulled wears off, etc.) you heal for BKS/2 HP
+          (rounded down, min 2). This applies to all negative effects
+          including those applied by enemies. Duration-shortened effects
+          (resisted early) still grant the heal on expiry.
+  Desc: "You've gotten good at waiting it out. By the end you always feel
+        a little better than before."
+  Balance: BKS 10 = 5 HP heal per expiry. Modest per-instance, but
+           against enemies that stack many short debuffs (stun/fear combos)
+           this becomes meaningful free HP. Stronger in later floors where
+           enemies apply more status effects.
+  Implementation: in Effect.expire(), check if engine.player_has_metabolize
+           and effect.category == "debuff" and entity is player, then heal.
+
+L2 — SPITE REFLEX (passive)
+  Perk type: passive
+  Effect: The first time you are stunned on each floor, you immediately
+          consume the stun (it ends instantly on the same turn it was
+          applied) and gain Spite (+3 STR, +3 SWG, 15 turns). Cannot
+          trigger more than once per floor. Stuns from the same source
+          that proc'd Spite on a previous floor reset on floor entry.
+  Desc: "They got you. You just absorbed it and came back meaner. That
+        tends to discourage follow-up questions."
+  Balance: Stun immunity-on-first-trigger is very strong but once-per-floor.
+           +3 STR +3 SWG for 15 turns is a solid combat window. Punishes
+           stun-heavy enemy compositions but becomes less relevant if the
+           player is rarely stunned.
+  Implementation: engine.spite_reflex_used_floor (bool, reset per floor).
+           In stun application check, if player, flag not used, cancel stun
+           duration, apply Spite buff.
+
+L3 — CURSE CONDUIT (passive)
+  Perk type: passive
+  Effect: While you have any negative status effect active (at least one
+          debuff on yourself), all your spell and melee attacks deal bonus
+          damage equal to the number of negative effects currently on you
+          times BKS/3 (rounded down, min 1 per active debuff). Example:
+          3 active debuffs at BKS 12 = 3 * 4 = +12 bonus damage. This bonus
+          applies to every hit while the condition holds. Expires immediately
+          when all debuffs clear.
+  Desc: "The curses aren't problems. They're ammunition. You're firing them
+        at everything else."
+  Balance: Requires being debuffed — inverted risk/reward. 3 debuffs at BKS
+           12 = +12 damage per hit, which is massive. But sustaining 3 active
+           debuffs means you're hurting. Synergizes with Metabolize (they heal
+           on expiry) and Spite Reflex (stun becomes power). Countered by
+           items/builds that cleanse debuffs fast.
+  Implementation: in _compute_player_attack_power (combat.py) and ability
+           execute, count player debuff effects. Multiply count * (BKS//3),
+           add as flat bonus.
+
+Design notes: Anti-fragile theme — every bad thing becomes a resource.
+  Metabolize makes short debuffs net-positive HP events; Spite Reflex converts
+  stuns into burst windows; Curse Conduit scales damage with suffering. Counter-
+  intuitive but high-skill: the player might deliberately avoid cleansing
+  debuffs to maintain Curse Conduit. Pairs with Chemical Warfare (voluntary
+  toxicity = self-debuff), White Power (tox stacking), Mutation (rad ticks =
+  periodic debuffs), and any zone with heavy status-effect enemies.
+
+
+=======================================================================
+VARIATION 10 — "Street Smarts Major"
+Fantasy: Intelligence that hits the street, not the library. STS-boosted
+utility — better reactions, better evasion, sharper situational awareness.
+Not a caster tree at all; a BKS-to-STS conversion that makes Smartsness
+viable for melee builds who need a support node.
+=======================================================================
+
+L1 — READ THE ROOM (stat + passive)
+  Perk type: stat + passive
+  Stat bonus: +2 STS, +2 BKS
+  Passive: You cannot be surprised by enemies entering your FOV. Enemies
+           that step into your line of sight for the first time this floor
+           are revealed 1 turn before they would normally act (their AI
+           tick is delayed by 1 turn on first sight). This gives you one
+           action before they can respond.
+  Desc: "+2 STS, +2 BKS. You spotted them before they spotted you. Not
+        because you're smarter — because you were already watching."
+  Balance: +2 STS (+6% crit) + +2 BKS. The first-sight delay is a soft
+           ambush-protection passive. In narrow corridors and doorways it's
+           extremely strong; in open rooms with many enemies it matters less.
+  Implementation: engine.read_the_room_seen_this_floor (set of entity IDs).
+           On first sight, skip that entity's AI tick once
+           (entity.ai_skip_turn = True flag, cleared after use).
+
+L2 — FAST TALKER (passive)
+  Perk type: passive
+  Effect: +3 STS. Your ability activation costs 15% less energy (applies
+          to all abilities from any skill tree). This stacks additively with
+          other energy cost reductions. In addition, after any successful
+          Pickpocket or Shakedown (Stealing tree), gain +5 Smartsness XP.
+  Desc: "+3 STS. You move the conversation along. Nobody notices the hand."
+  Balance: +3 STS (+9% crit), 15% ability energy reduction. Weaker than
+           Arcane Intelligence's 30% (V1 L3) but comes earlier. The Stealing
+           XP link rewards multi-tree investment.
+  Implementation: ability energy cost * 0.85 in spells.py (stacks with
+           V1 L3's 0.70 if both are somehow present — otherwise these are
+           alternative trees). XP hook in inventory_mgr.py Pickpocket path.
+
+L3 — SITUATIONAL AWARENESS (passive)
+  Perk type: passive
+  Effect: At the start of each floor, you receive a brief flash of
+          "awareness" — the dungeon map shows the location of all enemies
+          currently on the floor for 1 turn (as if you had full sight).
+          After this turn, normal FOV rules resume. Additionally, you
+          gain a permanent dodge chance bonus equal to STS/5% (e.g.,
+          STS 15 = +3% dodge). This bonus stacks with other dodge sources.
+  Desc: "The moment you step onto the floor your brain has already mapped
+        the room. One second of perfect clarity. Then it's back to work."
+  Balance: Floor-entry full-sight is 1 turn of intel: not combat advantage,
+           pure scouting. STS/5 dodge: at STS 15 = +3%, at STS 18 = +3.6%.
+           Modest but permanent. Together these make the tree a scouting +
+           evasion hybrid without any activated abilities.
+  Implementation: on floor entry, if player has perk, temporarily set all
+           enemy entities as visible for 1 render tick, then restore normal
+           FOV. engine.situational_awareness_flash (bool, True for 1 tick).
+           Dodge bonus: PlayerStats.dodge_chance += effective_sts // 5.
+
+Design notes: Melee-hybrid Smartsness. This tree gives zero spells or
+  activated abilities — all passives, all stat-and-perception focused.
+  "Smartsness" as tactical intelligence rather than arcane power. Intended for
+  Stabbing/Stealing/Slashing builds that want something from Smartsness without
+  pivoting to a caster. Read the Room gives early initiative advantage; Fast
+  Talker cuts ability overhead; Situational Awareness provides complete scouting.
+  Pairs with Stabbing (Lunge benefits from knowing enemy positions), Stealing
+  (XP cross-link at L2), and any STS-scaling build.
+
+
+=======================================================================
+NEW ENGINE STATE NEEDED (all 10 variations combined)
+=======================================================================
+
+  -- Variation 1 --
+  floor_bks_bonus (int, reset on each descend; added as temp_stat_bonus["book_smarts"])
+
+  -- Variation 2 --
+  puppet_entity_id (str|None; entity currently under Puppetmaster control;
+                   cleared on death/floor/control expiry)
+
+  -- Variation 3 --
+  hardened_proc_used (bool, reset per floor; tracks first-hit Temp HP)
+  frenzy_stacks (int, per-floor; cleared 2 turns after last kill)
+  feed_beast_free_atk_used (bool, cleared when stacks reset from 5)
+
+  -- Variation 4 --
+  [uses existing PlayerStats.sight_radius_bonus]
+
+  -- Variation 5 --
+  [no new engine state; Liquidate auto-selects by item_value sort]
+
+  -- Variation 6 --
+  smart_armor_bonus (int, reset per floor; flat armor bonus in damage calc)
+  feedback_stacks (int, per-floor, max 8; drives melee/spell damage bonus)
+  feedback_burst_used (bool; marks whether current 8-stack peak has fired)
+
+  -- Variation 7 --
+  [no new engine state; debuff detection uses existing effect category check]
+
+  -- Variation 8 --
+  spatial_transfer_used (bool, reset per floor; tracks 1/floor usage)
+
+  -- Variation 9 --
+  spite_reflex_used_floor (bool, reset per floor)
+
+  -- Variation 10 --
+  read_the_room_seen_this_floor (set[str], entity IDs; reset per floor)
+  situational_awareness_flash (bool, True for 1 render tick on floor entry)
+
+
+=======================================================================
+NEW EFFECTS NEEDED (all 10 variations combined)
+=======================================================================
+
+  ScrambledEffect     — before_turn: override movement to random adjacent open tile
+  PuppetmasterEffect  — on apply: change ai_type to "meander" targeting non-player;
+                         on expire/entity_death: restore original ai_type
+  FrenzyEffect        — stacking; on_player_melee_hit refresh; expire 2t after kill gap;
+                         grants melee_damage_bonus + speed per stack
+  DulledEffect        — modify outgoing damage of affected entity by -20%
+  BlindedEffect       — reduce entity sight_radius to 1 during duration;
+                         before_turn: skip ranged special attacks
+  LeadFeetEffect      — modify_energy_gain: reduce speed contribution by 30
+  FeedbackEffect      — stacking (max 8); on Rebound trigger increment;
+                         at 8 stacks flag burst mode, reset to 0 after burst
+  SpiteEffect         — temporary +3 STR +3 SWG buff (15 turns); granted by Spite Reflex
+
+
+=======================================================================
+NEW ABILITY IDs NEEDED (all 10 variations combined)
+=======================================================================
+
+  scramble            — PER_FLOOR 4/floor, SINGLE_ENEMY_LOS, apply ScrambledEffect
+  puppetmaster        — PER_FLOOR 2/floor, SINGLE_ENEMY_LOS, apply PuppetmasterEffect
+  get_right           — PER_FLOOR 3/floor, SELF, +3 STR +3 STS temp 15 turns
+  blind_spot          — PER_FLOOR 3/floor, SINGLE_ENEMY_LOS, apply BlindedEffect
+  liquidate           — INFINITE 15t cooldown, SELF, destroy lowest-value item
+  force_push          — INFINITE 15t cooldown, ADJACENT, push 4 tiles, collision dmg
+  blink               — PER_FLOOR 3/floor, tile-cursor in radius 5, teleport + 5 Temp HP
+  spatial_transfer    — PER_FLOOR 1/floor, SINGLE_ENEMY_LOS (range 8), swap positions
+  dulling_word        — PER_FLOOR 4/floor, SINGLE_ENEMY_LOS, apply DulledEffect
+  lead_feet           — INFINITE 20t cooldown, SINGLE_ENEMY_LOS, apply LeadFeetEffect
+
+
+=======================================================================
+NEW PLAYERSTATS FIELDS NEEDED (all 10 variations combined)
+=======================================================================
+
+  [sight_radius_bonus already proposed in prior batches]
+  smartsness_metabolize (bool; flag that player has Metabolize passive)
+  smartsness_curse_conduit (bool; flag that player has Curse Conduit passive)
+  smartsness_hex_amplifier (bool; flag for Hex Amplifier passive)
+  smartsness_rebound (bool; flag for Rebound passive)
+  smartsness_read_the_room (bool; flag for Read the Room passive)
+  [smart_armor_bonus tracked on engine, not PlayerStats]
+  [floor_bks_bonus tracked on engine, not PlayerStats]
+
+
+=======================================================================
+BALANCE SUMMARY (cross-variation comparison)
+=======================================================================
+
+  Tree          L1 Type     L2 Type       L3 Type       Identity Tag
+  V1 Big Brain  stat/pass   passive       passive       BKS engine
+  V2 Mind Jack  ability     passive       ability       confusion/control
+  V3 Warchief   ability     stat/passive  passive       pre-fight buffer
+  V4 Blind Eye  stat/pass   ability       passive       vision/ambush
+  V5 The Grift  stat/pass   ability       passive       economy loop
+  V6 React Shld stat/pass   passive       passive       defense-to-offense
+  V7 Hex Cast   ability     ability       passive       debuff stacker
+  V8 Displace   ability     ability       ability       mobility/displacement
+  V9 CurseEatr  passive     passive       passive       anti-fragile
+  V10 STS Major stat/pass   passive       passive       melee-hybrid scout
+
+  Ability-granting trees: V2, V3, V4 (1 ability), V5 (1 ability),
+                          V7, V8 (3 abilities)  — six trees total
+  Primarily passive/stat: V1, V6, V9, V10  — four trees
+  Novel system interactions: V4 (FOV radius), V5 (item destruction/cash),
+                             V6 (Rebound reflection), V9 (debuff expiry hook),
+                             V10 (floor-entry full-sight flash)

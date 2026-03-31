@@ -25,6 +25,7 @@ class PlayerStats:
     """
 
     def __init__(self):
+        self._player = None  # set by engine after player creation
         self._roll()
 
     def _roll(self):
@@ -117,6 +118,7 @@ class PlayerStats:
         self.outgoing_damage_mults: list[float] = []
         # Energy per tick from equipment (hats with "Of Crack" suffix, etc.)
         self.equipment_energy_per_tick: int = 0
+        self.equipment_spell_damage: int = 0
         # Faction reputation — raw integer values
         self.reputation: dict[str, int] = {"aldor": -1000, "scryer": -1000}
         # Callbacks fired when a permanent stat increase occurs (e.g. Protein Powder)
@@ -162,8 +164,16 @@ class PlayerStats:
 
     @property
     def total_spell_damage(self) -> int:
-        """Total spell damage = permanent + temporary."""
-        return self.spell_damage + self.temporary_spell_damage
+        """Total spell damage = permanent + temporary + equipment + active buff bonuses.
+        Wizard Mind Bomb: adds effective_book_smarts while active."""
+        base = self.spell_damage + self.temporary_spell_damage + self.equipment_spell_damage
+        # Wizard Mind Bomb: add BKS while buff is active
+        if self._player is not None:
+            for eff in self._player.status_effects:
+                if getattr(eff, 'id', '') == 'wizard_mind_bomb':
+                    base += self.effective_book_smarts
+                    break
+        return base
 
     @property
     def total_tox_resistance(self) -> int:
@@ -254,7 +264,7 @@ class PlayerStats:
     @property
     def crit_chance(self):
         """Crit chance from Street-Smarts (including ring bonuses)."""
-        return self.effective_street_smarts * 0.03
+        return self.effective_street_smarts * 0.01
 
     @property
     def xp_multiplier(self):

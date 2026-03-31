@@ -9,13 +9,48 @@ import math
 import random
 
 from config import (
-    MIN_DAMAGE, UNARMED_STR_BASE,
+    MIN_DAMAGE, UNARMED_STR_BASE, TILE_FLOOR,
 )
-from items import get_item_def
+from items import get_item_def, weapon_matches_type
 import effects
 
 
 MEGA_CRIT_MULTIPLIER = 4
+
+
+def _massive_blunt_smoke_proc(engine):
+    """Massive Blunt on-hit: smoke a random joint from the current floor's strain table."""
+    from loot import pick_strain
+    from items import calc_tolerance_rolls, STRAIN_SMOKING_XP
+
+    zone = engine.current_zone
+    strain = pick_strain(zone, engine.player_stats)
+    if not strain:
+        return
+
+    # Tolerance multi-roll (same as normal smoking)
+    tlr = engine.player_stats.effective_tolerance
+    num_rolls, roll_floor = calc_tolerance_rolls(strain, tlr)
+    rolls = [max(roll_floor + 1, random.randint(1, 100)) for _ in range(num_rolls)]
+    roll = max(rolls)
+
+    # Apply the strain effect to the player
+    engine._apply_strain_effect(engine.player, strain, roll, "player")
+
+    # Award half Smoking XP
+    base_xp = STRAIN_SMOKING_XP.get(strain, 5)
+    half_xp = max(1, round(base_xp * 0.5 * engine.player_stats.xp_multiplier))
+    engine.skills.gain_potential_exp(
+        "Smoking", half_xp,
+        engine.player_stats.effective_book_smarts,
+        briskness=engine.player_stats.total_briskness,
+    )
+
+    engine.messages.append([
+        ("Massive Blunt procs! ", (80, 200, 60)),
+        (f"Smoked {strain} (roll: {roll}). ", (150, 255, 150)),
+        (f"+{half_xp} Smoking XP", (100, 200, 150)),
+    ])
 
 
 def check_mega_crit(engine) -> bool:
@@ -148,7 +183,7 @@ def handle_suicide_explosion(engine, monster):
 
 
 def handle_chemist_vial(engine, monster):
-    """Handle a chemist throwing a toxic vial at the player's position."""
+    """Handle a chemist throwing a 3x3 toxic vial at the player's position."""
     from ai import _has_los
     from hazards import create_toxic_creep
     mx, my = monster.x, monster.y
@@ -156,15 +191,37 @@ def handle_chemist_vial(engine, monster):
     dist = max(abs(mx - px), abs(my - py))
     if dist > 5 or not _has_los(engine.dungeon, mx, my, px, py):
         return
-    # Only create if no existing toxic_creep at target tile
-    has_creep = any(
-        getattr(e, "hazard_type", None) == "toxic_creep"
-        for e in engine.dungeon.get_entities_at(px, py)
+    # 3x3 AOE centered on player
+    placed = 0
+    for dy in range(-1, 2):
+        for dx in range(-1, 2):
+            tx, ty = px + dx, py + dy
+            if tx < 0 or tx >= engine.dungeon.width or ty < 0 or ty >= engine.dungeon.height:
+                continue
+            if engine.dungeon.tiles[ty][tx] != TILE_FLOOR:
+                continue
+            has_creep = any(
+                getattr(e, "hazard_type", None) == "toxic_creep"
+                for e in engine.dungeon.get_entities_at(tx, ty)
+            )
+            if not has_creep:
+                creep = create_toxic_creep(tx, ty, duration=10, tox_per_turn=5)
+                engine.dungeon.add_entity(creep)
+                placed += 1
+    engine.messages.append(f"{monster.name} hurls a toxic vial! (3x3 splash)")
+
+
+def handle_chemist_ranged(engine, monster):
+    """Chemist flat damage ranged attack (used when vial is on cooldown)."""
+    px, py = engine.player.x, engine.player.y
+    damage = max(1, monster.power - _compute_player_defense(engine))
+    deal_damage(engine, damage, engine.player)
+    engine.messages.append(
+        f"{monster.name} flings a shard at you for {damage} damage! "
+        f"({engine.player.hp}/{engine.player.max_hp} HP)"
     )
-    if not has_creep:
-        creep = create_toxic_creep(px, py, duration=10, tox_per_turn=5)
-        engine.dungeon.add_entity(creep)
-    engine.messages.append(f"{monster.name} hurls a toxic vial at you!")
+    if not engine.player.alive:
+        engine.event_bus.emit("entity_died", entity=engine.player, killer=monster)
 
 
 # ------------------------------------------------------------------
@@ -177,6 +234,13 @@ def _compute_str_bonus(engine, weapon_item):
     if weapon_item is None:
         return strength - UNARMED_STR_BASE
     defn = get_item_def(weapon_item.item_id)
+    # BKS-based scaling (e.g. Rune Scraper: melee scales off Book-Smarts)
+    bks_scaling = defn.get("bks_scaling")
+    if bks_scaling:
+        bks = engine.player_stats.effective_book_smarts
+        req = defn.get("bks_req", 1)
+        divisor = bks_scaling.get("divisor", 2)
+        return max(0, (bks - req) // divisor)
     # STR-based scaling
     scaling = defn.get("str_scaling")
     if scaling:
@@ -209,14 +273,23 @@ def _compute_str_bonus(engine, weapon_item):
             numer = scaling.get("numerator", 1)
             denom = scaling.get("denominator", 1)
             return max(0, (strength - req) * numer // denom)
+    # Dual stat scaling: sum excess from two stats above their thresholds, divide by divisor
+    dual = defn.get("dual_stat_scaling")
+    if dual:
+        total_excess = 0
+        for entry in dual["stats"]:
+            stat_val = getattr(engine.player_stats, f"effective_{entry['stat']}", 0)
+            total_excess += max(0, stat_val - entry["threshold"])
+        return total_excess // dual.get("divisor", 4)
     # Arbitrary stat scaling (threshold or swagger_linear)
     stat_scaling = defn.get("stat_scaling")
     if stat_scaling:
         if stat_scaling["type"] == "threshold":
             stat_name = stat_scaling["stat"]
             threshold = stat_scaling["threshold"]
+            divisor = stat_scaling.get("divisor", 1)
             stat_value = getattr(engine.player_stats, f"effective_{stat_name}", 0)
-            return max(0, stat_value - threshold)
+            return max(0, (stat_value - threshold) // divisor)
         if stat_scaling["type"] == "swagger_linear":
             divisor = stat_scaling.get("divisor", 2)
             multiplier = stat_scaling.get("multiplier", 1)
@@ -270,6 +343,27 @@ def _compute_player_attack_power(engine):
 
     if not is_gun:
         atk_power += _compute_str_bonus(engine, weapon)
+    # Ramp damage: bonus from weapons with "ramp_damage" tag
+    if weapon and weapon_defn and "ramp_damage" in weapon_defn.get("tags", []):
+        atk_power += getattr(weapon, "ramp_bonus", 0)
+    # Sleeper Agent: bonus from stacks
+    if weapon and weapon_defn and "sleeper_agent" in weapon_defn.get("tags", []):
+        atk_power += getattr(weapon, "sleeper_stacks", 0)
+    # Tolerance scaling: +1 per divisor TOL above tol_req
+    tol_scaling = weapon_defn.get("tol_scaling") if weapon_defn else None
+    if tol_scaling and not is_gun:
+        tol_req = weapon_defn.get("tol_req", 0)
+        tol = engine.player_stats.effective_tolerance
+        if tol > tol_req:
+            atk_power += (tol - tol_req) // tol_scaling["divisor"]
+    # Skill scaling: +N damage per level in a specific skill
+    sk_scaling = weapon_defn.get("skill_scaling") if weapon_defn else None
+    if sk_scaling and not is_gun:
+        skill_name = sk_scaling["skill"]
+        bonus_per = sk_scaling.get("bonus_per_level", 1)
+        skill_obj = engine.skills.skills.get(skill_name)
+        if skill_obj:
+            atk_power += skill_obj.level * bonus_per
     return atk_power
 
 
@@ -367,15 +461,29 @@ def _armor_up_check(engine, damage: int) -> int:
 
 
 def _apply_toxicity(engine, damage: int, defender) -> int:
-    """Apply toxicity 'more' multiplier to incoming damage (multiplicative after all other mods)."""
+    """Apply toxicity + shocked as an additive 'more' multiplier to incoming damage.
+    Shocked adds +10% per stack, additive with the toxicity multiplier.
+    Example: 50% tox mult + 30% shocked (3 stacks) = 1.0 + 0.5 + 0.3 = 1.8x total."""
+    # Base toxicity bonus
     tox = getattr(defender, 'toxicity', 0)
-    if tox <= 0:
+    tox_bonus = 0.0
+    if tox > 0:
+        if defender is engine.player:
+            tox_bonus = _player_toxicity_multiplier(tox) - 1.0
+        else:
+            tox_bonus = _monster_toxicity_multiplier(tox) - 1.0
+
+    # Shocked bonus: +10% per stack (additive)
+    shocked_bonus = 0.0
+    shocked_eff = next((e for e in defender.status_effects
+                        if getattr(e, 'id', '') == 'shocked'), None)
+    if shocked_eff:
+        shocked_bonus = 0.10 * shocked_eff.stacks
+
+    total_mult = 1.0 + tox_bonus + shocked_bonus
+    if total_mult <= 1.0:
         return damage
-    if defender is engine.player:
-        mult = _player_toxicity_multiplier(tox)
-    else:
-        mult = _monster_toxicity_multiplier(tox)
-    return max(1, int(damage * mult))
+    return max(1, int(damage * total_mult))
 
 
 def apply_tile_amps(engine, damage: int, defender) -> int:
@@ -397,8 +505,48 @@ def deal_damage(engine, damage: int, target) -> bool:
     DoTs and debuff ticks should call target.take_damage() directly
     so tile amps do not apply to them.
     """
+    # Spell Echo: halve damage on echo casts
+    if getattr(engine, '_spell_echo_half_damage', False):
+        damage = max(1, damage // 2)
+    # Spellweaver (Smartsness L5): +30% damage when alternating spells
+    if getattr(engine, '_spellweaver_active', False):
+        damage = int(damage * 1.30)
     damage = apply_tile_amps(engine, damage, target)
-    return target.take_damage(damage)
+    # Slashing L3 "Execute": 2x damage to enemies below 25% HP
+    if target is not engine.player and target.max_hp > 0:
+        if engine.skills.get("Slashing").level >= 3 and target.hp / target.max_hp < 0.25:
+            damage *= 2
+    killed = target.take_damage(damage)
+    # Channel interrupt: 25% chance when the player takes damage
+    if target is engine.player and damage > 0:
+        engine._channel_interrupt_on_damage()
+    # Lifesteal on spell/gun damage (melee handled via on_player_melee_hit)
+    if target is not engine.player and damage > 0:
+        sangria = next(
+            (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'sangria'),
+            None,
+        )
+        if sangria:
+            heal = max(1, int(damage * 0.30 * sangria.stacks))
+            engine.player.heal(heal)
+            engine.messages.append([
+                ("Sangria: ", (160, 30, 60)),
+                (f"+{heal} HP", (100, 255, 100)),
+                (f" ({engine.player.hp}/{engine.player.max_hp})", (150, 150, 150)),
+            ])
+        nine_ring = next(
+            (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'nine_ring'),
+            None,
+        )
+        if nine_ring:
+            heal = max(1, int(damage * 0.25))
+            engine.player.heal(heal)
+            engine.messages.append([
+                ("The 9 Ring: ", (255, 220, 50)),
+                (f"+{heal} HP", (100, 255, 100)),
+                (f" ({engine.player.hp}/{engine.player.max_hp})", (150, 150, 150)),
+            ])
+    return killed
 
 
 def add_toxicity(engine, entity, amount: int, from_player: bool = False,
@@ -429,8 +577,8 @@ def add_toxicity(engine, entity, amount: int, from_player: bool = False,
     if entity is engine.player and gain > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("Chemical Warfare", gain * 2, bksmt)
-    # Chemical Warfare XP: half of toxicity spread to enemies by the player
-    if from_player and entity is not engine.player and gain > 0:
+    # Chemical Warfare XP: half of toxicity applied to any enemy
+    if entity is not engine.player and gain > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("Chemical Warfare", max(1, gain // 2), bksmt)
     # White Power XP: 1 per point of toxicity resisted (doubled by "Pure" perk at L2)
@@ -502,25 +650,25 @@ def add_radiation(engine, entity, amount: int, pierce_resistance: bool = False,
     if from_player and entity is not engine.player and gain > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("Nuclear Research", max(1, gain // 2), bksmt)
-    # Glow Up XP: 1 per point of radiation resisted
+    # Decontamination XP: 1 per point of radiation resisted
     if entity is engine.player and resisted > 0:
         bksmt = engine.player_stats.effective_book_smarts
-        engine.skills.gain_potential_exp("Glow Up", resisted, bksmt)
+        engine.skills.gain_potential_exp("Decontamination", resisted, bksmt)
 
 
 def remove_radiation(engine, entity, amount: int):
     """Remove radiation from an entity. Clamps at 0.
 
-    Glow Up XP: 2 per point of radiation actually removed (player only).
+    Decontamination XP: 2 per point of radiation actually removed (player only).
     """
     if amount <= 0 or entity.radiation <= 0:
         return
     removed = min(amount, entity.radiation)
     entity.radiation -= removed
-    # Glow Up XP: 2 per point removed
+    # Decontamination XP: 2 per point removed
     if entity is engine.player and removed > 0:
         bksmt = engine.player_stats.effective_book_smarts
-        engine.skills.gain_potential_exp("Glow Up", removed * 2, bksmt)
+        engine.skills.gain_potential_exp("Decontamination", removed * 2, bksmt)
 
 
 def add_infection(engine, entity, amount: int):
@@ -578,7 +726,7 @@ def _player_meets_weapon_req(engine) -> bool:
 # Main melee attack
 # ------------------------------------------------------------------
 
-def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_crit=False):
+def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_crit=False, _whirlwind_eligible=True):
     """Handle melee attack with equipment bonuses and player stat effects."""
     # Agent Orange: attacker cannot deal melee damage
     if any(getattr(e, 'id', None) == 'agent_orange' for e in attacker.status_effects):
@@ -623,13 +771,53 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
     is_gun_butt = bool(wdefn and wdefn.get("subcategory") == "gun")
     is_crit = force_crit
 
+    # Whirlwind Axe: 30% chance to replace attack with whirlwind (hits all adjacent)
+    if (attacker == engine.player and _whirlwind_eligible
+            and wdefn and "whirlwind_axe" in wdefn.get("tags", [])
+            and random.random() < 0.30):
+        px, py = attacker.x, attacker.y
+        targets = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                for e in engine.dungeon.get_entities_at(px + dx, py + dy):
+                    if e.entity_type == "monster" and e.alive:
+                        targets.append(e)
+        if targets:
+            hit_count = len(targets)
+            engine.messages.append([
+                ("Whirlwind! ", (255, 100, 60)),
+                (f"Cleaving {hit_count} {'enemy' if hit_count == 1 else 'enemies'}!", (255, 180, 140)),
+            ])
+            for t in targets:
+                if t.alive:
+                    handle_attack(engine, attacker, t, _whirlwind_eligible=False)
+            return
+
     if attacker == engine.player:
         atk_power = _compute_player_attack_power(engine)
         # Unstable buff: +2 melee damage
         if any(getattr(e, 'id', '') == 'unstable' for e in attacker.status_effects):
             atk_power += 2
-        if not is_crit and random.random() < engine.player_stats.crit_chance:
+        # Swashbuckling: +1 per stack with slashing weapons
+        if wdefn and weapon_matches_type(wdefn, "slashing"):
+            swash = next((e for e in attacker.status_effects if getattr(e, 'id', '') == 'swashbuckling'), None)
+            if swash:
+                atk_power += swash.stacks
+        # Liquid Courage (Drinking L4): +3% crit per active drink stack
+        _lc_crit_bonus = 0
+        if engine.skills.get("Drinking").level >= 4:
+            from effects import _DRINK_BUFF_IDS
+            for _eff in attacker.status_effects:
+                if getattr(_eff, 'id', '') in _DRINK_BUFF_IDS:
+                    _lc_crit_bonus += getattr(_eff, 'stack_count', 1) * 0.03
+        if not is_crit and random.random() < engine.player_stats.crit_chance + _lc_crit_bonus:
             is_crit = True
+        # Victory Rush: advantage on crit (roll twice)
+        if not is_crit and any(getattr(e, 'id', '') == 'victory_rush' for e in attacker.status_effects):
+            if random.random() < engine.player_stats.crit_chance + _lc_crit_bonus:
+                is_crit = True
     else:
         atk_power = attacker.power
 
@@ -640,9 +828,16 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
 
     # Check dodge before applying damage
     defender_dodge_chance = engine.player_stats.dodge_chance if defender == engine.player else defender.dodge_chance
+    # Slashing L4: +15% dodge while wielding a slashing weapon
+    if defender == engine.player and engine.skills.get("Slashing").level >= 4:
+        w = engine.equipment.get("weapon")
+        if w and weapon_matches_type(get_item_def(w.item_id) or {}, "slashing"):
+            defender_dodge_chance += 15
     if random.random() * 100 < defender_dodge_chance:
         msg = f"{defender.name} dodges the attack!"
         engine.messages.append(msg)
+        if engine.sdl_overlay:
+            engine.sdl_overlay.add_floating_text(defender.x, defender.y, "DODGE", (200, 200, 255))
         return
 
     damage = max(MIN_DAMAGE, atk_power - def_defense)
@@ -659,9 +854,26 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         mult = engine.player_stats.outgoing_damage_mult
         if mult != 1.0:
             damage = int(damage * mult)
+        # Liquid Courage (Drinking L4): +10% melee damage while any drink buff active
+        if engine.skills.get("Drinking").level >= 4:
+            from effects import _DRINK_BUFF_IDS
+            if any(getattr(e, 'id', '') in _DRINK_BUFF_IDS for e in attacker.status_effects):
+                damage = int(damage * 1.10)
         # Purge Infection debuff: -50% melee damage
         if any(getattr(e, 'id', '') == 'purge_infection' for e in attacker.status_effects):
             damage = max(MIN_DAMAGE, damage // 2)
+    # Cryomancy L3 (Chill Out): chilled attackers deal 10% less melee damage per stack (cap 50%)
+    if attacker != engine.player and defender == engine.player:
+        if engine.skills.get("Cryomancy").level >= 3:
+            chill_eff = next(
+                (e for e in attacker.status_effects if getattr(e, 'id', '') == 'chill'),
+                None,
+            )
+            if chill_eff:
+                import math
+                mult = max(0.5, 0.9 ** chill_eff.stacks)
+                damage = max(MIN_DAMAGE, math.ceil(damage * mult))
+
     damage = _apply_damage_modifiers(engine, damage, defender)
     damage = _apply_toxicity(engine, damage, defender)
 
@@ -681,10 +893,56 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         # Gatting L1: melee resets consecutive shot tracker
         engine.gatting_consecutive_target_id = None
         engine.gatting_consecutive_count = 0
-        engine._check_glow_up_proc(defender)
+        engine._check_decontamination_proc(defender)
         engine._graffiti_proc_red(defender)
         for eff in list(engine.player.status_effects):
             eff.on_player_melee_hit(engine, defender, damage)
+
+        # Momentum (Jaywalking L6): 40% on melee hit to gain a free move stack
+        if engine.skills.get("Jaywalking").level >= 6 and random.random() < 0.40:
+            effects.apply_effect(engine.player, engine, "momentum", stacks=1, silent=True)
+            _mom = next((e for e in engine.player.status_effects if getattr(e, 'id', '') == 'momentum'), None)
+            _mom_stacks = _mom.stacks if _mom else 1
+            engine.messages.append([
+                ("Momentum! ", (100, 220, 255)),
+                (f"+1 free move ({_mom_stacks} stored)", (180, 220, 255)),
+            ])
+
+        # Ramp damage: +2 per stack, resets after 10 hits
+        if weapon and wdefn and "ramp_damage" in wdefn.get("tags", []):
+            old_ramp = getattr(weapon, "ramp_bonus", 0)
+            new_ramp = old_ramp + 2
+            if new_ramp > 20:
+                new_ramp = 0
+                engine.messages.append([
+                    ("Yinyang resets! ", (180, 180, 180)),
+                    ("Ramp damage returns to +0.", (120, 120, 120)),
+                ])
+            else:
+                engine.messages.append([
+                    ("Yinyang ramps! ", (200, 200, 200)),
+                    (f"+{new_ramp} bonus damage.", (255, 255, 255)),
+                ])
+            weapon.ramp_bonus = new_ramp
+
+        # Massive Blunt: 10% on-hit chance to smoke a random joint from current floor
+        if weapon and wdefn and "massive_blunt" in wdefn.get("tags", []):
+            if random.random() < 0.10:
+                _massive_blunt_smoke_proc(engine)
+
+        # Double Edged Sword: deal 1-3 self-damage if player is above 50% HP
+        if weapon and wdefn and "double_edged" in wdefn.get("tags", []):
+            if engine.player.hp > engine.player.max_hp // 2:
+                self_dmg = random.randint(1, 3)
+                engine.player.hp -= self_dmg
+                engine.messages.append([
+                    ("Double edge! ", (200, 80, 80)),
+                    (f"-{self_dmg} HP", (255, 100, 100)),
+                    (f" ({engine.player.hp}/{engine.player.max_hp})", (150, 150, 150)),
+                ])
+                if engine.player.hp <= 0:
+                    engine.player.alive = False
+                    engine.event_bus.emit("entity_died", entity=engine.player, killer=None)
 
         # Meth-Head L1 "Sped": 20% on-hit chance, costs 10 meth, blocked if already active
         if (engine.skills.get("Meth-Head").level >= 1
@@ -705,6 +963,33 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             engine.messages.append([
                 ("Unstable! ", (100, 255, 100)),
                 ("+5 rad, +2 melee dmg, hits irradiate enemies for 20 turns.", (160, 255, 160)),
+            ])
+
+        # Slashing L1 "Swashbuckling": 20% on slash hit → +1 slash dmg, +1% dodge per stack
+        if (engine.skills.get("Slashing").level >= 1
+                and weapon and wdefn
+                and weapon_matches_type(wdefn, "slashing")
+                and random.random() < 0.20):
+            effects.apply_effect(engine.player, engine, "swashbuckling")
+            swash = next((e for e in engine.player.status_effects if getattr(e, 'id', '') == 'swashbuckling'), None)
+            stk = swash.stacks if swash else 1
+            engine.messages.append([
+                ("Swashbuckling! ", (255, 220, 100)),
+                (f"+{stk} slash dmg, +{stk}% dodge ({stk} stacks, 20t)", (255, 240, 180)),
+            ])
+
+        # Slashing L5 "Crippling Strikes": 25% on slash hit → Hamstrung (-2 dmg/stack)
+        if (engine.skills.get("Slashing").level >= 5
+                and weapon and wdefn
+                and weapon_matches_type(wdefn, "slashing")
+                and defender.alive
+                and random.random() < 0.50):
+            effects.apply_effect(defender, engine, "hamstrung", stacks=1, silent=True)
+            ham = next((e for e in defender.status_effects if getattr(e, 'id', '') == 'hamstrung'), None)
+            stk = ham.stacks if ham else 1
+            engine.messages.append([
+                ("Hamstrung! ", (200, 120, 80)),
+                (f"{defender.name} deals -{stk * 2} dmg (x{stk})", (220, 170, 130)),
             ])
 
     # Weapon on-hit effects (e.g. Glass Shards, Meth-Head XP)
@@ -819,6 +1104,14 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
                         effects.apply_effect(defender, engine, "ignite", duration=3, silent=True)
                         engine.messages.append(f"{defender.name}'s grease ignites!")
 
+                # Tetanus on-hit chance (e.g. Rusty Machete): -1 power/-1 defense per stack
+                tetanus_chance = wdefn.get("on_hit_tetanus_chance", 0)
+                if tetanus_chance and defender.alive and random.random() < tetanus_chance:
+                    effects.apply_effect(defender, engine, "tetanus", duration=10, stacks=1, silent=True)
+                    tet = next((e for e in defender.status_effects if getattr(e, 'id', '') == 'tetanus'), None)
+                    stacks = tet.stacks if tet else 1
+                    engine.messages.append(f"Tetanus! {defender.name} weakens. (-1 all stats, x{stacks})")
+
                 # Knockback on-hit chance (e.g. War Maul): push enemy back, no collision dmg
                 kb = wdefn.get("on_hit_knockback")
                 if kb and defender.alive and random.random() < kb["chance"]:
@@ -852,18 +1145,53 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
                         engine.player.inventory.append(food_ent)
                         engine.messages.append(f"A {food_ent.name} tumbles out of the lunchbox!")
 
-                # Weapon break chance (e.g. Crooked Baseball Bat)
+                # Weapon break chance (random per-hit)
                 break_chance = wdefn.get("break_chance", 0)
                 if break_chance and random.random() < break_chance:
                     engine.messages.append(f"Your {weapon.name} breaks!")
                     engine.equipment["weapon"] = None
-                    # Revoke any ability the weapon granted
                     granted = wdefn.get("grants_ability")
                     if granted:
                         engine.revoke_ability(granted)
 
+                # Weapon durability break (fixed hit count, e.g. Crooked Baseball Bat)
+                break_hits = wdefn.get("break_hits", 0)
+                if break_hits > 0:
+                    hits_used = getattr(weapon, '_break_hits_used', 0) + 1
+                    weapon._break_hits_used = hits_used
+                    remaining = break_hits - hits_used
+                    if remaining == 1:
+                        engine.messages.append([
+                            ("Your ", (200, 200, 200)),
+                            (weapon.name, weapon.color),
+                            (" is about to break!", (255, 200, 80)),
+                        ])
+                    elif remaining <= 0:
+                        # Final hit: deal bonus damage
+                        mult = wdefn.get("break_final_mult", 1)
+                        bonus = damage * (mult - 1)
+                        if bonus > 0 and defender.alive:
+                            defender.take_damage(bonus)
+                            engine.messages.append([
+                                ("CRACK! ", (255, 220, 80)),
+                                (weapon.name, weapon.color),
+                                (f" shatters for {damage + bonus} total damage!", (255, 160, 60)),
+                            ])
+                            if not defender.alive:
+                                engine.event_bus.emit("entity_died", entity=defender, killer=engine.player)
+                        else:
+                            engine.messages.append([
+                                ("Your ", (200, 200, 200)),
+                                (weapon.name, weapon.color),
+                                (" shatters!", (255, 160, 60)),
+                            ])
+                        engine.equipment["weapon"] = None
+                        granted = wdefn.get("grants_ability")
+                        if granted:
+                            engine.revoke_ability(granted)
+
         # Melee skill XP: equal to damage dealt
-        _WEAPON_TYPE_SKILL = {"stabbing": "Stabbing", "beating": "Beating"}
+        _WEAPON_TYPE_SKILL = {"stabbing": "Stabbing", "beating": "Beating", "slashing": "Slashing"}
         if weapon and wdefn:
             melee_skill = _WEAPON_TYPE_SKILL.get(wdefn.get("weapon_type"))
             # Dual weapon type (e.g. Green Lightsaber): award XP to both skills
@@ -946,6 +1274,16 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             defender.status_effects.remove(gouge_eff)
             engine.messages.append(f"{defender.name}'s gouge stun is broken!")
 
+    # Voodoo Ham Stun break: 20% chance on player hit
+    if attacker == engine.player and defender.alive:
+        voodoo_stun = next(
+            (e for e in defender.status_effects if getattr(e, 'id', '') == 'voodoo_ham_stun'),
+            None,
+        )
+        if voodoo_stun and random.random() < 0.20:
+            defender.status_effects.remove(voodoo_stun)
+            engine.messages.append(f"{defender.name} snaps out of the Voodoo Stun!")
+
     # Windfury: extra attack with stabbing weapon (Stabbing level 3+)
     if (attacker == engine.player and _windfury_eligible
             and defender.alive
@@ -953,7 +1291,6 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         weapon = engine.equipment.get("weapon")
         if weapon:
             wdefn = get_item_def(weapon.item_id)
-            from items import weapon_matches_type
             if weapon_matches_type(wdefn, "stabbing"):
                 stsmt = engine.player_stats.effective_street_smarts
                 chance = min(30, stsmt) / 100.0
@@ -1016,7 +1353,9 @@ def handle_monster_attack(engine, monster):
             is_monster_crit = random.random() * 100 < monster.crit_chance
             if is_monster_crit:
                 damage *= 2
+            player._current_attacker = monster
             damage = _apply_damage_modifiers(engine, damage, player)
+            player._current_attacker = None
             damage = _apply_toxicity(engine, damage, player)
             if any(getattr(e, 'id', None) == 'crippled' for e in monster.status_effects):
                 damage = max(MIN_DAMAGE, damage // 2)
@@ -1024,6 +1363,9 @@ def handle_monster_attack(engine, monster):
                 damage = max(MIN_DAMAGE, damage // 2)
             if any(getattr(e, 'is_curse', False) and getattr(e, 'id', '') == 'curse_of_ham' for e in monster.status_effects):
                 damage = max(MIN_DAMAGE, damage // 2)
+            hamstrung = next((e for e in monster.status_effects if getattr(e, 'id', None) == 'hamstrung'), None)
+            if hamstrung:
+                damage = max(MIN_DAMAGE, damage - hamstrung.stacks * 2)
             damage = _armor_up_check(engine, damage)
             deal_damage(engine, damage, player)
             engine._gain_catchin_fades_xp(damage)
@@ -1073,7 +1415,9 @@ def handle_monster_attack(engine, monster):
     is_monster_crit = random.random() * 100 < monster.crit_chance
     if is_monster_crit:
         damage *= 2
+    player._current_attacker = monster
     damage = _apply_damage_modifiers(engine, damage, player)
+    player._current_attacker = None
     damage = _apply_toxicity(engine, damage, player)
     if any(getattr(e, 'id', None) == 'crippled' for e in monster.status_effects):
         damage = max(MIN_DAMAGE, damage // 2)
@@ -1081,6 +1425,9 @@ def handle_monster_attack(engine, monster):
         damage = max(MIN_DAMAGE, damage // 2)
     if any(getattr(e, 'is_curse', False) and getattr(e, 'id', '') == 'curse_of_ham' for e in monster.status_effects):
         damage = max(MIN_DAMAGE, damage // 2)
+    hamstrung = next((e for e in monster.status_effects if getattr(e, 'id', None) == 'hamstrung'), None)
+    if hamstrung:
+        damage = max(MIN_DAMAGE, damage - hamstrung.stacks * 2)
     damage = _armor_up_check(engine, damage)
     deal_damage(engine, damage, player)
     engine._gain_catchin_fades_xp(damage)
@@ -1229,8 +1576,16 @@ def handle_monster_ranged_attack(engine, monster):
         return
 
     # Dodge check
-    if random.random() * 100 < engine.player_stats.dodge_chance:
+    dodge = engine.player_stats.dodge_chance
+    # Slashing L4: +15% dodge while wielding a slashing weapon
+    if engine.skills.get("Slashing").level >= 4:
+        w = engine.equipment.get("weapon")
+        if w and weapon_matches_type(get_item_def(w.item_id) or {}, "slashing"):
+            dodge += 15
+    if random.random() * 100 < dodge:
         engine.messages.append(f"You dodge {monster.name}'s ranged attack!")
+        if engine.sdl_overlay:
+            engine.sdl_overlay.add_floating_text(engine.player.x, engine.player.y, "DODGE", (200, 200, 255))
         return
 
     # Roll damage
@@ -1239,9 +1594,14 @@ def handle_monster_ranged_attack(engine, monster):
     if not ra.get("pierces_defense"):
         def_defense = _compute_player_defense(engine)
         damage = max(MIN_DAMAGE, damage - def_defense)
+        player._current_attacker = monster
         damage = _apply_damage_modifiers(engine, damage, player)
+        player._current_attacker = None
         damage = _apply_toxicity(engine, damage, player)
         damage = _armor_up_check(engine, damage)
+    hamstrung = next((e for e in monster.status_effects if getattr(e, 'id', None) == 'hamstrung'), None)
+    if hamstrung:
+        damage = max(MIN_DAMAGE, damage - hamstrung.stacks * 2)
 
     attack_name = ra.get("name", "shoots")
     player.take_damage(damage)

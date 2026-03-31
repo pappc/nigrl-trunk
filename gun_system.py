@@ -163,10 +163,25 @@ def _enter_gun_ability_targeting(engine, spec: dict) -> bool:
     return False
 
 
+def _get_equipped_staff(engine):
+    """Return (weapon_entity, item_defn) if weapon slot holds a staff, else (None, None)."""
+    weapon = engine.equipment.get("weapon")
+    if weapon is None:
+        return None, None
+    defn = get_item_def(weapon.item_id)
+    if defn is None or "staff_element" not in defn:
+        return None, None
+    return weapon, defn
+
+
 def _action_fire_gun(engine, _action):
-    """Enter gun targeting mode if the player has a loaded primary gun."""
+    """Enter gun targeting mode if the player has a loaded primary gun (or staff)."""
     gun = _get_primary_gun(engine)
     if gun is None:
+        # No gun — check for an equipped staff
+        staff, staff_defn = _get_equipped_staff(engine)
+        if staff is not None:
+            return _action_fire_staff(engine, staff, staff_defn)
         engine.messages.append("No gun equipped.")
         return False
     if engine.gun_jammed:
@@ -202,6 +217,109 @@ def _action_fire_gun(engine, _action):
     return False
 
 
+# ---- Staff fire (elementalist staves) ----
+
+_STAFF_RANGE = 4
+
+_STAFF_ELEMENT_DEBUFF = {
+    "fire": "ignite",
+    "lightning": "shocked",
+    "cold": "chill",
+}
+
+_STAFF_ELEMENT_COLOR = {
+    "fire": (255, 100, 30),
+    "lightning": (255, 255, 80),
+    "cold": (100, 200, 255),
+}
+
+
+def _action_fire_staff(engine, staff, staff_defn):
+    """Enter targeting mode for a staff ranged attack."""
+    if getattr(staff, 'charges', 0) <= 0:
+        engine.messages.append("The staff has no charges left.")
+        return False
+    last = engine.last_targeted_enemy
+    if (last is not None and getattr(last, 'alive', False)
+            and engine.dungeon.visible[last.y, last.x]):
+        engine.gun_targeting_cursor = [last.x, last.y]
+    else:
+        nearest = _find_nearest_visible_enemy(engine, _STAFF_RANGE)
+        if nearest:
+            engine.gun_targeting_cursor = [nearest.x, nearest.y]
+        else:
+            engine.gun_targeting_cursor = [engine.player.x, engine.player.y]
+
+    # Store staff info for the confirm handler
+    engine.staff_firing = {
+        "element": staff_defn["staff_element"],
+        "item_id": staff.item_id,
+    }
+    engine.menu_state = MenuState.GUN_TARGETING
+    return False
+
+
+def _resolve_staff_shot(engine, tx, ty):
+    """Fire a staff bolt at (tx, ty). Range 4, dmg = 5 + bksmt//3, apply 1 debuff stack."""
+    import effects
+    from spells import _trace_projectile
+
+    info = engine.staff_firing
+    element = info["element"]
+    engine.staff_firing = None
+    engine.menu_state = MenuState.NONE
+
+    px, py = engine.player.x, engine.player.y
+    dist = max(abs(tx - px), abs(ty - py))
+    if dist == 0:
+        engine.messages.append("Can't target yourself!")
+        return
+    if dist > _STAFF_RANGE:
+        engine.messages.append("Out of range!")
+        return
+    if not engine.dungeon.visible[ty, tx]:
+        engine.messages.append("Can't see that tile.")
+        return
+
+    # Consume a staff charge
+    weapon = engine.equipment.get("weapon")
+    if weapon and getattr(weapon, 'charges', None) is not None:
+        weapon.charges = max(0, weapon.charges - 1)
+
+    hit = _trace_projectile(engine, px, py, tx, ty)
+    if hit is None:
+        engine.messages.append("Staff bolt fizzles — no target in path!")
+        return
+
+    bksmt = engine.player_stats.effective_book_smarts
+    damage = 5 + bksmt // 3
+
+    combat.deal_damage(engine, damage, hit)
+
+    # Elementalist XP (cross-element check before applying debuff)
+    from xp_progression import _gain_elementalist_xp
+    _gain_elementalist_xp(engine, hit, damage, element)
+
+    debuff_id = _STAFF_ELEMENT_DEBUFF[element]
+    effects.apply_effect(hit, engine, debuff_id, duration=10, stacks=1, silent=True)
+
+    color = _STAFF_ELEMENT_COLOR[element]
+    hp_disp = f"{hit.hp}/{hit.max_hp}" if hit.alive else "dead"
+    debuff_name = debuff_id.capitalize()
+    engine.messages.append([
+        ("Staff bolt hits ", color),
+        (f"{hit.name} for {damage} dmg! +1 {debuff_name} ({hp_disp})", (255, 255, 255)),
+    ])
+
+    if engine.sdl_overlay:
+        engine.sdl_overlay.add_tile_flash_ripple(
+            [(hit.x, hit.y)], px, py, color=color, duration=0.4, ripple_speed=0.02,
+        )
+
+    if not hit.alive:
+        engine.event_bus.emit("entity_died", entity=hit, killer=engine.player)
+
+
 def _handle_gun_targeting_input(engine, action):
     """Handle input while in gun targeting mode."""
     action_type = action.get("type")
@@ -209,6 +327,7 @@ def _handle_gun_targeting_input(engine, action):
     if action_type == "close_menu":
         engine.menu_state = MenuState.NONE
         engine.gun_ability_active = None
+        engine.staff_firing = None
         return False
 
     if action_type == "move":
@@ -229,6 +348,12 @@ def _handle_gun_targeting_input(engine, action):
     if action_type == "confirm_target":
         tx, ty = engine.gun_targeting_cursor
         engine._record_targeted_enemy_at(tx, ty)
+
+        # Staff shot — resolve and return
+        if getattr(engine, 'staff_firing', None):
+            _resolve_staff_shot(engine, tx, ty)
+            return True
+
         gun = _get_primary_gun(engine)
         if gun is None:
             engine.menu_state = MenuState.NONE
@@ -463,7 +588,7 @@ def _resolve_gun_ability_shot(engine, tx, ty):
         damage = engine._apply_toxicity(damage, target)
         killed = combat.deal_damage(engine, damage, target)
         engine._apply_virulent_vodka(target, damage)
-        engine._check_glow_up_proc(target)
+        engine._check_decontamination_proc(target)
         total_hits += 1
         if killed and target not in kills:
             kills.append(target)
@@ -501,6 +626,8 @@ def _resolve_cone_shot(engine, tx, ty):
     modes = gun_defn.get("firing_modes", {})
     mode_data = modes.get(mode, {"hit": 50, "energy": 50})
     energy_cost = mode_data["energy"]
+    if engine.action_cost_mult != 1.0:
+        energy_cost = int(energy_cost * engine.action_cost_mult)
     base_hit = mode_data["hit"]
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
 
@@ -578,7 +705,7 @@ def _resolve_cone_shot(engine, tx, ty):
         damage = engine._apply_toxicity(damage, target)
         killed = combat.deal_damage(engine, damage, target)
         engine._apply_virulent_vodka(target, damage)
-        engine._check_glow_up_proc(target)
+        engine._check_decontamination_proc(target)
         total_hits += 1
         if killed and target not in kills:
             kills.append(target)
@@ -603,6 +730,8 @@ def _resolve_circle_shot(engine, tx, ty):
     modes = gun_defn.get("firing_modes", {})
     mode_data = modes.get(mode, {"hit": 50, "energy": 50})
     energy_cost = mode_data["energy"]
+    if engine.action_cost_mult != 1.0:
+        energy_cost = int(energy_cost * engine.action_cost_mult)
     base_hit = mode_data["hit"]
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
     aoe_radius = gun_defn.get("aoe_radius", 2)
@@ -658,7 +787,7 @@ def _resolve_circle_shot(engine, tx, ty):
             damage = engine._apply_toxicity(damage, entity)
             killed = combat.deal_damage(engine, damage, entity)
             engine._apply_virulent_vodka(entity, damage)
-            engine._check_glow_up_proc(entity)
+            engine._check_decontamination_proc(entity)
             if killed:
                 kills.append(entity)
 
@@ -692,6 +821,8 @@ def _resolve_gun_shot(engine, tx, ty):
     energy_cost = mode_data["energy"]
     base_hit = mode_data["hit"]
     base_hit, energy_cost = _apply_sideways(engine, base_hit, energy_cost)
+    if engine.action_cost_mult != 1.0:
+        energy_cost = int(energy_cost * engine.action_cost_mult)
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
 
     # Consume ammo
@@ -769,7 +900,11 @@ def _resolve_gun_shot(engine, tx, ty):
         return
 
     # Damage calculation
-    damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+    # Decimator: damage = player's missing HP
+    if "decimator" in gun_defn.get("tags", []):
+        damage = engine.player.max_hp - engine.player.hp
+    else:
+        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
 
     # Consecutive hit bonus (HV Express)
     bonus = 0
@@ -807,7 +942,7 @@ def _resolve_gun_shot(engine, tx, ty):
 
     killed = combat.deal_damage(engine, damage, target)
     engine._apply_virulent_vodka(target, damage)
-    engine._check_glow_up_proc(target)
+    engine._check_decontamination_proc(target)
 
     crit_tag = " MEGA CRIT!" if is_mega_crit else (" CRIT!" if is_crit else "")
     total_consec = bonus + gatting_bonus
@@ -831,9 +966,45 @@ def _resolve_gun_shot(engine, tx, ty):
                 ("+1 Swagger", (200, 200, 200)),
             ])
 
+    # Thunder Gun chain lightning: on hit, chain to 2 additional targets within 2 tiles
+    if "thunder_gun" in gun_defn.get("tags", []):
+        _thunder_gun_chain(engine, target, gun_defn)
+
     engine.player.energy -= energy_cost
     if engine.running and engine.player.alive:
         engine._run_energy_loop()
+
+
+def _thunder_gun_chain(engine, initial_target, gun_defn):
+    """Chain lightning from Thunder Gun: hit up to 2 additional unique targets within 2 tiles."""
+    hit_set = {initial_target.instance_id}
+    current = initial_target
+    for hop in range(2):
+        candidates = []
+        for ent in engine.dungeon.get_monsters():
+            if not ent.alive or ent.instance_id in hit_set:
+                continue
+            dist = max(abs(ent.x - current.x), abs(ent.y - current.y))
+            if dist <= 2:
+                candidates.append(ent)
+        if not candidates:
+            break
+        chain_target = random.choice(candidates)
+        hit_set.add(chain_target.instance_id)
+        chain_dmg = random.randint(1, 30)
+        chain_dmg = max(MIN_DAMAGE, chain_dmg - chain_target.defense)
+        mult = engine.player_stats.outgoing_damage_mult
+        if mult != 1.0:
+            chain_dmg = int(chain_dmg * mult)
+        chain_killed = combat.deal_damage(engine, chain_dmg, chain_target)
+        engine.messages.append([
+            ("Chain! ", (255, 255, 80)),
+            (f"Lightning arcs to {chain_target.name} for {chain_dmg} damage!", (200, 220, 255)),
+        ])
+        if chain_killed:
+            engine.event_bus.emit("entity_died", chain_target, killer=engine.player)
+            notify_gun_kill(engine)
+        current = chain_target
 
 
 def _action_reload_gun(engine, _action):
@@ -865,6 +1036,17 @@ def _action_reload_gun(engine, _action):
         engine.messages.append("Magazine is already full.")
         return False
 
+    # Reload-per-floor limit (e.g. Decimator: 1 reload per floor)
+    reload_limit = gun_defn.get("reload_per_floor")
+    if reload_limit is not None:
+        used = getattr(gun, 'reloads_this_floor', 0)
+        if used >= reload_limit:
+            engine.messages.append([
+                ("Cannot reload — ", (255, 100, 100)),
+                (f"limited to {reload_limit} reload{'s' if reload_limit != 1 else ''} per floor.", (200, 200, 200)),
+            ])
+            return False
+
     ammo_type = gun_defn.get("ammo_type")
     # Find matching ammo in inventory
     ammo_item = None
@@ -887,6 +1069,10 @@ def _action_reload_gun(engine, _action):
         engine.player.inventory.remove(ammo_item)
 
     engine.messages.append(f"Reloaded {loaded} rounds. ({gun.current_ammo}/{gun.mag_size})")
+
+    # Track reload-per-floor usage
+    if gun_defn.get("reload_per_floor") is not None:
+        gun.reloads_this_floor = getattr(gun, 'reloads_this_floor', 0) + 1
 
     # Spend energy if reload has a cost
     reload_speed = gun_defn.get("reload_speed", 0)

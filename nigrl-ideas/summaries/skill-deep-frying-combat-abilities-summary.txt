@@ -1,0 +1,34 @@
+SUMMARY: skill-deep-frying-combat-abilities.txt
+Deep-Frying Combat Abilities — 10 designs for L3-L10 perk slots
+================================================================
+
+Primary stat: CON (damage, temp HP, scaling)
+Secondary: TOL (used by Burning Lard L8 for damage formula)
+Theme: "short order cook from hell" — oil slicks, grease fires, burning fat
+
+ABILITIES AT A GLANCE
+----------------------
+L3  Pop the Oil (passive): 25+CON*2% chance to apply 1 Greasy on each melee hit
+L4  Splatter (activated, 20t CD): 3x3 AOE, CON-2-DEF dmg + 2 Greasy to all hit
+L5  Pork Rind Armor (activated, 25t CD): CON*3 temp HP; attackers have 40% to get Greasy
+L5* Grease Trap (activated, 1/floor): all visible enemies get 1+CON//4 Greasy stacks
+L6  Deep Fry Zone (activated, 2/floor): places oil_slick hazard tile; CON+TOL duration
+L7  Full Render (passive): Grease Fire burst = stacks*(2+CON//5); half Greasy remains
+L8  Burning Lard (activated, 25t CD): LINE_FROM_PLAYER, CON+TOL-DEF dmg + trail of oil_slick
+L9  Thermite Baste (activated, 3 total): adjacent touch, applies 10 Greasy + CON//3+1 Ignite
+L9* Lard Is My Shepherd (passive): kill a Greasy enemy → gain temp HP + 1 Greasy stack on self
+L10 Forbidden Deep Fry (activated, ONCE): floor-wide Grease Fire + player self-ignite + oil_slick floor
+
+(* = alternate/swappable slot candidate)
+
+KEY DESIGN NOTES
+-----------------
+- "greasy" on enemies already triggers _check_grease_fire_synergy; no new effect needed
+- Full Render modifies _check_grease_fire_synergy in effects.py based on skill level
+- oil_slick: new hazard_type, char='~', triggers Greasy+slip on movement through
+- Forbidden Deep Fry: engine.floor_oil_slick_turns countdown instead of spawning
+  thousands of hazard entities
+- New engine state: pork_rind_armor_hp, floor_oil_slick_turns
+- New PlayerStats: full_render_active (bool)
+- Thermite Baste uses TargetType.ADJACENT (auto-fire if 1 adjacent enemy)
+- Cross-skill: Pyromancy is the strongest synergy (Ignite source + Greasy = Grease Fire)

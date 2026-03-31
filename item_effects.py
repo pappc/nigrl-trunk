@@ -20,7 +20,7 @@ _C_MSG_PICKUP  = (255, 200, 100)
 
 
 def _pickup_items_at(engine, x: int, y: int):
-    """Pick up items and cash at (x, y). Used by abilities that teleport the player."""
+    """Pick up all items and cash at (x, y). Used by abilities that teleport the player."""
     for entity in list(engine.dungeon.get_entities_at(x, y)):
         if entity == engine.player:
             continue
@@ -72,19 +72,17 @@ def _pickup_items_at(engine, x: int, y: int):
                         (entity.name, entity.color),
                         (f" ({display})", _C_MSG_NEUTRAL),
                     ])
-                    return
+                    continue
             engine.player.inventory.append(entity)
             engine._sort_inventory()
             engine.messages.append([
                 ("Picked up ", _C_MSG_PICKUP),
                 (entity.name, entity.color),
             ])
-            return
         elif entity.entity_type == "cash":
             engine.dungeon.remove_entity(entity)
             engine.cash += entity.cash_amount
             engine.messages.append(f"Picked up ${entity.cash_amount}!")
-            return
 
 
 def _apply_item_effect_to_entity(engine, effect_def, entity):
@@ -369,27 +367,29 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
     # ── Spell effects — grant ability charges for later use ──────────────
     elif eff_type == "dosidos_dimension_door":
         if is_player:
-            engine.grant_ability_charges("dimension_door", 1)
+            charges = random.randint(eff.get("min_count", 1), eff.get("max_count", 1))
+            engine.grant_ability_charges("dimension_door", charges)
         else:
             engine.messages.append(f"{entity.name} flickers briefly.")
 
     elif eff_type == "dosidos_chain_lightning":
         if is_player:
-            # total_hits encodes how many charges to grant (4 or 2); spell always fires 4 bounces.
-            charges = eff.get("total_hits", 4)
+            charges = random.randint(eff.get("min_count", 2), eff.get("max_count", 2))
             engine.grant_ability_charges("chain_lightning", charges)
         else:
             engine.messages.append(f"{entity.name} flickers briefly.")
 
     elif eff_type == "dosidos_ray_of_frost":
         if is_player:
-            engine.grant_ability_charges("ray_of_frost", eff.get("count", 1))
+            charges = random.randint(eff.get("min_count", 3), eff.get("max_count", 3))
+            engine.grant_ability_charges("ray_of_frost", charges)
         else:
             engine.messages.append(f"{entity.name} flickers briefly.")
 
     elif eff_type == "dosidos_warp":
         if is_player:
-            engine.grant_ability_charges("warp", 1)
+            charges = random.randint(eff.get("min_count", 1), eff.get("max_count", 1))
+            engine.grant_ability_charges("warp", charges)
         else:
             engine.messages.append(f"{entity.name} flickers briefly.")
 
@@ -1014,3 +1014,152 @@ def _apply_blue_lobster_effect(engine, entity, roll, is_player):
             # Gain Acid Armor (10% break chance, 20 turns)
             effects.apply_effect(entity, engine, "acid_armor", duration=20, break_chance=0.10, silent=True)
             engine.messages.append(f"{entity.name} gains Acid Armor!")
+
+
+# ---------------------------------------------------------------------------
+# Voodoo Doll curse detonation
+# ---------------------------------------------------------------------------
+
+_CURSE_IDS = frozenset({"curse_dot", "curse_covid", "curse_of_ham"})
+
+
+def _voodoo_detonate(engine):
+    """Detonate all curses on enemies within 8 tiles of the player."""
+    player = engine.player
+    targets = []  # [(monster, [curse_effects])]
+
+    for m in engine.dungeon.get_monsters():
+        if not m.alive:
+            continue
+        dist = max(abs(m.x - player.x), abs(m.y - player.y))
+        if dist > 8:
+            continue
+        curses = [e for e in m.status_effects if getattr(e, 'id', '') in _CURSE_IDS]
+        if curses:
+            targets.append((m, curses))
+
+    if not targets:
+        engine.messages.append("The Voodoo Doll pulses... but finds no cursed enemies nearby.")
+        return
+
+    engine.messages.append([
+        ("The Voodoo Doll pulses with dark energy!", (140, 60, 180)),
+    ])
+
+    detonation_count = 0
+    for monster, curses in targets:
+        for curse in curses:
+            curse_id = curse.id
+            stacks = getattr(curse, 'stacks', 0)
+            # Remove curse (call expire for cleanup)
+            monster.status_effects = [e for e in monster.status_effects if e is not curse]
+            curse.expire(monster, engine)
+
+            if curse_id == "curse_of_ham":
+                _detonate_ham(engine, monster, stacks)
+            elif curse_id == "curse_dot":
+                _detonate_dot(engine, monster, stacks)
+            elif curse_id == "curse_covid":
+                _detonate_covid(engine, monster, stacks)
+            detonation_count += 1
+
+    if detonation_count > 0:
+        bonus_xp = round(50 * detonation_count * engine.player_stats.xp_multiplier)
+        engine.skills.gain_potential_exp(
+            "Blackkk Magic", bonus_xp,
+            engine.player_stats.effective_book_smarts,
+            briskness=engine.player_stats.total_briskness,
+        )
+        engine.messages.append([
+            (f"Detonated {detonation_count} curse(s)! ", (180, 80, 220)),
+            (f"+{bonus_xp} Blackkk Magic XP", (200, 160, 255)),
+        ])
+
+
+def _detonate_ham(engine, monster, stacks):
+    """Curse of Ham detonation: apply breakable stun with duration = stacks."""
+    duration = max(1, stacks)
+    effects.apply_effect(monster, engine, "voodoo_ham_stun",
+                         duration=duration, silent=True)
+    engine.messages.append([
+        (f"{monster.name}: ", (200, 200, 200)),
+        ("Curse of Ham detonates! ", (140, 60, 180)),
+        (f"Stunned for {duration} turns!", (255, 200, 100)),
+    ])
+    if engine.sdl_overlay:
+        engine.sdl_overlay.add_tile_flash_ripple(
+            [(monster.x, monster.y)], monster.x, monster.y,
+            color=(140, 60, 180), duration=0.8,
+        )
+
+
+def _detonate_dot(engine, monster, stacks):
+    """Curse of DOT detonation: 2*stacks damage in a 5x5 area centered on monster."""
+    damage = max(1, 2 * stacks)
+    cx, cy = monster.x, monster.y
+
+    # 5x5 AOE (2-tile Chebyshev radius)
+    aoe_tiles = []
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            ax, ay = cx + dx, cy + dy
+            if max(abs(dx), abs(dy)) <= 2 and not engine.dungeon.is_terrain_blocked(ax, ay):
+                aoe_tiles.append((ax, ay))
+
+    if engine.sdl_overlay:
+        engine.sdl_overlay.add_tile_flash_ripple(
+            aoe_tiles, cx, cy,
+            color=(180, 40, 180), duration=1.0, ripple_speed=0.04,
+        )
+
+    hit_targets = set()
+    for ax, ay in aoe_tiles:
+        for entity in engine.dungeon.get_entities_at(ax, ay):
+            if entity.entity_type == "monster" and entity.alive and entity not in hit_targets:
+                entity.take_damage(damage)
+                hit_targets.add(entity)
+
+    engine.messages.append([
+        (f"Curse of DOT detonates on {monster.name}! ", (140, 60, 180)),
+        (f"{damage} damage to {len(hit_targets)} target(s)!", (255, 100, 100)),
+    ])
+
+    for entity in hit_targets:
+        if not entity.alive:
+            engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
+
+
+def _detonate_covid(engine, monster, stacks):
+    """Curse of COVID detonation: double tox+rad, force mutations until rad depleted."""
+    import mutations as _mut
+
+    old_tox = getattr(monster, 'toxicity', 0)
+    old_rad = getattr(monster, 'radiation', 0)
+
+    monster.toxicity = old_tox * 2
+    monster.radiation = old_rad * 2
+
+    engine.messages.append([
+        (f"{monster.name}: ", (200, 200, 200)),
+        ("Curse of COVID detonates! ", (80, 180, 60)),
+        (f"Tox {old_tox}\u2192{monster.toxicity}, Rad {old_rad}\u2192{monster.radiation}", (120, 220, 100)),
+    ])
+
+    mutation_count = 0
+    max_mutations = 20
+    while (monster.alive
+           and getattr(monster, 'radiation', 0) >= _mut.MONSTER_RAD_THRESHOLD
+           and mutation_count < max_mutations):
+        _mut.force_monster_mutation(engine, monster)
+        mutation_count += 1
+
+    if mutation_count > 0:
+        engine.messages.append([
+            (f"{monster.name} undergoes {mutation_count} forced mutation(s)!", (180, 80, 220)),
+        ])
+
+    if engine.sdl_overlay:
+        engine.sdl_overlay.add_tile_flash_ripple(
+            [(monster.x, monster.y)], monster.x, monster.y,
+            color=(80, 220, 60), duration=1.2,
+        )

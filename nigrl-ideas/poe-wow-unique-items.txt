@@ -1,0 +1,1559 @@
+================================================================================
+POE / WOW INSPIRED UNIQUE ITEMS — BATCH 1 (25 items)
+Design philosophy: Path of Exile rule-breaking uniques + WoW proc/stacking
+legendaries. Every item has a TRULY build-defining mechanic with real tradeoffs.
+================================================================================
+
+DESIGN PHILOSOPHY NOTES
+------------------------
+Path of Exile inspiration used here:
+  - Rule inversion: "your crits do not deal extra damage BUT..."
+  - Conversion: one stat type feeds another completely
+  - Cannot + powerful compensation ("Cannot be healed; gain 20% DR per turn")
+  - Threshold bonuses kicking in at a breakpoint
+  - Items that make previously-bad stats attractive
+  - Build-enabling uniques that unlock a playstyle from scratch
+
+World of Warcraft inspiration used here:
+  - RPPM (real procs per minute): meaningful proc rates on specific triggers
+  - Stacking "Azerite" style buffs that build to a threshold explosion
+  - Execute phase bonuses (below 20%/25%/35% HP)
+  - Cooldown transformation windows (e.g., combo point → execute window)
+  - Set-bonus logic adapted to single items (conditional second effect)
+  - Resource conversion (energy/meth/tox as alternate power sources)
+
+================================================================================
+ITEM 01 — GLASS CANNON
+================================================================================
+Slot:     weapon (stabbing)
+Char:     / (ASCII)
+Color:    (220, 240, 255) — pale ice-blue
+Tags:     ["glass_cannon", "unique"]
+Zones:    []
+Item ID:  glass_cannon
+
+POE Inspiration: Presence of Chayula — replaces a fundamental defensive layer with
+an equally fundamental offensive one. "Cannot be stunned" + "20% of damage taken
+gained as Energy Shield." Here: no physical armor, but attacks deal bonus damage
+equal to your missing armor.
+
+CONCEPT SUMMARY
+A slender glass shiv ground from a lab flask. Zero armor of its own, and wearing
+it REMOVES all armor from every other equipment source. Your total max_armor is
+forced to 0 while this is equipped. In exchange: each melee hit deals bonus damage
+equal to 1 + (armor_you_would_have_had / 4), where "would-have-had" is tracked as
+a hidden field glass_cannon_suppressed_armor on the item entity. This converts your
+entire defensive investment into raw offense, but strips you of the attrition buffer.
+
+MECHANICAL SPECIFICATION
+- base_damage: 12
+- str_req: 8
+- weapon_type: "stabbing"
+- str_scaling: {"type": "tiered", "divisor": 2}
+- reach: 1
+- Tag: "glass_cannon"
+- On equip: record engine.player_stats.permanent_armor_bonus + sum of armor_bonus from
+  all currently worn neck/feet/hat as weapon.glass_cannon_suppressed_armor; set a
+  glass_cannon_active flag on engine. While active, _compute_player_max_armor() returns
+  0 (all armor_bonus contributions ignored). Deal bonus flat damage each melee hit =
+  max(0, weapon.glass_cannon_suppressed_armor // 4).
+- On unequip: clear flag, restore normal armor computation.
+
+IMPLEMENTATION NOTES
+- New engine flag: glass_cannon_equipped (bool). Set in inventory_mgr.py on equip.
+- Modify _compute_player_max_armor() to return 0 if glass_cannon_equipped.
+- In handle_attack(), after base damage roll, add glass_cannon_bonus if flag is set.
+- Suppressed armor snapshot taken at equip time; updates if player equips/unequips
+  other items while Glass Cannon is in weapon slot.
+
+BALANCE CONSIDERATIONS
+- Typical neck+hat armor contribution: 30-80 armor. At 60 armor: +15 flat damage.
+  That is massive on a base-12 stabbing weapon at STR 10 (total ~20 base).
+- The player completely forgoes the Temp HP → Armor → HP damage absorption chain.
+  Any direct hit leaks straight to HP. High-risk, high-reward.
+- Pairs with: healing sustain (Bone Club vampiric doesn't stack here), Iron Lung
+  strain (tox armor conversion), status effect immunity builds.
+- Anti-synergy: L Farming L4 "Armor Up" becomes useless (armor=0 disables it).
+
+TRADEOFF SUMMARY
+UPSIDE: potentially +10-25 flat damage per hit from armor conversion.
+DOWNSIDE: zero armor, making even light hits pierce directly to HP.
+
+================================================================================
+ITEM 02 — BORROWED TIME
+================================================================================
+Slot:     ring
+Char:     o (ASCII)
+Color:    (80, 60, 140) — deep purple-violet
+Tags:     ["borrowed_time", "unique"]
+Zones:    []
+Item ID:  borrowed_time_ring
+
+POE Inspiration: Replica Kaom's Heart — "You have no mana regeneration; your life
+regenerates at 2% per second." Converts an otherwise useless resource into something
+meaningful. Here: your HP regenerates passively, but kills are the only source of
+energy recovery.
+
+CONCEPT SUMMARY
+An amethyst ring carved with hourly ticks. While equipped, the player regenerates
+5 HP per turn passively (via a permanent floor-duration HoT effect). However, the
+player's energy no longer accumulates passively — their energy refills ONLY from
+kills. Each kill grants a flat 120 energy (enough for 1.2 actions). This completely
+restructures engagement: the player must keep killing to take actions.
+
+MECHANICAL SPECIFICATION
+- stat_bonus: {} (no direct stat changes)
+- Tag: "borrowed_time"
+- On equip: apply a permanent floor-duration "borrowed_time_hot" effect to the player
+  (5 HP/turn). This effect also sets a flag engine.borrowed_time_equipped = True.
+- Modify _run_energy_loop(): when borrowed_time_equipped is True, players do NOT gain
+  energy from the base tick distribution. Instead, when an entity_died event fires
+  with killer=engine.player, grant engine.player.energy += 120.
+- On unequip: remove the "borrowed_time_hot" effect; clear the engine flag; restore
+  normal energy accumulation.
+
+IMPLEMENTATION NOTES
+- New Effect subclass "BorrowedTimeHotEffect" (id="borrowed_time_hot"): heals 5/turn,
+  floor_duration=True, never expires unless ring is unequipped.
+- In _run_energy_loop(), gate the player energy tick behind `not borrowed_time_equipped`.
+- In the entity_died event handler in engine.py: if killer == player and
+  borrowed_time_equipped: player.energy += 120.
+- If player is stunned and can't kill: they literally cannot act. Maximum tension.
+
+BALANCE CONSIDERATIONS
+- 5 HP/turn is significant (at 130 max HP: ~4% per turn). Replaces all healing
+  consumable need over a long floor.
+- 120 energy per kill = just over 1 action per kill. With melee this means
+  kill → attack → need another kill to attack again. Forces efficient routing.
+- On very sparse floors or boss rooms with no trash: catastrophic energy starve.
+- Pairs well with: fast-moving Boots builds (spring/stride), area control.
+- Anti-synergy: any "wait and heal" strategy is now energy-negative.
+
+TRADEOFF SUMMARY
+UPSIDE: 5 HP/turn passive regen (never need to use healing items).
+DOWNSIDE: cannot accumulate energy without kills — standing still = frozen.
+
+================================================================================
+ITEM 03 — LAST RESORT
+================================================================================
+Slot:     sidearm (gun, small class)
+Char:     ) (ASCII)
+Color:    (255, 50, 50) — crisis red
+Tags:     ["last_resort_gun", "unique"]
+Zones:    []
+Item ID:  last_resort
+
+POE/WoW Inspiration: Thrill of the Kill (WoW execute proc) + PoE "Damage is Lucky"
+at low life. WoW execute phase: abilities gain massive damage bonuses when the target
+is below a threshold. Here: the gun does nothing above 35% HP. Below 35% HP, it
+becomes the most powerful sidearm in the game.
+
+CONCEPT SUMMARY
+A battered Saturday night special. When the target is above 35% HP, all shots deal
+the gun's minimum base_damage with no crits. When the target drops below 35% HP,
+Last Resort enters "execute mode" — shots deal 3x damage and ignore all defense.
+Single shot per shot action (mag_size 6, light ammo).
+
+MECHANICAL SPECIFICATION
+- base_damage: (4, 16)  — 4 minimum above threshold, 16 max below
+- gun_range: 5
+- ammo_type: "light"
+- mag_size: 6
+- gun_class: "small"  (sidearm slot)
+- reload_speed: 0
+- Tag: "last_resort_gun"
+- Special: in _resolve_gun_shot(), check if target.hp / target.max_hp < 0.35.
+  If yes: damage = max(base_damage) * 3, no defense subtracted (deal_damage skips
+  _compute_player_defense for this weapon).
+  If no: damage = min(base_damage), no crit possible (is_crit forced False).
+- firing_modes: {"accurate": {"hit": 95, "energy": 60}, "fast": {"hit": 75, "energy": 40}}
+
+IMPLEMENTATION NOTES
+- Add last_resort handling in gun_system.py _resolve_gun_shot() after damage roll:
+  check for "last_resort_gun" tag, branch on HP ratio.
+- Execute damage bypasses defense (not toxicity — tox still applies).
+- Gun crits: disabled entirely above threshold. Below threshold, crits apply on top
+  of the execute bonus (Gatting/Sniping L3 still works for the extra multiplier).
+
+BALANCE CONSIDERATIONS
+- Above 35% HP: 4 damage -defense = possibly 0-2 effective damage. Almost useless.
+  Encourages melee-down to threshold then switch to sidearm for finish.
+- Below 35% HP: 48 damage ignoring all defense = one-shots most enemies at this stage.
+  Boss enemies with 200+ HP: still takes 3-4 shots. Not a complete trivialization.
+- Pairs with: melee+sidearm combo builds, Sniping tree (L3 mega crit below threshold
+  would be absurd at 48 * 4 = 192 dmg).
+- Anti-synergy: pure gun builds that want consistent damage above threshold.
+
+TRADEOFF SUMMARY
+UPSIDE: massive execute burst below 35% HP, defense-ignoring.
+DOWNSIDE: almost no damage against healthy targets — cannot open fights with it.
+
+================================================================================
+ITEM 04 — THE EMPTIES
+================================================================================
+Slot:     hat
+Char:     ^ (ASCII)
+Color:    (180, 200, 220) — dull can-metal silver
+Tags:     ["the_empties", "unique"]
+Zones:    []
+Item ID:  the_empties
+
+WoW Inspiration: Gorefiend's Grasp (AoE root as a passive aura-style mechanic).
+PoE Inspiration: Replica Atziri's Mirror — reflects a portion of damage back.
+Here: adapted to the Tolerance stat as the primary offensive scaling mechanism.
+
+CONCEPT SUMMARY
+A crown of crushed empty beer cans duct-taped together. Grants +3 TOL and -3 SWG.
+While equipped, any time the player takes 10+ damage in a single hit, they
+immediately "crack open another one" — the damage is reduced by 30% AND a random
+debuff (slow/confuse/stun) is applied to the attacker. This rewards high-Tolerance
+tanky builds that want to eat hits and punish attackers.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 15
+- stat_bonus: {"tolerance": 3, "swagger": -3}
+- Tag: "the_empties"
+- On equip: set engine.empties_equipped = True.
+- New modify_incoming_damage hook in a passive engine check (not an Effect): when
+  empties_equipped and damage >= 10, multiply damage by 0.70 (30% reduction), then
+  apply a random debuff (1: slow dur 5; 2: confuse dur 4; 3: stun dur 2) to the
+  attacker if it is a monster within melee range. The proc fires at most once per
+  hit (not once per tick).
+- Tox resistance: +15 (Tolerance-themed)
+- Rad resistance: 0
+
+IMPLEMENTATION NOTES
+- Cleanest implementation: in combat.py handle_attack(), after initial damage compute
+  but before deal_damage(), check for empties_equipped tag and damage >= 10.
+  Apply the 30% reduction inline; then apply_effect to attacker.
+- The -3 SWG means swagger defense drops by ~1-2 points (swagger 8→5: defense -2).
+  This partially cancels the armor bonus for a net very slightly positive defense.
+- Random debuff should use random.choice(["slow", "confuse", "stun"]) with durations
+  tuned as above.
+
+BALANCE CONSIDERATIONS
+- At TOL 12 (base) + 3 bonus = 15: Tolerance becomes very potent (strain multi-rolls).
+  The -3 SWG from 8 → 5 reduces defense from 0 to -2 (net -2 melee defense).
+  The +15 armor partially covers this, but the swap is: swagger defense for TOL power.
+- 30% damage reduction on big hits (10+): significant against hard-hitting bosses.
+  Against weak trash (5-8 damage each): no proc, armor does most of the work.
+- Pairs with: Iron Lung strain (tox armor conversion), Tolerance-scaling builds.
+
+TRADEOFF SUMMARY
+UPSIDE: +3 TOL, 30% damage reduction + debuff proc on heavy hits, +15% tox resist.
+DOWNSIDE: -3 SWG means -1 to -2 melee defense depending on base.
+
+================================================================================
+ITEM 05 — PREACHER'S BELT
+================================================================================
+Slot:     neck
+Char:     " (same as chains)
+Color:    (80, 60, 40) — dark leather
+Tags:     ["preachers_belt", "unique"]
+Zones:    []
+Item ID:  preachers_belt
+
+PoE Inspiration: Coward's Trial — inverts a penalty into a mechanic. Here: the
+player's toxicity, normally a harmful status, now deals reflected damage to attackers.
+
+CONCEPT SUMMARY
+A cracked leather belt worn as a necklace. The player gains +1 melee damage for
+every 20 toxicity they carry (rounded down). Additionally, when a monster deals melee
+damage to the player, the monster receives toxicity damage equal to 10% of the
+player's current toxicity (minimum 1). Encourages players to deliberately carry high
+toxicity as a weapon.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 0
+- defense_bonus: 2
+- stat_bonus: {}
+- tox_resistance: -20  (takes 20% MORE toxicity — feeds the mechanic)
+- Tag: "preachers_belt"
+- On equip: set engine.preachers_belt_equipped = True.
+- Passive damage bonus: in _compute_player_attack_power(), if preachers_belt_equipped:
+  atk_power += engine.player.toxicity // 20
+- Tox thorns: in handle_attack(), when defender == engine.player and preachers_belt_equipped
+  and attacker is a monster: add_toxicity(engine, attacker, max(1, engine.player.toxicity // 10))
+
+IMPLEMENTATION NOTES
+- add_toxicity already exists in combat.py. Call it from handle_attack() after
+  deal_damage() to attacker (monster that just hit the player).
+- Toxicity//20 damage bonus: at 100 tox = +5 damage, at 200 tox = +10 damage.
+  This is meaningful scaling without being absurd.
+- -20% tox resistance means tox sources hit harder (more gain = more bonus).
+- The tox-thorns synergizes with Chemical Warfare XP gain.
+
+BALANCE CONSIDERATIONS
+- Typical late-game toxicity for a tox-tanker: 100-200. That's +5 to +10 melee bonus.
+  Combine with tox-scaling strains (Nigle Fart): very high sustained tox.
+- The -20 tox resistance is a real downside; at high tox: 1.0 + (200/200)^0.6 = ~1.9x
+  incoming damage multiplication already, so the tox thorns reflect ALSO more.
+- Pairs with: Iron Lung (dump tox → convert to armor), Nigle Fart, Chemical Warfare tree.
+- Anti-synergy: White Power tree (purging tox removes your damage bonus).
+
+TRADEOFF SUMMARY
+UPSIDE: tox-to-melee conversion + tox thorns on hit.
+DOWNSIDE: -20 tox resistance (you take 20% more toxicity — feeding the engine).
+
+================================================================================
+ITEM 06 — THINKIN' MAN'S HEATER
+================================================================================
+Slot:     weapon (beating)
+Char:     / (ASCII)
+Color:    (160, 80, 40) — rust orange
+Tags:     ["thinkin_mans_heater", "unique"]
+Zones:    []
+Item ID:  thinkin_mans_heater
+
+PoE Inspiration: Rune Scraper's BKS scaling model pushed further — weapon damage
+scales ONLY off Book-Smarts, not Strength. WoW: Arcane Intellect powering melee.
+
+CONCEPT SUMMARY
+A cast-iron heater core torn from a radiator. All melee damage from this weapon
+ignores STR completely. Instead, damage scales linearly with Book-Smarts.
+The base damage is low (8), but each point of BKS above 6 adds +2 flat damage.
+At BKS 12: base 8 + (12-6)*2 = 20 damage. Additionally: every time the player lands
+a critical strike with this weapon, they gain 1 temporary BKS for 10 turns (stacking,
+max +4). This creates a feedback loop rewarding high BKS builds.
+
+MECHANICAL SPECIFICATION
+- base_damage: 8
+- str_req: 1  (no meaningful STR gating)
+- str_scaling: {"type": "none"}  (explicitly no STR)
+- bks_scaling: {"divisor": 0.5}  — special: 2x scaling (not standard 1/2)
+  Implementation: override in _compute_str_bonus(): if bks_scaling and multiplier=2,
+  return (bks - bks_req) * 2 per point above bks_req=6
+- bks_req: 6
+- weapon_type: "beating"
+- reach: 1
+- Tag: "thinkin_mans_heater"
+- On crit: apply_effect(player, engine, "bks_surge", stacks=1, duration=10)
+  BksSurgeEffect: floor-capped stack adds +1 temporary BKS per stack (max 4 stacks).
+  On reapply: only add stack if stacks < 4.
+- armor_bonus: 0  (heater has no defensive purpose)
+
+IMPLEMENTATION NOTES
+- New Effect "BksSurgeEffect" (id="bks_surge"): adds +1 temporary BKS on apply,
+  removes it on expire. on_reapply: if stacks < 4: stacks++, add +1 temp BKS.
+  Duration 10 per stack, refreshes the highest stack's timer on reapply.
+- Crit detection: in handle_attack(), after is_crit check, check for "thinkin_mans"
+  tag and trigger the effect.
+- NOTE: the BKS surge boosts the weapon's own damage calculation (BKS → damage)
+  creating a genuine feedback loop.
+
+BALANCE CONSIDERATIONS
+- At BKS 12: 8 + 12 = 20 base damage (no STR needed). With BKS surge x4 (+4 BKS):
+  8 + (16-6)*2 = 28. With STR 6 (minimum), this is strictly BKS-scaling.
+- Street Smarts 6: 18% crit. High BKS players likely have moderate STS. The surge
+  caps at +4 stacks, so it doesn't scale out of control.
+- Competes directly with Rune Scraper (also BKS-scaling stabbing). Beating vs
+  stabbing and +2/BKS vs +1/2BKS creates different calibration for the same resource.
+- Pairs with: Kushenheimer (BKS spell synergy), Book-Smarts ring stacking.
+
+TRADEOFF SUMMARY
+UPSIDE: strong BKS-to-melee conversion + crit feedback loop.
+DOWNSIDE: no STR scaling at all; low critters get mediocre damage.
+
+================================================================================
+ITEM 07 — ACCOUNTABILITY MIRROR
+================================================================================
+Slot:     ring
+Char:     o (ASCII)
+Color:    (200, 200, 200) — silver-white
+Tags:     ["accountability_mirror", "unique"]
+Zones:    []
+Item ID:  accountability_mirror
+
+PoE Inspiration: Replica Soul Tether — converts a damage type into a different
+resource entirely. Here: the ring makes all DAMAGE YOU TAKE convert to ability
+charges rather than HP loss, but only up to a cap before the HP damage resumes.
+
+CONCEPT SUMMARY
+A small hand mirror you wear as a ring. Once per floor, when you take damage, the
+first 30 points of damage that turn are absorbed and converted into ability charges
+(+1 charge for each 10 damage absorbed, distributed to your lowest-charge ability).
+After the 30-point charge budget is spent, all further damage hits HP normally.
+Resets each new floor. While the budget is available: incoming damage triggers the
+charge conversion instead of the damage pipeline.
+
+MECHANICAL SPECIFICATION
+- stat_bonus: {}
+- Tag: "accountability_mirror"
+- New engine state: accountability_mirror_budget (int, reset to 30 each floor change)
+- On equip: initialize budget to 30 if not set.
+- In modify_incoming_damage (via a new AccountabilityEffect that is applied on equip):
+  if budget > 0: absorb = min(damage, budget); budget -= absorb; damage -= absorb;
+  find lowest-charge non-INFINITE ability in engine.abilities; grant charges = absorb//10.
+  If no abilities with charges: no charge grant (budget still depletes).
+- On floor change: reset accountability_mirror_budget = 30.
+
+IMPLEMENTATION NOTES
+- Cleanest as a permanent Effect subclass applied on equip. The budget tracking lives
+  on the engine (not the effect itself) since it needs floor-reset logic in
+  engine's floor-transition code.
+- New effect: "AccountabilityMirrorEffect" (id="accountability_mirror_eff"):
+  floor_duration=True; its modify_incoming_damage checks engine.accountability_mirror_budget.
+- Edge case: at budget=0 this ring is purely decorative until next floor.
+- Multiple rings: only one Accountability Mirror can be equipped (unique tag prevents
+  duplication in ring replacement logic).
+
+BALANCE CONSIDERATIONS
+- 30 hp-to-charges per floor. If the player has a PER_FLOOR ability with max_charges=3
+  (e.g., Burst from Gatting): at 30 dmg absorbed → 3 extra charges per floor free.
+  Against abilities with large max_charges: meaningless (1-3 extra).
+- Primarily useful for TOTAL charge abilities or expensive PER_FLOOR abilities.
+- No stat bonus means you're trading a ring slot for a conditional charge mechanic.
+  Worth it for ability-heavy builds; weak for melee-only builds with no abilities.
+- Anti-synergy: builds with only INFINITE abilities (melee, smoking) gain zero.
+
+TRADEOFF SUMMARY
+UPSIDE: up to 30 damage absorbed into ability charges per floor.
+DOWNSIDE: no stats; charges only generated once per floor budget; useless without charges.
+
+================================================================================
+ITEM 08 — PROPHET'S PONCHO
+================================================================================
+Slot:     hat
+Char:     ^ (ASCII)
+Color:    (180, 120, 60) — dry earth brown
+Tags:     ["prophets_poncho", "unique"]
+Zones:    []
+Item ID:  prophets_poncho
+
+WoW Inspiration: Premonition / Worldvein Resonance — "on-hit" proc that buffs
+nearby allies, adapted here to be a defensive PREDICTION mechanic. PoE: Aegis Aurora
+(on block, gain shield; adapted to "on kill, predict and dodge next").
+
+CONCEPT SUMMARY
+A tattered poncho once belonging to someone who could see the future. On every kill,
+the poncho grants a single "Prophecy" charge. When the player has at least 1 Prophecy
+charge and takes a melee hit, the hit is DODGED (completely negated) and 1 charge is
+consumed. Maximum 3 Prophecy charges stack. They persist across floors but decay —
+lose 1 charge per floor if you don't kill anything that floor.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 0
+- stat_bonus: {"street_smarts": 1}  — minor STS bonus (see the future)
+- Tag: "prophets_poncho"
+- New engine state: prophecy_charges (int, 0-3); persistent across floors.
+- On kill (entity_died, killer=player): if prophecy_charges < 3: prophecy_charges += 1;
+  message: "Prophecy! (+N charges)"
+- In handle_attack() when defender == engine.player: check prophecy_charges > 0.
+  If yes: prophecy_charges -= 1; return early (dodge the hit completely, no damage).
+  Message: "Prophecy dodge! ({prophecy_charges} charges left)"
+- Floor change: if no kills were made on that floor: prophecy_charges = max(0, charges-1).
+  Track via a per-floor kill flag reset on floor change.
+- No hat resistance bonuses (replaces the hat's normal tox/rad prefix system).
+
+IMPLEMENTATION NOTES
+- Kill tracking: engine already fires entity_died events; add prophecy charge logic there.
+- Per-floor kill flag: engine.prophecy_killed_this_floor (bool), reset to False on
+  floor change. Set to True on any kill while poncho equipped.
+- Floor transition code: in engine.py next_floor(), after floor change: if not
+  prophecy_killed_this_floor and prophecy_charges > 0: prophecy_charges -= 1.
+- The dodge check runs BEFORE the normal dodge_chance check (priority). Unique tag
+  ensures at most one poncho equipped.
+
+BALANCE CONSIDERATIONS
+- Max 3 charges. Active play: kill 3 enemies, then next 3 melee hits are free dodges.
+  Against enemies that hit hard (10-30 damage): 3 free dodges = 30-90 hp saved.
+- Empty floor (corridor choke): charges decay. Punishes passive play.
+- Pairs well with: aggressive melee builds that kill rapidly (always near cap).
+- Anti-synergy: stealth/waiting builds; sniping builds where melee rarely happens.
+
+TRADEOFF SUMMARY
+UPSIDE: up to 3 guaranteed melee dodges (kill-generated); charge persistent across floors.
+DOWNSIDE: no armor; charges decay on empty floors; only 1 STS bonus.
+
+================================================================================
+ITEM 09 — DEADWEIGHT SHANK
+================================================================================
+Slot:     weapon (stabbing)
+Char:     / (ASCII)
+Color:    (100, 100, 100) — gunmetal grey
+Tags:     ["deadweight_shank", "unique"]
+Zones:    []
+Item ID:  deadweight_shank
+
+PoE Inspiration: The Saviour / Replica Blood Rage — your kills actively empower you
+in a way that stacks, then vanishes. WoW: Stacking damage buff that expires after
+X seconds (e.g. Adrenaline Rush). Here: kills stack "Deadweight" but the stacks
+expire if you don't keep killing.
+
+CONCEPT SUMMARY
+A leaden prison shank that gets heavier with every body it drops. Each kill with this
+weapon adds 1 "Deadweight" stack. Each stack gives +3 melee damage and -2% dodge.
+Stacks expire (ALL at once) if the player goes 10 consecutive turns without a kill.
+Maximum 5 stacks. At max stacks with the weapon: +15 damage, -10% dodge. The
+all-at-once expiry creates a dramatic risk: overextending loses everything.
+
+MECHANICAL SPECIFICATION
+- base_damage: 9
+- str_req: 6
+- str_scaling: {"type": "tiered", "divisor": 2}
+- weapon_type: "stabbing"
+- reach: 1
+- Tag: "deadweight_shank"
+- New engine state: deadweight_stacks (int 0-5), deadweight_no_kill_turns (int, reset
+  on kill, cap-check at 10).
+- On kill with this weapon: deadweight_stacks = min(5, stacks+1); reset no_kill_turns=0.
+  Update player_stats: +3 damage per new stack in temp_attack_bonus (handled like
+  sleeper_agent but via player_stats.melee_damage_bonus), -2 dodge_chance per stack.
+- Each turn without kill (tracked in _run_energy_loop): no_kill_turns += 1.
+  If no_kill_turns >= 10: reset all stacks; reverse all bonuses; message "Deadweight lost!"
+- On unequip: clear all stacks and reverse all bonuses.
+
+IMPLEMENTATION NOTES
+- melee_damage_bonus field on PlayerStats: add to atk_power in _compute_player_attack_power().
+- Dodge penalty: player_stats.dodge_chance is already a field; add -2*stacks inline.
+  On reset: restore dodge_chance.
+- Kill check: use existing entity_died event; also confirm weapon is Deadweight Shank.
+- No-kill timer: increment in _run_energy_loop on each PLAYER turn (not per tick).
+
+BALANCE CONSIDERATIONS
+- At 5 stacks: base 9 + STR scaling (say +4 at STR 10) + 15 = 28 base damage. Strong.
+  But -10% dodge means that if you already had 15% dodge chance: you're at 5%.
+- The 10-turn timer means corridor exploration between rooms resets stacks easily.
+  Forces players to chain rooms quickly.
+- Pairs with: aggressive melee players who clear rooms fast.
+- Anti-synergy: cautious/careful play styles; any build relying on dodge.
+
+TRADEOFF SUMMARY
+UPSIDE: +3 dmg/kill up to +15; stacks on kill.
+DOWNSIDE: -2% dodge per stack; all stacks expire on 10-turn kill drought.
+
+================================================================================
+ITEM 10 — STATIC DISCHARGE RING
+================================================================================
+Slot:     ring
+Char:     o (ASCII)
+Color:    (255, 255, 80) — electric yellow
+Tags:     ["static_discharge", "unique"]
+Zones:    []
+Item ID:  static_discharge_ring
+
+WoW Inspiration: Thunderfury (proc chain lightning to nearby enemies). PoE: Choir
+of the Storm (trigger lightning on crit). Here: crits chain lightning to adjacent
+enemies, creating a cleave mechanic on a ring.
+
+CONCEPT SUMMARY
+A yellow rubber ring wrapped in copper wire. Whenever the player lands a critical
+strike on any melee attack, a static discharge arcs to up to 2 additional adjacent
+enemies, dealing (crit_damage * 0.40) to each. The arc cannot crit. Each arc target
+also receives 1 stack of Shocked (10% increased damage taken per stack). Downside:
+the player receives 1 shocked stack themselves on every crit discharge.
+
+MECHANICAL SPECIFICATION
+- stat_bonus: {"street_smarts": 2}  — boosts crit chance to make it valuable
+- Tag: "static_discharge"
+- In handle_attack(), after is_crit branch when player crits:
+  if static_discharge equipped: find up to 2 living monsters within Chebyshev 1 of
+  the primary target (not the primary target itself). For each arc target:
+  arc_damage = int(damage * 0.40); deal_damage(engine, arc_damage, arc_target).
+  apply_effect(arc_target, engine, "shocked", stacks=1, silent=True).
+  apply_effect(engine.player, engine, "shocked", stacks=1, silent=True).
+  Message: "Static Discharge! Arc to N enemies."
+- No change to primary crit damage.
+
+IMPLEMENTATION NOTES
+- Shocked effect already exists in effects.py (adds 10% incoming damage per stack).
+  Check ShockedEffect for stacking behavior.
+- Arc targets: iterate dungeon.get_entities_at() in the 8 adjacent tiles of the
+  primary defender; take first 2 alive monsters.
+- Player self-shocking: this means the player takes 10% more damage per charged crit.
+  In an active fight with 3 crits: +30% incoming. Meaningful trade.
+- The +2 STS means this ring rewards investment in Street-Smarts (18+6=24% crit at
+  STS 12). High STS builds chain discharge every 4 attacks on average.
+
+BALANCE CONSIDERATIONS
+- At STS 12 + ring = 42% crit: very frequent discharges in multi-enemy rooms.
+  But each one adds a self-shocked stack (10% more incoming damage).
+  After 5 crits with 2 enemies adjacent: +50% incoming. Very dangerous.
+- Pairs with: AoE fighting (crowded rooms), Electrodynamics (Surge on lightning hit
+  won't trigger from arcs — only direct hits. Design intent: no double-dip.)
+- Anti-synergy: solo-target encounters (only 1 enemy = no arc value, only self-shock).
+
+TRADEOFF SUMMARY
+UPSIDE: +2 STS + cleave arcs on crit (40% damage to 2 extra targets + Shocked).
+DOWNSIDE: self-Shocked on every crit discharge (+10% incoming per proc, accumulating).
+
+================================================================================
+ITEM 11 — CORNER STORE CHROME
+================================================================================
+Slot:     sidearm (gun, small class)
+Char:     ) (ASCII)
+Color:    (210, 210, 210) — chrome silver
+Tags:     ["corner_store_chrome", "unique"]
+Zones:    []
+Item ID:  corner_store_chrome
+
+PoE Inspiration: Hyrri's Ire — converts a defensive stat (evasion) into offense.
+Here: the gun's damage is determined entirely by the player's current armor value,
+not by a flat base damage range. Rewards tanks for going aggro.
+
+CONCEPT SUMMARY
+A cheaply chromed .22 you bought at the corner store for $40. It has no inherent
+stopping power — the bullets deal exactly 1 damage base. BUT each point of the
+player's current armor value at the moment of firing adds +1 damage. If you've got
+80 armor up: each shot deals 81 damage. If armor is depleted: 1 damage per shot.
+This completely reframes armor as an offensive resource.
+
+MECHANICAL SPECIFICATION
+- base_damage: (1, 1)
+- gun_range: 4
+- ammo_type: "light"
+- mag_size: 12
+- gun_class: "small"
+- reload_speed: 0
+- Tag: "corner_store_chrome"
+- In _resolve_gun_shot(): after accuracy check, compute actual damage as:
+  actual_damage = 1 + engine.player.armor   (current armor, not max_armor)
+  No gun crit possible unless Gatting/Sniping L3+ applies normal crit roll.
+  Apply STS gun bonus normally (+1/5 STS).
+- firing_modes: {"accurate": {"hit": 85, "energy": 60}, "fast": {"hit": 65, "energy": 35}}
+
+IMPLEMENTATION NOTES
+- In _resolve_gun_shot(): ignore the base_damage roll entirely; replace with
+  1 + engine.player.armor. Apply STS bonus on top.
+- This means any armor source (armor regen effects, chains, the player's current
+  armor HUD value) directly scales gun damage.
+- Armor on the player is the "current" pool (starts at max_armor each floor, depleted
+  by hits). So the gun is strongest at floor start and weakens as combat progresses.
+
+BALANCE CONSIDERATIONS
+- At max armor 80 (Designer Gold Chain + various bonuses): 81 + STS bonus per shot.
+  From a sidearm slot. Against light enemies at 6-10 HP: one-shot.
+  Against bosses at 150 HP: needs a couple shots with fresh armor.
+- Armor depletes in fights. After 3-4 hits: armor might be 30. Damage drops to 31.
+  Creates the incentive to play defensively between gun shots to let armor regen.
+- Armor regen effects (Armor Up proc from L Farming L4): directly boost damage.
+- Anti-synergy: Glass Cannon weapon (which forces armor=0 — shoots for 1 damage).
+
+TRADEOFF SUMMARY
+UPSIDE: damage = current armor value (can deal 80+ per shot at full armor).
+DOWNSIDE: 1 base damage if armor depleted; sidearm means you're melee-primary.
+
+================================================================================
+ITEM 12 — COWARD'S COAT
+================================================================================
+Slot:     neck
+Char:     " (ASCII)
+Color:    (220, 220, 200) — faded khaki
+Tags:     ["cowards_coat", "unique"]
+Zones:    []
+Item ID:  cowards_coat
+
+PoE Inspiration: Kaom's Heart removes all flask slots for massive HP. Here: the
+neck slot item PREVENTS the player from making melee attacks entirely. In exchange,
+it grants enormous defensive bonuses. A pure pacifist-defensive item.
+
+CONCEPT SUMMARY
+A thick military-surplus coat that covers your arms so completely you literally
+cannot swing. While equipped: melee attacks are disabled (attempting melee does
+nothing). In exchange: +8 defense, +80 armor, +30% tox resistance, +30% rad
+resistance. Forces the player to rely entirely on guns, abilities, and status effects
+to deal damage. A PoE-style "Cannot do X" with massive compensation.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 80
+- defense_bonus: 8
+- tox_resistance: 30
+- rad_resistance: 30
+- stat_bonus: {}
+- Tag: "cowards_coat"
+- In handle_attack(): if attacker == engine.player and cowards_coat equipped: return
+  without attacking. Message: "Your coat restricts your arms! (Coward's Coat)"
+- Gun attacks, abilities, throwing items: unaffected.
+
+IMPLEMENTATION NOTES
+- One new check in handle_attack() in combat.py: if "cowards_coat" in worn neck tags:
+  early return with message.
+- The massive defensive stats make this viable for gun builds and spell builds.
+  At end-game with full armor: 80 armor + L Farming armor absorption = near-unkillable
+  in normal fights.
+- No gun-butt attacks allowed either (the coat check fires before the gun-butt check).
+
+BALANCE CONSIDERATIONS
+- 80 armor on the neck slot is the highest armor value of any single item in the game
+  (compare: Cuban Link 50 armor). Paired with a chain providing 40+ armor: 120+ total.
+- +8 defense is enormous (equivalent to +16 swagger in value). Net effective HP
+  doubles for many fights.
+- Complete melee disability means enemies that are immune to gun damage (if any future
+  enemy has this) would be an unwinnable fight.
+- Pairs with: Sniping/Gatting gun builds, Blackkk Magic / spell builds, any non-melee.
+- Anti-synergy: ALL melee builds, Stabbing/Beating/Slashing skill trees (still gain
+  XP from gun kills, but can't level combat skills).
+
+TRADEOFF SUMMARY
+UPSIDE: +80 armor, +8 defense, +30% tox/rad resist.
+DOWNSIDE: CANNOT melee attack at all.
+
+================================================================================
+ITEM 13 — STREET TAX RING
+================================================================================
+Slot:     ring
+Char:     o (ASCII)
+Color:    (80, 200, 80) — money green
+Tags:     ["street_tax", "unique"]
+Zones:    []
+Item ID:  street_tax_ring
+
+WoW Inspiration: Mark of the Hidden Satyr — passive aura proc that generates
+resources. PoE: Headhunter (steal monster mods on kill, adapted). Here: each kill
+generates cash (gold) that converts directly into temporary combat power.
+
+CONCEPT SUMMARY
+You collect the street tax off every body. Each enemy killed while this ring is
+equipped drops 3-8 extra cash. Additionally, every $10 of cash the player currently
+carries (their wallet total) adds +1 to outgoing damage (multiplicative bucket: flat
+bonus to damage before the outgoing_damage_mult stack). Maximum +20 bonus from cash.
+This makes the player's cash wallet a combat resource for the first time.
+
+MECHANICAL SPECIFICATION
+- stat_bonus: {}
+- power_bonus: 0
+- Tag: "street_tax"
+- On kill (entity_died, killer=player): spawn extra cash entity at kill location;
+  random.randint(3, 8) extra cash. Message: "Street Tax! +$N"
+- In _compute_player_attack_power(): if street_tax ring equipped:
+  cash_bonus = min(20, engine.player.cash_on_hand // 10)
+  (Requires engine.player.cash_on_hand field OR iterate engine.dungeon player inventory
+  for cash items — check existing cash tracking.)
+  atk_power += cash_bonus
+- No defense or stat bonus; the ring's value is purely mechanical.
+
+IMPLEMENTATION NOTES
+- Cash tracking: engine.player_cash or similar. Check how cash is tracked. If it's
+  stored as Entity objects, sum entity.cash_amount for entities in player inventory
+  with entity_type == "cash".
+- cash_bonus caps at +20 at $200 in pocket. Beyond $200: no further scaling.
+- Spawning extra cash: create a cash entity at killer position (use existing cash
+  entity pattern from dungeon.py).
+
+BALANCE CONSIDERATIONS
+- Early game: player might have $30-80. Bonus = +3 to +8 damage. Modest.
+- Late game with cash saves (buying nothing): $300+. Capped at +20 damage.
+  This encourages not spending cash, creating meaningful tension with shop purchases.
+- Every shop purchase weakens combat. The ring penalizes spending.
+- Pairs with: any build that can clear rooms fast (more kills = more cash).
+- Anti-synergy: crafting/purchasing builds.
+
+TRADEOFF SUMMARY
+UPSIDE: extra cash per kill + up to +20 damage from cash wallet.
+DOWNSIDE: no other stats; spending cash reduces your damage.
+
+================================================================================
+ITEM 14 — METH LAB OVERALLS
+================================================================================
+Slot:     feet
+Char:     s (ASCII, matching Jordans)
+Color:    (220, 220, 180) — off-white coverall
+Tags:     ["meth_lab_overalls", "unique"]
+Zones:    []
+Item ID:  meth_lab_overalls
+
+PoE Inspiration: Atziri's Step — convert a base stat bonus into evasion (dodge).
+WoW: "Reactive Defense" (dodge scaling with current HP percentage).
+
+CONCEPT SUMMARY
+A greasy pair of coverall bottoms that have absorbed enough chemicals to make the
+wearer twitchy and hard to pin down. Your dodge chance scales with your current
+toxicity level: dodge_chance = min(40, toxicity // 5). At 200 tox: 40% dodge.
+At 0 tox: 0% dodge. Additionally: +20 tox resistance (you're so saturated, more
+barely matters). This makes toxicity a defensive resource.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 0
+- stat_bonus: {}
+- tox_resistance: 20
+- Tag: "meth_lab_overalls"
+- Passive: in _compute_player_defense() or the dodge calculation in handle_attack():
+  if meth_lab_overalls equipped: add min(40, engine.player.toxicity // 5) to
+  defender_dodge_chance (before the random.random() * 100 check).
+- On equip: set engine.meth_lab_overalls_equipped = True.
+- No speed bonus or penalty.
+
+IMPLEMENTATION NOTES
+- The dodge addition: in handle_attack(), when defender == engine.player, after
+  computing defender_dodge_chance from player_stats.dodge_chance, add the tox bonus
+  if the flag is set.
+- Capped at 40%: even with 1000 tox, maximum dodge is 40% (200 tox = cap).
+- The +20 tox resistance means tox accumulates more slowly, which counteracts the
+  dodge bonus — interesting tension.
+
+BALANCE CONSIDERATIONS
+- At 100 tox: +20% dodge. At 200 tox: +40% dodge. Together with briskness boots or
+  other dodge sources: potentially 50-60% dodge (hard-capped at 90% by stats.py).
+- +20 tox resistance means the player gains tox 20% slower; they need to
+  deliberately seek tox sources to maximize the bonus.
+- Pairs with: Preacher's Belt (also tox-themed), Nigle Fart strain (deliberate tox
+  accumulation), Iron Lung (dump tox → health).
+- Anti-synergy: White Power tree (actively removes tox, killing dodge chance).
+
+TRADEOFF SUMMARY
+UPSIDE: up to 40% dodge from toxicity + 20% tox resist.
+DOWNSIDE: no other bonuses; dodge = 0 without toxicity investment.
+
+================================================================================
+ITEM 15 — BACKPEDAL BOOTS
+================================================================================
+Slot:     feet
+Char:     s (ASCII)
+Color:    (100, 180, 220) — sky blue
+Tags:     ["backpedal_boots", "unique"]
+Zones:    []
+Item ID:  backpedal_boots
+
+WoW Inspiration: Aggramar's Stride / speed cooldowns. PoE: Haste flask variant.
+Reactive defense: gain a burst of speed when low on HP, then pay a penalty after.
+A PoE "Cannot" variant: boots that give massive speed only when you're at risk.
+
+CONCEPT SUMMARY
+Beaten-up running shoes that kick into high gear when you're about to die. When the
+player is below 40% HP: +60 energy per tick (effectively 160 total, much faster than
+normal). When above 40% HP: -10 energy per tick (90 total, slightly slower). This
+inverts the normal risk profile — being hurt is actually when you move faster.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 0
+- stat_bonus: {}
+- energy_per_tick: -10  (base; always applied to equipment_energy_per_tick)
+- Tag: "backpedal_boots"
+- In _run_energy_loop() energy distribution: after computing base energy gain:
+  if backpedal_boots equipped and player.hp / player.max_hp < 0.40:
+    override energy_per_tick contribution to +60 (not the -10 base)
+  else: use -10 normally.
+- The -10 penalty applies whenever HP is at or above 40%. The +60 kicks in below.
+
+IMPLEMENTATION NOTES
+- The equipment_energy_per_tick already modifies energy gain (in stats.py). But for
+  the conditional swap, we need a runtime check each energy tick.
+- Best approach: in engine.py _run_energy_loop(), after the base tick, check for
+  backpedal_boots tag on equipped feet; override the energy delta conditionally.
+- The -10 at high HP means the player acts at 90/100 base speed — subtly slower but
+  not debilitating. Enough to feel the penalty.
+- At 60 energy/tick below 40% HP: player moves and attacks at 160% speed. Can often
+  act twice before fast enemies act once.
+
+BALANCE CONSIDERATIONS
+- The HP threshold (40% of 130 HP at CON 10) = below 52 HP. Players live dangerously
+  in this range often.
+- Pairs with: death-save builds (Hard Boiled Egg), reactive sustain.
+- Anti-synergy: high-CON tanky builds that rarely drop below 40%.
+- At CON 6 (70 HP): threshold is 28 HP — extremely risky zone to be in.
+
+TRADEOFF SUMMARY
+UPSIDE: +60 energy/tick (160 total) below 40% HP.
+DOWNSIDE: -10 energy/tick above 40% HP (90 total, always slower until hurt).
+
+================================================================================
+ITEM 16 — THE DECIMATOR'S OATH
+================================================================================
+Slot:     weapon (large gun, weapon slot)
+Char:     ) (ASCII)
+Color:    (80, 40, 20) — dark mahogany
+Tags:     ["decimators_oath", "unique"]
+Zones:    []
+Item ID:  decimators_oath
+
+PoE Inspiration: Voidforge — the weapon deals RANDOM damage types with extreme
+variance. WoW: Cataclysm-era unpredictable "chaos" procs. Here: each shot rolls on
+a 4-outcome table that can be magnificent or terrible.
+
+CONCEPT SUMMARY
+An old hunting rifle that has seen too much. Every shot rolls 1d4:
+1: 2x damage, no accuracy penalty (golden shot)
+2: Normal damage (standard shot)
+3: Half damage, but applies Shocked to target (+10% incoming damage)
+4: Miss entirely, but the near-miss frightens the target (Fear, 5 turns)
+The gun has strong base stats but the chaos keeps you honest.
+
+MECHANICAL SPECIFICATION
+- base_damage: (15, 20)
+- gun_range: 7
+- ammo_type: "heavy"
+- mag_size: 4
+- gun_class: "large"  (weapon slot only)
+- reload_speed: 100
+- Tag: "decimators_oath"
+- In _resolve_gun_shot(): after ammo consume, roll = random.randint(1, 4):
+  1: damage *= 2; ignore accuracy (always hit); message "Golden Shot!"
+  2: normal damage/accuracy flow
+  3: damage //= 2; on hit: apply_effect(target, engine, "shocked", stacks=1);
+     message "Glancing blow! Target Shocked."
+  4: accuracy forced to 0% (always miss); if target is a monster: apply_effect(
+     target, engine, "fear", duration=5, source_x=px, source_y=py);
+     message "Near-Miss! Target is frightened."
+- firing_modes: {"accurate": {"hit": 80, "energy": 80}, "fast": {"hit": 60, "energy": 50}}
+
+IMPLEMENTATION NOTES
+- Override the standard accuracy roll for outcomes 1 and 4.
+- For outcome 1: skip the normal hit_chance check, proceed directly to damage.
+- For outcome 4: skip damage entirely; apply Fear if target is in range.
+- The base accuracy (80% accurate mode) is irrelevant for outcomes 1 and 4.
+  Only outcomes 2 and 3 use standard accuracy.
+
+BALANCE CONSIDERATIONS
+- Expected value: 25% chance each. EV = 0.25*(2x) + 0.25*(1x) + 0.25*(0.5x) + 0.25*0
+  = (0.5 + 0.25 + 0.125) = 0.875x average damage of a standard shot.
+  Slightly below a reliable gun, but the 2x golden shot creates memorable moments.
+- Heavy ammo, mag 4: very limited shots per reload. The chaos is concentrated.
+- The Fear on miss makes every roll interesting (miss = 5t fear on target is still value).
+- Pairs with: Sniping L3 (mega crit only on outcome 1 could proc if it crits, but
+  the mechanic check happens after: outcome 1 guarantees hit but not crit — would
+  still need the crit roll to apply mega crit).
+
+TRADEOFF SUMMARY
+UPSIDE: 25% chance 2x damage (no miss), 25% chance Fear on miss.
+DOWNSIDE: 25% chance half damage, 25% chance complete miss.
+
+================================================================================
+ITEM 17 — PARASITE RING
+================================================================================
+Slot:     ring
+Char:     o (ASCII)
+Color:    (40, 160, 60) — diseased green
+Tags:     ["parasite_ring", "unique"]
+Zones:    []
+Item ID:  parasite_ring
+
+PoE Inspiration: Aul's Uprising / Replica Soul Tether — permanently converts an
+otherwise negative mechanic (taking damage over time) into sustain. Here: DoT
+damage dealt TO the player is converted into a percentage healed instead.
+
+CONCEPT SUMMARY
+A squirming ring of unknown biological origin. While equipped: all damage-over-time
+effects that would tick against the player (bleeding, ignite, dot) instead HEAL the
+player for 50% of the tick amount. The actual damage is still received (the ring
+doesn't block it), but for every 2 damage a DoT would deal, you heal 1. Net: DoTs
+deal 50% of their damage. This makes the player a sponge for DoT effects.
+
+MECHANICAL SPECIFICATION
+- stat_bonus: {"tolerance": 2}  (DOT interaction themed)
+- Tag: "parasite_ring"
+- In the tick() methods of DotEffect, BleedingEffect, IgniteEffect: before
+  entity.take_damage(amount), check if entity == engine.player and parasite_ring
+  equipped. If yes: entity.heal(max(1, amount // 2)) in addition to the damage.
+- Net effect: DoT deals `amount` damage AND heals `amount//2`, so net damage =
+  amount - amount//2 = amount//2 (rounded up if odd).
+- Ignite stacking: each ignite stack ticks its own damage; parasite applies per-stack.
+
+IMPLEMENTATION NOTES
+- Cleanest approach: add a check in the tick() bodies of DotEffect, BleedingEffect,
+  and IgniteEffect: before taking damage, check engine.player.status_effects for a
+  parasitic_active flag, or check engine.parasite_ring_equipped (set on equip).
+- IgniteEffect has complex stack-timer logic; add heal after damage.take() call.
+- The ring doesn't prevent the damage — it provides healing. Net result: 50% DoT
+  mitigation effectively, but via HP neutral-ish lifecycle.
+- Edge case: if player is at full HP, the heal wastes (capped at max_hp).
+
+BALANCE CONSIDERATIONS
+- IgniteEffect deals stacks*1 per tick. Parasite heals stacks//2. At 5 ignite stacks:
+  5 damage, 2 heal = net 3 damage. Without parasite: 5 damage. 40% mitigation.
+- Bleeding: amount typically 1-4/turn. Heals 0-2. Minor value against light bleeds.
+- Most useful in Meth Lab zone: many enemies deal tox DoT effects. Less useful in
+  Crack Den zone (less DoT focus).
+- Pairs with: builds that intentionally invite DoT damage (Tox-Barbed Shiv: self-tox
+  on attack — which isn't a DoT tick, so no interaction. But enemy DoT sources work).
+
+TRADEOFF SUMMARY
+UPSIDE: all DoT ticks also heal 50% of their value; +2 TOL.
+DOWNSIDE: no other bonuses; ring slot occupied with primarily defensive mechanic.
+
+================================================================================
+ITEM 18 — SNITCHES GET STITCHES
+================================================================================
+Slot:     neck
+Char:     " (ASCII)
+Color:    (180, 60, 60) — blood red
+Tags:     ["snitches_get_stitches", "unique"]
+Zones:    []
+Item ID:  snitches_get_stitches
+
+WoW Inspiration: Retaliation stance / Vengeance proc. PoE: The Retch — converts
+flask charges into a massive reactive damage pulse. Here: every time the player DODGES
+a melee attack, the counter-attack is triggered automatically with bonus damage.
+
+CONCEPT SUMMARY
+A bloody handkerchief wrapped around your neck. Whenever the player dodges a melee
+attack (any source: dodge_chance roll, Divine Shield absorb, Mirror Entity absorb),
+they INSTANTLY deal an auto-counter attack to the attacker for 150% of their current
+melee power (no energy cost). Cannot trigger more than once per turn. This rewards
+dodge-stacking builds with free retaliation attacks.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 5
+- defense_bonus: 0
+- stat_bonus: {"swagger": 2}  (swagger boosts both defense and looks)
+- Tag: "snitches_get_stitches"
+- In handle_attack(), when defender == engine.player and dodge check succeeds:
+  if snitches_get_stitches equipped and not engine.snitches_triggered_this_turn:
+    engine.snitches_triggered_this_turn = True
+    counter_power = int(_compute_player_attack_power(engine) * 1.5)
+    deal_damage(engine, counter_power, attacker)
+    message: "Snitches get Stitches! Counter-attack for {counter_power}!"
+- Also trigger on Divine Shield absorb: in DivineShieldEffect.modify_incoming_damage()
+  after nullifying damage: check engine.snitches flag.
+- Also trigger on Mirror Entity absorb: similar hook.
+- Reset engine.snitches_triggered_this_turn = False each player turn.
+
+IMPLEMENTATION NOTES
+- The "once per turn" limit prevents chain dodges from generating infinite attacks.
+- counter_power uses the standard melee power formula (STR + weapon base damage etc.)
+  but multiplied by 1.5. It respects outgoing_damage_mult.
+- The counter-attack does NOT consume energy and does NOT count as an attack for
+  combo tracking (Sleeper Agent stacks are NOT gained from the counter).
+- Does trigger Glow Up proc and graffiti procs (it IS a damage source).
+
+BALANCE CONSIDERATIONS
+- At 30% dodge (ring + items): 30% chance per enemy melee to proc. On average about
+  1-2 procs per combat encounter.
+- 150% melee power: at power 25 (typical late-game): 37-38 counter damage per proc.
+  Against 60-HP enemies: a single proc kills outright.
+- Pairs with: Ghost Slippers (ambush dodge), Meth Lab Overalls (tox dodge), Slashing L4
+  (dodge boost), ring_of_lookout (FOV for detection, not directly dodge).
+- Anti-synergy: low-dodge builds (defense=0 builds) get zero value from the counter.
+
+TRADEOFF SUMMARY
+UPSIDE: free 150% power counter-attack on any dodge (once per turn); +2 SWG, +5 armor.
+DOWNSIDE: requires dodge investment to activate; no direct damage boost.
+
+================================================================================
+ITEM 19 — GRUDGE BEADS
+================================================================================
+Slot:     neck
+Char:     " (ASCII)
+Color:    (220, 80, 40) — brick red
+Tags:     ["grudge_beads", "unique"]
+Zones:    []
+Item ID:  grudge_beads
+
+WoW Inspiration: Thunderaan's Ring of the Skyfire / Seal of the Crusader — tracks
+damage received and converts it into future offense. PoE: Kitava's Feast. Here:
+every point of HP damage the player takes is stored as "grudge" and can be unleashed
+as bonus melee damage on the next attack.
+
+CONCEPT SUMMARY
+Prayer beads carved from old concrete. Tracks accumulated HP damage taken since the
+last melee attack. The NEXT melee attack after taking any damage deals bonus damage
+equal to min(30, accumulated_grudge * 0.5). Then grudge resets to 0. Maximum bonus
+of 30. This makes the player hit back harder after getting hit.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 30
+- stat_bonus: {}
+- Tag: "grudge_beads"
+- New engine state: grudge_beads_damage (int, initialized 0; never resets on floor).
+- In deal_damage(): when target == engine.player and damage > 0:
+  if grudge_beads equipped: grudge_beads_damage += damage.
+- In handle_attack(): after base damage computation, before deal_damage():
+  if grudge_beads equipped and grudge_beads_damage > 0:
+    grudge_bonus = min(30, grudge_beads_damage // 2)
+    atk_power += grudge_bonus
+    grudge_beads_damage = 0
+    message: "Grudge paid! +{grudge_bonus} damage."
+- Only the very next attack uses the bonus; grudge resets regardless of hit/miss.
+
+IMPLEMENTATION NOTES
+- grudge_beads_damage must persist across player turns (and floors) — never reset
+  on floor transition.
+- deal_damage() is the right hook since it's called for all incoming damage to player.
+- The armor_bonus (30) on this neck is one of the highest among neck uniques (compare
+  Cuban Link 50, Rosary 10, Coward's Coat 80). The 30 armor here is front-loaded
+  protection that also feeds the grudge mechanic.
+- Edge: taking 60 damage → grudge_bonus = min(30, 30) = 30. Cap prevents one-shots
+  becoming absurdly high retaliation damage.
+
+BALANCE CONSIDERATIONS
+- After a big hit (20-40 damage): next attack deals +10 to +20 extra. Meaningful against
+  bosses where the player is trading hits.
+- Armor (30) absorbs some of each hit, reducing what reaches HP (and thus grudge).
+  Net: the armor simultaneously reduces incoming and reduces grudge accumulation.
+  This is the self-limiting tradeoff.
+- Pairs with: melee-primary builds that trade hits (Bone Club vampiric synergy).
+- Anti-synergy: builds that never take damage (evasion/dodge heavy).
+
+TRADEOFF SUMMARY
+UPSIDE: 30 armor + grudge bonus on next melee (up to +30) after taking damage.
+DOWNSIDE: armor reduces grudge accumulation; no stat bonuses; one-time burst only.
+
+================================================================================
+ITEM 20 — STASH HOUSE RING
+================================================================================
+Slot:     ring
+Char:     o (ASCII)
+Color:    (200, 160, 80) — dull gold
+Tags:     ["stash_house", "unique"]
+Zones:    []
+Item ID:  stash_house_ring
+
+PoE Inspiration: Ventor's Gamble / Atziri's Foible — items with strong utility
+bonuses EXCEPT for one category that is broken. Here: the ring improves everything
+about the player's long-term resource game, but at the cost of being permanently
+slower.
+
+CONCEPT SUMMARY
+The ring of someone who runs a stash house. Gives +3 TOL, +3 BKS, +3 STS. In
+addition: you gain double the cash from all sources. BUT: your base energy per tick
+is permanently -20 (80 instead of 100). You're always moving a bit slower because
+you're watching your back.
+
+MECHANICAL SPECIFICATION
+- stat_bonus: {"tolerance": 3, "book_smarts": 3, "street_smarts": 3}
+- energy_per_tick: -20  (applied to equipment_energy_per_tick)
+- Tag: "stash_house"
+- Cash doubling: in all locations where cash is awarded or found (entity pickups, kill
+  drops, etc.): if stash_house_ring equipped, cash amount * 2.
+  Cleanest approach: in engine.py where cash is collected (player walks onto cash
+  entity): double the amount if flag is set.
+
+IMPLEMENTATION NOTES
+- energy_per_tick: already supported via equipment_energy_per_tick in PlayerStats.
+  This field is summed from all equipped items. -20 brings base speed to 80 ticks.
+- Cash doubling: in engine.py pickup_item() or wherever cash entities are collected,
+  check for stash_house_ring in equipped rings; multiply cash_amount by 2.
+- The triple stat bonus (+3 TOL/BKS/STS) is very strong combined — BKS increases
+  skill point gain, STS increases crit chance, TOL improves drug effects.
+
+BALANCE CONSIDERATIONS
+- +3 STS = 9% more crit chance (at STS 12 → 15 = 45% crit). Very strong.
+- +3 BKS = faster skill point conversion (meaningful across long runs).
+- +3 TOL = more drug rolls (meaningful for strain builds).
+- -20 energy: at 80 base + no other bonuses: player acts every 1.25x as slow as
+  standard. Enemies catch up faster; fast enemies especially dangerous.
+- Cash doubling: late-game cash is often abundant but unspent. Good synergy with
+  Street Tax Ring (cash → damage), but you can't wear both rings in same slot.
+
+TRADEOFF SUMMARY
+UPSIDE: +3 TOL/BKS/STS + 2x cash income.
+DOWNSIDE: -20 energy/tick (player is 20% slower permanently).
+
+================================================================================
+ITEM 21 — KNUCKLEHEAD
+================================================================================
+Slot:     weapon (beating)
+Char:     / (ASCII)
+Color:    (200, 100, 60) — rusted iron
+Tags:     ["knucklehead", "unique"]
+Zones:    []
+Item ID:  knucklehead
+
+WoW Inspiration: Sudden Death (guaranteed execute on next attack after
+certain procs). PoE: Reckoning / Riposte — counterattack on block. Here:
+stun proc builds to a guaranteed "Haymaker" that deals massive damage.
+
+CONCEPT SUMMARY
+A single iron-weighted glove. Your normal attacks have a 15% chance to apply
+"Dazed" to the target (2 turns). Land 3 Dazed applications on the SAME target and
+trigger a "Haymaker": automatically fires an extra free attack dealing 3x normal
+damage and consuming all Dazed stacks. Dazed resets between targets.
+
+MECHANICAL SPECIFICATION
+- base_damage: 10
+- str_req: 9
+- str_scaling: {"type": "tiered", "divisor": 2}
+- weapon_type: "beating"
+- reach: 1
+- Tag: "knucklehead"
+- New engine state: knucklehead_dazed_target_id (str entity instance_id or None);
+  knucklehead_dazed_count (int, 0-3).
+- On hit with Knucklehead: 15% chance to apply Dazed (effect id "dazed", duration 2).
+  If this target is knucklehead_dazed_target_id: increment knucklehead_dazed_count.
+  Else: reset counter to 1, set target_id to current defender.instance_id.
+  If knucklehead_dazed_count >= 3: HAYMAKER. Apply 3x damage bonus free attack
+  (handle_attack with force_crit=False and damage multiplied 3x); reset counter to 0;
+  remove Dazed from target.
+- DazedEffect: id="dazed", duration=2, reduce target energy gain by 40% (partial slow).
+
+IMPLEMENTATION NOTES
+- New Effect "DazedEffect" (id="dazed"): -40% energy gain for 2 turns. Not a full stun.
+- The haymaker free attack: call deal_damage() directly with 3x atk_power rather than
+  a recursive handle_attack() call (avoid infinite loop).
+- If target dies before 3 stacks: counter resets when a new target is engaged.
+- The 15% proc chance + 3-stack requirement: on average 1 Haymaker per 20 hits on the
+  same target (0.15^3 ≈ 0.003% per 3-hit burst, but the probability per fight is
+  cumulative). Actually: each hit is independent 15% proc; so you need 3 procs in a
+  row, each 15%: 0.15^3 = 0.34% per 3-hit sequence. Against a 20-hit boss: roughly
+  (1 - 0.9966^18) ≈ 6% chance of haymaker in a typical fight. Increase proc to 25%
+  if this feels too rare during playtesting.
+
+BALANCE CONSIDERATIONS
+- 3x normal damage Haymaker: at 20 base power = 60 damage. Bosses have 100-200+ HP.
+  Not one-shot but extremely meaningful.
+- The Dazed effect slows target (valuable for multi-turn fights).
+- Pairs with: Stabbing synergy (weapon_type_alt could be added if design wants it to
+  count for both trees). As written: beating only.
+- Anti-synergy: jumping between targets breaks the counter.
+
+TRADEOFF SUMMARY
+UPSIDE: Haymaker (3x damage free attack) after 3 Dazed stacks on same target.
+DOWNSIDE: requires 3 procs on SAME target; switch targets = reset.
+
+================================================================================
+ITEM 22 — HOLLOW POINT HAT
+================================================================================
+Slot:     hat
+Char:     ^ (ASCII)
+Color:    (40, 40, 40) — matte black
+Tags:     ["hollow_point_hat", "unique"]
+Zones:    []
+Item ID:  hollow_point_hat
+
+WoW Inspiration: Tier-3/4 set bonuses that increase critical damage percentage.
+PoE: Lycosidae / "Your hits are always Lucky" variants. Here: critical strikes with
+GUNS deal 3x damage instead of 2x (while wearing this hat), but melee crits only deal
+1.5x instead of 2x.
+
+CONCEPT SUMMARY
+A matte-black snapback with a hollow-point bullet design. Gun critical strikes hit for
+3x damage (instead of the default 2x). Melee crits are weakened to 1.5x. This
+fundamentally shifts the build toward gun-crit synergies. Requires Gatting L3 or
+Sniping L3 to enable gun crits at all.
+
+MECHANICAL SPECIFICATION
+- armor_bonus: 0
+- stat_bonus: {"street_smarts": 3}  — boosts gun crit chance
+- Tag: "hollow_point_hat"
+- In _resolve_gun_shot(): when a gun crit is rolled (after _gun_crit_unlocked check):
+  if hollow_point_hat equipped: damage *= 3 (instead of normal crit_multiplier).
+  Standard crit_multiplier (2x) is replaced by 3x for guns only.
+- In handle_attack(): when is_crit and attacker == engine.player:
+  if hollow_point_hat equipped: override crit_mult to 1.5 for this hit.
+- Mega crit (Sniping L3): the mega crit multiplier (4x) is NOT changed. Hollow Point
+  only modifies the base crit mult, not MEGA_CRIT_MULTIPLIER.
+
+IMPLEMENTATION NOTES
+- Check for "hollow_point_hat" in engine.hat's item tags.
+- gun_system.py: in _resolve_gun_shot() after `if is_gun_crit:` block, check hat tag
+  and override multiplier.
+- combat.py handle_attack(): after `damage *= crit_mult`, check hat tag and replace
+  the crit_mult used.
+- Note: crit_mult starts at engine.crit_multiplier (default 2). The override is
+  "instead of whatever crit_mult was computed."
+
+BALANCE CONSIDERATIONS
+- Gun 3x crit: at 15-30 base gun damage, crit = 45-90 damage. With Sniping L3 and
+  Dead Shot Daiquiri + other bonuses: potentially enormous single-shot crits.
+- Melee 1.5x crit: at 20 melee power, normal crit = 40. With hat: 30. Net loss of 10
+  damage per melee crit.
+- +3 STS: 9% more crit chance for both (benefits melee too, which then suffers the
+  lower multiplier — a genuine tension).
+- Pairs with: pure gun builds (Gatting/Sniping trees), Corner Store Chrome (armor-
+  based gun damage further amplified by 3x crit).
+
+TRADEOFF SUMMARY
+UPSIDE: gun crits deal 3x damage + 3 STS.
+DOWNSIDE: melee crits deal only 1.5x (reduced from 2x).
+
+================================================================================
+ITEM 23 — MANIFESTO MACHETE
+================================================================================
+Slot:     weapon (slashing)
+Char:     / (ASCII)
+Color:    (220, 60, 60) — communist red
+Tags:     ["manifesto_machete", "unique"]
+Zones:    []
+Item ID:  manifesto_machete
+
+PoE Inspiration: Atziri's Disfavour — weapon that converts ALL damage to a specific
+type that interacts with a specific skill tree. Here: all melee damage also triggers
+Chemical Warfare XP (even non-toxic hits), and the weapon's scaling uses Tolerance
+(the drug stat) rather than STR or BKS.
+
+CONCEPT SUMMARY
+A machete with "WORKERS OF THE WORLD" scratched into the blade. Every slash also
+injects a chemical compound: on hit, enemy gains 10 toxicity (regardless of weapon's
+other fields). The weapon scales off Tolerance (not STR): +2 damage per point of TOL
+above 6. At TOL 12: base 10 + (12-6)*2 = 22 damage. Additionally: when an enemy DIES
+from toxicity accumulation (while Manifesto is equipped), the player gains +5 permanent
+toxicity resistance (max gain: +25 total from this mechanic).
+
+MECHANICAL SPECIFICATION
+- base_damage: 10
+- tol_req: 6
+- tol_scaling: {"divisor": 0.5}  (special: 2x rate; +2 per TOL above 6)
+- weapon_type: "slashing"
+- reach: 1
+- Tag: "manifesto_machete"
+- on_hit_tox: {"enemy": 10, "self": 0}  (uses existing on_hit_tox handling in combat.py)
+- On enemy death from tox (when entity_died event fires and entity.toxicity > 0 and
+  entity.hp <= 0 caused by DoT): if manifesto_machete equipped and tox_bonus_earned < 25:
+  engine.player_stats.tox_resistance += 5; engine.manifesto_tox_bonus += 5.
+- Tracks tox deaths: engine.manifesto_tox_bonus (0-25).
+
+IMPLEMENTATION NOTES
+- tol_scaling at 0.5 divisor: standard _compute_str_bonus tol_scaling branch does
+  (tol - tol_req) // divisor. At divisor=0.5 and Python int division: use
+  (tol - tol_req) * 2 instead (equivalent to //0.5).
+- on_hit_tox: the existing on_hit_tox handling in combat.py already calls add_toxicity().
+  No new code needed for the 10 tox per hit.
+- The permanent tox resistance stacking: in entity_died event handler, check if the
+  entity's death was caused by a DoT source (check entity.hp==0 and entity.toxicity > 0
+  as a proxy; not perfect but workable).
+
+BALANCE CONSIDERATIONS
+- TOL 12 base: 10 + 12 damage = 22. With +3 TOL from ring: 22 + 6 = 28.
+  That's competitive with Whirlwind Axe (15 base + STR scaling) for a dedicated build.
+- The 10 tox/hit is meaningful: vs enemies with 30 HP, 3 hits = 30 tox = 1.46x incoming
+  damage multiplier. This compounds with the slash damage.
+- Permanent tox resist (max +25): up to 25% tox damage reduction over a run. Strong.
+- Pairs with: Nigle Fart (boosts tox spillover), Chemical Warfare tree.
+- Anti-synergy: pure STR builds (completely different scaling stat).
+
+TRADEOFF SUMMARY
+UPSIDE: TOL-scaling slashing + 10 tox per hit + up to +25 permanent tox resist.
+DOWNSIDE: no STR/BKS scaling; requires TOL investment, competing with Tolerance drug builds.
+
+================================================================================
+ITEM 24 — CLEAN SWEEP (SIDEARM GUN)
+================================================================================
+Slot:     sidearm (gun, small class)
+Char:     ) (ASCII)
+Color:    (180, 220, 180) — mint green
+Tags:     ["clean_sweep_gun", "unique"]
+Zones:    []
+Item ID:  clean_sweep
+
+WoW Inspiration: Thunderclap / Sweeping Strikes — melee cleave as a gun ability.
+PoE: Kinetic Blast or Tornado Shot (splits projectile into multiple). Here: the gun
+fires a SINGLE shot that chains between adjacent enemies until no more adjacent
+targets remain (max 4 chains). Damage reduces 20% per chain.
+
+CONCEPT SUMMARY
+A mint-green 9mm with a sweeping action — every bullet finds the next target. One
+shot fires one bullet. If the primary target is hit and there is an adjacent live enemy
+within 1 Chebyshev tile of the primary target, the bullet CHAINS to that enemy for
+80% damage. Then chains again from there (60%, 40%) up to a maximum of 4 total hits.
+
+MECHANICAL SPECIFICATION
+- base_damage: (10, 15)
+- gun_range: 5
+- ammo_type: "light"
+- mag_size: 9
+- gun_class: "small"
+- reload_speed: 0
+- Tag: "clean_sweep_gun"
+- In _resolve_gun_shot(): after normal hit on primary target:
+  chain_damage = damage * 0.80
+  chain_targets_hit = [primary_target]
+  while len(chain_targets_hit) < 4:
+    last_target = chain_targets_hit[-1]
+    next_target = find first alive monster within Chebyshev 1 of last_target
+                  that is NOT already in chain_targets_hit
+    if no next_target: break
+    deal_damage(engine, int(chain_damage), next_target)
+    chain_targets_hit.append(next_target)
+    chain_damage *= 0.80
+  Log chains in message.
+- firing_modes: {"accurate": {"hit": 85, "energy": 65}, "fast": {"hit": 65, "energy": 45}}
+
+IMPLEMENTATION NOTES
+- Chain loop: use dungeon.get_entities_at() across the 8 tiles adjacent to the last
+  hit target; pick first alive monster not in the hit list.
+- Chain damage reduces additively per chain: 100% → 80% → 64% → 51.2%.
+  Use int() truncation at each step.
+- Gun crits (if unlocked): apply crit to primary target only; chain shots do not crit.
+- Tox/shocked multipliers still apply per-hit target.
+- The "first" adjacent target is selected randomly if multiple adjacent candidates.
+
+BALANCE CONSIDERATIONS
+- In a clustered group of 4+ enemies: one shot can hit 4 targets. At 15 base damage:
+  chain 1 = 15, chain 2 = 12, chain 3 = 9, chain 4 = 7. Total = 43 damage to 4 targets.
+  That's roughly equivalent to 4 individual shots at 10 damage each.
+- Against solo targets: acts as a normal 9mm sidearm. The sidearm slot benefit.
+- ammo efficiency: 1 ammo for up to 4 hits. Very efficient in dense fights.
+- Pairs with: slowing/grouping effects (Chill, Fear pushing enemies together), CON
+  build (survivability to stand in melee range while chaining).
+- Anti-synergy: wide-open maps where enemies are spread out (no chain targets).
+
+TRADEOFF SUMMARY
+UPSIDE: chain attacks to 4 adjacent targets per shot; high ammo efficiency in groups.
+DOWNSIDE: damage falls off 20% per chain; useless against isolated single targets.
+
+================================================================================
+ITEM 25 — VICAR'S SIGNET
+================================================================================
+Slot:     ring
+Char:     o (ASCII)
+Color:    (200, 160, 220) — holy lavender
+Tags:     ["vicars_signet", "unique"]
+Zones:    []
+Item ID:  vicars_signet
+
+PoE Inspiration: Replica Emberwake (multiple copies of a skill triggering each other)
+adapted to NIGRL's ability system. WoW: Call of the Wild / Talent Proc design.
+Here: when you use any ability, it has a 25% chance to refund the charge AND trigger
+a second free cast of a DIFFERENT random ability you own.
+
+CONCEPT SUMMARY
+A heavy signet ring bearing a bishop's crest. Whenever the player activates an ability:
+25% chance the charge is refunded (not consumed) AND a second, randomly chosen other
+ability fires automatically at the same target. The secondary ability uses whatever
+targeting was active (SELF abilities fire on player; targeted abilities fire at the
+most recent targeted tile). This can chain spell combos unpredictably.
+
+MECHANICAL SPECIFICATION
+- stat_bonus: {"book_smarts": 2, "tolerance": 1}
+- Tag: "vicars_signet"
+- In spells.py / abilities.py: after an ability is activated (charge consumed):
+  if vicars_signet equipped and random.random() < 0.25:
+    refund: re-add the consumed charge (ability_instance.charges_remaining += 1 or
+            floor_charges_remaining += 1 as appropriate)
+    secondary: pick random ability_id from engine.abilities that is NOT the just-fired
+               one and can_use() == True.
+    fire the secondary ability: call its execute() with (engine) for SELF abilities;
+    or call execute_at(engine, tx, ty) for targeted abilities using the last targeted
+    tile or player position.
+    Message: "Vicar's Grace! Free cast: [Ability Name]!"
+- Only ONE chain per cast (no infinite loop — the secondary cast does not trigger
+  Vicar's Signet again).
+
+IMPLEMENTATION NOTES
+- The refund/secondary logic lives in spells.py (the execute_ability() dispatcher).
+  After ability.consume() call: roll for vicar proc.
+- Secondary target selection: for SELF abilities (TargetType.SELF): fire at player.
+  For SINGLE_ENEMY_LOS / ADJACENT / etc.: use engine.last_targeted_enemy if alive;
+  else skip secondary trigger (no valid target = no secondary).
+- Prevent infinite loops: set a engine.vicar_proc_active flag while the secondary fires;
+  within the secondary execution, Vicar's Signet check is skipped if flag is set.
+- Edge: if only 1 ability is owned, the "different ability" condition fails; no proc.
+
+BALANCE CONSIDERATIONS
+- 25% proc rate: 1 in 4 ability uses generates a free secondary.
+- INFINITE abilities (smoking, using items): these aren't "abilities" in the
+  ABILITY_REGISTRY sense; only abilities with AbilityDef entries are affected.
+- The combination unpredictability is the design goal. A Gouge + Ray of Frost free
+  chain is extremely powerful. A Corn Dog + Pickpocket chain is... interesting.
+- +2 BKS enhances the secondary's spell damage if it's a spell-type ability.
+- Anti-synergy: players with only 1 ability (no secondary available).
+- Maximum potential: builds with 4-6 diverse abilities (spells + physical).
+
+TRADEOFF SUMMARY
+UPSIDE: 25% chance: refund charge AND free cast of random second ability.
+DOWNSIDE: secondary is random (no control); only 1 BKS/TOL bonus; ring slot.
+
+================================================================================
+SLOT DISTRIBUTION SUMMARY
+================================================================================
+Weapons (8):
+  01 glass_cannon              stabbing    Armor-to-offense conversion
+  06 thinkin_mans_heater       beating     BKS-only scaling + crit BKS surge
+  09 deadweight_shank          stabbing    Kill-stacking damage with all-or-nothing expiry
+  21 knucklehead               beating     Dazed stacks → Haymaker
+  23 manifesto_machete         slashing    TOL scaling + 10 tox/hit + perm tox resist gain
+  16 decimators_oath           large gun   Chaos d4 table per shot (weapon slot)
+
+Sidearm guns (3):
+  03 last_resort               small gun   Useless above 35% HP; execute burst below
+  11 corner_store_chrome       small gun   Damage = current armor value
+  24 clean_sweep               small gun   Chain bullet arcs between adjacent enemies
+
+Rings (5):
+  02 borrowed_time_ring        ring        Passive HP regen; energy only from kills
+  07 accountability_mirror     ring        Damage absorbed into ability charges (per-floor budget)
+  10 static_discharge_ring     ring        Crit arcs chain lightning to adjacents + self-shock
+  13 street_tax_ring           ring        Cash wallet → melee damage bonus + bonus kill cash
+  17 parasite_ring             ring        DoT ticks heal 50% of their damage
+  20 stash_house_ring          ring        +3 TOL/BKS/STS + 2x cash; -20 energy/tick
+  25 vicars_signet             ring        25% proc on ability use: refund + free random secondary
+
+Neck (4):
+  05 preachers_belt            neck        Tox-to-melee damage + tox thorns on hit
+  12 cowards_coat              neck        Melee disabled; +80 armor +8 def +30% tox/rad resist
+  18 snitches_get_stitches     neck        Free 150% power counter on any dodge
+  19 grudge_beads              neck        Incoming damage accumulates; next attack spends it
+
+Feet (2):
+  14 meth_lab_overalls         feet        Dodge scales with toxicity (0-40%)
+  15 backpedal_boots           feet        -10 energy above 40% HP; +60 below 40% HP
+
+Hats (3):
+  04 the_empties               hat         +3 TOL -3 SWG; 30% DR + random debuff on big hits
+  08 prophets_poncho           hat         Kill-generated dodge charges (persist but decay)
+  22 hollow_point_hat          hat         Gun crits 3x; melee crits 1.5x; +3 STS
+
+================================================================================
+KEY NEW MECHANICS INTRODUCED
+================================================================================
+  - Armor-to-offense: Glass Cannon, Corner Store Chrome (armor as gun damage)
+  - Resource starvation: Borrowed Time (energy only from kills)
+  - Execute-phase gun: Last Resort (useless above threshold, powerful below)
+  - Stat inversion as offense: Preacher's Belt (tox), Meth Lab Overalls (tox dodge)
+  - Melee disabled "Cannot": Coward's Coat (massive compensation)
+  - Cash-as-combat-resource: Street Tax Ring
+  - Kill-stack-with-drought-expiry: Deadweight Shank
+  - Dodge counter-retaliation: Snitches Get Stitches
+  - Accumulated hit-as-power: Grudge Beads
+  - DoT healing conversion: Parasite Ring
+  - Chaos shot table: Decimator's Oath (d4 per shot)
+  - Bullet chain-arc: Clean Sweep
+  - Ability proc-chain: Vicar's Signet (25% free secondary)
+  - Kill-generated dodge charge (persistent, decay): Prophet's Poncho
+  - Gun crit multiplier inversion: Hollow Point Hat
+  - BKS-feedback loop via melee crits: Thinkin' Man's Heater
+  - Armor budget floor-charge: Accountability Mirror
+  - Conditional energy-per-tick (HP threshold): Backpedal Boots
+  - Haymaker combo (stack same target): Knucklehead
+
+================================================================================
+NEW FIELDS NEEDED ON items.py / engine / PlayerStats
+================================================================================
+ITEM DEFINITION FIELDS:
+  glass_cannon: tag "glass_cannon" → engine.glass_cannon_equipped flag
+  last_resort_gun: tag "last_resort_gun" → execute in _resolve_gun_shot()
+  corner_store_chrome: tag "corner_store_chrome" → replaces damage with armor value
+  clean_sweep_gun: tag "clean_sweep_gun" → chain arc logic in _resolve_gun_shot()
+  decimators_oath: tag "decimators_oath" → d4 table in _resolve_gun_shot()
+  hollow_point_hat: tag "hollow_point_hat" → gun crit mult override
+  preachers_belt: tag "preachers_belt" + tox_resistance: -20 + on-hit tox thorns
+  manifesto_machete: tag "manifesto_machete" + tol_scaling: {"divisor": 0.5}
+    (divisor 0.5 special case: implement as * 2 in _compute_str_bonus tol branch)
+
+NEW ENGINE STATE:
+  engine.glass_cannon_equipped (bool)
+  engine.borrowed_time_equipped (bool)
+  engine.borrowed_time_budget (int, reset per floor; NOT on engine — on floor change)
+  engine.accountability_mirror_budget (int, reset per floor)
+  engine.meth_lab_overalls_equipped (bool)
+  engine.backpedal_boots_equipped (bool)
+  engine.preachers_belt_equipped (bool)
+  engine.snitches_get_stitches_equipped (bool)
+  engine.grudge_beads_damage (int, persist across floors)
+  engine.stash_house_equipped (bool)
+  engine.prophecy_charges (int 0-3, persist across floors)
+  engine.prophecy_killed_this_floor (bool, reset on floor change)
+  engine.street_tax_equipped (bool)
+  engine.hollow_point_hat_equipped (bool)
+  engine.corner_store_equipped (bool)
+  engine.static_discharge_equipped (bool)
+  engine.snitches_triggered_this_turn (bool, reset per player turn)
+  engine.deadweight_stacks (int 0-5)
+  engine.deadweight_no_kill_turns (int)
+  engine.deadweight_target_id (str or None)
+  engine.knucklehead_dazed_target_id (str or None)
+  engine.knucklehead_dazed_count (int 0-3)
+  engine.manifesto_tox_bonus (int 0-25, persist across run)
+  engine.vicar_proc_active (bool, reset after secondary fires)
+
+NEW EFFECTS (effects.py):
+  BorrowedTimeHotEffect (id="borrowed_time_hot"): 5 HP/turn, floor_duration=True
+  BksSurgeEffect (id="bks_surge"): +1 temp BKS per stack, max 4, duration 10
+  AccountabilityMirrorEffect (id="accountability_mirror_eff"): floor_duration proxy
+  DazedEffect (id="dazed"): -40% energy gain, duration 2
+
+NEW PlayerStats FIELDS:
+  melee_damage_bonus: int (used by deadweight_shank + others; add to atk_power)
+  heal_amplification: float (for healing interactions; may already exist in some batch)
+
+================================================================================
+BALANCE REFERENCE BENCHMARKS
+================================================================================
+Typical late-game melee damage:   20-35 (weapon + STR/BKS scaling + buffs)
+Typical gun damage (medium):      12-32 (AR-14)
+Typical enemy HP floor 3-4:       50-120
+Player max HP at CON 10:          130
+Crit chance at STS 12:            36%
+Default energy per tick:          100
+Default armor at late game:       40-80 (chain + hat + other sources)
+Toxic late-game:                  50-200 common range for tox builds
+================================================================================

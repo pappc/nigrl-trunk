@@ -73,11 +73,24 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.ESCAPE:
             return {"type": "close_menu"}
 
+        # Shift+Number — hotbar bind to slot
+        elif tcod.event.KeySym.N0 <= key_sym <= tcod.event.KeySym.N9 and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            index = 9 if key_sym == tcod.event.KeySym.N0 else key_sym - tcod.event.KeySym.N1
+            return {"type": "hotbar_bind_slot", "index": index}
+
         # Number keys 0-9 — action selection in menus or skills spend input
         elif tcod.event.KeySym.N0 <= key_sym <= tcod.event.KeySym.N9:
             digit = str(key_sym - tcod.event.KeySym.N0)
             index = 9 if key_sym == tcod.event.KeySym.N0 else key_sym - tcod.event.KeySym.N1
             return {"type": "select_action", "index": index, "digit": digit}
+
+        # Minus / Equals — hotbar slots 11-12
+        elif key_sym == tcod.event.KeySym.MINUS:
+            return {"type": "select_action", "index": 10, "digit": "-"}
+        elif key_sym == tcod.event.KeySym.EQUALS:
+            return {"type": "select_action", "index": 11, "digit": "="}
 
         # Descend stairs (> = Shift+Period; SDL2 on Windows reports PERIOD+shift,
         # other platforms may report GREATER directly)
@@ -186,5 +199,8 @@ def handle_input(key):
             if char in INVENTORY_KEYS:
                 index = INVENTORY_KEYS.index(char)
                 return {"type": "select_item", "index": index}
+            else:
+                # Unbound letter — emit raw char for dev search and future text input
+                return {"type": "raw_char", "char": char}
 
     return None

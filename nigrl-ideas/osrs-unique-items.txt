@@ -1,0 +1,1406 @@
+================================================================================
+OSRS-INSPIRED UNIQUE EQUIPPABLE ITEMS
+25 Items — NIGRL Roguelike Design Document
+================================================================================
+
+Design philosophy lens:
+  Old School RuneScape's most celebrated items are defined by their special
+  attacks, degradation systems, niche strengths, set effects, and the risk/reward
+  of bringing powerful gear into dangerous situations. Each OSRS item has a clear
+  "reason to use it" and a clear "cost" — either in opportunity cost, resource
+  drain, or mechanical limitation. This batch translates that philosophy to
+  NIGRL's urban street setting.
+
+Special Mechanics Vocabulary Used in This Batch:
+  - SPEC ENERGY: new engine float engine.spec_energy (0.0–100.0). Drains on
+    ability use, restores at +25/turn passively (any spec weapon equipped). Max 100.
+    Displayed in status panel when any spec weapon is equipped. Stored on PlayerStats
+    as spec_energy: float = 0.0. Restored to full on floor change.
+  - DEGRADATION: new field "degrade_max_hits": int on item def; per-hit counter on
+    the Entity (entity.degrade_hits_remaining). At 0: item becomes "broken" variant
+    (new item_id: "broken_X"). Can be repaired by paying floor_num * 10 cash at a
+    vending machine (Repair option). Broken items lose their passive but stay equippable.
+  - PRAYER/PROTECTION: new engine bool flags for protect-style mechanics; these are
+    per-floor activation toggles with energy costs, not continuous passives.
+  - SLAYER EFFECT: bonus damage vs. enemy_type flag; checked in _compute_player_attack
+    power if weapon has "slayer_bonus" dict.
+
+Note on "spec weapons": items that grant spec-energy abilities fire from the new
+  engine.spec_energy pool. This is mechanically distinct from ability cooldowns —
+  you can use multiple spec weapons in the same run; they all draw from the same pool.
+
+================================================================================
+ITEM 1 — DRAGON DOUBLE DAGGER
+================================================================================
+OSRS Inspiration: Dragon Dagger (special attack "Puncture" — 2 rapid hits, doubled
+  spec weapon of choice for combo specs into high burst)
+
+Slot:      weapon (stabbing)
+Char:      '/'
+Color:     (220, 80, 80)  — dark red
+Tags:      ["dragon_dagger", "unique"]
+zones:     []  (special acquisition only)
+name_gradient: [(180, 40, 40), (255, 140, 60)]
+
+Stats:
+  base_damage:  8
+  str_req:      9
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 2}  (+1 per 2 STR above 9)
+  weapon_type:  stabbing
+
+Special Mechanic — PUNCTURE (spec ability, 55 spec energy):
+  Grants ability "ddd_puncture" on equip, revokes on unequip.
+  Target type: ADJACENT
+  Effect: Make 2 rapid consecutive attacks on the same target in one action.
+    Each attack resolves fully (damage, on-hit effects, crits) independently.
+    Second attack has +10% crit chance bonus on top of normal crit chance.
+    Total action cost: normal attack cost (not doubled).
+    Spec energy cost: 55.
+  Implementation notes:
+    - ability execute: fire _compute_player_attack_power twice against same target,
+      second call passes a crit_bonus=0.10 flag.
+    - "ddd_puncture" ability_id; ADJACENT target type; ChargeType.INFINITE with
+      spec energy check instead of charge.
+    - engine.spec_energy -= 55 before executing; if spec_energy < 55: message "Not
+      enough special energy."
+
+Tradeoff:
+  Base damage only 8 — competitive only at high STR. Spec costs 55 energy so you
+  can do it roughly once per two floors passively. Vulnerable to single-hit weapons
+  with higher base that combo out of reach.
+
+Balance:
+  Single stab hits ~10-15 at STR 10-12. Puncture double = ~20-30 total per spec use.
+  Second-hit crit chance ~42-46% at STS 10-11. Ceiling about 48-60 on mega-crit.
+  Comparable to Last Rites Cleaver burst but safer (no punishment for surviving targets).
+
+Synergies:
+  - Stabbing skill tree crits amplify both hits independently.
+  - Prison Shank bonus_crit_mult would stack — but those are different items.
+  - Static Discharge Ring would arc twice on double hit.
+  - Hollow Point Hat (3x gun crits) does NOT affect this — melee crit mult stays 2x
+    (unless modified by hollow_point_hat's melee crit 1.5x override).
+
+Implementation Notes:
+  Files: abilities.py (add "ddd_puncture" AbilityDef), engine.py (add spec_energy
+  field to GameEngine init; add spec_energy display in status; add
+  spec_energy restore per tick), items.py (add "dragon_double_dagger" entry with
+  grants_ability: "ddd_puncture"), combat.py (pass crit_bonus param to
+  _player_melee_attack_against, add to crit roll).
+  PlayerStats new field: spec_energy: float = 0.0 (or store on engine directly).
+
+================================================================================
+ITEM 2 — ARMADILLO GODSWORD
+================================================================================
+OSRS Inspiration: Armadyl Godsword (spec "Flurry" — massive single hit, +25% max
+  hit, high spec cost; best-in-slot spec for boss kills)
+
+Slot:      weapon (slashing)
+Char:      chr(0xE00E)  (reuse graphical sword tile)
+Color:     (120, 160, 255)  — pale blue
+Tags:      ["armadillo_gs", "unique"]
+zones:     []
+name_gradient: [(80, 120, 255), (180, 210, 255)]
+
+Stats:
+  base_damage:  18
+  str_req:      14
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 2}
+  weapon_type:  slashing
+
+Special Mechanic — SKY OPENER (spec ability, 75 spec energy):
+  Grants ability "armadillo_sky_opener" on equip.
+  Target type: ADJACENT
+  Effect: Single strike that deals current_attack_power * 1.5, rounded down.
+    The 1.5x multiplier is applied AFTER all additive bonuses (STR bonus, ring
+    bonuses, etc.) but BEFORE defense subtraction. This is unlike Whirlwind Axe's
+    area sweep — it is pure single-target burst.
+    If this kills the target, restore 20 spec energy immediately.
+    Spec energy cost: 75.
+  Implementation:
+    In execute: power = _compute_player_attack_power(engine); boosted = int(power * 1.5);
+    damage = max(1, boosted - target.defense); deal damage; if kill: spec_energy += 20.
+
+Tradeoff:
+  Highest base damage of any slashing weapon (18), but str_req 14 is very demanding.
+  Sky Opener costs 75 energy — only usable once per passive regen cycle unless you
+  get a kill refund. Competing with Whirlwind Axe and Yinyang for the slashing slot.
+
+Balance:
+  At STR 14: atk_power = 18 + (14-14)//2 = 18. Sky Opener = 27 before defense.
+  At STR 12 (ring boosted): 18 + 1 = 19. Sky Opener = 28. Decent boss damage.
+  At max STR+ring: ~20-22 power. Sky Opener = 30-33. Best single spike in game.
+
+Synergies:
+  - On-kill spec regen turns it into a sustained spec weapon if you're clearing rooms.
+  - Slashing skill tree L3+ cleave bonus still applies to base attacks (not the spec).
+  - outgoing_damage_mults (trauma response, specter creepers) DO multiply the 1.5x
+    base, because the mult is applied in the normal damage path.
+
+================================================================================
+ITEM 3 — GRANITE JAWN
+================================================================================
+OSRS Inspiration: Granite Maul (spec "Quick Smash" — zero delay, hits instantly,
+  can chain immediately after any other attack; used for 2-spec combos)
+
+Slot:      weapon (beating)
+Char:      '/'
+Color:     (160, 150, 140)  — grey granite
+Tags:      ["granite_jawn", "unique"]
+zones:     []
+name_gradient: [(120, 110, 100), (200, 190, 180)]
+
+Stats:
+  base_damage:  14
+  str_req:      12
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 1}  (+1 per STR above 12 — steep req, good return)
+  weapon_type:  beating
+
+Special Mechanic — QUICK SMASH (spec ability, 30 spec energy):
+  Grants ability "granite_quick_smash" on equip.
+  Target type: ADJACENT
+  ChargeType: INFINITE (spec energy gated instead of charges)
+  Effect: Make one immediate attack as a FREE ACTION — it does NOT consume the player's
+    turn (engine.player_free_action = True on execute). This allows you to attack twice
+    in one turn when combined with the normal attack action.
+    The free attack deals HALF damage (atk_power * 0.5, rounded up).
+    Spec cost: 30.
+    Limitation: can only free-action attack ONCE per turn (engine flag
+    engine.granite_free_used_this_turn; resets each turn in energy loop).
+  Implementation:
+    execute sets engine.player_free_action = True, attacks at 50% power, then
+    sets engine.granite_free_used_this_turn = True. Check flag in free action handler
+    to prevent double-firing same spec twice in one turn.
+
+Tradeoff:
+  Low spec cost (30) but free attack only deals 50% power. Valuable for finishing
+  enemies or applying on-hit effects twice in one turn. Base stats are competitive
+  (14 damage is solid for beating) but str_req 12 limits early access.
+  The "double attack per turn" potential makes this outstanding with on-hit procs.
+
+Balance:
+  Quick Smash half-power at STR 12: 14 * 0.5 = 7. Plus on-hit proc chance fires.
+  Full turn normal attack: 14 + (12-12)/1 = 14. Total turn damage potential: 21.
+  At STR 14 (rings): 14 + 2 = 16 full, 8 quick smash = 24 combined. Excellent with
+  stun procs — free action stun, then normal attack against stunned target.
+
+Synergies:
+  Outstanding with any on_hit_stun_chance weapon when combined... but this IS the
+  weapon. The Blackjack is inferior because Quick Smash lets you apply stun via the
+  half-attack and then follow with a full hit. Exception: if Blackjack is in sidearm
+  and this is in weapon, the ADJACENT free action hit proc still applies on-hit
+  effects from the spec's attack using the equipped weapon.
+
+================================================================================
+ITEM 4 — BARROWS BEATER (DHAROK'S FIST)
+================================================================================
+OSRS Inspiration: Dharok's set effect (lower HP = more damage; full set required)
+  Single-item version: damage bonus inversely scales with HP.
+
+Slot:      weapon (beating)
+Char:      '/'
+Color:     (80, 60, 80)  — dark purple-grey
+Tags:      ["dharoks_fist", "unique", "barrows"]
+zones:     []
+name_gradient: [(40, 30, 40), (140, 100, 140)]
+
+Stats:
+  base_damage:  10
+  str_req:      8
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 2}
+  weapon_type:  beating
+  "dharoks_passive": true  — engine flag to enable the HP scalar
+
+Passive Mechanic — DHAROK'S FIST:
+  No ability granted. Checked in _compute_player_attack_power:
+  While equipped, add a bonus equal to:
+    max(0, int((1.0 - player.hp / player.max_hp) * 20))
+  Examples:
+    Full HP: +0 bonus damage
+    75% HP: +5 bonus damage
+    50% HP: +10 bonus damage
+    25% HP: +15 bonus damage
+    1 HP: +19 bonus damage (capped at +20 practical maximum)
+  The bonus is additive, applied after STR scaling.
+
+Additional field on item: "dharoks_passive": True
+In _compute_player_attack_power: if defn and defn.get("dharoks_passive"):
+  hp_ratio = engine.player.hp / max(1, engine.player.max_hp)
+  atk_power += max(0, int((1.0 - hp_ratio) * 20))
+
+Tradeoff:
+  Terrible at full HP (10 base is below average for beating). Becomes exceptional
+  at low HP — but low HP means permadeath risk. This is NIGRL's quintessential
+  risk/reward weapon. Pairs with death-save mechanics.
+
+Balance:
+  At full HP: 10 + STR bonus. Worse than most beating weapons.
+  At 25% HP: 25 + STR bonus. Better than almost any melee weapon in the game.
+  At ~10 HP on 130 HP character: bonus = int(0.923 * 20) = +18. Total ~28 + STR.
+  This is roughly on par with Sky Opener spec but EVERY hit, forever, while alive.
+
+Synergies:
+  - Second Wind Ring death save → keep attacking at 1 HP for max Dharok's bonus.
+  - Backpedal Boots (below 40% HP: +60 energy/tick) + Dharok's is a full HP-tank build.
+  - crackhead_crucifix (dodge per debuff) — get debuffed, survive, destroy enemies.
+
+New Engine State:
+  No new state needed. Just add check in _compute_player_attack_power.
+
+================================================================================
+ITEM 5 — CRAWS WEB SHOOTER
+================================================================================
+OSRS Inspiration: Craw's Bow (wilderness-only passive: +20% accuracy and damage
+  in the wilderness; best-in-slot for Revenant Caves)
+
+Slot:      sidearm (gun, small)
+Char:      ')'
+Color:     (60, 180, 60)  — green
+Tags:      ["craws_shooter", "unique"]
+zones:     []
+name_gradient: [(40, 130, 40), (100, 220, 80)]
+
+Gun Stats:
+  base_damage:  (8, 14)
+  gun_range:    6
+  ammo_type:    "light"
+  mag_size:     8
+  reload_speed: 50
+  gun_class:    "small"
+  aoe_type:     "target"
+  firing_modes:
+    accurate: {hit: 80, energy: 65}
+    fast:     {hit: 60, energy: 40}
+
+Passive Mechanic — CRACK DEN BLESSING:
+  While equipped, if the current zone is "crack_den": all gun attacks deal +6 damage
+  and accuracy is raised by +15% (flat hit% bonus).
+  If in "meth_lab" or any other zone: no bonus.
+  Implementation: in _fire_gun or the shot resolution block, check
+  engine.current_zone == "crack_den" and "craws_shooter" in get_item_def(...).get("tags", [])
+  then add 6 to each shot's damage roll and +0.15 to hit_chance.
+
+Flavor: "Grown in the Crack Den, not the lab. Knows these streets."
+  The zone-restriction design teaches players that not all gear is universally useful.
+  Running into the Meth Lab with this weapon is intentionally weaker.
+
+Tradeoff:
+  Good damage (8-14) and range (6) but only 8 rounds. The blessing expires entirely
+  when you enter Meth Lab — making it a zone-specialist weapon. A player who invests
+  in this item is choosing to excel in Crack Den at the cost of Meth Lab performance.
+
+Balance:
+  In Crack Den: effectively (14-20) damage range + better accuracy = strong sidearm.
+  In Meth Lab: (8-14) range 6 with 8 rounds = average-to-below.
+
+New Engine State:
+  engine.current_zone is already tracked. Just read it in gun resolution.
+
+================================================================================
+ITEM 6 — VERAC'S VEIL
+================================================================================
+OSRS Inspiration: Verac's set (attacks always hit regardless of prayer, bonus
+  against prayer-protected targets; flail weapon)
+
+Slot:      weapon (beating)
+Char:      '/'
+Color:     (200, 200, 80)  — gold-yellow
+Tags:      ["veracs_veil", "unique"]
+zones:     []
+name_gradient: [(160, 140, 30), (240, 240, 120)]
+
+Stats:
+  base_damage:  12
+  str_req:      9
+  reach:        2  (flail-type reach)
+  str_scaling:  {"type": "tiered", "divisor": 2}
+  weapon_type:  beating
+  "ignore_dodge": True  (new item field)
+  "ignore_defense_chance": 0.20  (20% chance on each hit to bypass defense entirely)
+
+Passive Mechanic — PIERCE THE VEIL:
+  1. "ignore_dodge": True — this weapon's attacks always attempt to land even if
+     the target has dodge_chance. In combat.py _player_melee_attack_against, before
+     the dodge roll: if defn.get("ignore_dodge"): skip the dodge check.
+  2. 20% chance per hit to deal true damage (defense ignored):
+     if random.random() < defn.get("ignore_defense_chance", 0):
+       damage = max(1, atk_power)  # no defense subtraction
+
+Tradeoff:
+  Base damage 12 is mid-tier for beating. Ignore-dodge is strong against high-dodge
+  enemies and builds (ghost_slippers, meth_lab_overalls). True damage is random, not
+  reliable. Reach 2 is excellent. No spec — purely passive/positional.
+
+Balance:
+  Dodge ignore is most valuable against ghost slippers enemies or spider-tier encounters.
+  20% true damage chance adds ~2-3 expected damage per hit vs. 2-defense enemies.
+  Reach 2 beating with solid base 12 is competitive with extension cord + swagger.
+
+New Implementation:
+  items.py: add "ignore_dodge" and "ignore_defense_chance" fields.
+  combat.py: check ignore_dodge before dodge roll; check ignore_defense_chance at
+  damage calculation.
+
+================================================================================
+ITEM 7 — TOXIC STAFF OF THE DEAD (STREET REMIX)
+================================================================================
+OSRS Inspiration: Toxic Staff of the Dead (passive venom on magic attacks; autocast
+  stance grants +15% magic accuracy; spec "Calamity" grants temporary invulnerability
+  to dragon fire breath — translated to "poison immunity" in NIGRL)
+
+Slot:      weapon (beating)
+Char:      '/'
+Color:     (40, 220, 100)  — toxic green
+Tags:      ["toxic_staff_dead", "unique"]
+zones:     []
+name_gradient: [(20, 140, 60), (100, 255, 140)]
+
+Stats:
+  base_damage:  11
+  str_req:      7
+  bks_req:      10  (requires book_smarts 10 to equip — this is a spellcasting weapon)
+  reach:        1
+  bks_scaling:  {"divisor": 2}  (scales off Book Smarts instead of STR)
+  weapon_type:  beating
+  "on_hit_tox":  {"enemy": 10, "self": 0}
+  "on_hit_effect": {"type": "dot", "amount": 2, "duration": 4}
+
+Special Mechanic — CALAMITY SHIELD (spec ability, 50 spec energy):
+  Grants ability "calamity_shield" on equip.
+  Target type: SELF
+  Effect: For 5 turns, the player is IMMUNE to all toxicity gain (from any source:
+    enemy attacks, tox_creep, self-inflicted). Existing toxicity is NOT removed.
+    During this window, also apply a "tox_aura" that deals 5 tox/turn to ALL
+    visible enemies (aura implemented as a repeating apply_effect call in tick).
+    New effect: ToxStaffCalamityEffect — floor_duration=False, duration=5.
+      In tick: if entity == engine.player: apply tox to all visible enemies.
+      In apply: set engine.calamity_shield_active = True
+      In expire: set engine.calamity_shield_active = False
+    In toxicity handlers: if engine.calamity_shield_active: skip tox gain entirely.
+    Spec cost: 50.
+
+Flavor: "Used to be a walking stick. Now it walks on the faces of your enemies."
+
+Tradeoff:
+  Requires BKS 10 to equip — limits to BKS-heavy builds. Scales off BKS not STR.
+  The tox immunity is situationally very strong in Meth Lab but wasted in Crack Den.
+  Tox-on-hit plus dot = great for sustained zone fights but slow kill speed vs.
+  high-damage burst weapons.
+
+Balance:
+  At BKS 10: 11 + 0 = 11 base (same as BKS req). At BKS 12: 11 + 1 = 12.
+  10 tox/hit is on par with Tox-Barbed Shiv's self-cost tradeoff but here it's free.
+  Dot 2/turn for 4 turns = 8 bonus damage per encounter if not cleared.
+
+================================================================================
+ITEM 8 — VOID KNIGHT KICKS
+================================================================================
+OSRS Inspiration: Void Knight equipment set (+10% accuracy and +10% damage when
+  full set equipped; glass cannon trade since void armor is mediocre defensively)
+
+Slot:      feet
+Char:      chr(0xE00B)
+Color:     (220, 220, 220)  — white
+Tags:      ["void_kicks", "unique"]
+zones:     []
+name_gradient: [(180, 180, 200), (255, 255, 255)]
+
+Stats:
+  armor_bonus:  0  (no armor — the cost)
+  stat_bonus:   {}
+  energy_per_tick: 0
+  "void_set_bonus": True
+
+Passive Mechanic — VOID SET:
+  Grants a set bonus based on how many "void" tagged items are equipped simultaneously.
+  Check in _compute_player_attack_power: count items with "void" tag equipped (weapon,
+  neck, hat, feet, rings). Each "void" item beyond 1 adds +5% outgoing damage
+  (appended to outgoing_damage_mults list on equip, removed on unequip).
+  With 2 void items: +5% damage.
+  With 3 void items: +10% damage (second mult stacks).
+  Set items designed in this batch: void_kicks (feet), void_hood (hat), void_chain (neck).
+  Full 3-piece void: +10% outgoing damage total (two 1.05x mults = 1.1025x effective).
+
+Flavor: "The only defense is offense. Void Knight doctrine. Street translation: hit
+  them before they hit you."
+
+Tradeoff:
+  Void Kicks has 0 armor bonus — wearing this vs. any armor boots is pure DPS sacrifice.
+  The set bonus only matters when stacking multiple void items. Single void item gives nothing.
+  The +10% with full set is modest but reliable — not overwhelming, but the multi-slot
+  investment makes it a genuine build commitment.
+
+New Engine State:
+  On equip/unequip: count void-tagged items, recalculate outgoing_damage_mults entries
+  from void sources. Simplest: track engine.void_item_count: int; on change, append
+  or remove void_damage_mult entries from player_stats.outgoing_damage_mults.
+
+Implementation Notes:
+  items.py: void_kicks, void_hood, void_chain all have "void" tag.
+  engine.py equip/unequip handlers: count void tags, adjust outgoing_damage_mults.
+  (Same mechanism as existing outgoing_damage_mults pattern.)
+
+================================================================================
+ITEM 9 — VOID HOOD
+================================================================================
+OSRS Inspiration: Void Mage Helm / Void Ranger Helm / Void Melee Helm (each
+  boosts a different combat style when full set worn)
+
+Slot:      hat
+Char:      chr(0xE00D)
+Color:     (200, 200, 210)  — off-white
+Tags:      ["void_hood", "void", "unique"]
+zones:     []
+name_gradient: [(160, 160, 170), (230, 230, 240)]
+
+Stats:
+  armor_bonus:  10
+  stat_bonus:   {}
+  "void": True  (contributes to void set count)
+
+Passive — See VOID SET above (Item 8).
+Additional passive when 3-piece void equipped: +1 effective STS (flat,
+  applied via temporary_stat_bonuses on 3-piece check, removed if set broken).
+
+Implementation: same void_item_count mechanism. At count>=3: also add +1 STS.
+
+================================================================================
+ITEM 10 — VOID CHAIN
+================================================================================
+Slot:      neck
+Char:      '#'
+Color:     (210, 210, 215)  — near-white
+Tags:      ["void_chain", "void", "unique"]
+zones:     []
+name_gradient: [(170, 170, 180), (240, 240, 245)]
+
+Stats:
+  armor_bonus:  15
+  stat_bonus:   {}
+  "void": True
+
+Passive — See VOID SET above (Item 8).
+Additional passive when 3-piece void equipped: +1 defense (added to entity.defense
+  via a permanent_armor_bonus-style field or defense_bonus field on the neck item —
+  just add "defense_bonus": 0 normally, then on 3-piece: engine temporarily applies
+  +1 defense like a ring_bonus).
+
+Note on all 3 void items:
+  They are individually below-average for their slot (0 armor feet, 10 armor hat,
+  15 armor neck). Their only value is the set bonus. This is intentional: the
+  decision to run void is a full commitment, rewarding players who plan their builds.
+
+================================================================================
+ITEM 11 — BERSERKER COIL
+================================================================================
+OSRS Inspiration: Berserker Ring (+4 str bonus, best-in-slot for melee damage in
+  OSRS; imbueable for double bonus)
+
+Slot:      ring
+Char:      chr(0xE00A)
+Color:     (220, 100, 40)  — orange-red
+Tags:      ["berserker_coil", "unique"]
+zones:     []
+name_gradient: [(160, 60, 20), (255, 140, 60)]
+
+Stats:
+  stat_bonus:   {"strength": 3}
+  "berserker_passive": True
+
+Passive Mechanic — BERSERKER'S MADNESS:
+  After killing an enemy in melee, for the next 3 turns: +4 STR temporarily
+  (add_temporary_stat_bonus "strength" +4). The buff stacks with itself up to a
+  maximum of +8 STR total bonus from this ring (engine.berserker_coil_bonus: int,
+  tracks the current outstanding bonus from this ring; capped at +8).
+  On expire per buff instance: if berserker_coil_bonus > 0: subtract 4.
+  Implemented via a new BerserkerMadnessEffect (dur=3, amount=4):
+    apply: engine.player_stats.add_temporary_stat_bonus("strength", 4);
+           engine.berserker_coil_bonus += 4; if berserker_coil_bonus > 8: reject apply.
+    expire: engine.player_stats.add_temporary_stat_bonus("strength", -4);
+            engine.berserker_coil_bonus -= 4.
+
+Tradeoff:
+  Only +3 permanent STR (good but not exceptional for a ring). Kill-triggered bonus
+  is powerful in rooms with multiple enemies but inactive for boss fights.
+  Competing against rings that grant utility or specific-scenario bonuses.
+
+Balance:
+  Base: +3 STR = +1-2 melee damage depending on weapon scaling.
+  With kill stacks: +7-11 STR effective = +3-5 more damage per hit.
+  Short duration (3 turns) means the bonus is only relevant for back-to-back kills.
+
+Synergies:
+  - Ancestral Beater (kill counter) + this ring: sustained high-damage clear.
+  - Double Edged Sword (high base damage): STR matters less so this is relatively weaker.
+  - The 9 Ring already gives +5 all stats; this only competes at high STR builds.
+
+New Engine State:
+  engine.berserker_coil_bonus: int = 0  (tracks outstanding strength bonus)
+  event_bus hook: on melee kill (entity_died with killer == engine.player and
+  weapon_type == "melee"), check if berserker_coil_bonus < 8, apply effect.
+
+================================================================================
+ITEM 12 — SEER'S SPECTACLES
+================================================================================
+OSRS Inspiration: Seers Ring (+4 magic bonus, analogue of Berserker Ring for magic;
+  useful for Barrows, Slayer tasks)
+
+Slot:      hat
+Char:      chr(0xE00D)
+Color:     (100, 140, 255)  — light blue
+Tags:      ["seers_spectacles", "unique"]
+zones:     []
+name_gradient: [(60, 100, 220), (160, 200, 255)]
+
+Stats:
+  armor_bonus:  5
+  stat_bonus:   {"book_smarts": 2}
+  "equipment_spell_damage": 6  (adds to player_stats.equipment_spell_damage)
+
+Passive Mechanic — CALCULATED STRIKE:
+  When the player uses a spell or ability tagged as "is_spell", if it kills the
+  target: gain 1 Book Smarts for 8 turns (temporary stat bonus). Maximum +3 BKS
+  from this effect at any time (engine.seers_bks_kill_stacks: int, max 3).
+  New effect: SeersBksKillEffect (dur=8, amount=1):
+    apply: add_temporary_stat_bonus("book_smarts", 1); seers_bks_kill_stacks += 1
+    expire: add_temporary_stat_bonus("book_smarts", -1); seers_bks_kill_stacks -= 1
+  In spell execution (abilities.py / spells.py): after confirming a kill with is_spell
+  ability, check if seers spectacles equipped and seers_bks_kill_stacks < 3.
+
+Tradeoff:
+  Low armor (5). The +6 spell damage is equivalent to 3 levels of Book Smarts in
+  spell-damage terms. Kill-based BKS stacking only works if your spells are
+  consistently killing enemies — not useful against bosses.
+
+Balance:
+  +2 permanent BKS = meaningful skill point rate and BKS-scaled weapon bonuses.
+  +6 spell damage on top of total_spell_damage: solid for pure magic builds.
+  The kill-BKS stacking adds ~+3% to +9% crit chance (from +1 to +3 BKS) but
+  BKS doesn't affect crit... it affects spell damage via total_spell_damage.
+  So: at 3 stacks, temporary +3 BKS = approximately +1-2 more spell damage on
+  BKS-scaled abilities.
+
+New Engine State:
+  engine.seers_bks_kill_stacks: int = 0
+
+================================================================================
+ITEM 13 — SMITE SHANK
+================================================================================
+OSRS Inspiration: Smite prayer (every hit drains opponent's prayer points by 1/4
+  of damage dealt; drains special attack energy in PvP; "anti-spec" tool)
+
+Slot:      weapon (stabbing)
+Char:      '/'
+Color:     (255, 220, 80)  — gold
+Tags:      ["smite_shank", "unique"]
+zones:     []
+name_gradient: [(200, 160, 40), (255, 240, 140)]
+
+Stats:
+  base_damage:  7
+  str_req:      6
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 2}
+  weapon_type:  stabbing
+
+Passive Mechanic — SMITE:
+  Every melee hit with this weapon drains the target's current energy by
+  (damage_dealt // 2). Energy is stored on entity.energy. This effectively
+  delays the enemy's next turn.
+  Implementation in combat.py on_player_melee_hit hook or in weapon_hit resolution:
+  if defn.get("smite_drain"):
+    target.energy = max(0, target.energy - (damage // 2))
+
+Additionally: if the target has a special_attack with a cooldown, each Smite hit
+  extends that cooldown by 1 turn (check entity.special_attack cooldown fields).
+
+Tradeoff:
+  Below-average base damage (7) for a stabbing weapon with only /2 STR scaling.
+  The energy drain is strong against fast enemies but irrelevant against slow ones.
+  No burst capability. The value is pure attrition — letting you get more turns
+  relative to the enemy, especially against high-speed threats.
+
+Balance:
+  Hit for 10 damage, drain 5 energy. Enemy at speed 100 needs 100 energy/action.
+  Three hits drain 15 energy total — less than 1 extra turn. Against speed 130
+  enemies (fast spiders, etc.): 3 hits can delay them by 1 action in 10 turns.
+  Best-in-slot against elite enemies with special attacks that rely on cooldown timing.
+
+New Item Field:
+  "smite_drain": True  (check in combat.py player melee hit path)
+
+New Engine State: None (modify target.energy directly)
+
+================================================================================
+ITEM 14 — THE SCYTHE OF VITUR (CRACK DEN EDITION)
+================================================================================
+OSRS Inspiration: Scythe of Vitur (hits up to 3 enemies in a line in front of you;
+  best-in-slot weapon for multi-enemy encounters)
+
+Slot:      weapon (slashing)
+Char:      chr(0xE006)
+Color:     (200, 50, 200)  — purple
+Tags:      ["vitur_scythe", "unique"]
+zones:     []
+name_gradient: [(140, 30, 140), (255, 100, 255)]
+
+Stats:
+  base_damage:  14
+  str_req:      11
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 2}
+  weapon_type:  slashing
+  "vitur_sweep": True  (new item field)
+
+Passive Mechanic — REAPING SWEEP:
+  Every melee attack hits up to 3 enemies in the chosen direction simultaneously.
+  When player attacks: resolve damage against primary target normally. Then check
+  the two tiles directly ADJACENT to the primary target (same row/column relative
+  to player). Any alive enemies on those tiles also receive 50% of the primary hit's
+  damage (after defense, minimum 1).
+  Implementation in combat.py player_melee_attack_against:
+    if defn.get("vitur_sweep"):
+      primary_tile = (target.x, target.y)
+      dx = target.x - engine.player.x; dy = target.y - engine.player.y
+      # Tiles perpendicular to the attack direction
+      perp = [(-dy, dx), (dy, -dx)]
+      for pdx, pdy in perp:
+        tx2, ty2 = target.x + pdx, target.y + pdy  # wait, perpendicular of approach
+      # Correct: adjacent tiles along the perpendicular axis from the attack line:
+      if abs(dx) > abs(dy):  # horizontal attack
+        side_tiles = [(target.x, target.y-1), (target.x, target.y+1)]
+      else:  # vertical attack
+        side_tiles = [(target.x-1, target.y), (target.x+1, target.y)]
+      for stx, sty in side_tiles:
+        side_enemy = engine.dungeon.get_monster_at(stx, sty)
+        if side_enemy and side_enemy.alive:
+          side_dmg = max(1, (primary_damage // 2) - side_enemy.defense)
+          deal_damage(engine, side_dmg, side_enemy)
+
+Tradeoff:
+  High str_req (11). Sweep only triggers when enemies are adjacent to each other —
+  in corridors (single file), the sweep hits nothing extra. Best in room fights.
+  Weaker in single-target corridors than Dragon Double Dagger or Armadillo Godsword.
+
+Balance:
+  Single-target damage is normal (14 + STR). Multi-target sweep bonus at 50% is
+  essentially free damage in room encounters. 2 extra enemies at 50% dmg = net 2x
+  total damage output in packed rooms. No spec = no energy management.
+
+New Engine State: None (computed inline in combat.py)
+
+================================================================================
+ITEM 15 — ABYSSAL DAGGER OF DEBT
+================================================================================
+OSRS Inspiration: Abyssal Dagger (spec "Abyssal Puncture" — 85% weapon damage,
+  hits twice, 15% spec reduction; very fast spec that lowers enemy defense)
+  NIGRL version: hits twice fast AND reduces enemy armor permanently for each spec hit.
+
+Slot:      weapon (stabbing)
+Char:      '/'
+Color:     (80, 30, 120)  — dark purple
+Tags:      ["abyssal_dagger", "unique"]
+zones:     []
+name_gradient: [(50, 20, 80), (160, 80, 200)]
+
+Stats:
+  base_damage:  9
+  str_req:      10
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 2}
+  weapon_type:  stabbing
+  "on_hit_sunder": 1  (passive: already reduces armor by 1 per regular hit — see masonry hammer)
+
+Special Mechanic — ABYSSAL PUNCTURE (spec ability, 50 spec energy):
+  Grants ability "abyssal_puncture" on equip.
+  Target type: ADJACENT
+  Effect: Two rapid attacks, each at 85% of normal attack power (round down).
+    Each hit that connects ALSO permanently reduces the target's entity.defense by 1
+    (stacks with the passive on_hit_sunder, so one spec-hit with both procs = -2 defense).
+    Spec cost: 50.
+  Implementation: execute computes atk = int(_compute_player_attack_power(engine) * 0.85),
+    fires twice against target. Each successful hit calls target.defense = max(0, target.defense - 1).
+    Also fires on_hit_sunder check as normal.
+
+Tradeoff:
+  str_req 10 is high for a stabbing weapon. The passive sunder + spec sunder combination
+  means enemies become increasingly easier over successive fights, but the weapon itself
+  has lower raw damage than alternatives. The 85% power spec means each hit is slightly
+  weaker than a normal attack — this trades burst for attrition/setup.
+
+Balance:
+  At STR 10: 9 + 0 = 9 power. Each spec hit: int(9 * 0.85) = 7. Two hits = 14 before
+  defense. After defense 2: 5+5=10. But each hit also removes 1 defense — so second
+  hit vs. 1 remaining defense: 6. And next normal attack vs. 0 defense: 9 full damage.
+  The sunder snowball is the real value, especially on tanky enemies.
+
+Synergies:
+  - Smite Shank energy drain pairs conceptually but can't dual-wield.
+  - Sugarcrust stacking enemies (Jawbreaker style) are destroyed by defense removal.
+  - Glass Cannon ring forces armor=0 for player but this affects ENEMY defense, not armor.
+
+================================================================================
+ITEM 16 — BANDOS KICKS (GENERAL'S BOOTS)
+================================================================================
+OSRS Inspiration: Bandos Boots (high strength bonus, high defense bonus; tanky
+  melee boots that are BIS for pure str/defense)
+
+Slot:      feet
+Char:      chr(0xE00B)
+Color:     (140, 100, 60)  — bronze-brown
+Tags:      ["bandos_kicks", "unique"]
+zones:     []
+name_gradient: [(100, 70, 30), (180, 140, 80)]
+
+Stats:
+  armor_bonus:  25
+  stat_bonus:   {"strength": 2, "swagger": 2}
+  energy_per_tick: 0
+  defense_bonus: 1  (direct defense added in compute_player_defense)
+
+Passive Mechanic — GENERAL'S AUTHORITY:
+  While equipped, killing an enemy in one hit (entire HP pool depleted in a single
+  hit — engine.bandos_one_hit_kill flag) restores 10 HP immediately.
+  Implementation: after deal_damage in the kill check, if entity.hp was > 0 before
+  and is now <= 0, and the pre-hit HP equals the single damage dealt:
+    if defn and "bandos_kicks" in defn.get("tags", []): engine.player.heal(10)
+
+"One-hit kill" check: store pre-damage HP, compare to damage dealt. If pre_hp <= dmg:
+  it was a one-hit kill (enemy died from this single hit without reaching 0 HP first).
+  Note: easier to track as pre_hp <= 0 after dealing damage AND the entity was at full
+  health would be too complex. Simplify: if the kill happens AND the enemy's remaining HP
+  after the hit equals exactly 0 with no previous damage this floor... too complex.
+  SIMPLER DEFINITION: if enemy was not previously at partial HP (entity.hp == entity.max_hp
+  BEFORE the attack), and we kill them. Check entity.hp == entity.max_hp before hit.
+
+Tradeoff:
+  No speed bonus. Competing against boots that grant mobility or abilities. The combo
+  of +25 armor, +2 STR, +2 SWG, +1 defense is excellent for pure melee tanks — but
+  purely reactive; no offensive specials. The one-hit kill HoT is situational (only
+  works on fresh enemies).
+
+Balance:
+  Best-in-slot for melee defense profile. +25 armor + +1 defense + +2 swagger =
+  swagger_defence = int((8+2-8)/2) = +1 defense + +1 from direct defense_bonus = +2 total.
+  10 HP restore on fresh kills is valuable in large enemy rooms.
+
+================================================================================
+ITEM 17 — TOXIC BLOWPIPE OF THE STREETS
+================================================================================
+OSRS Inspiration: Toxic Blowpipe (2-tick attack speed, very fast, applies venom
+  passively, scales dart damage; best-in-slot for fast/sustained damage)
+
+Slot:      sidearm (gun, small)
+Char:      ')'
+Color:     (60, 220, 140)  — toxic mint green
+Tags:      ["toxic_blowpipe", "unique"]
+zones:     []
+name_gradient: [(30, 160, 90), (120, 255, 180)]
+
+Gun Stats:
+  base_damage:  (5, 8)  — lower damage than typical sidearms
+  gun_range:    5
+  ammo_type:    "light"
+  mag_size:     20
+  reload_speed: 30  (very fast reload)
+  gun_class:    "small"
+  aoe_type:     "target"
+  "on_gun_hit_tox": 8  (new field: apply 8 tox to target on each hit)
+  "reduced_energy_cost_gun": 20  (new field: subtract 20 from both firing mode energy costs)
+  firing_modes:
+    accurate: {hit: 85, energy: 45}  (65 - 20 reduction = 45 effective)
+    fast:     {hit: 65, energy: 25}  (45 - 20 = 25 effective)
+
+Passive Mechanic:
+  Fires faster than any other sidearm. Applies 8 tox per hit. Low damage per shot
+  but high volume makes it a sustained attrition weapon.
+  The "reduced_energy_cost_gun" field is read in gun_system.py firing resolution:
+  energy_cost -= defn.get("reduced_energy_cost_gun", 0)
+
+Tradeoff:
+  Very low damage (5-8 per shot). Requires sustained fire to matter. No special
+  attack. The value is entirely in the accumulated tox + high fire rate.
+  Against non-tox-vulnerable enemies (full tox resistance), this weapon is weak.
+
+Balance:
+  At 25 fast energy cost: fires at 4 attacks per 100-energy turn-equivalent.
+  Other sidearms fire at ~2-3 attacks per 100 energy (fast mode 30-50 cost).
+  Blowpipe at 4 attacks * (5-8 avg 6.5) = 26 raw damage/100 energy (pre-defense).
+  Compare: Glizzy-19 fast 50e, 11-15 avg 13 = 26 damage/100 energy.
+  Equal DPS but 8 tox * 4 = 32 tox/100 energy is exceptional. Strong in tox-stacking builds.
+
+New Items Field:
+  "on_gun_hit_tox": int — in gun_system.py after confirmed hit, add to target toxicity.
+  "reduced_energy_cost_gun": int — subtracted from base energy cost in firing modes.
+
+================================================================================
+ITEM 18 — TWISTED BOW OF THE BLOCK
+================================================================================
+OSRS Inspiration: Twisted Bow (accuracy AND damage scales with enemy's magic level;
+  best against high-magic bosses and enemies; useless against low-magic targets)
+  NIGRL version: scales damage with enemy's current toxicity level.
+
+Slot:      weapon (medium gun, weapon slot)
+Char:      ')'
+Color:     (180, 140, 80)  — wood brown
+Tags:      ["twisted_bow", "unique"]
+zones:     []
+name_gradient: [(140, 100, 40), (220, 190, 130)]
+
+Gun Stats:
+  base_damage:  (10, 14)  — above average but not exceptional alone
+  gun_range:    9  (longest range of any weapon gun)
+  ammo_type:    "medium"
+  mag_size:     10
+  reload_speed: 100
+  gun_class:    "medium"
+  aoe_type:     "target"
+  "tox_scaling_gun": {"bonus_per_100_tox": 5, "max_bonus": 25}  (new field)
+  firing_modes:
+    accurate: {hit: 85, energy: 90}
+    fast:     {hit: 65, energy: 55}
+
+Passive Mechanic — TWISTED SCALING:
+  This gun's damage is ALSO increased by the target's current toxicity level.
+  For each 100 tox the target has, add bonus_per_100_tox to each shot's damage.
+  Max +25 bonus (at 500 tox).
+  Implementation in gun_system.py shot damage resolution:
+    tox_bonus = min(25, (target.toxicity // 100) * 5) if target else 0
+    damage = random.randint(base_low, base_high) + sts_bonus + tox_bonus
+
+Tradeoff:
+  Requires enemies to already be toxified to matter. Solo this weapon does 10-14
+  damage — competitive but not dominant. Pairs with tox-building strategies but
+  struggles as your only damage source. Longest range (9) is a real advantage.
+  Medium ammo = rarer than light ammo, limiting sustained use.
+
+Balance:
+  Vs. 200 tox enemy: +10 bonus. Vs. 400 tox: +20 bonus. Vs. 500 tox: +25 bonus.
+  Optimal: Toxic Blowpipe in sidearm to build tox, Twisted Bow in weapon for finishing.
+  Peak damage: 14 + 25 + STS bonus = ~42 per shot on tox-soaked enemy. Exceptional.
+
+New Items Field:
+  "tox_scaling_gun": dict  — read in gun_system.py shot resolution.
+
+================================================================================
+ITEM 19 — RING OF THE WITNESS
+================================================================================
+OSRS Inspiration: Ring of Suffering (absorbs incoming damage up to 50 charges,
+  passive +4 prayer protection; charged ring that degrades)
+
+Slot:      ring
+Char:      chr(0xE00A)
+Color:     (220, 220, 100)  — pale gold
+Tags:      ["ring_of_witness", "unique"]
+zones:     []
+name_gradient: [(160, 160, 60), (255, 255, 160)]
+
+Stats:
+  stat_bonus:   {"swagger": 2, "constitution": 1}
+
+Special Mechanic — ABSORB (degradable resource):
+  This ring starts with 50 absorb charges (stored on entity: entity.witness_charges = 50).
+  When the player takes melee damage: reduce incoming damage by min(5, damage // 3) AND
+  consume 1 charge. When charges reach 0: ring enters "depleted" state
+  (entity.witness_depleted = True). In depleted state: no absorption, but ring still
+  grants stat bonuses.
+  Charges RECHARGE at +5 per floor (engine tracks: on floor change, if ring equipped
+  and depleted: witness_charges += 5; if >= 50: depleted = False).
+  Display: show charges in ring tooltip "(X charges)" updated via custom name display.
+
+Protection bonus while charged: the absorbed damage reduction effectively acts as
+  a passive 5-point damage absorber up to the cap, decaying as charges are spent.
+
+Tradeoff:
+  Charges deplete quickly in heavy combat (1 per hit). On a dangerous floor with
+  5+ enemies, you might burn through 20-30 charges. The +5/floor recharge is slow
+  — the ring is a consumable resource, not a passive. Permanent stats (+2 SWG, +1 CON)
+  make it worth keeping even depleted.
+
+Balance:
+  50 charges * min(5, dmg//3) absorption: vs. 10 damage hits, absorbs 3 each = 150
+  total damage blocked over 50 hits. Equivalent to roughly +3 effective armor for one floor.
+  Better than nothing; not game-breaking.
+
+New Entity Fields:
+  entity.witness_charges: int = 50  (only on ring entity)
+  entity.witness_depleted: bool = False
+New Engine Handling:
+  In player damage path: check if ring_of_witness equipped and not depleted;
+  reduce damage by min(5, dmg//3), decrement charges.
+  On floor change: recharge +5.
+
+================================================================================
+ITEM 20 — SLAYER HELM OF THE SNITCH
+================================================================================
+OSRS Inspiration: Slayer Helmet (combines all slayer gear; grants +16.67% accuracy
+  and damage vs. your current Slayer task; one of OSRS's most iconic items)
+  NIGRL version: bonus damage against MOGGED enemies.
+
+Slot:      hat
+Char:      chr(0xE00D)
+Color:     (180, 40, 40)  — dark red
+Tags:      ["slayer_helm_snitch", "unique"]
+zones:     []
+name_gradient: [(120, 20, 20), (220, 80, 60)]
+
+Stats:
+  armor_bonus:  15
+  stat_bonus:   {"street_smarts": 2}
+
+Passive Mechanic — SNITCH ASSIGNMENT:
+  Each floor, one random visible enemy type is designated as the "slayer task".
+  The assignment is made on floor entry: engine.snitch_task_enemy_type = random.choice
+  of enemy_types visible/known on this floor. If no enemies: engine.snitch_task_enemy_type = None.
+  While equipped, all damage against enemies matching snitch_task_enemy_type is
+  increased by 20% (appended to outgoing_damage_mults as 1.20x, but ONLY when the
+  specific target's enemy_type matches — this requires a per-hit check, not a global mult).
+  Implementation: in combat.py _player_melee_attack_against, after computing damage,
+  if defn and "slayer_helm_snitch" in tags and target.enemy_type == engine.snitch_task_enemy_type:
+    damage = int(damage * 1.20)
+  Same check in gun_system.py for ranged attacks.
+
+Additionally: +2 STS bonus is above-average for a hat.
+
+Tradeoff:
+  The slayer bonus is random and may not match enemies you're actually fighting.
+  If you descend into a floor of the wrong enemy type, this hat provides no bonus.
+  The +2 STS is universally good but armor 15 is below top-tier hats.
+
+Balance:
+  +20% damage against task type: roughly +3-5 damage per hit on average encounters.
+  Equivalent to wearing a moderate weapon upgrade just for those enemies.
+  Random assignment means the expected value is positive but variable.
+
+New Engine State:
+  engine.snitch_task_enemy_type: str | None  (set on floor entry, cleared on zone end)
+
+================================================================================
+ITEM 21 — THE GHRAZI RAPIER (STREET STILETTO)
+================================================================================
+OSRS Inspiration: Ghrazi Rapier (best-in-slot stab weapon for high strength bonus;
+  slightly better than abyssal for stab training; no spec, pure DPS)
+
+Slot:      weapon (stabbing)
+Char:      '/'
+Color:     (180, 30, 80)  — deep crimson
+Tags:      ["ghrazi_stiletto", "unique"]
+zones:     []
+name_gradient: [(140, 20, 60), (240, 80, 120)]
+
+Stats:
+  base_damage:  11
+  str_req:      10
+  reach:        1
+  str_scaling:  {"type": "ratio", "numerator": 3, "denominator": 2}  (+3 dmg per 2 STR above 10; best STR scaling in game for stabbing)
+  weapon_type:  stabbing
+  bonus_crit_mult: 1  (+1x crit multiplier: crits deal 3x instead of 2x)
+
+Design Note:
+  The Ghrazi Stiletto is a pure DPS weapon — no specials, no passive effects, just
+  exceptional STR scaling and a crit multiplier. It is "best-in-slot" for high-STR
+  stabbing builds. The ratio 3/2 scaling means at STR 12: +3 bonus damage. At STR 14:
+  +6. At STR 12 + rings: comfortably in the 20+ total power range.
+
+Tradeoff:
+  No utility. No spec. No on-hit effects. Competing against Dragon Double Dagger
+  (spec) and Abyssal Dagger (sunder + spec). All three are stabbing weapons — players
+  must choose: burst spec, attrition/sunder, or sustained raw DPS (this).
+
+Balance:
+  At STR 12: 11 + 3 = 14 base. Crit at 14 * 3 = 42. (Compare Prison Shank at 3x crit: 9 + 1 = 10 power, crit = 30.)
+  At STR 14: 11 + 6 = 17 base. Crit = 51. Mega-crit (Sniping L3) = 68.
+  This is the highest sustained single-target melee DPS in the game at high STR.
+
+================================================================================
+ITEM 22 — BLOWPIPE BULLET NECKLACE
+================================================================================
+OSRS Inspiration: Amulet of Torture (best-in-slot magic strength bonus for melee;
+  no defensive stats; pure offensive glass cannon neck)
+
+Slot:      neck
+Char:      '#'
+Color:     (200, 50, 50)  — deep red
+Tags:      ["torture_chain", "unique"]
+zones:     []
+name_gradient: [(140, 20, 20), (255, 80, 80)]
+
+Stats:
+  armor_bonus:  0  (ZERO armor — glass cannon)
+  stat_bonus:   {"strength": 3, "street_smarts": 2}
+  power_bonus:  3  (flat +3 to melee attack power, independent of STR)
+
+Design Note:
+  This is the best-in-slot offensive neck — +3 STR, +2 STS, +3 flat power. But
+  zero armor makes it extremely dangerous. You're trading all neck-slot defense for
+  pure offensive output. Any physical neck (Cuban Link gives 50 armor) completely
+  outperforms this for survivability.
+
+Passive Mechanic — NO REMORSE:
+  When the player kills an enemy while wearing this and having 0 armor from any
+  source (entity.armor == 0 AND entity.max_armor == 0, i.e. no chain/rosary/other
+  armor source), gain +5 temporary swagger for 5 turns.
+  Implementation: in kill handler, check armor == 0 and max_armor == 0 and
+  torture_chain equipped; apply_effect "stat_mod" swagger +5 duration 5.
+  This rewards running a fully glass-cannon build — no armor items at all.
+
+Tradeoff:
+  Zero armor means a glancing blow from any enemy hurts more. On Meth Lab floors
+  where enemies deal 15-30 damage, this is a significant risk. The offensive gains
+  (+3 STR, +2 STS, +3 power) are roughly equivalent to swapping a mid-tier weapon
+  but occupying the neck slot instead.
+
+Balance:
+  +3 power flat bonus: straightforward, well-defined.
+  +3 STR: at tiered/2 scaling, +1-2 more damage. At ratio 3/2, +4-5 more.
+  +2 STS: +6% crit chance boost. With base 33%: up to 39% crit chance.
+  Full glass cannon + No Remorse: +5 swagger = +2 defense bonus when killing in
+  melee while naked. Feels exactly like a risk-reward OSRS item should.
+
+================================================================================
+ITEM 23 — THE SPECTRAL SPIRIT SHIELD
+================================================================================
+OSRS Inspiration: Spectral Spirit Shield (passive: 50% chance to reduce prayer
+  drain by 1; used for prayer-reliant defense builds — translated to: 50% chance
+  to reduce tox/rad drain each tick)
+
+Slot:      neck
+Char:      '#'
+Color:     (140, 200, 255)  — light blue
+Tags:      ["spectral_shield_chain", "unique"]
+zones:     []
+name_gradient: [(80, 140, 220), (200, 240, 255)]
+
+Stats:
+  armor_bonus:  40
+  stat_bonus:   {"tolerance": 2}
+  defense_bonus: 2
+
+Passive Mechanic — SPECTRAL SHRUG:
+  Each game turn (in tick_all_effects or the energy loop), if the player has active
+  toxicity > 0: 50% chance to reduce toxicity by 2 this turn (natural decay boost).
+  If the player has active radiation > 0: 50% chance to reduce radiation by 2 this turn.
+  This is in addition to any existing natural decay rates.
+  Implementation: in engine._run_energy_loop step after tox/rad ticking, if spectral
+  shield equipped: each of tox and rad has independent 50% chance to drain 2 extra.
+
+Tradeoff:
+  Excellent defensive neck (40 armor, +2 defense, +2 TOL) but no offensive stats.
+  Competing against Blowpipe Bullet Necklace (pure offense) and Grillz (swagger combo).
+  The spectral decay is most valuable in Meth Lab where tox builds rapidly — in Crack Den
+  it's purely a stat stick.
+
+Balance:
+  40 armor + 2 defense is already strong for a neck slot.
+  Spectral decay: on average, -1 tox/rad per turn (50% * 2). This counteracts much of
+  the ambient tox gain in Meth Lab. On a floor with 5 tox/tick ambient: ~4 net tox/tick
+  on average vs. 5 without.
+
+New Engine Handling:
+  engine._spectral_decay_tick() called each turn if spectral chain equipped.
+
+================================================================================
+ITEM 24 — ELDER MAUL OF THE BLOCK
+================================================================================
+OSRS Inspiration: Elder Maul (highest damage two-handed weapon in OSRS; incredibly
+  slow but massive single hits; Chambers of Xeric exclusive)
+
+Slot:      weapon (beating)
+Char:      '/'
+Color:     (220, 160, 60)  — amber
+Tags:      ["elder_maul", "unique"]
+zones:     []
+name_gradient: [(160, 100, 20), (255, 200, 100)]
+
+Stats:
+  base_damage:  22  (HIGHEST base damage of any beating weapon)
+  str_req:      15  (HIGHEST requirement in the game)
+  reach:        1
+  str_scaling:  {"type": "tiered", "divisor": 3}
+  weapon_type:  beating
+  "slow_weapon": True  (new field: increases attack cost by 50)
+  attack_cost_override: 150  (50% more energy to attack than normal 100-threshold attacks)
+
+Passive Mechanic:
+  The Elder Maul simply hits for more raw damage than any other melee weapon in the
+  game. Its tradeoff is entirely mechanical: str_req 15 means you CANNOT equip this
+  without ring/effect bonuses (base STR max is 12). You need +3 STR from rings to
+  wield it. This is the first weapon with a stat requirement above the base maximum,
+  creating an implicit build requirement.
+
+  attack_cost_override: in engine energy handling, if weapon's attack_cost_override is
+  set, use that value instead of ENERGY_THRESHOLD for the player's melee attack action.
+  This means the player acts ~33% slower (3 attacks per 450 energy vs 3 per 300 energy
+  with normal weapons).
+
+Special Mechanic — HEAVY BLOW (spec ability, 60 spec energy):
+  Grants ability "elder_heavy_blow" on equip.
+  Target type: ADJACENT
+  Effect: Next attack costs 0 energy (free action). The attack deals NORMAL damage
+    (no reduction). Additionally applies StunEffect duration=2 on hit.
+    Spec cost: 60.
+  This is the "charge up then release" pattern — spec to get a free attack that stuns.
+
+Tradeoff:
+  str_req 15 = needs +3 STR rings to equip (sacrificing ring slots for STR).
+  150 energy attack cost = you attack 33% slower than every enemy in the game.
+  Base damage 22 is ~8 above average — the highest by far, but those attack slots
+  you're surrendering cost you turns.
+
+Balance:
+  At STR 15 (with rings): 22 + (15-15)//3 = 22. Crit = 44. With Blowpipe Bullet Necklace
+  +3 power: 25. Crit = 50. This is the highest single-hit damage ceiling in the game.
+  But attacking once per 150 energy = enemies with 130 speed act every 0.77 of your turns.
+  The Elder Maul is the OSRS experience: massive hits, slow swings, and a build around
+  compensating for the speed loss.
+
+New Item Field:
+  "attack_cost_override": int — read in engine.py to override attack energy cost.
+
+================================================================================
+ITEM 25 — WILDERNESS CHROME (THE SKULL)
+================================================================================
+OSRS Inspiration: Skulled items / Wilderness mechanics (high risk high reward;
+  carrying items into the Wilderness makes them losable on death; but the rewards
+  are much greater)
+
+Slot:      ring
+Char:      chr(0xE00A)
+Color:     (60, 60, 60)  — near-black
+Tags:      ["wilderness_chrome", "unique", "skull_item"]
+zones:     []
+name_gradient: [(30, 30, 30), (120, 120, 120)]
+
+Stats:
+  stat_bonus:   {"strength": 2, "street_smarts": 3, "constitution": -2}
+
+Passive Mechanic — SKULL AND BONES:
+  This ring has two states: ACTIVE and DORMANT.
+  ACTIVE: All stats apply. Additionally: +10% to all outgoing damage (append 1.10x
+    to outgoing_damage_mults on equip).
+  DORMANT: Stat penalties apply but +10% damage does NOT. Ring is dormant until
+    you've killed 3 enemies while wearing it.
+
+  The SKULL effect: when the player dies while wearing this ring, the ring is
+    PERMANENTLY DESTROYED (removed from game entirely — not dropped on the ground).
+    This means all run-carried value of the ring is forfeit on permadeath. Because
+    NIGRL has permadeath, this means the ring is only lost when you lose the whole
+    run — which is already happening. So the real cost is psychological: wearing this
+    ring feels more "committed" because it's gone if you die.
+    ADDITIONAL death penalty: while wearing this ring, any CASH held by the player
+    is halved on death (stored in death handler, even though permadeath ends the run —
+    this is flavor only if the player somehow could survive death, e.g., via Second Wind).
+
+  Activating from dormant: engine.skull_kill_count: int = 0. Each kill while equipped
+    increments. At 3: apply 1.10x mult to outgoing_damage_mults, message "Skull activated!".
+    On unequip: remove the 1.10x mult, reset skull_kill_count to 0 (ring goes dormant again).
+
+  The -2 CON means max HP is reduced by 20 HP. At max HP of 130 (CON 10): you're at 110.
+  This is not a ring for players who want HP cushion.
+
+Tradeoff:
+  -2 CON (-20 max HP) is a severe penalty. The +10% damage requires 3 kills to activate.
+  In a new floor, you're under-powered until you get your first 3 kills. The ring is
+  a deliberate "hot start" design — you earn the bonus each floor by committing.
+
+Balance:
+  +2 STR, +3 STS, -2 CON, +10% damage (active):
+    +2 STR: +1-2 melee damage
+    +3 STS: +9% crit chance
+    -2 CON: -20 max HP (significant)
+    +10%: roughly +1-3 per hit on average
+  Net DPS vs. safety: roughly +3-5 damage per hit at the cost of 20 HP and an
+  activation condition. Probably the best offensive ring in the game for sustained
+  DPS once activated, but the HP penalty makes early-floor play risky.
+
+New Engine State:
+  engine.skull_kill_count: int = 0  (reset on unequip)
+  engine.skull_ring_active: bool = False  (set to True at 3 kills, False on unequip)
+  engine.skull_ring_equipped: bool = False  (tracks the ring being equipped)
+
+================================================================================
+SUMMARY OF NEW MECHANICS INTRODUCED
+================================================================================
+
+1. SPEC ENERGY SYSTEM (engine.spec_energy: float; +25/turn passive; displayed in
+   status panel; consumed by spec abilities across all spec weapons):
+   - Dragon Double Dagger: Puncture (55 spec)
+   - Armadillo Godsword: Sky Opener (75 spec)
+   - Granite Jawn: Quick Smash (30 spec)
+   - Abyssal Dagger: Abyssal Puncture (50 spec)
+   - Toxic Staff of the Dead: Calamity Shield (50 spec)
+   - Elder Maul: Heavy Blow (60 spec)
+
+2. VOID SET SYSTEM (3 items: feet, hat, neck; count-based outgoing_damage_mults):
+   - Void Kicks, Void Hood, Void Chain
+
+3. DEGRADATION REFERENCE (Ring of the Witness: charge-based absorption; recharges
+   at +5/floor; per-entity witness_charges field)
+
+4. ZONE-SPECIFIC PASSIVE (Craw's Web Shooter: bonus only in crack_den)
+
+5. ATTACK COST OVERRIDE (Elder Maul: 150 energy per attack vs. 100 default)
+
+6. STAT-REQ ABOVE BASE MAXIMUM (Elder Maul: str_req 15; requires ring STR boosts)
+
+7. SLAYER TASK SYSTEM (Slayer Helm of the Snitch: random enemy-type assignment
+   per floor; engine.snitch_task_enemy_type)
+
+8. SKULL RING ACTIVATION (Wilderness Chrome: dormant until 3 kills; outgoing_damage
+   mult added at activation; reset on unequip; cash-halved on death)
+
+9. IGNORE DODGE FIELD (Verac's Veil: ignore_dodge = True on item defn)
+
+10. BERSERKER POST-KILL BUFF (Berserker Coil: BerserkerMadnessEffect; max +8 STR)
+
+11. SMITE ENERGY DRAIN (Smite Shank: smite_drain = True; reduces target.energy per hit)
+
+12. VITUR SWEEP (Scythe of Vitur: vitur_sweep = True; hits 2 adjacent targets for 50% dmg)
+
+13. TOX-SCALING GUN DAMAGE (Twisted Bow: tox_scaling_gun dict; bonus per 100 tox on target)
+
+14. GUN TOX-ON-HIT (Toxic Blowpipe: on_gun_hit_tox: 8)
+
+15. REDUCED GUN ENERGY COST (Toxic Blowpipe: reduced_energy_cost_gun: 20)
+
+16. ONE-HIT KILL HEAL (Bandos Kicks: detect enemy killed from full HP, heal 10)
+
+17. SPECTRAL DECAY (Spectral Spirit Shield Chain: per-turn 50% chance -2 tox and -2 rad)
+
+18. DHAROK'S HP SCALAR (Dharok's Fist: damage = int((1 - hp_ratio) * 20) bonus)
+
+================================================================================
+NEW ENGINE/PLAYERSTAT FIELDS INTRODUCED
+================================================================================
+
+Engine fields:
+  spec_energy: float = 100.0  (or on PlayerStats; restored per tick + on floor change)
+  granite_free_used_this_turn: bool = False
+  berserker_coil_bonus: int = 0
+  calamity_shield_active: bool = False
+  snitch_task_enemy_type: str | None = None  (set on floor entry)
+  skull_kill_count: int = 0
+  skull_ring_active: bool = False
+  skull_ring_equipped: bool = False
+  seers_bks_kill_stacks: int = 0
+  void_item_count: int = 0  (count of void-tagged equipped items)
+
+Entity fields (ring/item entities):
+  entity.witness_charges: int = 50
+  entity.witness_depleted: bool = False
+
+================================================================================
+NEW EFFECTS REQUIRED
+================================================================================
+
+BerserkerMadnessEffect:
+  id = "berserker_madness"
+  category = "buff"
+  duration = 3, amount = 4
+  apply: add_temporary_stat_bonus("strength", 4); engine.berserker_coil_bonus += 4
+  expire: add_temporary_stat_bonus("strength", -4); engine.berserker_coil_bonus -= 4
+  on_reapply: allow up to max berserker_coil_bonus 8 (reject if at cap)
+
+SeersBksKillEffect:
+  id = "seers_bks_kill"
+  category = "buff"
+  duration = 8, amount = 1
+  apply: add_temporary_stat_bonus("book_smarts", 1); engine.seers_bks_kill_stacks += 1
+  expire: add_temporary_stat_bonus("book_smarts", -1); engine.seers_bks_kill_stacks -= 1
+
+ToxStaffCalamityEffect:
+  id = "calamity_shield"
+  category = "buff"
+  duration = 5
+  apply: engine.calamity_shield_active = True; message "Calamity Shield active!"
+  tick: deal 5 tox to all visible enemies each turn
+  expire: engine.calamity_shield_active = False; message "Calamity Shield fades."
+
+================================================================================
+BALANCE REFERENCE TABLE
+================================================================================
+
+| Item Name             | Slot   | OSRS Ref              | Key Mechanic                     |
+|-----------------------|--------|-----------------------|----------------------------------|
+| Dragon Double Dagger  | Weapon | Dragon Dagger spec    | Double hit spec (55 spec energy) |
+| Armadillo Godsword    | Weapon | AGS spec              | 1.5x power spec (75 spec energy) |
+| Granite Jawn          | Weapon | Granite Maul spec     | Free action half-hit (30 spec)   |
+| Barrows Beater        | Weapon | Dharok's set          | Damage scales with missing HP    |
+| Craw's Web Shooter    | Sidearm| Craw's Bow            | +6 dmg / +15% acc in Crack Den   |
+| Verac's Veil          | Weapon | Verac's set           | Ignore dodge + 20% true damage   |
+| Toxic Staff Dead      | Weapon | Toxic Staff of Dead   | BKS-scales + tox spec immunity   |
+| Void Kicks            | Feet   | Void set              | Void set piece (1 of 3)          |
+| Void Hood             | Hat    | Void helm             | Void set piece (2 of 3)          |
+| Void Chain            | Neck   | Void neck (custom)    | Void set piece (3 of 3)          |
+| Berserker Coil        | Ring   | Berserker Ring        | Post-kill +4 STR for 3 turns     |
+| Seer's Spectacles     | Hat    | Seers Ring            | +6 spell dmg; kill = +1 BKS 8t  |
+| Smite Shank           | Weapon | Smite prayer          | Drain target energy per hit      |
+| Scythe of Vitur       | Weapon | Scythe of Vitur       | Sweep 2 adjacent for 50% dmg     |
+| Abyssal Dagger Debt   | Weapon | Abyssal Dagger        | Sunder + double hit spec (50)    |
+| Bandos Kicks          | Feet   | Bandos Boots          | +25 armor, one-hit-kill heals 10 |
+| Toxic Blowpipe        | Sidearm| Toxic Blowpipe        | Fast fire, 8 tox/hit             |
+| Twisted Bow           | Weapon | Twisted Bow           | Damage scales with target tox    |
+| Ring of the Witness   | Ring   | Ring of Suffering     | 50-charge absorb, +5/floor regen |
+| Slayer Helm Snitch    | Hat    | Slayer Helm           | +20% dmg vs. assigned enemy type |
+| Ghrazi Stiletto       | Weapon | Ghrazi Rapier         | Best STR scaling stab + 3x crit  |
+| Blowpipe Bullet Chain | Neck   | Amulet of Torture     | +3 STR+STS+power, 0 armor        |
+| Spectral Shield Chain | Neck   | Spectral Spirit Shield| 50% tox/rad passive decay        |
+| Elder Maul            | Weapon | Elder Maul            | Highest damage, slow, str_req 15 |
+| Wilderness Chrome     | Ring   | Skulled mechanics     | -2 CON, +10% dmg after 3 kills   |
+
+================================================================================
+SLOT DISTRIBUTION
+================================================================================
+
+Weapons (stabbing):  Dragon Double Dagger, Smite Shank, Abyssal Dagger of Debt,
+                     Ghrazi Stiletto (4 items)
+Weapons (slashing):  Armadillo Godsword, Scythe of Vitur (2 items)
+Weapons (beating):   Granite Jawn, Barrows Beater, Verac's Veil, Toxic Staff Dead,
+                     Elder Maul (5 items)
+Sidearms (gun):      Craw's Web Shooter, Toxic Blowpipe (2 items)
+Weapon guns:         Twisted Bow (1 item)
+Rings:               Berserker Coil, Ring of the Witness, Wilderness Chrome (3 items)
+Neck:                Void Chain, Blowpipe Bullet Chain, Spectral Shield Chain (3 items)
+Feet:                Void Kicks, Bandos Kicks (2 items)
+Hats:                Void Hood, Seer's Spectacles, Slayer Helm of the Snitch (3 items)
+
+Total: 25 items
+Guns total: 3 (Craw's Web Shooter, Toxic Blowpipe, Twisted Bow)
+Ability-granting items: 7 (Dragon Double Dagger, Armadillo Godsword, Granite Jawn,
+  Abyssal Dagger, Toxic Staff Dead, Elder Maul + Calamity Shield, all via spec energy)
+
+================================================================================
+IMPLEMENTATION PRIORITY NOTES
+================================================================================
+
+Phase 1 — Spec Energy System (unlocks 6 items):
+  1. Add engine.spec_energy field (+25/turn in energy loop; 100 max; display in UI)
+  2. Add ability check: if spec_energy < cost: reject with message
+  3. Implement Dragon Double Dagger (simplest spec: double hit)
+  4. Implement Granite Jawn (free action — player_free_action flag)
+
+Phase 2 — Passive weapon mechanics (4 items, no new engine infrastructure):
+  1. Barrows Beater (dharoks_passive: True — read in compute_atk_power)
+  2. Smite Shank (smite_drain: True — read in on-hit path)
+  3. Scythe of Vitur (vitur_sweep: True — read in on-hit path)
+  4. Verac's Veil (ignore_dodge + ignore_defense_chance)
+
+Phase 3 — Gun mechanics (3 items):
+  1. Craw's Web Shooter (zone check in gun_system.py)
+  2. Toxic Blowpipe (on_gun_hit_tox, reduced_energy_cost_gun)
+  3. Twisted Bow (tox_scaling_gun dict)
+
+Phase 4 — Ring/Neck/Feet/Hat passives:
+  1. Ring of the Witness (entity.witness_charges; per-hit hook)
+  2. Berserker Coil (kill hook + BerserkerMadnessEffect)
+  3. Void Set (3 items; count-based outgoing_damage_mults)
+  4. Remaining items
+
+Phase 5 — Complex systems:
+  1. Slayer Helm (snitch_task_enemy_type; per-floor assignment)
+  2. Wilderness Chrome (skull activation; outgoing_damage_mults management)
+  3. Elder Maul (attack_cost_override field + spec)
