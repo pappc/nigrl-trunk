@@ -118,7 +118,14 @@ def _deserialize_entity(data, entity_index):
                 if eff is not None:
                     ent.status_effects.append(eff)
         elif k == "inventory":
-            ent.inventory = [_deserialize_entity(item_data, entity_index) for item_data in v]
+            ent.inventory = []
+            for item_data in v:
+                if isinstance(item_data, dict):
+                    try:
+                        ent.inventory.append(_deserialize_entity(item_data, entity_index))
+                    except Exception:
+                        pass  # skip corrupted inventory entries
+                # else: skip non-dict entries silently
         elif k == "ai_state":
             if v is not None:
                 from ai import AIState
@@ -616,6 +623,14 @@ def load_game(path=None):
 
     # Restore player
     engine.player = _deserialize_entity(data["player"], entity_index)
+
+    # Sanitize inventory: filter out any non-Entity items (corrupted save data)
+    from entity import Entity
+    if hasattr(engine.player, "inventory"):
+        engine.player.inventory = [
+            item for item in engine.player.inventory
+            if isinstance(item, Entity)
+        ]
 
     # Restore player stats
     engine.player_stats = _deserialize_stats(data["player_stats"])
