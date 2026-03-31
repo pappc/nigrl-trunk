@@ -1,7 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('Zilk_16x16.png', '.'), ('nigrl-tileset-2.png', '.'), ('dev-assets/cobweb_16x16.png', 'dev-assets'), ('dev-assets/spiderling_16.png', 'dev-assets')]
+import glob as _glob
+_dev_pngs = [(f, 'dev-assets') for f in _glob.glob('dev-assets/*.png')]
+datas = [('Zilk_16x16.png', '.'), ('nigrl-tileset-2.png', '.')] + _dev_pngs
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('tcod')
