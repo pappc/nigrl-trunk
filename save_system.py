@@ -705,6 +705,7 @@ def load_game(path=None):
         MenuState.SETTINGS: engine._handle_settings_input,
         MenuState.VENDING_MACHINE: engine._handle_vending_machine_input,
         MenuState.MIDAS_BREW: engine._handle_midas_brew_input,
+        MenuState.SHOP_ITEM: engine._handle_shop_item_input,
     }
 
     # Recompute FOV

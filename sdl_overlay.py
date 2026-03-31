@@ -258,8 +258,22 @@ class SDLOverlay:
 
     def add_floating_text(self, dungeon_x: int, dungeon_y: int, text: str,
                           color: tuple[int, int, int]):
-        """Spawn a floating text at a dungeon position."""
+        """Spawn a floating text at a dungeon position.
+
+        If a same-color floating text already exists at this tile from the
+        same game tick (within 50ms), merge into e.g. '5+3' instead of
+        overlapping.
+        """
         px, py = self._tile_to_pixel(dungeon_x, dungeon_y)
+        now = time.time()
+        # Try to merge with a recent same-position, same-color text
+        for ft in self._floating_texts:
+            if (ft.x_px == px and ft.y_px == py
+                    and ft.color == color
+                    and (now - ft.birth) < 0.05):
+                ft.text += "+" + text
+                ft.num_chars = sum(1 for c in ft.text if c in self._digit_textures)
+                return
         nc = sum(1 for c in text if c in self._digit_textures)
         self._floating_texts.append(_FloatingText(px, py, text, color, num_chars=nc))
 
@@ -380,7 +394,9 @@ class SDLOverlay:
                     elif eff_id == 'ignite':
                         icons.append(('_ignite', (255, 120, 30)))
                     elif eff_id == 'stun':
-                        icons.append(('!', (255, 255, 255)))
+                        icons.append(('_shock', (255, 255, 255)))
+                    elif eff_id == 'voodoo_ham_stun':
+                        icons.append(('_shock', (180, 80, 255)))
                     elif eff_id == 'fear':
                         icons.append(('F', (180, 80, 255)))
                     elif eff_id == 'snipers_mark':

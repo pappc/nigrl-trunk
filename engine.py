@@ -228,6 +228,7 @@ class GameEngine:
         self._sublevel_return_floor: int | None = None
         self._sublevel_return_dungeon = None
         self._sublevel_return_pos: tuple | None = None
+        self._sublevel_cache: dict = {}  # {sublevel_key: (dungeon, player_pos)}
 
         # --- Menu state (single enum replaces bools + strings) ---
         self.menu_state = MenuState.NONE
@@ -781,6 +782,45 @@ class GameEngine:
                     self.messages.append(f"The {entity.name} takes {damage} radiation blast damage!")
                 if not entity.alive:
                     self.event_bus.emit("entity_died", entity=entity, killer=self.player)
+
+    def _tick_scrap_turrets(self, monsters):
+        """Tick all scrap turrets. Shoot nearest enemy in range, decrement duration."""
+        import math
+        turrets = [
+            e for e in self.dungeon.entities
+            if getattr(e, 'hazard_type', None) == 'scrap_turret' and getattr(e, 'alive', False)
+        ]
+        for turret in turrets:
+            turret.hazard_duration -= 1
+            if turret.hazard_duration <= 0 or not turret.alive:
+                self.dungeon.remove_entity(turret)
+                self.messages.append("Scrap Turret falls apart.")
+                continue
+
+            # Shoot nearest visible enemy within range
+            tx, ty = turret.x, turret.y
+            best_target = None
+            best_dist = float('inf')
+            for m in monsters:
+                if not m.alive:
+                    continue
+                dx = m.x - tx
+                dy = m.y - ty
+                dist = math.sqrt(dx * dx + dy * dy)
+                if dist <= turret.turret_range and dist < best_dist:
+                    best_target = m
+                    best_dist = dist
+
+            if best_target is not None:
+                damage = max(1, turret.power - best_target.defense)
+                best_target.take_damage(damage)
+                hp_str = f"{best_target.hp}/{best_target.max_hp}" if best_target.alive else "dead"
+                self.messages.append([
+                    ("Turret! ", (200, 150, 50)),
+                    (f"Shoots {best_target.name} for {damage} dmg ({hp_str})", (220, 180, 100)),
+                ])
+                if not best_target.alive:
+                    self.event_bus.emit("entity_died", entity=best_target, killer=self.player)
 
     def _on_entity_died(self, entity, killer=None):
         """Universal death handler — removes entity and bookkeeps kills."""
@@ -1637,6 +1677,9 @@ class GameEngine:
 
             # Tick rad bomb crystals
             self._tick_rad_bomb_crystals(monsters)
+
+            # Tick scrap turrets
+            self._tick_scrap_turrets(monsters)
 
             # 4. Fire / toxic creep hazard: affect entities standing on hazard tiles
             for entity in [self.player] + monsters:
@@ -2915,6 +2958,11 @@ class GameEngine:
             self.grant_ability("outbreak")
             self.messages.append("  [Outbreak] Target a 7×7 area — enemies become linked. Damage echoes between them! 30t cooldown.")
 
+        if name == "Scrap Turret":
+            self.grant_ability("scrap_turret")
+            self._last_destroyed_item_value = 25  # default
+            self.messages.append("  [Scrap Turret] Destroy items to load a turret charge. Place on adjacent tile to deploy!")
+
     def _handle_log_input(self, action):
         """Handle input while the log menu is open. UP/DOWN scroll; anything else closes."""
         action_type = action.get("type")
@@ -3199,7 +3247,7 @@ class GameEngine:
         return True
 
     def _enter_sublevel(self, sublevel_key: str):
-        """Enter a sublevel dungeon (e.g. Haitian Daycare)."""
+        """Enter a sublevel dungeon (e.g. Haitian Daycare). Reuses cached dungeon on re-entry."""
         if self.sdl_overlay:
             self.sdl_overlay.clear()
 
@@ -3211,21 +3259,29 @@ class GameEngine:
         # Remove player from current floor
         self.dungeon.remove_entity(self.player)
 
-        # Generate the sublevel
-        sublevel_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=sublevel_key)
-        if sublevel_dungeon.rooms:
-            x, y = sublevel_dungeon.rooms[0].center()
-            self.player.x = x
-            self.player.y = y
-        sublevel_dungeon.spawn_entities(
-            self.player, floor_num=0, zone=sublevel_key,
-            player_skills=self.skills, player_stats=self.player_stats,
-            special_rooms_spawned=self.special_rooms_spawned,
-        )
+        # Check cache for existing sublevel
+        cached = self._sublevel_cache.get(sublevel_key)
+        if cached:
+            sublevel_dungeon, cached_pos = cached
+            self.player.x, self.player.y = cached_pos
+            if self.player not in sublevel_dungeon.entities:
+                sublevel_dungeon.entities.insert(0, self.player)
+        else:
+            # Generate a fresh sublevel
+            sublevel_dungeon = Dungeon(DUNGEON_WIDTH, DUNGEON_HEIGHT, zone=sublevel_key)
+            if sublevel_dungeon.rooms:
+                x, y = sublevel_dungeon.rooms[0].center()
+                self.player.x = x
+                self.player.y = y
+            sublevel_dungeon.spawn_entities(
+                self.player, floor_num=0, zone=sublevel_key,
+                player_skills=self.skills, player_stats=self.player_stats,
+                special_rooms_spawned=self.special_rooms_spawned,
+            )
+            sublevel_dungeon.first_kill_happened = False
+            sublevel_dungeon.female_kill_happened = False
 
         self.dungeon = sublevel_dungeon
-        self.dungeon.first_kill_happened = False
-        self.dungeon.female_kill_happened = False
         self._compute_fov()
         self._update_tile_stat_bonuses()
         self.player.energy = ENERGY_THRESHOLD
@@ -3247,8 +3303,13 @@ class GameEngine:
         return_dungeon = self._sublevel_return_dungeon
         rx, ry = self._sublevel_return_pos
 
-        # Remove player from sublevel
-        self.dungeon.remove_entity(self.player)
+        # Cache the sublevel dungeon so we can return to the same one
+        sublevel_zone = getattr(self.dungeon, 'zone', None)
+        if sublevel_zone:
+            self.dungeon.remove_entity(self.player)
+            self._sublevel_cache[sublevel_zone] = (self.dungeon, (self.player.x, self.player.y))
+        else:
+            self.dungeon.remove_entity(self.player)
 
         # Restore position and dungeon
         self.player.x = rx

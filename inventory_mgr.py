@@ -1801,6 +1801,18 @@ def _destroy_item(engine, index):
                 (f"+1 {label}", (200, 230, 255)),
                 (f" (now {getattr(ps, stat)})", (150, 150, 150)),
             ])
+    # Dismantling L5: Scrap Turret — destroying an item loads 1 charge
+    if dm_level >= 5:
+        from items import get_item_value
+        val = get_item_value(item.item_id)
+        engine._last_destroyed_item_value = val
+        turret_ability = next((a for a in engine.player_abilities if a.ability_id == "scrap_turret"), None)
+        if turret_ability is not None and turret_ability.charges_remaining < 1:
+            turret_ability.charges_remaining = 1
+            engine.messages.append([
+                ("Scrap Turret: ", (200, 150, 50)),
+                (f"+1 charge loaded! (value {val})", (220, 200, 100)),
+            ])
     # Ammo Rat L3: Rat Race — dismantling yields ammo (5 light, 3 medium, 1 heavy)
     if engine.skills.get("Ammo Rat").level >= 3:
         _add_item_to_inventory(engine, "light_rounds", quantity=5)

@@ -1799,8 +1799,8 @@ def _execute_ice_barrier(engine) -> bool:
 
     # Visual: blue flash on player
     if engine.sdl_overlay:
-        engine.sdl_overlay.add_tile_flash(
-            [(px, py)], color=(80, 160, 255), duration=0.5,
+        engine.sdl_overlay.add_tile_flash_ripple(
+            [(px, py)], px, py, color=(80, 160, 255), duration=0.5,
         )
 
     engine.messages.append([
@@ -2121,6 +2121,53 @@ def _execute_purge(engine) -> bool:
             ("Hunger! ", (120, 200, 50)),
             ("Melee attacks heal 25% of damage for 10 turns.", (180, 255, 100)),
         ])
+    return True
+
+
+def _execute_at_scrap_turret(engine, tx: int, ty: int) -> bool:
+    """Place a Scrap Turret on an adjacent tile."""
+    from entity import Entity
+
+    # Block if tile is a wall or occupied by a blocking entity
+    if engine.dungeon.is_blocked(tx, ty):
+        engine.messages.append("Can't place a turret there — tile is blocked!")
+        return False
+
+    # Only 1 turret at a time — remove old one
+    old_turrets = [e for e in engine.dungeon.entities
+                   if getattr(e, 'hazard_type', None) == 'scrap_turret']
+    for t in old_turrets:
+        engine.dungeon.entities.remove(t)
+
+    dm_level = engine.skills.get("Dismantling").level
+    last_value = getattr(engine, '_last_destroyed_item_value', 25)
+    duration = max(5, last_value // 5)
+    hp = dm_level * 5
+    damage = dm_level * 3
+
+    turret = Entity(
+        x=tx, y=ty,
+        char="T",
+        color=(200, 150, 50),
+        name="Scrap Turret",
+        blocks_movement=True,
+    )
+    turret.entity_type = "hazard"
+    turret.hazard_type = "scrap_turret"
+    turret.hp = hp
+    turret.max_hp = hp
+    turret.alive = True
+    turret.defense = 0
+    turret.power = damage
+    turret.hazard_duration = duration
+    turret.turret_range = 3
+    turret.status_effects = []
+    engine.dungeon.add_entity(turret)
+
+    engine.messages.append([
+        ("Scrap Turret deployed! ", (200, 150, 50)),
+        (f"HP: {hp}, Dmg: {damage}, Duration: {duration}t, Range: 3", (180, 180, 120)),
+    ])
     return True
 
 
@@ -3375,6 +3422,21 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         tags=frozenset({"self_cast", "active", "infection", "buff"}),
         execute=_execute_zombie_rage,
         is_spell=False,
+    ),
+    "scrap_turret": AbilityDef(
+        ability_id="scrap_turret",
+        name="Scrap Turret",
+        description="Place a turret on an adjacent tile. Stats scale with last destroyed item value and Dismantling level. Max 1 turret.",
+        char="T",
+        color=(200, 150, 50),
+        target_type=TargetType.ADJACENT_TILE,
+        charge_type=ChargeType.TOTAL,
+        max_charges=0,
+        tags=frozenset({"summon", "active", "turret"}),
+        execute=None,
+        is_spell=False,
+        max_range=1.5,
+        execute_at=_execute_at_scrap_turret,
     ),
     "outbreak": AbilityDef(
         ability_id="outbreak",

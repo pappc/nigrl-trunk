@@ -218,6 +218,17 @@ def _inject_hazard_tiles(tileset):
     except Exception as e:
         print(f"[warn] Could not load maul tile: {e}")
 
+    # Voodoo Doll tile: monocolor sprite from dev-assets (16x16)
+    try:
+        voodoo_path = os.path.join(base_dir, "dev-assets", "voodoo_16-export.png")
+        _voodoo_img = PilImage.open(voodoo_path).convert("RGBA")
+        _voodoo = np.array(_voodoo_img, dtype=np.uint8)
+        if _voodoo.shape[0] != 16 or _voodoo.shape[1] != 16:
+            _voodoo = _pad_to_16x16(_voodoo)
+        tileset[0xE011] = _voodoo
+    except Exception as e:
+        print(f"[warn] Could not load voodoo tile: {e}")
+
 
 def _show_title_screen(console, context, sdl_overlay):
     """Display the title screen. Returns (action, seed_or_None).

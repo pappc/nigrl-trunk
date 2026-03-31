@@ -199,7 +199,7 @@ class Entity:
         if Entity._on_damage_callback and damage > 0:
             Entity._on_damage_callback(self, damage, hp_damage)
         # Any damage provokes passive monsters (fire, DoT, etc.)
-        if hp_damage > 0 and hasattr(self, "provoked") and not self.provoked:
+        if damage > 0 and hasattr(self, "provoked") and not self.provoked:
             self.provoked = True
         if self.hp <= 0:
             self.alive = False

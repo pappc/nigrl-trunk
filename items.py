@@ -2344,7 +2344,7 @@ ITEM_DEFS = {
     },
     "voodoo_doll": {
         "name": "Voodoo Doll",
-        "char": "d",
+        "char": chr(0xE011),
         "color": (140, 60, 180),
         "category": "consumable",
         "subcategory": None,

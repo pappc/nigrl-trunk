@@ -954,7 +954,7 @@ def _resolve_gun_shot(engine, tx, ty):
     ])
 
     if killed:
-        engine.event_bus.emit("entity_died", target, killer=engine.player)
+        engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
         notify_gun_kill(engine)
         # Sniping L2 "Dead Eye": accurate kill = +1 swagger for the floor
         if (engine.gun_firing_mode == "accurate"
@@ -1002,7 +1002,7 @@ def _thunder_gun_chain(engine, initial_target, gun_defn):
             (f"Lightning arcs to {chain_target.name} for {chain_dmg} damage!", (200, 220, 255)),
         ])
         if chain_killed:
-            engine.event_bus.emit("entity_died", chain_target, killer=engine.player)
+            engine.event_bus.emit("entity_died", entity=chain_target, killer=engine.player)
             notify_gun_kill(engine)
         current = chain_target
 

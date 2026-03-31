@@ -1046,6 +1046,25 @@ def _voodoo_detonate(engine):
         ("The Voodoo Doll pulses with dark energy!", (140, 60, 180)),
     ])
 
+    # Visual: dark pulse radiating from player to all cursed targets
+    if engine.sdl_overlay:
+        pulse_tiles = [(player.x, player.y)]
+        for m, _ in targets:
+            # Line of tiles from player to each cursed monster
+            dx = m.x - player.x
+            dy = m.y - player.y
+            steps = max(abs(dx), abs(dy))
+            if steps > 0:
+                for s in range(1, steps + 1):
+                    tx = player.x + round(dx * s / steps)
+                    ty = player.y + round(dy * s / steps)
+                    if (tx, ty) not in pulse_tiles:
+                        pulse_tiles.append((tx, ty))
+        engine.sdl_overlay.add_tile_flash_ripple(
+            pulse_tiles, player.x, player.y,
+            color=(140, 60, 180), duration=0.6, ripple_speed=0.03,
+        )
+
     detonation_count = 0
     for monster, curses in targets:
         for curse in curses:
@@ -1091,6 +1110,9 @@ def _detonate_ham(engine, monster, stacks):
             [(monster.x, monster.y)], monster.x, monster.y,
             color=(140, 60, 180), duration=0.8,
         )
+        engine.sdl_overlay.add_floating_text(
+            monster.x, monster.y, f"STUN {duration}t", (255, 200, 100),
+        )
 
 
 def _detonate_dot(engine, monster, stacks):
@@ -1118,6 +1140,10 @@ def _detonate_dot(engine, monster, stacks):
             if entity.entity_type == "monster" and entity.alive and entity not in hit_targets:
                 entity.take_damage(damage)
                 hit_targets.add(entity)
+                if engine.sdl_overlay:
+                    engine.sdl_overlay.add_floating_text(
+                        entity.x, entity.y, str(damage), (255, 100, 255),
+                    )
 
     engine.messages.append([
         (f"Curse of DOT detonates on {monster.name}! ", (140, 60, 180)),

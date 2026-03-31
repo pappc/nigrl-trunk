@@ -23,6 +23,150 @@ def register(cls):
 
 
 # ---------------------------------------------------------------------------
+# Player-facing effect descriptions (shown in chat log on application)
+# ---------------------------------------------------------------------------
+
+_PLAYER_DESCRIPTIONS: dict[str, str] = {
+    "acid_armor": "When attacked, chance to break an equipped item",
+    "acid_meltdown": "Halved move cost; kills explode into acid pools",
+    "agent_orange": "Can't deal melee damage; 20 damage when it expires",
+    "alco_seltzer_immunity": "Immune to debuffs",
+    "alco_seltzer_tox_resist": "100% toxicity resistance",
+    "arcane_intelligence": "+1 spell damage per stack",
+    "berserk": "+4 STR per stack",
+    "bksmt_buff": "+Book-Smarts",
+    "black_eye": "Stunned, then wanders aimlessly",
+    "black_eye_wander": "Moving randomly",
+    "bleeding": "Damage over time from wounds",
+    "blue_lagoon_buff": "Using consumables chills nearest enemy",
+    "butterbeer_buff": "+25% briskness",
+    "calculated_aim": "Chance to gain +1 Book Smarts per ammo spent",
+    "child_support": "Drains $1 per step",
+    "chill": "-15% speed per stack",
+    "columbian_gold": "1 damage/turn, +5 power",
+    "confuse": "Movement direction randomized",
+    "conversion": "Drains 2 from the higher of tox/rad each turn",
+    "cornbread_buff": "+5 Book-Smarts",
+    "cripple_armor": "Defense reduced to 0",
+    "crippled": "Deals half melee damage",
+    "crippling_attacks": "50% chance to shock on hit",
+    "curse_covid": "Each turn: +20 rad or tox, chance to spread to nearby enemies",
+    "curse_dot": "Stacking curse; deals increasing damage each turn",
+    "curse_of_ham": "Attacks cost 50% more energy and deal 50% less damage",
+    "dead_shot_daiquiri": "+5 STS, +5 gun damage, 50% ammo recovery",
+    "disarmed": "Deals half melee damage",
+    "distracted": "Next attack will miss",
+    "divine_shield": "Each stack absorbs one hit",
+    "dot": "Taking damage each turn",
+    "eagle_eye": "Unlimited vision range",
+    "eating_food": "Eating; can't act until finished",
+    "electric_root": "Rooted in place, can't move",
+    "fear": "Forced to flee",
+    "fiery_fists": "Melee attacks apply ignite",
+    "fireball_shooter_buff": "Using consumables ignites nearest enemy",
+    "five_loco": "2x rad gain, increased good mutation chance",
+    "force_sensitive": "+1 STR per 10 rad gained",
+    "forty_oz": "+5 Swagger per stack",
+    "frozen": "Frozen solid; can't act, +99 damage resistance",
+    "glass_shards": "1 damage per stack per turn",
+    "glory_fists": "+5 STR, chance to permanently gain stats on hit",
+    "gouge": "Stunned until hit by the player",
+    "greasy": "+3% dodge per stack",
+    "green_drank": "Drinks heal HP/armor and remove rad/tox",
+    "hamstrung": "-2 damage per stack on attacks",
+    "hangover": "Stat penalties from drinking, applied next floor",
+    "hard_boiled_egg": "Revive at half HP when killed",
+    "hennessy": "-2 STR, +5 TOL, can double-smoke",
+    "hex_slow": "-10 speed per stack",
+    "hollowed_out": "",
+    "hot": "Healing over time",
+    "hot_cheetos": "+2 to all stats per stack",
+    "hot_pot": "Melee hits splash boiling oil to adjacent enemies",
+    "hunger": "Melee heals 25% of damage dealt",
+    "ignite": "1 fire damage per stack per turn",
+    "invulnerable": "Can't take damage",
+    "iron_lung_defense": "+defense",
+    "iron_lung_dmg_reduction": "25% reduced outgoing damage",
+    "jagermeister_buff": "+2 STR, +2 more per melee hit",
+    "left_behind": "+1 DR per item left behind last floor",
+    "leftovers_well_fed": "+1 power and spell damage per stack",
+    "lesser_cloudkill": "1 damage/turn, -1 to all stats",
+    "lifesteal": "Heal equal to melee damage dealt",
+    "limoncello_chain_shock": "Shocking enemies chains to a nearby enemy",
+    "loitering_tracker": "",
+    "loitering_untargetable": "Enemies can't target you",
+    "malt_liquor": "+8 STR, -2 CON, +20 temp HP per stack",
+    "mana_drink": "Abilities heal 15% of damage dealt per stack",
+    "milk_from_the_store": "All stats doubled",
+    "minor_self_reflection": "10% chance to hurt yourself on melee hit",
+    "mirror_entity": "Illusory copies absorb melee hits",
+    "mogged": "Reduced swagger",
+    "momentum": "Free movement per stack",
+    "muffin_buff": "50% chance to save ability charges",
+    "natty_light_buff": "+1 to all stats",
+    "neuro_venom": "Stacking damage over time",
+    "nigga_armor": "-1 incoming damage per stack",
+    "nine_ring": "25% lifesteal on all damage",
+    "outbreak": "Damage echoes 30% to other marked enemies nearby",
+    "peace_of_mind": "+1 Street Smarts per stack",
+    "phase_walk": "Walk through walls",
+    "pipe_venom": "1 damage per turn",
+    "platinum_reserve": "Triple max armor, restored to full",
+    "protein_powder": "Permanent stat gains are doubled",
+    "purge_infection": "-50% melee damage",
+    "purple_halt_swagger": "+Swagger",
+    "quick_eat": "Next food eaten instantly",
+    "rabies": "-1 to all stats",
+    "rad_nova_spell_buff": "+spell damage",
+    "rad_poison": "Gaining radiation each turn",
+    "rainbow_rotgut": "Melee hits randomly ignite, shock, or chill",
+    "rat_race": "+10 speed per stack",
+    "red_drank": "Drinks last twice as long and cost no action",
+    "root_beer": "Immobile, -10 incoming damage, +50 temp HP",
+    "sangria": "+30% lifesteal per stack, slower movement",
+    "shocked": "+10% damage taken per stack",
+    "shortcut_channel": "Channeling a teleport",
+    "sleeper_agent": "+1 damage, +2% lifesteal per stack; lost on move",
+    "slipped": "Lost footing, lose next action",
+    "slow": "Slowed, acting less often",
+    "snipers_mark": "Taking 10% more damage permanently",
+    "soul_count": "Tracking collected souls",
+    "soul_empower": "+4 to a random stat",
+    "soul_pair": "Damage dealt to player is reflected back",
+    "sped": "Melee attacks cost half energy",
+    "speed_boost": "Increased speed",
+    "speedball": "+100 speed, +5 Swagger, 20% chance to lose turn",
+    "spring_dodge": "+50% dodge chance",
+    "stat_mod": "Temporarily modified stats",
+    "stride": "50% reduced action cost",
+    "stun": "Can't act",
+    "surge": "+10 speed per stack",
+    "swashbuckling": "+1 slash damage and +1% dodge per stack",
+    "tetanus": "-1 to all stats per stack",
+    "titan_form": "+50 temp HP, +50% melee damage, stuns on hit",
+    "tox_spillover_aura": "Killed enemies spread their toxicity nearby",
+    "toxic_harvest": "Gain 5 toxicity on kill",
+    "unstable": "+2 melee damage, hits irradiate enemies",
+    "venom": "1 damage per stack per turn",
+    "victory_rush": "Next melee attack has crit advantage",
+    "virulent_vodka": "Damage applies toxicity; chance for +1 CON on toxic kills",
+    "voodoo_ham_stun": "Stunned",
+    "web_stuck": "Stuck in a web, 50% escape chance per turn",
+    "web_trail": "Leaving cobwebs behind when moving",
+    "webbed": "-25 speed",
+    "well_fed": "+damage per stack",
+    "wet": "Extinguishes ignite",
+    "white_gonster": "Chance to purge debuffs each turn, heals on purge",
+    "white_out": "+8 Swagger, -25% damage dealt",
+    "wizard_mind_bomb": "+5 Book-Smarts per stack",
+    "wolf_spider_venom": "1 damage/turn, 15% miss chance",
+    "yellowcake_buff": "10x mutation chance, blocks weak mutations",
+    "zombie_rage": "+20% melee damage and +20 speed per stack",
+    "zoned_out": "Immune to debuffs",
+}
+
+
+# ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
 
@@ -55,6 +199,11 @@ class Effect:
     def stack_count(self):
         """Return stack count for display, or None if this effect does not stack."""
         return None
+
+    @property
+    def short_description(self) -> str:
+        """Return a short player-facing description."""
+        return _PLAYER_DESCRIPTIONS.get(self.id, "")
 
     @property
     def display_duration(self) -> str:
@@ -4057,6 +4206,9 @@ def apply_effect(entity, engine, effect_id: str, silent: bool = False, **kwargs)
     if not silent:
         if entity == engine.player:
             engine.messages.append(f"You are {incoming.display_name}!")
+            desc = incoming.short_description
+            if desc:
+                engine.messages.append(f"  ({desc})")
         else:
             engine.messages.append(f"{entity.name} is {incoming.display_name}!")
 
