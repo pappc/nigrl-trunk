@@ -284,7 +284,7 @@ SKILL_PERKS["Gunplay"] = [
 
 SKILL_PERKS["Chemical Warfare"] = [
     {"name": "Toxic Harvest", "perk_type": "activated", "effect": {"ability": "toxic_harvest"}, "desc": "50t cooldown. For 10 turns, any monster kill grants +5 toxicity and refreshes this buff."},  # level 1
-    {"name": "Toxic Resilience", "perk_type": "stat", "effect": {"tolerance": 5, "constitution": 3, "tox_resistance": -30}, "desc": "+5 Tolerance, +3 Constitution, -30% Toxicity Resistance. Embrace the poison."},  # level 2
+    {"name": "Toxic Frenzy", "perk_type": "passive", "effect": {"tolerance": 2}, "desc": "+2 TOL. +1% melee and gun damage per 10 toxicity (cap 500 tox, max +50%). +1 speed per 20 toxicity (cap +25). The poison fuels your fury."},  # level 2
     {"name": "Acid Meltdown", "perk_type": "activated", "effect": {"ability": "acid_meltdown"}, "desc": "50t cooldown. Cost: 25 tox. 10 turns: halve move cost. Kills explode into 3x3 acid pools."},  # level 3
     _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10

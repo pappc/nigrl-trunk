@@ -4698,7 +4698,9 @@ def generate_examine_lines(item_id, engine=None):
                     ],
                     "rainbow_rotgut": [
                         "50 turn buff. Melee hits apply",
-                        "ignite, shocked, or chill (1/3 each).",
+                        "shocked, ignite, and chill to 3",
+                        "random enemies in LOS. Can hit",
+                        "the same target multiple times.",
                         "+1 hangover stack.",
                     ],
                     "root_beer": [

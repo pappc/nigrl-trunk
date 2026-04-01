@@ -8,6 +8,7 @@ import math
 import random
 
 import combat
+from combat import _apply_toxic_frenzy
 from config import DUNGEON_WIDTH, DUNGEON_HEIGHT, MIN_DAMAGE
 from effects import notify_gun_kill, dead_shot_gun_bonus, dead_shot_ammo_recovery
 from items import get_item_def
@@ -575,6 +576,7 @@ def _resolve_gun_ability_shot(engine, tx, ty):
         mult = engine.player_stats.outgoing_damage_mult
         if mult != 1.0:
             damage = int(damage * mult)
+        damage = _apply_toxic_frenzy(engine, damage)
         damage = engine._apply_damage_modifiers(damage, target)
         damage = engine._apply_toxicity(damage, target)
         killed = combat.deal_damage(engine, damage, target)
@@ -690,6 +692,7 @@ def _resolve_cone_shot(engine, tx, ty):
         mult = engine.player_stats.outgoing_damage_mult
         if mult != 1.0:
             damage = int(damage * mult)
+        damage = _apply_toxic_frenzy(engine, damage)
         damage = engine._apply_damage_modifiers(damage, target)
         damage = engine._apply_toxicity(damage, target)
         killed = combat.deal_damage(engine, damage, target)
@@ -921,6 +924,7 @@ def _resolve_gun_shot(engine, tx, ty):
     mult = engine.player_stats.outgoing_damage_mult
     if mult != 1.0:
         damage = int(damage * mult)
+    damage = _apply_toxic_frenzy(engine, damage)
     damage = engine._apply_damage_modifiers(damage, target)
     damage = engine._apply_toxicity(damage, target)
 
@@ -979,6 +983,7 @@ def _thunder_gun_chain(engine, initial_target, gun_defn):
         mult = engine.player_stats.outgoing_damage_mult
         if mult != 1.0:
             chain_dmg = int(chain_dmg * mult)
+        chain_dmg = _apply_toxic_frenzy(engine, chain_dmg)
         chain_killed = combat.deal_damage(engine, chain_dmg, chain_target)
         engine.messages.append([
             ("Chain! ", (255, 255, 80)),

@@ -122,7 +122,7 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "rabies": "-1 to all stats",
     "rad_nova_spell_buff": "+spell damage",
     "rad_poison": "Gaining radiation each turn",
-    "rainbow_rotgut": "Melee hits randomly ignite, shock, or chill",
+    "rainbow_rotgut": "Melee hits apply shocked, ignite, and chill to 3 random enemies in LOS",
     "rat_race": "+10 speed per stack",
     "red_drank": "Drinks last twice as long and cost no action",
     "root_beer": "Immobile, -10 incoming damage, +50 temp HP",
@@ -2354,7 +2354,8 @@ def _apply_virulent_vodka_tox(engine, target, damage, stacks):
 
 @register
 class RainbowRotgutEffect(Effect):
-    """Buff (Rainbow Rotgut): on melee hit, 100% chance to apply 1 stack of ignite, shocked, or chill (equal 1/3 each)."""
+    """Buff (Rainbow Rotgut): on melee hit, apply 1 stack each of ignite, shocked, and chill
+    to 3 random enemies in LOS. Same target can be hit multiple times."""
     id = "rainbow_rotgut"
     category = "buff"
     priority = 0
@@ -2370,26 +2371,41 @@ class RainbowRotgutEffect(Effect):
         existing.duration = max(existing.duration, self.duration)
 
     def on_player_melee_hit(self, engine, defender, damage: int) -> None:
-        roll = _random.random()
-        if roll < 1 / 3:
-            dur = engine._player_ignite_duration()
-            eff = apply_effect(defender, engine, "ignite", duration=dur, stacks=1, silent=True)
-            if eff:
-                engine.messages.append(
-                    f"Rainbow Rotgut: {defender.name} ignited! (x{eff.stacks})"
-                )
-        elif roll < 2 / 3:
-            eff = apply_effect(defender, engine, "shocked", duration=5, stacks=1, silent=True)
-            if eff:
-                engine.messages.append(
-                    f"Rainbow Rotgut: {defender.name} shocked! ({eff.stacks} stack{'s' if eff.stacks != 1 else ''})"
-                )
-        else:
-            eff = apply_effect(defender, engine, "chill", duration=10, stacks=1, silent=True)
-            if eff:
-                engine.messages.append(
-                    f"Rainbow Rotgut: {defender.name} chilled! ({eff.stacks} stack{'s' if eff.stacks != 1 else ''})"
-                )
+        from ai import _has_los
+        # Gather all visible living monsters in LOS
+        px, py = engine.player.x, engine.player.y
+        visible = engine.dungeon.visible
+        targets = [
+            e for e in engine.dungeon.entities
+            if e.entity_type == "monster" and e.alive
+            and visible[e.y, e.x]
+            and _has_los(engine.dungeon, px, py, e.x, e.y)
+        ]
+        if not targets:
+            return
+        # Pick 3 random targets (with replacement — same target can be hit multiple times)
+        picks = _random.choices(targets, k=3)
+        effects_applied = []  # (effect_name, target_name)
+        for i, target in enumerate(picks):
+            if i == 0:
+                # Shocked
+                eff = apply_effect(target, engine, "shocked", duration=5, stacks=1, silent=True)
+                if eff:
+                    effects_applied.append(("shocked", target.name))
+            elif i == 1:
+                # Ignite
+                dur = engine._player_ignite_duration()
+                eff = apply_effect(target, engine, "ignite", duration=dur, stacks=1, silent=True)
+                if eff:
+                    effects_applied.append(("ignited", target.name))
+            else:
+                # Chill
+                eff = apply_effect(target, engine, "chill", duration=10, stacks=1, silent=True)
+                if eff:
+                    effects_applied.append(("chilled", target.name))
+        if effects_applied:
+            summary = ", ".join(f"{name} {eff}" for eff, name in effects_applied)
+            engine.messages.append(f"Rainbow Rotgut: {summary}!")
 
 
 @register

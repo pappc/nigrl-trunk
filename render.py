@@ -1560,10 +1560,15 @@ def render_log_menu(console, engine):
     shown     = all_msgs[start_idx:end_idx]
 
     # Pad empty rows at the top so messages anchor to the bottom
+    C_TURN_TAG = (60, 60, 90)
     offset = visible_rows - len(shown)
-    for i, msg in enumerate(shown):
+    for i, entry in enumerate(shown):
+        turn, msg = entry
+        turn_tag = f"T{turn} "
+        tag_len = len(turn_tag)
         row = first_row_y + offset + i
-        _render_msg(console, content_x, row, msg, content_w, BG)
+        console.print(content_x, row, turn_tag, fg=C_TURN_TAG, bg=BG)
+        _render_msg(console, content_x + tag_len, row, msg, content_w - tag_len, BG)
 
     # Scroll position indicator on the right border
     if max_scroll > 0:
@@ -3629,17 +3634,24 @@ def render_ui(console, engine):
             console.print(stats_x + 2, sy + 1, "·" * sep_width, fg=C_SEP, bg=BG)
 
     # Message history — truncated to stay left of the stats border
-    msg_width = stats_x - 3   # cols 2 … stats_x-2
+    C_TURN_TAG = (60, 60, 90)
     all_msgs  = list(engine.messages)
     visible   = UI_HEIGHT - 2  # reserve bottom row for border
     shown     = all_msgs[-visible:] if len(all_msgs) > visible else all_msgs
     n_shown   = len(shown)
     # Fade steps: oldest message at 35% brightness, newest at 100%
-    for i, msg in enumerate(shown):
+    for i, entry in enumerate(shown):
+        turn, msg = entry
+        turn_tag = f"T{turn} "
+        tag_len = len(turn_tag)
+        msg_width = stats_x - 3 - tag_len  # cols after turn tag
         msg_y  = ui_y + 1 + (visible - n_shown) + i
         # brightness 0.35 for oldest, 1.0 for newest
         fade   = 0.35 + 0.65 * (i / max(1, n_shown - 1))
-        _render_msg(console, 2, msg_y, msg, msg_width, BG, fade=fade)
+        def _fade_c(color, f=fade):
+            return tuple(int(c * f) for c in color)
+        console.print(2, msg_y, turn_tag, fg=_fade_c(C_TURN_TAG), bg=BG)
+        _render_msg(console, 2 + tag_len, msg_y, msg, msg_width, BG, fade=fade)
 
     # Death screen overlay
     if engine.game_over:

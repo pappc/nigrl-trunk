@@ -122,7 +122,6 @@ FOOD_DEFS = {
 
         "effects": [
             {"type": "heal", "amount": 50},
-            {"type": "cornbread_buff", "duration": 30},
             {"type": "grant_ability_charges", "ability_id": "zap", "charges": 10},
         ],
     },

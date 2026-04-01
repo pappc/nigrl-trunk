@@ -531,10 +531,16 @@ def _serialize_message(msg):
     return str(msg)
 
 
-def _serialize_message(msg):
-    """Serialize a message entry from engine.messages deque."""
+def _serialize_message(entry):
+    """Serialize a message entry from engine.messages (turn, msg) tuple."""
+    # MessageLog stores (turn, msg) tuples
+    if isinstance(entry, (list, tuple)) and len(entry) == 2 and isinstance(entry[0], (int, float)):
+        turn, msg = entry
+    else:
+        turn, msg = 0, entry
+
     if isinstance(msg, str):
-        return {"type": "str", "text": msg}
+        return {"type": "str", "text": msg, "turn": turn}
     if isinstance(msg, (list, tuple)):
         parts = []
         for part in msg:
@@ -543,20 +549,21 @@ def _serialize_message(msg):
                 parts.append({"text": str(text), "color": list(color)})
             else:
                 parts.append({"text": str(part), "color": [255, 255, 255]})
-        return {"type": "rich", "parts": parts}
-    return {"type": "str", "text": str(msg)}
+        return {"type": "rich", "parts": parts, "turn": turn}
+    return {"type": "str", "text": str(msg), "turn": turn}
 
 
 def _deserialize_message(data):
-    """Reconstruct a message from saved data."""
+    """Reconstruct a (turn, msg) tuple from saved data."""
     if isinstance(data, str):
-        return data
+        return (0, data)
     if isinstance(data, dict):
+        turn = data.get("turn", 0)
         if data.get("type") == "str":
-            return data["text"]
+            return (turn, data["text"])
         if data.get("type") == "rich":
-            return [(p["text"], tuple(p["color"])) for p in data["parts"]]
-    return str(data)
+            return (turn, [(p["text"], tuple(p["color"])) for p in data["parts"]])
+    return (0, str(data))
 
 
 def load_game(path=None):
@@ -592,10 +599,11 @@ def load_game(path=None):
     edata = data["engine"]
     for k, v in edata.items():
         if k == "messages":
-            engine.messages = deque(
-                [_deserialize_message(m) for m in v],
-                maxlen=LOG_HISTORY_SIZE,
-            )
+            from engine import MessageLog
+            engine.messages = MessageLog(engine, maxlen=LOG_HISTORY_SIZE)
+            for m in v:
+                turn, msg = _deserialize_message(m)
+                engine.messages._data.append((turn, msg))
             continue
         if k == "menu_state":
             try:

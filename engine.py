@@ -7,6 +7,32 @@ import random
 import time
 from collections import deque
 import numpy as np
+
+
+class MessageLog:
+    """Deque-like message log that auto-stamps each message with the current turn."""
+
+    def __init__(self, engine, maxlen):
+        self._engine = engine
+        self._data = deque(maxlen=maxlen)
+
+    def append(self, msg):
+        self._data.append((self._engine.turn, msg))
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, index):
+        return self._data[index]
+
+    def __bool__(self):
+        return bool(self._data)
+
+    def clear(self):
+        self._data.clear()
 import tcod.path
 
 from config import (
@@ -198,7 +224,7 @@ class GameEngine:
         self.skills_cursor: int = 0        # selected skill row (0-14)
         self.skills_spend_mode: bool = False   # spend-amount prompt open
         self.skills_spend_input: str = ""      # digits typed by user
-        self.messages: deque = deque(maxlen=LOG_HISTORY_SIZE)
+        self.messages = MessageLog(self, maxlen=LOG_HISTORY_SIZE)
         self.log_scroll: int = 0   # 0 = newest; higher = further back in history
         self.perks_scroll: int = 0  # scroll offset for the perks menu
         self.perk_cursor: int = 0   # cursor index into selectable perk rows
@@ -1531,6 +1557,9 @@ class GameEngine:
                     # Meth-Head L3: Tweaker — +10 speed per 25 meth
                     if self.skills.get("Meth-Head").level >= 3:
                         gain += (self.player.meth // 25) * 10
+                    # Chemical Warfare L2: Toxic Frenzy — +1 speed per 20 tox (cap 500)
+                    if self.skills.get("Chemical Warfare").level >= 2:
+                        gain += min(self.player.toxicity, 500) // 20
                 entity.energy += gain
 
             # 2. Process all monsters that have enough energy, highest energy first
@@ -2852,6 +2881,9 @@ class GameEngine:
             self.grant_ability("toxic_harvest")
             self.messages.append("  [Toxic Harvest] Activate to gain toxicity from kills for 10 turns!")
 
+        if name == "Toxic Frenzy":
+            self.messages.append("  [Toxic Frenzy] Your toxicity fuels your fury! +damage and +speed scaling with tox.")
+
         if name == "Mutagen":
             from mutations import force_mutation
             force_mutation(self)
@@ -3271,18 +3303,25 @@ class GameEngine:
 
         # Abandoning L2: Anotha Motha — spawn 5 extra items on the new floor (zones only)
         if zone_type == "zone" and self.skills.get("Abandoning").level >= 2:
-            from loot import generate_floor_loot
-            extra = generate_floor_loot(zone_key, zone_floor, self.skills, self.player_stats)[:5]
+            from loot import pick_random_consumable
             spawnable = self.dungeon.rooms[1:] if len(self.dungeon.rooms) > 1 else self.dungeon.rooms
-            for item_id, strain in extra:
-                room = random.choice(spawnable)
-                tiles = room.floor_tiles(self.dungeon)
-                if tiles:
+            placed = 0
+            for _ in range(5):
+                item_id, strain = pick_random_consumable(zone_key, self.player_stats)
+                # Try multiple tiles to avoid silent drops
+                for _attempt in range(10):
+                    room = random.choice(spawnable)
+                    tiles = room.floor_tiles(self.dungeon)
+                    if not tiles:
+                        continue
                     x, y = random.choice(tiles)
                     if not self.dungeon.is_blocked(x, y):
                         ent = Entity(**create_item_entity(item_id, x, y, strain=strain))
                         self.dungeon.add_entity(ent)
-            self.messages.append("  [Anotha Motha] 5 extra items spawned on this floor!")
+                        placed += 1
+                        break
+            if placed > 0:
+                self.messages.append(f"  [Anotha Motha] {placed} extra items spawned on this floor!")
 
         # Track meth lab entry
         if zone_key == "meth_lab" and not self.entered_meth_lab:

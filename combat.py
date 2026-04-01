@@ -53,6 +53,16 @@ def _massive_blunt_smoke_proc(engine):
     ])
 
 
+def _apply_toxic_frenzy(engine, damage: int) -> int:
+    """Chemical Warfare L2: +1% damage per 10 toxicity, capped at 500 tox (+50%)."""
+    if engine.skills.get("Chemical Warfare").level >= 2:
+        capped_tox = min(engine.player.toxicity, 500)
+        if capped_tox > 0:
+            bonus = 1.0 + capped_tox / 1000.0  # +0.1% per tox, +1% per 10
+            damage = int(damage * bonus)
+    return damage
+
+
 def _overkill_splash(engine, ox: int, oy: int, excess: int, depth: int = 0):
     """Beating L5: splash excess damage to enemies within radius 2. Chains on kill."""
     if excess <= 0 or depth > 20:  # safety cap
@@ -884,6 +894,8 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         mult = engine.player_stats.outgoing_damage_mult
         if mult != 1.0:
             damage = int(damage * mult)
+        # Chemical Warfare L2: Toxic Frenzy — +1% damage per 10 tox (cap 500)
+        damage = _apply_toxic_frenzy(engine, damage)
         # Liquid Courage (Drinking L4): +10% melee damage while any drink buff active
         if engine.skills.get("Drinking").level >= 4:
             from effects import _DRINK_BUFF_IDS
