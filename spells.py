@@ -100,18 +100,12 @@ def _handle_entity_targeting_input(engine, action):
         if engine.targeting_ability_index is not None:
             if target.alive:
                 result = _fire_adjacent_ability(engine, target.x, target.y)
-                if result and engine.running and engine.player.alive:
-                    engine.player.energy -= engine.get_action_cost()
-                    engine._run_energy_loop()
                 return result
             engine.targeting_ability_index = None
             return False
 
         if target.alive:
             engine.handle_attack(engine.player, target)
-            if engine.running and engine.player.alive:
-                engine.player.energy -= engine.get_action_cost()
-                engine._run_energy_loop()
         return True
 
     return False
@@ -1013,8 +1007,10 @@ def _spell_pry(engine, tx: int, ty: int) -> bool:
 
 
 def _spell_ags_charge(engine, tx: int, ty: int) -> bool:
-    """AG Sword Charge: hit an enemy exactly 3 Chebyshev tiles away for 1.5x damage.
+    """AG Sword Charge: charge through a clear line to an enemy 2-5 tiles away.
+    Player moves to the tile adjacent to the target, then attacks for 1.5x damage.
     If the target dies, restore 20 spec energy."""
+    from abilities import _get_ags_charge_path
     target = next(
         (e for e in engine.dungeon.get_entities_at(tx, ty)
          if e.entity_type == "monster" and e.alive),
@@ -1024,9 +1020,27 @@ def _spell_ags_charge(engine, tx: int, ty: int) -> bool:
         engine.messages.append("Charge: no enemy there.")
         return False
     dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
-    if dist != 3:
-        engine.messages.append("Charge: target must be exactly 3 tiles away!")
+    if dist < 2 or dist > 5:
+        engine.messages.append("Charge: target must be 2-5 tiles away!")
         return False
+    # Verify clear path
+    path = _get_ags_charge_path(engine.player.x, engine.player.y, tx, ty)
+    for cx, cy in path:
+        if engine.dungeon.is_terrain_blocked(cx, cy):
+            engine.messages.append("Charge: path is blocked!")
+            return False
+        if engine.dungeon.get_blocking_entity_at(cx, cy):
+            engine.messages.append("Charge: path is blocked!")
+            return False
+    # Move player to tile adjacent to target (last tile in path)
+    if path:
+        land_x, land_y = path[-1]
+    else:
+        # Distance 2 with no intermediate — shouldn't happen, but fallback
+        land_x, land_y = engine.player.x, engine.player.y
+    engine.player.x = land_x
+    engine.player.y = land_y
+    # Attack with 1.5x damage
     import combat as _combat
     base_power = _combat._compute_player_attack_power(engine)
     boosted = int(base_power * 1.5)
@@ -1034,7 +1048,7 @@ def _spell_ags_charge(engine, tx: int, ty: int) -> bool:
     engine.player.power = boosted
     engine.messages.append([
         ("Charge! ", (255, 215, 0)),
-        (f"You lunge 3 tiles for {boosted} damage!", (255, 230, 150)),
+        (f"You charge {dist} tiles for {boosted} damage!", (255, 230, 150)),
     ])
     _combat.handle_attack(engine, engine.player, target)
     engine.player.power = old_power
@@ -1797,8 +1811,6 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
             engine.menu_state = MenuState.NONE
             _apply_spray_paint_tile(engine, tx, ty, pending)
             engine.spray_paint_pending = None
-            engine.player.energy -= engine.get_action_cost()
-            engine._run_energy_loop()
             return True
 
         # Spider egg hatching
@@ -1806,16 +1818,10 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
             engine.menu_state = MenuState.NONE
             hatched = _hatch_spider_egg(engine, tx, ty, egg_pending)
             engine.spider_egg_pending = None
-            if hatched and engine.running and engine.player.alive:
-                engine.player.energy -= engine.get_action_cost()
-                engine._run_energy_loop()
             return hatched
 
         engine.menu_state = MenuState.NONE
         fired = _fire_adjacent_ability(engine, tx, ty)
-        if fired and engine.running and engine.player.alive:
-            engine.player.energy -= engine.get_action_cost()
-            engine._run_energy_loop()
         return fired
 
     return False
@@ -2000,6 +2006,4 @@ def _execute_graffiti_gun_fire(engine, tx: int, ty: int) -> bool:
 
     engine.menu_state = MenuState.NONE
     engine.targeting_spell = None
-    engine.player.energy -= engine.get_action_cost()
-    engine._run_energy_loop()
     return True

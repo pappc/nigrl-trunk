@@ -3735,13 +3735,15 @@ class VenomEffect(Effect):
 
     def tick(self, entity, engine):
         damage = self.stacks
+        # Venom can't kill the player — skip damage at 1 HP
+        if entity == engine.player and entity.hp <= 1:
+            self.duration -= 1
+            return
         entity.take_damage(damage)
         if entity == engine.player:
             engine.messages.append(
                 f"Venom deals {damage} damage! ({entity.hp}/{entity.max_hp} HP)"
             )
-            if not entity.alive:
-                engine.event_bus.emit("entity_died", entity=entity, killer=None)
         else:
             if not entity.alive:
                 engine.event_bus.emit("entity_died", entity=entity, killer=None)
@@ -4953,6 +4955,10 @@ class WolfSpiderVenomEffect(Effect):
         return "Wolf Venom"
 
     def tick(self, entity, engine):
+        # Venom can't kill the player — skip damage at 1 HP
+        if entity == engine.player and entity.hp <= 1:
+            self.duration -= 1
+            return
         entity.take_damage(1)
         if entity == engine.player:
             engine.messages.append(
@@ -4990,6 +4996,11 @@ class NeuroVenomEffect(Effect):
 
     def tick(self, entity, engine):
         damage = len(self.timers)
+        # Venom can't kill the player — skip damage at 1 HP
+        if entity == engine.player and entity.hp <= 1:
+            self.timers = [t - 1 for t in self.timers if t - 1 > 0]
+            self.duration = max(self.timers) if self.timers else 0
+            return
         entity.take_damage(damage)
         if entity == engine.player and damage > 0:
             engine.messages.append(
@@ -5017,6 +5028,10 @@ class PipeVenomEffect(Effect):
         return "Pipe Venom"
 
     def tick(self, entity, engine):
+        # Venom can't kill the player — skip damage at 1 HP
+        if entity == engine.player and entity.hp <= 1:
+            self.duration -= 1
+            return
         entity.take_damage(1)
         if entity == engine.player:
             engine.messages.append(

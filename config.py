@@ -35,7 +35,7 @@ ZONE_GENERATION_PARAMS = {
     "crack_den": {
         "room_min": ROOM_MIN_SIZE,
         "room_max": ROOM_MAX_SIZE,
-        "max_rooms": MAX_ROOMS,
+        "max_rooms": 16,
         "corridor_width": 1,
     },
     "meth_lab": {

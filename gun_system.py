@@ -340,10 +340,10 @@ def _handle_gun_targeting_input(engine, action):
         tx, ty = engine.gun_targeting_cursor
         engine._record_targeted_enemy_at(tx, ty)
 
-        # Staff shot — resolve and return
+        # Staff shot — resolve and return (energy handled internally)
         if getattr(engine, 'staff_firing', None):
             _resolve_staff_shot(engine, tx, ty)
-            return True
+            return False
 
         gun = _get_primary_gun(engine)
         if gun is None:
@@ -365,7 +365,7 @@ def _handle_gun_targeting_input(engine, action):
                 engine.messages.append("Can't shoot yourself!")
                 return False
             _resolve_gun_ability_shot(engine, tx, ty)
-            return True
+            return False
 
         gun_range = gun_defn.get("gun_range", 4)
 
@@ -388,7 +388,7 @@ def _handle_gun_targeting_input(engine, action):
             _resolve_circle_shot(engine, tx, ty)
         else:
             _resolve_gun_shot(engine, tx, ty)
-        return True
+        return False
 
     return False
 
@@ -1012,7 +1012,6 @@ def _action_reload_gun(engine, _action):
             engine.player.energy -= jam_cost
             if engine.running and engine.player.alive:
                 engine._run_energy_loop()
-            return True
         return False
 
     if gun.current_ammo >= gun.mag_size:
@@ -1063,8 +1062,7 @@ def _action_reload_gun(engine, _action):
         engine.player.energy -= reload_speed
         if engine.running and engine.player.alive:
             engine._run_energy_loop()
-        return True
-    return False  # free action
+    return False  # energy handled internally (or free action)
 
 
 def _action_swap_primary_gun(engine, _action):

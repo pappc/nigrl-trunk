@@ -2584,15 +2584,47 @@ def _execute_soul_empower(engine) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# AG Sword — Charge (spec ability: ranged charge at exactly 3 Chebyshev)
+# AG Sword — Charge (spec ability: charge through clear line to target)
 # ---------------------------------------------------------------------------
 
+def _get_ags_charge_path(px: int, py: int, tx: int, ty: int) -> list[tuple[int, int]]:
+    """Get intermediate tiles from (px,py) to (tx,ty), excluding both endpoints."""
+    dx = tx - px
+    dy = ty - py
+    steps = max(abs(dx), abs(dy))
+    if steps <= 1:
+        return []
+    tiles = []
+    for i in range(1, steps):
+        cx = round(px + dx * i / steps)
+        cy = round(py + dy * i / steps)
+        tiles.append((cx, cy))
+    return tiles
+
+
 def _validate_ags_charge(engine, tx: int, ty: int):
-    """Return None if valid (exactly 3 Chebyshev), or error string."""
+    """Return None if valid (clear line, range 2-5), or error string."""
     dist = max(abs(tx - engine.player.x), abs(ty - engine.player.y))
-    if dist != 3:
-        return "Target must be exactly 3 tiles away!"
+    if dist < 2:
+        return "Too close to charge!"
+    if dist > 5:
+        return "Too far to charge!"
+    # Check clear path — all intermediate tiles must be passable
+    path = _get_ags_charge_path(engine.player.x, engine.player.y, tx, ty)
+    for cx, cy in path:
+        if engine.dungeon.is_terrain_blocked(cx, cy):
+            return "Path blocked!"
+        blocking = engine.dungeon.get_blocking_entity_at(cx, cy)
+        if blocking:
+            return "Path blocked!"
     return None
+
+
+def _get_ags_charge_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int, int]]:
+    """Return the charge path tiles for targeting visualization."""
+    path = _get_ags_charge_path(engine.player.x, engine.player.y, tx, ty)
+    # Include path tiles and target tile
+    return path + [(tx, ty)]
 
 
 def _execute_ags_charge(engine) -> bool:
@@ -3642,7 +3674,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "ags_charge": AbilityDef(
         ability_id="ags_charge",
         name="Charge",
-        description="Charge an enemy exactly 3 tiles away (Chebyshev). Deals 1.5x damage. If it kills, restores 20 spec. Costs 50 spec energy.",
+        description="Charge through a clear line to an enemy 2-5 tiles away. Deals 1.5x damage. If it kills, restores 20 spec. Costs 50 spec energy.",
         char="C",
         color=(255, 215, 0),
         target_type=TargetType.SINGLE_ENEMY_LOS,
@@ -3653,6 +3685,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_range=0.0,
         execute_at=_execute_at_ags_charge,
         validate=_validate_ags_charge,
+        get_affected_tiles=_get_ags_charge_affected_tiles,
         spec_cost=50,
     ),
     "polarize": AbilityDef(

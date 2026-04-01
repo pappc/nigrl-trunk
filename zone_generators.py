@@ -466,9 +466,9 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
             floor_bonus = floor_num // 2
             room_max = size_max + floor_bonus
 
-            # 65% populated, 35% empty
-            if random.random() < 0.65:
-                options = list(range(1, room_max + 1))
+            # 60% populated, 40% empty — fewer but denser rooms
+            if random.random() < 0.60:
+                options = list(range(2, room_max + 1))
                 weights = [max(1, room_max + 1 - i) for i in range(len(options))]
                 n_groups = random.choices(options, weights=weights, k=1)[0]
             else:
