@@ -467,10 +467,12 @@ def spawn_crack_den(dungeon, player, floor_num, zone, player_skills, player_stat
             room_max = size_max + floor_bonus
 
             # 60% populated, 40% empty — fewer but denser rooms
-            if random.random() < 0.60:
+            if random.random() < 0.60 and room_max >= 2:
                 options = list(range(2, room_max + 1))
                 weights = [max(1, room_max + 1 - i) for i in range(len(options))]
                 n_groups = random.choices(options, weights=weights, k=1)[0]
+            elif random.random() < 0.60:
+                n_groups = 1
             else:
                 n_groups = 0
 
@@ -736,8 +738,17 @@ def _roll_special_rooms(dungeon, floor_num, zone, special_rooms_spawned):
             break
 
         if room_key == "jerome_room":
-            large = [i for i in available_indices
-                     if len(dungeon.rooms[i].floor_tiles(dungeon)) >= 20]
+            # Need >= 20 tiles AND enough vertical space below for door + 2×2 back room
+            large = []
+            for i in available_indices:
+                tiles = dungeon.rooms[i].floor_tiles(dungeon)
+                if len(tiles) < 20:
+                    continue
+                room_max_y = max(y for x, y in tiles)
+                # door at max_y+1, back room at max_y+2 to max_y+3, walls at max_y+4
+                if room_max_y + 4 >= dungeon.height - 1:
+                    continue
+                large.append(i)
             if not large:
                 continue
             room_idx = max(large, key=lambda i: len(dungeon.rooms[i].floor_tiles(dungeon)))

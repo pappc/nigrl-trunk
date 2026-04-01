@@ -2512,7 +2512,9 @@ class GameEngine:
             if e.entity_type == "monster" and e.alive:
                 if lines:
                     lines.append([])  # blank separator
-                lines.append([(e.name, C_ENEMY)])
+                gender = getattr(e, 'gender', None)
+                gender_tag = f" ({gender[0].upper()})" if gender else ""
+                lines.append([(f"{e.name}{gender_tag}", C_ENEMY)])
 
                 # Wound level
                 hp_pct = e.hp / e.max_hp if e.max_hp > 0 else 0

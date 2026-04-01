@@ -4196,13 +4196,20 @@ def apply_effect(entity, engine, effect_id: str, silent: bool = False, **kwargs)
     entity.status_effects.append(incoming)
 
     if not silent:
+        name = incoming.display_name
         if entity == engine.player:
-            engine.messages.append(f"You are {incoming.display_name}!")
+            if incoming.category == "debuff":
+                engine.messages.append(f"Afflicted with {name}!")
+            else:
+                engine.messages.append(f"Gained {name}!")
             desc = incoming.short_description
             if desc:
                 engine.messages.append(f"  ({desc})")
         else:
-            engine.messages.append(f"{entity.name} is {incoming.display_name}!")
+            if incoming.category == "debuff":
+                engine.messages.append(f"{entity.name} afflicted with {name}!")
+            else:
+                engine.messages.append(f"{entity.name} gained {name}!")
 
     if effect_id in ('greasy', 'ignite'):
         _check_grease_fire_synergy(entity, engine)

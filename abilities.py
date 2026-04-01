@@ -2057,7 +2057,7 @@ def _execute_fire_meatball(engine) -> bool:
 
 
 def _execute_acid_meltdown(engine) -> bool:
-    """Activate the Acid Meltdown buff. Costs 25 toxicity. 100-turn cooldown."""
+    """Activate the Acid Meltdown buff. Costs 25 toxicity. 50-turn cooldown."""
     from effects import apply_effect
     # Check if already active
     existing = next(
@@ -2072,11 +2072,11 @@ def _execute_acid_meltdown(engine) -> bool:
         engine.messages.append("Not enough toxicity! (need 25)")
         return False
     engine.player.toxicity -= 25
-    apply_effect(engine.player, engine, "acid_meltdown", duration=20)
-    engine.ability_cooldowns["acid_meltdown"] = 100
+    apply_effect(engine.player, engine, "acid_meltdown", duration=10)
+    engine.ability_cooldowns["acid_meltdown"] = 50
     engine.messages.append([
         ("Acid Meltdown! ", (100, 255, 50)),
-        ("Move faster. Kills explode into acid. (20 turns)", (160, 255, 120)),
+        ("Move faster. Kills explode into acid. (10 turns)", (160, 255, 120)),
     ])
     return True
 
@@ -3364,7 +3364,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "acid_meltdown": AbilityDef(
         ability_id="acid_meltdown",
         name="Acid Meltdown",
-        description="Cost: 25 toxicity. For 20 turns, movement costs half energy and kills explode into 3x3 acid. 100-turn cooldown.",
+        description="Cost: 25 toxicity. For 10 turns, movement costs half energy and kills explode into 3x3 acid. 50-turn cooldown.",
         char="A",
         color=(100, 255, 50),
         target_type=TargetType.SELF,

@@ -403,6 +403,11 @@ class SDLOverlay:
                         icons.append(('M', (255, 60, 60)))
                     elif eff_id == 'slipped':
                         icons.append(('S', (200, 200, 210)))
+                    elif eff_id == 'webbed':
+                        dur = getattr(eff, 'duration', 0)
+                        icons.append(('W', (220, 220, 230)))
+                        if dur > 0:
+                            icons.append((str(min(dur, 9)), (220, 220, 230)))
                 if has_curse:
                     cursed.append((entity.x, entity.y))
                 if has_frozen:

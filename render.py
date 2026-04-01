@@ -2744,7 +2744,9 @@ def render_look_targeting(console, engine):
         entities = engine.dungeon.get_entities_at(cx, cy)
         for e in entities:
             if e.entity_type == "monster" and e.alive:
-                summary = e.name
+                gender = getattr(e, 'gender', None)
+                gender_tag = f" ({gender[0].upper()})" if gender else ""
+                summary = f"{e.name}{gender_tag}"
                 break
             elif not summary:
                 if e.entity_type in ("item", "staircase", "cash", "hazard"):
@@ -3414,7 +3416,7 @@ def render_vending_machine_menu(console, engine):
             for px in range(1, popup_w - 1):
                 console.print(popup_x + px, row_y, " ", bg=row_bg)
 
-            item_color = get_strain_color(strain) if strain else defn.get("color", C_ITEM)
+            item_color = C_DIM if not can_afford else (get_strain_color(strain) if strain else defn.get("color", C_ITEM))
             console.print(popup_x + 2, row_y, name[:popup_w - 14], fg=item_color, bg=row_bg)
 
             price_str = f"${price}"
@@ -3564,6 +3566,8 @@ def render_ui(console, engine):
         ("E", "Equip"),
         ("C", "Char"),
         ("F", "Fire"),
+        ("R", "Reach"),
+        ("^R", "Reload"),
         (";", "Look"),
         ("^L", "Log"),
         ("^B", "Bestiary"),

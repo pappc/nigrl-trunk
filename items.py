@@ -1810,6 +1810,7 @@ ITEM_DEFS = {
         "weapon_type": "slashing",
         "value": 400,
         "tags": ["ag_sword", "spec_weapon", "unique"],
+        "description": "Spec: Charge through a clear line to an enemy 2-5 tiles away for 1.5x damage. On kill: +20 spec.",
         "name_alternating": [(255, 215, 0), (200, 170, 0)],
         "grants_ability": "ags_charge",
         "zones": [],
@@ -1832,6 +1833,7 @@ ITEM_DEFS = {
         "weapon_type": "beating",
         "value": 300,
         "tags": ["really_old_maul", "spec_weapon", "unique"],
+        "description": "Spec: Crush an adjacent enemy's defense to 0 for 20 turns.",
         "name_alternating": [(255, 140, 40), (40, 40, 40)],
         "grants_ability": "polarize",
         "zones": [],
@@ -1854,6 +1856,7 @@ ITEM_DEFS = {
         "weapon_type": "stabbing",
         "value": 250,
         "tags": ["dragon_dagger", "spec_weapon", "unique"],
+        "description": "Spec: 2 rapid melee strikes on an adjacent enemy. Each hit resolves as a full attack.",
         "name_gradient": [(180, 40, 40), (255, 140, 60)],
         "grants_ability": "ddd_puncture",
         "zones": [],
@@ -1876,6 +1879,7 @@ ITEM_DEFS = {
         "weapon_type": "slashing",
         "value": 200,
         "tags": ["ramp_damage", "unique"],
+        "description": "Each hit grants +2 damage (max +20). Resets after 10 consecutive hits.",
         "name_gradient": [(30, 30, 30), (255, 255, 255)],
         "zones": [],
         "use_verb": None,
@@ -1897,6 +1901,7 @@ ITEM_DEFS = {
         "weapon_type": "stabbing",
         "value": 200,
         "tags": ["sleeper_agent", "unique"],
+        "description": "Gain +1 damage and +2% lifesteal per turn standing still (max 10 stacks). Resets on move.",
         "name_alternating": [(100, 255, 100), (180, 80, 255)],
         "zones": [],
         "use_verb": None,
@@ -1918,6 +1923,7 @@ ITEM_DEFS = {
         "weapon_type": "stabbing",
         "value": 250,
         "tags": ["rune_scraper", "unique"],
+        "description": "Scales with Book Smarts. Adds STR/2 to spell damage.",
         "name_gradient": [(160, 60, 220), (30, 10, 40)],
         "zones": [],
         "use_verb": None,
@@ -1939,6 +1945,7 @@ ITEM_DEFS = {
         "weapon_type": "slashing",
         "value": 250,
         "tags": ["whirlwind_axe", "unique"],
+        "description": "30% chance per melee attack to hit all adjacent enemies.",
         "name_gradient": [(220, 60, 60), (140, 140, 140)],
         "zones": [],
         "use_verb": None,
@@ -1962,6 +1969,7 @@ ITEM_DEFS = {
         "weapon_type": "beating",
         "value": 250,
         "tags": ["massive_blunt", "unique"],
+        "description": "Scales with Tolerance. 10% chance on hit to smoke a random joint from the floor.",
         "name_gradient": [(139, 90, 43), (50, 255, 50)],
         "zones": [],
         "use_verb": None,
@@ -2095,6 +2103,7 @@ ITEM_DEFS = {
         "armor_bonus": 20,
         "stat_bonus": {},
         "tags": ["amulet_ee", "unique"],
+        "description": "Grants 3 soul abilities: Cleanse (purge 1 debuff), Mend (restore armor), Empower (+4 random stat until floor change). Each costs 1 soul.",
         "name_gradient": [(160, 160, 160), (160, 50, 220), (160, 160, 160)],
         "grants_abilities": ["soul_cleanse", "soul_mend", "soul_empower"],
         "zones": [],
@@ -2137,6 +2146,7 @@ ITEM_DEFS = {
             "swagger": 5,
         },
         "tags": ["nine_ring", "unique"],
+        "description": "+5 to all stats. 25% lifesteal on all damage sources.",
         "name_gradient": [(180, 150, 0), (255, 255, 80)],
         "zones": [],
         "use_verb": None,
@@ -2153,6 +2163,7 @@ ITEM_DEFS = {
         "defense_bonus": 0,
         "stat_bonus": {"strength": 4},
         "tags": ["berserkers_ring", "unique"],
+        "description": "+4 STR. On melee kill: +4 STR for 10 turns (stacks).",
         "name_gradient": [(200, 200, 210), (255, 215, 0), (200, 200, 210)],
         "zones": [],
         "use_verb": None,
@@ -2191,6 +2202,7 @@ ITEM_DEFS = {
         "energy_per_tick": 20,
         "fov_penalty": 0,
         "tags": ["springing_boots", "unique"],
+        "description": "Spring: teleport up to 3 tiles, gain +50% dodge for 5 turns. 5% break chance.",
         "name_gradient": [(160, 120, 70), (60, 40, 20)],
         "grants_ability": "spring",
         "zones": [],
@@ -2211,6 +2223,7 @@ ITEM_DEFS = {
         "energy_per_tick": 20,
         "fov_penalty": 0,
         "tags": ["striding_boots", "unique"],
+        "description": "Stride: all actions cost 50% less energy for 10 turns. 5% break chance.",
         "name_gradient": [(60, 40, 20), (160, 120, 70)],
         "grants_ability": "stride",
         "zones": [],
@@ -2228,6 +2241,7 @@ ITEM_DEFS = {
         "defense_bonus": 0,
         "stat_bonus": {},
         "tags": ["titan_blood", "unique"],
+        "description": "First time dropping below 25% HP each floor: gain Titan Form (20t) — +50 temp HP, +50% melee damage, +10 HP/turn regen, 25% stun on hit.",
         "name_gradient": [(30, 10, 10), (200, 30, 30), (30, 10, 10)],
         "zones": [],
         "use_verb": None,
@@ -2244,6 +2258,7 @@ ITEM_DEFS = {
         "defense_bonus": 0,
         "stat_bonus": {},
         "tags": ["intimidation_ring", "unique"],
+        "description": "On room entry: fear all enemies with max HP <= 30% of yours for 15 turns.",
         "zones": [],
         "use_verb": None,
         "use_effect": None,
@@ -2259,6 +2274,7 @@ ITEM_DEFS = {
         "defense_bonus": 0,
         "stat_bonus": {},
         "tags": ["sustenance_ring", "unique"],
+        "description": "15% chance to spawn a bonus item when consuming food, drinks, or joints.",
         "name_gradient": [(240, 130, 30), (255, 240, 80)],
         "zones": [],
         "use_verb": None,
@@ -2310,6 +2326,7 @@ ITEM_DEFS = {
         "armor_bonus": 0,
         "stat_bonus": {},
         "tags": ["flagellant", "unique"],
+        "description": "Take 1-5 self-damage per turn (can't kill). 10% chance per turn to purge a random debuff.",
         "name_gradient": [(180, 50, 50), (80, 20, 20)],
         "zones": [],
         "use_verb": None,
@@ -2334,6 +2351,7 @@ ITEM_DEFS = {
             "swagger": 2,
         },
         "tags": ["straw_hat", "unique"],
+        "description": "Death save: negate one killing blow, revive at 50% HP. Hat is destroyed.",
         "name_gradient": [(30, 30, 30), (220, 200, 80)],
         "zones": [],
         "use_verb": None,
@@ -3420,6 +3438,7 @@ ITEM_DEFS = {
         "gun_class": "small",
         "reload_per_floor": 1,
         "tags": ["decimator", "unique"],
+        "description": "Damage equals your missing HP. 1 round mag, reloads once per floor.",
         "name_gradient": [(255, 120, 40), (200, 30, 30)],
         "gun_stats": {"hit": 100, "energy": 50},
     },
@@ -3447,6 +3466,7 @@ ITEM_DEFS = {
         "gun_class": "medium",
         "aoe_type": "target",
         "tags": ["thunder_gun", "unique"],
+        "description": "10-round burst, medium ammo. Bullets chain.",
         "name_gradient": [(255, 255, 80), (80, 120, 255)],
         "gun_stats": {"hit": 80, "energy": 70},
     },
@@ -4978,6 +4998,22 @@ def generate_examine_lines(item_id, engine=None):
         skill = defn.get("skill") or defn.get("primary_skill")
         if skill:
             lines.append([("Trains: ", C_LABEL), (skill, C_VALUE)])
+
+    # --- Description (unique items) ---
+    desc = defn.get("description")
+    if desc:
+        C_DESC = (255, 215, 120)
+        # Word-wrap description to ~44 chars per line
+        words = desc.split()
+        line = ""
+        for word in words:
+            if len(line) + len(word) + 1 <= 44:
+                line = f"{line} {word}" if line else word
+            else:
+                lines.append([(line, C_DESC)])
+                line = word
+        if line:
+            lines.append([(line, C_DESC)])
 
     # --- Value ---
     val = defn.get("value", 0)
