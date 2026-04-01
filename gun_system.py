@@ -26,13 +26,12 @@ def _sts_gun_bonus(engine):
 
 
 def _award_gun_skill_xp(engine, gun_defn, num_shots):
-    """Award Gatting or Sniping XP based on firing mode and ammo consumed."""
+    """Award Gunplay XP based on ammo consumed."""
     ammo_type = gun_defn.get("ammo_type", "light")
     xp_per_shot = _GUN_AMMO_XP.get(ammo_type, 20)
     xp = xp_per_shot * num_shots
-    skill = "Sniping" if engine.gun_firing_mode == "accurate" else "Gatting"
     bksmt = engine.player_stats.effective_book_smarts
-    engine.skills.gain_potential_exp(skill, xp, bksmt)
+    engine.skills.gain_potential_exp("Gunplay", xp, bksmt)
 
 
 def _award_drive_by_xp(engine, gun_defn, num_shots):
@@ -45,9 +44,8 @@ def _award_drive_by_xp(engine, gun_defn, num_shots):
 
 
 def _gun_crit_unlocked(engine):
-    """Gun crits require Gatting level 3+ or Sniping level 3+."""
-    return (engine.skills.get("Gatting").level >= 3
-            or engine.skills.get("Sniping").level >= 3)
+    """Gun crits require Gunplay level 5+."""
+    return engine.skills.get("Gunplay").level >= 5
 
 
 def _get_calculated_aim(engine):
@@ -66,8 +64,8 @@ def _has_perfect_accuracy(engine):
 
 
 def _apply_sideways(engine, base_hit, energy_cost):
-    """Gatting L2 'Doin' It Sideways': in fast mode, -10% accuracy, -10 energy cost."""
-    if engine.skills.get("Gatting").level >= 2 and engine.gun_firing_mode == "fast":
+    """Gunplay L3 'Doin' It Sideways': -10% accuracy, -10 energy cost."""
+    if engine.skills.get("Gunplay").level >= 3:
         base_hit = max(5, base_hit - 10)
         energy_cost = max(10, energy_cost - 10)
     return base_hit, energy_cost
@@ -336,13 +334,6 @@ def _handle_gun_targeting_input(engine, action):
         nx = max(0, min(DUNGEON_WIDTH - 1, engine.gun_targeting_cursor[0] + dx))
         ny = max(0, min(DUNGEON_HEIGHT - 1, engine.gun_targeting_cursor[1] + dy))
         engine.gun_targeting_cursor = [nx, ny]
-        return False
-
-    if action_type == "toggle_firing_mode":
-        if engine.gun_firing_mode == "accurate":
-            engine.gun_firing_mode = "fast"
-        else:
-            engine.gun_firing_mode = "accurate"
         return False
 
     if action_type == "confirm_target":
@@ -622,13 +613,11 @@ def _resolve_cone_shot(engine, tx, ty):
     """Resolve firing a cone-type gun toward target tile (tx, ty)."""
     gun = _get_primary_gun(engine)
     gun_defn = get_item_def(gun.item_id)
-    mode = engine.gun_firing_mode
-    modes = gun_defn.get("firing_modes", {})
-    mode_data = modes.get(mode, {"hit": 50, "energy": 50})
-    energy_cost = mode_data["energy"]
+    stats = gun_defn.get("gun_stats", {"hit": 50, "energy": 50})
+    energy_cost = stats["energy"]
     if engine.action_cost_mult != 1.0:
         energy_cost = int(energy_cost * engine.action_cost_mult)
-    base_hit = mode_data["hit"]
+    base_hit = stats["hit"]
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
 
     # Determine ammo to use and projectile count
@@ -726,13 +715,11 @@ def _resolve_circle_shot(engine, tx, ty):
     """Resolve firing a circle-AOE gun (e.g. RPG) at target tile (tx, ty)."""
     gun = _get_primary_gun(engine)
     gun_defn = get_item_def(gun.item_id)
-    mode = engine.gun_firing_mode
-    modes = gun_defn.get("firing_modes", {})
-    mode_data = modes.get(mode, {"hit": 50, "energy": 50})
-    energy_cost = mode_data["energy"]
+    stats = gun_defn.get("gun_stats", {"hit": 50, "energy": 50})
+    energy_cost = stats["energy"]
     if engine.action_cost_mult != 1.0:
         energy_cost = int(energy_cost * engine.action_cost_mult)
-    base_hit = mode_data["hit"]
+    base_hit = stats["hit"]
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
     aoe_radius = gun_defn.get("aoe_radius", 2)
 
@@ -815,11 +802,9 @@ def _resolve_gun_shot(engine, tx, ty):
     """Resolve firing the primary gun at target tile (tx, ty)."""
     gun = _get_primary_gun(engine)
     gun_defn = get_item_def(gun.item_id)
-    mode = engine.gun_firing_mode
-    modes = gun_defn.get("firing_modes", {})
-    mode_data = modes.get(mode, {"hit": 75, "energy": 50})
-    energy_cost = mode_data["energy"]
-    base_hit = mode_data["hit"]
+    stats = gun_defn.get("gun_stats", {"hit": 75, "energy": 50})
+    energy_cost = stats["energy"]
+    base_hit = stats["hit"]
     base_hit, energy_cost = _apply_sideways(engine, base_hit, energy_cost)
     if engine.action_cost_mult != 1.0:
         energy_cost = int(energy_cost * engine.action_cost_mult)
@@ -863,9 +848,8 @@ def _resolve_gun_shot(engine, tx, ty):
             engine.gun_consecutive_target_id = target.instance_id
             engine.gun_consecutive_count = 0
 
-    # Gatting L1 "Locked In": track consecutive target (fast mode only)
-    gatting_active = (engine.skills.get("Gatting").level >= 1
-                      and engine.gun_firing_mode == "fast")
+    # Gunplay L1 "Locked In": track consecutive target
+    gatting_active = engine.skills.get("Gunplay").level >= 1
     if target is not None and gatting_active:
         if engine.gatting_consecutive_target_id != target.instance_id:
             engine.gatting_consecutive_target_id = target.instance_id
@@ -914,7 +898,7 @@ def _resolve_gun_shot(engine, tx, ty):
     if consecutive_bonus_per:
         engine.gun_consecutive_count += 1
 
-    # Gatting L1 "Locked In" consecutive bonus (fast mode, +1 per hit)
+    # Gunplay L1 "Locked In" consecutive bonus (+1 per hit)
     gatting_bonus = 0
     if gatting_active and engine.gatting_consecutive_count > 0:
         gatting_bonus = engine.gatting_consecutive_count
@@ -926,8 +910,8 @@ def _resolve_gun_shot(engine, tx, ty):
     is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
     is_mega_crit = False
     if is_crit:
-        # Sniping L3 mega crit (accurate mode only)
-        if engine.gun_firing_mode == "accurate" and combat.check_mega_crit(engine):
+        # Gunplay L6 mega crit
+        if combat.check_mega_crit(engine):
             is_mega_crit = True
             damage *= combat.MEGA_CRIT_MULTIPLIER
         else:
@@ -956,9 +940,8 @@ def _resolve_gun_shot(engine, tx, ty):
     if killed:
         engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
         notify_gun_kill(engine)
-        # Sniping L2 "Dead Eye": accurate kill = +1 swagger for the floor
-        if (engine.gun_firing_mode == "accurate"
-                and engine.skills.get("Sniping").level >= 2):
+        # Gunplay L4 "Dead Eye": gun kill = +1 swagger for the floor
+        if engine.skills.get("Gunplay").level >= 4:
             engine.player_stats.swagger += 1
             engine.dead_eye_swagger_gained += 1
             engine.messages.append([

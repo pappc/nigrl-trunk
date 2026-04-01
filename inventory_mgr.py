@@ -893,6 +893,9 @@ def _sustenance_ring_proc(engine, category: str):
 
 def _sort_inventory(engine):
     """Sort player inventory: tools -> equipment (by subcategory) -> materials -> consumables."""
+    # Purge corrupted entries (dicts from old saves)
+    from entity import Entity
+    engine.player.inventory = [i for i in engine.player.inventory if isinstance(i, Entity)]
     def _key(item):
         defn = get_item_def(item.item_id)
         if defn:
@@ -907,6 +910,7 @@ def _sort_inventory(engine):
             item.strain or "",
         )
     engine.player.inventory.sort(key=_key)
+    engine._clamp_inventory_page()
 
 
 def _add_item_to_inventory(engine, item_id, strain=None, quantity=1):
@@ -934,23 +938,31 @@ def _acid_armor_break_equipment(engine):
     equipped_items = []
     if engine.equipment.get("weapon"):
         equipped_items.append(("weapon", engine.equipment["weapon"]))
-    if engine.equipment.get("neck"):
-        equipped_items.append(("neck", engine.equipment["neck"]))
+    if engine.equipment.get("sidearm"):
+        equipped_items.append(("sidearm", engine.equipment["sidearm"]))
+    if engine.neck:
+        equipped_items.append(("neck", engine.neck))
+    if engine.feet:
+        equipped_items.append(("feet", engine.feet))
+    if engine.hat:
+        equipped_items.append(("hat", engine.hat))
     for i, ring in enumerate(engine.rings):
         if ring:
             equipped_items.append((f"ring_{i}", ring))
-    if engine.equipment.get("feet"):
-        equipped_items.append(("feet", engine.equipment["feet"]))
 
     if equipped_items:
         slot, item = random.choice(equipped_items)
         # Unequip the item
         if slot == "weapon":
             engine.equipment["weapon"] = None
+        elif slot == "sidearm":
+            engine.equipment["sidearm"] = None
         elif slot == "neck":
-            engine.equipment["neck"] = None
+            engine.neck = None
         elif slot == "feet":
-            engine.equipment["feet"] = None
+            engine.feet = None
+        elif slot == "hat":
+            engine.hat = None
         elif slot.startswith("ring_"):
             idx = int(slot.split("_")[1])
             engine.rings[idx] = None
@@ -1776,6 +1788,14 @@ def _destroy_item(engine, index):
         engine.player.armor += gained
         engine.cash += 20
         engine.messages.append(f"  [Chop Shop] +{gained} armor, +$20 from salvage!")
+        # 20% chance to gain a Scrap item
+        import random as _rng2
+        if _rng2.random() < 0.20 and item.item_id != "scrap":
+            _add_item_to_inventory(engine, "scrap")
+            engine.messages.append([
+                ("Chop Shop: ", (200, 150, 50)),
+                ("Found some usable Scrap!", (160, 130, 80)),
+            ])
     # Dismantling L3: Nigga Armor — stack on destroy
     if dm_level >= 3:
         import effects as _eff
@@ -1813,6 +1833,41 @@ def _destroy_item(engine, index):
                 ("Scrap Turret: ", (200, 150, 50)),
                 (f"+1 charge loaded! (value {val})", (220, 200, 100)),
             ])
+    # Dismantling L6: Salvage Volley — 3 rapid shots from turret on destroy
+    if dm_level >= 6:
+        import math as _math
+        turrets = [e for e in engine.dungeon.entities
+                   if getattr(e, 'hazard_type', None) == 'scrap_turret'
+                   and getattr(e, 'alive', False)]
+        if turrets:
+            turret = turrets[0]
+            # Find nearest enemy within turret range
+            best_target = None
+            best_dist = float('inf')
+            for ent in engine.dungeon.entities:
+                if ent.entity_type != "monster" or not ent.alive:
+                    continue
+                dx = ent.x - turret.x
+                dy = ent.y - turret.y
+                dist = _math.sqrt(dx * dx + dy * dy)
+                if dist <= turret.turret_range and dist < best_dist:
+                    best_target = ent
+                    best_dist = dist
+            if best_target is not None:
+                shot_dmg = max(1, turret.power - best_target.defense)
+                total = 0
+                for _ in range(3):
+                    if not best_target.alive:
+                        break
+                    best_target.take_damage(shot_dmg)
+                    total += shot_dmg
+                hp_str = f"{best_target.hp}/{best_target.max_hp}" if best_target.alive else "dead"
+                engine.messages.append([
+                    ("Salvage Volley! ", (200, 150, 50)),
+                    (f"Turret fires 3 shots at {best_target.name} for {total} dmg ({hp_str})", (220, 180, 100)),
+                ])
+                if not best_target.alive:
+                    engine.event_bus.emit("entity_died", entity=best_target, killer=engine.player)
     # Ammo Rat L3: Rat Race — dismantling yields ammo (5 light, 3 medium, 1 heavy)
     if engine.skills.get("Ammo Rat").level >= 3:
         _add_item_to_inventory(engine, "light_rounds", quantity=5)
@@ -1979,7 +2034,8 @@ def _handle_combine_input(engine, action):
 
     # Letter keys — still work as direct selection
     if action_type == "select_item":
-        target_index = action["index"]
+        from config import INVENTORY_PAGE_SIZE
+        target_index = action["index"] + engine.inventory_page * INVENTORY_PAGE_SIZE
         if target_index == engine.selected_item_index:
             return False
         result = False

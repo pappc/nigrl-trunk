@@ -44,8 +44,7 @@ SKILL_NAMES = [
     "Mutation",
     "Nuclear Research",
     "Decontamination",
-    "Gatting",
-    "Sniping",
+    "Gunplay",
     "Drive-By",
     "Ammo Rat",
     "L Farming",
@@ -72,7 +71,7 @@ SKILL_PERKS: dict[str, list[dict]] = {
         "Smartsness", "Stabbing", "Beating", "Smacking", "Slashing", "Stealing", "Jaywalking",
         "Deep-Frying", "Drinking", "Alcoholism", "Munching", "Dismantling",
         "Abandoning", "Meth-Head", "Chemical Warfare", "White Power",
-        "Mutation", "Nuclear Research", "Decontamination", "Gatting", "Sniping",
+        "Mutation", "Nuclear Research", "Decontamination", "Gunplay",
         "Drive-By",
         "Ammo Rat",
         "L Farming",
@@ -122,11 +121,13 @@ SKILL_PERKS["Deep-Frying"] = [
 
 SKILL_PERKS["Dismantling"] = [
     {"name": "Scrapper's Eye",    "perk_type": "stat",    "effect": {"book_smarts": 2, "constitution": 2}, "desc": "+2 BKS, +2 CON. Destroying items heals 10% of item value (min 3 HP)."},  # level 1
-    {"name": "Chop Shop",   "perk_type": "passive", "effect": None,                                  "desc": "+2 SWG, +2 STS. Destroying an item grants +5 armor and +$20 cash."},      # level 2
+    {"name": "Chop Shop",   "perk_type": "passive", "effect": None,                                  "desc": "+2 SWG, +2 STS. Destroying an item grants +5 armor and +$20 cash. 20% chance to gain Scrap."},      # level 2
     {"name": "Nigga Armor", "perk_type": "passive", "effect": None,                                  "desc": "+2 SWG, +2 STS. Gain a stack of Nigga Armor on destroy (-1 DR, 30t)."},    # level 3
     {"name": "Salvage Insight", "perk_type": "stat", "effect": {"constitution": 2}, "desc": "+2 CON. 10% chance on destroy to gain +1 to a random stat permanently."},  # level 4
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                         # levels 5-10
+    {"name": "Scrap Turret", "perk_type": "activated", "effect": {"ability": "scrap_turret"}, "desc": "Grants Scrap Turret (0 charges, max 1). Destroying an item loads 1 charge. Place on adjacent tile. Duration: last item value/5 turns. Dmg: Dismantling lvl×3. HP: Dismantling lvl×5. Range 3. Max 1 turret."},  # level 5
+    {"name": "Salvage Volley", "perk_type": "passive", "effect": None, "desc": "Destroying an item while turret is alive fires 3 rapid shots at nearest enemy. Turret kills drop Scrap (value 25, destroyable, triggers all Dismantling perks)."},  # level 6
+    _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                         # levels 7-10
 ]
 
 SKILL_PERKS["Abandoning"] = [
@@ -197,8 +198,11 @@ SKILL_PERKS["Beating"] = [
     {"name": "+3 STR",  "perk_type": "stat",      "effect": {"strength": 3},         "desc": "+3 Strength. Beating people up makes you stronger. Simple as that."},    # level 1
     {"name": "Bash",      "perk_type": "activated",  "effect": {"ability": "bash"},    "desc": "Bash an adjacent enemy with full force, stunning them for 1 turn."},       # level 2
     {"name": "Crit+",     "perk_type": "passive",    "effect": None,                   "desc": "+1 crit damage multiplier on all melee attacks."},                # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                          # levels 4-10
+    {"name": "Aftershock", "perk_type": "passive", "effect": {"strength": 2}, "desc": "+2 STR. Landing a critical hit with a blunt weapon grants Aftershock (15t): next 3 attacks deal +Beating level×2 bonus damage and have 30% chance to stun (1 turn)."},  # level 4
+    {"name": "Overkill", "perk_type": "passive", "effect": {"strength": 2}, "desc": "+2 STR. Killing an enemy with a blunt weapon splashes excess damage to all enemies within radius 2. If the splash kills, it chains. No chain limit."},  # level 5
+    {"name": "Colossus", "perk_type": "activated", "effect": {"ability": "colossus", "strength": 3, "constitution": 3}, "desc": "+3 STR, +3 CON. Toggle between two stances (free action, 5t cooldown). Wrecking: +40% melee damage, can't dodge, -2 DR. Fortress: +4 DR, 30% counter-attack for STR damage + 1t stun, -25% melee damage."},  # level 6
+    _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                          # levels 7-10
 ]
 
 SKILL_PERKS["Stabbing"] = [
@@ -268,21 +272,14 @@ SKILL_PERKS["Stealing"] = [
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 4-10
 ]
 
-SKILL_PERKS["Gatting"] = [
-    {"name": "Locked In", "perk_type": "passive", "effect": None, "desc": "Fast mode: consecutive shots on the same target deal +1 stacking damage. Resets on target switch, melee, or ability use."},  # level 1
-    {"name": "Doin' It Sideways", "perk_type": "passive", "effect": None, "desc": "Fast mode: -10% accuracy (min 5%), -10 energy cost per shot (min 10)."},  # level 2
-    {"name": "Gun Crit", "perk_type": "passive", "effect": None, "desc": "Guns can now critically hit. Crit chance scales with Street Smarts."},  # level 3
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 4-10
-]
-
-
-SKILL_PERKS["Sniping"] = [
-    {"name": "Sniper's Mark", "perk_type": "activated", "effect": {"ability": "snipers_mark"}, "desc": "Mark a visible enemy (+10% damage taken, rounds up). 1 use/floor. Charge refunded on marked target's death."},  # level 1
-    {"name": "Dead Eye", "perk_type": "passive", "effect": None, "desc": "Killing an enemy with an accurate gun shot grants +1 Swagger for the rest of the floor."},  # level 2
-    {"name": "Mega Crit", "perk_type": "stat", "effect": {"street_smarts": 2}, "desc": "+2 Street Smarts. Unlocks gun crits. Accurate mode crits can crit again for 4x damage."},  # level 3
-    _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+SKILL_PERKS["Gunplay"] = [
+    {"name": "Locked In", "perk_type": "passive", "effect": None, "desc": "Consecutive gun shots on the same target deal +1 stacking damage. Resets on target switch, melee, or ability use."},  # level 1
+    {"name": "Sniper's Mark", "perk_type": "activated", "effect": {"ability": "snipers_mark"}, "desc": "Mark a visible enemy (+10% damage taken, rounds up). 1 use/floor. Charge refunded on marked target's death."},  # level 2
+    {"name": "Doin' It Sideways", "perk_type": "passive", "effect": None, "desc": "-10% accuracy (min 5%), -10 energy cost per shot (min 10)."},  # level 3
+    {"name": "Dead Eye", "perk_type": "passive", "effect": None, "desc": "Killing an enemy with a gun shot grants +1 Swagger for the rest of the floor."},  # level 4
+    {"name": "Gun Crit", "perk_type": "passive", "effect": None, "desc": "Guns can now critically hit. Crit chance scales with Street Smarts."},  # level 5
+    {"name": "Mega Crit", "perk_type": "stat", "effect": {"street_smarts": 2}, "desc": "+2 Street Smarts. Gun crits can crit again for 4x damage."},  # level 6
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 7-10
 ]
 
 SKILL_PERKS["Chemical Warfare"] = [

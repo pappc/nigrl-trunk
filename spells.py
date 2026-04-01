@@ -1409,6 +1409,8 @@ def _consume_ability_charge(engine) -> str | None:
         ability_id = inst.ability_id
         consumed = inst.consume(engine)
         defn = ABILITY_REGISTRY.get(ability_id)
+        if defn:
+            _pay_spec_cost(engine, defn)
         if defn and _pay_rad_cost(engine, defn):
             inst.refund_charge(defn)
         # Curse charge steal: when a curse charge is consumed, steal 1
@@ -1434,7 +1436,7 @@ def _consume_ability_charge(engine) -> str | None:
                         ("Cooldown negated!", (200, 255, 200)),
                     ])
     engine.targeting_ability_index = None
-    # Gatting L1: targeted ability use resets consecutive shot tracker
+    # Gunplay L1: targeted ability use resets consecutive shot tracker
     engine.gatting_consecutive_target_id = None
     engine.gatting_consecutive_count = 0
     return ability_id
@@ -1695,7 +1697,7 @@ def _execute_ability(engine, index: int) -> bool:
                         ("Cooldown negated!", (200, 255, 200)),
                     ])
         engine.targeting_ability_index = None
-        # Gatting L1: ability use resets consecutive shot tracker
+        # Gunplay L1: ability use resets consecutive shot tracker
         engine.gatting_consecutive_target_id = None
         engine.gatting_consecutive_count = 0
         # Grant Smartsness XP for spell abilities that executed immediately
@@ -1746,7 +1748,7 @@ def _fire_adjacent_ability(engine, tx: int, ty: int) -> bool:
         if _pay_rad_cost(engine, defn):
             inst.refund_charge(defn)
         engine.targeting_ability_index = None
-        # Gatting L1: adjacent ability use resets consecutive shot tracker
+        # Gunplay L1: adjacent ability use resets consecutive shot tracker
         engine.gatting_consecutive_target_id = None
         engine.gatting_consecutive_count = 0
         if defn.is_spell:

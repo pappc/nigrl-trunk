@@ -127,13 +127,15 @@ NIGRL - Complete Perk Reference Table (Updated 2026-03-30)
 | 3 | Better Later | Food effects last 50% longer |
 | 4 | Double Batch | 20% chance food is not consumed when eaten |
 
-### Dismantling (4 perks)
+### Dismantling (6 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
 | 1 | Scrapper's Eye | +2 BKS, +2 CON. Destroying items heals 10% of item value (min 3 HP) |
-| 2 | Chop Shop | +2 SWG, +2 STS. Destroying item grants +5 armor and +$20 cash |
+| 2 | Chop Shop | +2 SWG, +2 STS. Destroying item grants +5 armor and +$20 cash. 20% chance to gain Scrap |
 | 3 | Nigga Armor | +2 SWG, +2 STS. Gain Nigga Armor stack on destroy (-1 DR, 30t) |
 | 4 | Salvage Insight | +2 CON. 10% chance on destroy to gain +1 random stat permanently |
+| 5 | Scrap Turret | Grants Scrap Turret (0 charges, max 1). Destroying item loads 1 charge. Place adjacent. Duration: item value/5 turns. Dmg: Dismantling lvl×3. HP: lvl×5. Range 3. Blocks movement. AI attacks it |
+| 6 | Salvage Volley | Destroying item while turret alive fires 3 rapid shots at nearest enemy. Turret kills drop Scrap (value 25, triggers all Dismantling perks when destroyed) |
 
 ### Abandoning (4 perks)
 | Lvl | Perk | Effect |
@@ -271,7 +273,7 @@ NIGRL - Complete Perk Reference Table (Updated 2026-03-30)
 | 3 | Arcane Flux | +10% spell charge preservation. Charge preservation (Muffin, Blue Paint, etc.) now also negates cooldowns on spells |
 
 ===========================================================
-34 skills, 118 defined perks (rest are placeholders up to level 10)
+34 skills, 120 defined perks (rest are placeholders up to level 10)
 
 Changes from previous version (2026-03-29):
 - Smartsness: Completely reworked. L2 Spell Retention, L3 Arcane Intelligence (spell damage stacks), L4 Spell Echo, L5 Spellweaver
@@ -287,4 +289,6 @@ Changes from previous version (2026-03-29):
 - Infected: Added L4 Corpse Explosion (rage kills explode, chain escalating infection, Infection Nova at 100)
 - Infected: Added L5 Hunger (Purge grants heal-on-hit buff, Zombie Stare upgraded to 90° cone, +2 STR/CON)
 - Infected: Added L6 Outbreak (7x7 area mark, 30% damage echo between linked enemies, combos with Corpse Explosion)
-- Total perks: 115 -> 118
+- Dismantling: Added L5 Scrap Turret (destroy item loads charge, place turret that shoots enemies, blocks movement, AI attacks it)
+- Dismantling: Added L6 Salvage Volley (destroy fires 3 turret shots, turret kills drop Scrap item)
+- Total perks: 115 -> 120

@@ -148,6 +148,19 @@ version 0.9 (REFINEMENT) opened 3/20/2026 12:00 am
 -save game feature
 -main menu
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+version 0.9 (CRACKENHEISENBERG) opened 3/20/2026 12:00 am closed 3/31/2026 8:00 pm
+-random npcs in tyrone's penthouse
+-finalizing tyrone's penthouse
+-meth lab final floor
+-meth lab strain rework
+-meth lab skills tweaking
+-gun refinement
+-skill perk menu overhaul
+-branching skills implmeneted (just a few)
+    -gunplay
+    -elementalist
+- inventory unlimited slots
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
 -future add ability to make a hotbar to easily select abilities
 -autoplay

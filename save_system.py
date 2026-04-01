@@ -367,6 +367,23 @@ def _deserialize_skills(data):
             sk.real_exp = sdata.get("real_exp", 0.0)
             sk.potential_exp = sdata.get("potential_exp", 0.0)
             sk.skill_mod = sdata.get("skill_mod", 1.0)
+
+    # Migrate legacy Gatting/Sniping into Gunplay
+    skills_data = data.get("skills", {})
+    old_gatting = skills_data.get("Gatting")
+    old_sniping = skills_data.get("Sniping")
+    if (old_gatting or old_sniping) and "Gunplay" in s.skills:
+        gat_level = old_gatting.get("level", 0) if old_gatting else 0
+        snp_level = old_sniping.get("level", 0) if old_sniping else 0
+        gat_real = old_gatting.get("real_exp", 0) if old_gatting else 0
+        snp_real = old_sniping.get("real_exp", 0) if old_sniping else 0
+        gat_pot = old_gatting.get("potential_exp", 0) if old_gatting else 0
+        snp_pot = old_sniping.get("potential_exp", 0) if old_sniping else 0
+        sk = s.skills["Gunplay"]
+        sk.level = max(sk.level, gat_level, snp_level)
+        sk.real_exp = max(sk.real_exp, gat_real + snp_real)
+        sk.potential_exp = max(sk.potential_exp, gat_pot + snp_pot)
+
     return s
 
 
@@ -620,6 +637,10 @@ def load_game(path=None):
             engine.ability_cooldowns = dict(v)
             continue
         setattr(engine, k, v)
+
+    # Clean up legacy gun_firing_mode from old saves
+    if hasattr(engine, 'gun_firing_mode'):
+        del engine.gun_firing_mode
 
     # Restore player
     engine.player = _deserialize_entity(data["player"], entity_index)

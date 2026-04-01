@@ -407,7 +407,7 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
 
     # ── Iron Lung (CON-based tox removal tank strain) ───────────────────
     elif eff_type == "iron_lung_full":
-        # Remove ALL tox; heal = tox_removed + CON*2 (floor 20); excess → armor
+        # Remove ALL tox; heal = tox_removed + CON*2; half excess → temp HP
         # Gain defense = tox_removed/20 (floor 1) for 50 turns
         tox = getattr(entity, "toxicity", 0)
         entity.toxicity = 0
@@ -417,14 +417,15 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
         entity.heal(heal_amount)
         healed = entity.hp - hp_before
         excess = heal_amount - healed
-        if excess > 0:
-            entity.armor += excess
+        temp_hp_gained = excess // 2
+        if temp_hp_gained > 0:
+            entity.temp_hp = getattr(entity, "temp_hp", 0) + temp_hp_gained
         def_bonus = max(1, tox // 20)
         effects.apply_effect(entity, engine, "iron_lung_defense", duration=50, defense_amount=def_bonus, silent=True)
         if is_player:
             parts = [f"Iron Lung purges all toxicity! Healed {healed} HP"]
-            if excess > 0:
-                parts.append(f", +{excess} armor")
+            if temp_hp_gained > 0:
+                parts.append(f", +{temp_hp_gained} temp HP")
             parts.append(f", +{def_bonus} DEF (50t)")
             if tox > 0:
                 parts.append(f" [{tox} tox removed]")
@@ -432,11 +433,12 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
         else:
             engine.messages.append(f"{entity.name} purges toxicity and toughens up!")
 
-    elif eff_type == "iron_lung_half":
-        # Remove up to 50 tox; heal = removed*2 + CON*2, excess → armor
-        # If 25+ tox removed: +2 DEF for 50 turns
+    elif eff_type in ("iron_lung_100", "iron_lung_50"):
+        # Remove up to 100 or 50 tox; heal = removed*2 + CON*2; half excess → temp HP
+        # +1 DEF per 10 tox removed for 50 turns
+        cap = 100 if eff_type == "iron_lung_100" else 50
         tox = getattr(entity, "toxicity", 0)
-        removed = min(50, tox)
+        removed = min(cap, tox)
         entity.toxicity = tox - removed
         con = engine.player_stats.effective_constitution if is_player else 10
         heal_amount = removed * 2 + con * 2
@@ -444,62 +446,23 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
         entity.heal(heal_amount)
         healed = entity.hp - hp_before
         excess = heal_amount - healed
-        if excess > 0:
-            entity.armor += excess
+        temp_hp_gained = excess // 2
+        if temp_hp_gained > 0:
+            entity.temp_hp = getattr(entity, "temp_hp", 0) + temp_hp_gained
+        def_bonus = removed // 10
+        if def_bonus > 0:
+            effects.apply_effect(entity, engine, "iron_lung_defense", duration=50, defense_amount=def_bonus, silent=True)
         if is_player:
             parts = [f"Iron Lung cleanses! Healed {healed} HP"]
-            if excess > 0:
-                parts.append(f", +{excess} armor")
-        if removed >= 25:
-            effects.apply_effect(entity, engine, "iron_lung_defense", duration=50, defense_amount=2, silent=True)
-            if is_player:
-                parts.append(", +2 DEF (50t)")
-        if is_player:
+            if temp_hp_gained > 0:
+                parts.append(f", +{temp_hp_gained} temp HP")
+            if def_bonus > 0:
+                parts.append(f", +{def_bonus} DEF (50t)")
             if removed > 0:
                 parts.append(f" [{removed} tox removed]")
             engine.messages.append("".join(parts))
         else:
             engine.messages.append(f"{entity.name} cleanses toxicity and heals!")
-
-    elif eff_type == "iron_lung_half_weak":
-        # Same as iron_lung_half but also -25% melee damage dealt for 50 turns
-        tox = getattr(entity, "toxicity", 0)
-        removed = min(50, tox)
-        entity.toxicity = tox - removed
-        con = engine.player_stats.effective_constitution if is_player else 10
-        heal_amount = removed * 2 + con * 2
-        hp_before = entity.hp
-        entity.heal(heal_amount)
-        healed = entity.hp - hp_before
-        excess = heal_amount - healed
-        if excess > 0:
-            entity.armor += excess
-        if is_player:
-            parts = [f"Iron Lung cleanses! Healed {healed} HP"]
-            if excess > 0:
-                parts.append(f", +{excess} armor")
-        if removed >= 25:
-            effects.apply_effect(entity, engine, "iron_lung_defense", duration=50, defense_amount=2, silent=True)
-            if is_player:
-                parts.append(", +2 DEF (50t)")
-        effects.apply_effect(entity, engine, "iron_lung_dmg_reduction", duration=50, silent=True)
-        if is_player:
-            if removed > 0:
-                parts.append(f" [{removed} tox removed]")
-            parts.append(" (-25% dmg dealt 50t)")
-            engine.messages.append("".join(parts))
-        else:
-            engine.messages.append(f"{entity.name} cleanses toxicity but feels sluggish!")
-
-    elif eff_type == "iron_lung_minor":
-        # Gain 50 tox, heal 50 HP
-        from combat import add_toxicity
-        add_toxicity(engine, entity, 50)
-        entity.heal(50)
-        if is_player:
-            engine.messages.append(f"Iron Lung: +50 toxicity, healed 50 HP. ({entity.hp}/{entity.max_hp} HP)")
-        else:
-            engine.messages.append(f"{entity.name} gains toxicity but heals!")
 
     elif eff_type == "iron_lung_bad":
         # Gain 100 tox
@@ -512,10 +475,11 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
 
     # ── Skywalker OG (STR-based rad synergy strain) ─────────────────────
     elif eff_type == "skywalker_lightsaber":
-        # Roll 100: Green Lightsaber + Force Sensitive III
+        # Roll 100: Green Lightsaber + Force Sensitive + 100 starting rad
         if is_player:
             from items import create_item_entity
-            saber = create_item_entity("green_lightsaber", 0, 0)
+            from entity import Entity
+            saber = Entity(**create_item_entity("green_lightsaber", 0, 0))
             entity.inventory.append(saber)
             engine.messages.append([
                 ("A ", (255, 255, 255)),
@@ -523,61 +487,42 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
                 (" materializes in your hands!", (255, 255, 255)),
             ])
             str_val = engine.player_stats.effective_strength
-            duration = 50 + str_val * 5
-            effects.apply_effect(entity, engine, "force_sensitive", duration=duration, tier=3, silent=True)
+            duration = 50 + str_val * 2
+            effects.apply_effect(entity, engine, "force_sensitive", duration=duration, silent=True)
             from combat import add_radiation
-            add_radiation(engine, entity, 40)
-            engine.messages.append(f"Force Sensitive III! ({duration} turns, +1 STR per 10 rad gained, +40 rad)")
+            add_radiation(engine, entity, 100)
+            engine.messages.append(f"Force Sensitive! ({duration} turns, +1 STR per 10 rad gained, +100 rad)")
         else:
             engine.messages.append(f"{entity.name} glows with an eerie green light!")
 
-    elif eff_type == "skywalker_iii":
-        # Force Sensitive III: 50 + STR*5 turns, +30 starting rad
+    elif eff_type == "skywalker_force":
+        # Force Sensitive + 100 starting rad
         if is_player:
             str_val = engine.player_stats.effective_strength
-            duration = 50 + str_val * 5
-            effects.apply_effect(entity, engine, "force_sensitive", duration=duration, tier=3, silent=True)
+            duration = 50 + str_val * 2
+            effects.apply_effect(entity, engine, "force_sensitive", duration=duration, silent=True)
             from combat import add_radiation
-            add_radiation(engine, entity, 30)
-            engine.messages.append(f"Force Sensitive III! ({duration} turns, +1 STR per 10 rad gained, +30 rad)")
+            add_radiation(engine, entity, 100)
+            engine.messages.append(f"Force Sensitive! ({duration} turns, +1 STR per 10 rad gained, +100 rad)")
         else:
             engine.messages.append(f"{entity.name} surges with power!")
 
-    elif eff_type == "skywalker_ii":
-        # Force Sensitive II: 40 + STR*4 turns, +20 starting rad
+    elif eff_type == "skywalker_force_half":
+        # Force Sensitive + 50 starting rad
         if is_player:
             str_val = engine.player_stats.effective_strength
-            duration = 40 + str_val * 4
-            effects.apply_effect(entity, engine, "force_sensitive", duration=duration, tier=2, silent=True)
+            duration = 50 + str_val * 2
+            effects.apply_effect(entity, engine, "force_sensitive", duration=duration, silent=True)
             from combat import add_radiation
-            add_radiation(engine, entity, 20)
-            engine.messages.append(f"Force Sensitive II! ({duration} turns, +1 STR per 10 rad gained, +20 rad)")
+            add_radiation(engine, entity, 50)
+            engine.messages.append(f"Force Sensitive! ({duration} turns, +1 STR per 10 rad gained, +50 rad)")
         else:
             engine.messages.append(f"{entity.name} surges with power!")
-
-    elif eff_type == "skywalker_i":
-        # Force Sensitive I: 30 + STR*3 turns, no starting rad
-        if is_player:
-            str_val = engine.player_stats.effective_strength
-            duration = 30 + str_val * 3
-            effects.apply_effect(entity, engine, "force_sensitive", duration=duration, tier=1, silent=True)
-            engine.messages.append(f"Force Sensitive I! ({duration} turns, +1 STR per 10 rad gained)")
-        else:
-            engine.messages.append(f"{entity.name} surges with power!")
-
-    elif eff_type == "skywalker_rad_gain":
-        # Gain 40 rad, no buff
-        from combat import add_radiation
-        add_radiation(engine, entity, 40)
-        if is_player:
-            engine.messages.append("Skywalker OG irradiates you. +40 rad.")
-        else:
-            engine.messages.append(f"{entity.name} gets irradiated!")
 
     elif eff_type == "skywalker_rad_loss":
-        # Lose 30 rad
+        # Lose 50 rad
         old_rad = getattr(entity, "radiation", 0)
-        entity.radiation = max(0, old_rad - 30)
+        entity.radiation = max(0, old_rad - 50)
         lost = old_rad - entity.radiation
         if is_player:
             engine.messages.append(f"Skywalker OG fizzles. Lost {lost} rad.")

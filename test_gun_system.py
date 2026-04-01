@@ -234,27 +234,14 @@ def test_resolve_gun_shot_miss(engine):
     assert monster.hp == initial_hp  # no damage
 
 
-# ── Firing mode toggle ─────────────────────────────────────────────────
+# ── Gun stats ──────────────────────────────────────────────────────────
 
-def test_toggle_firing_mode(engine):
-    """TAB toggles between accurate and fast modes."""
-    assert engine.gun_firing_mode == "accurate"
-    engine._handle_gun_targeting_input({"type": "toggle_firing_mode"})
-    assert engine.gun_firing_mode == "fast"
-    engine._handle_gun_targeting_input({"type": "toggle_firing_mode"})
-    assert engine.gun_firing_mode == "accurate"
-
-
-# ── Energy cost ────────────────────────────────────────────────────────
-
-def test_firing_mode_energy_costs():
-    """Verify firing mode data exists with expected values."""
+def test_gun_stats():
+    """Verify gun_stats data exists with expected values."""
     defn = ITEM_DEFS["ruger_mark_v"]
-    modes = defn["firing_modes"]
-    assert modes["accurate"]["energy"] == 60
-    assert modes["accurate"]["hit"] == 90
-    assert modes["fast"]["energy"] == 30
-    assert modes["fast"]["hit"] == 65
+    stats = defn["gun_stats"]
+    assert stats["energy"] == 45
+    assert stats["hit"] == 80
 
 
 # ── Gun definition ─────────────────────────────────────────────────────
@@ -292,8 +279,7 @@ def test_hv_express_definition():
     assert defn["reload_speed"] == 100
     assert defn["consecutive_bonus"] == 2
     assert defn["value"] == 200
-    assert defn["firing_modes"]["accurate"]["hit"] == 90
-    assert defn["firing_modes"]["fast"]["hit"] == 70
+    assert defn["gun_stats"]["hit"] == 80
 
 
 def test_hv_express_equips_to_weapon(engine):

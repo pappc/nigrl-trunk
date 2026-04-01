@@ -291,6 +291,18 @@ def chase(monster, player, dungeon, engine, creature_positions=None,
                     (monster.x, monster.y)):
         monster.move(dx, dy)
         return "move"
+    # Attack scrap turret if it's blocking the path
+    blocker = dungeon.get_blocking_entity_at(nx, ny)
+    if blocker and getattr(blocker, 'hazard_type', None) == 'scrap_turret':
+        damage = max(1, monster.power)
+        blocker.take_damage(damage)
+        engine.messages.append(
+            f"{monster.name} attacks Scrap Turret for {damage} damage! ({blocker.hp}/{blocker.max_hp})"
+        )
+        if not blocker.alive:
+            dungeon.remove_entity(blocker)
+            engine.messages.append("Scrap Turret destroyed!")
+        return "attack"
     return "idle"
 
 

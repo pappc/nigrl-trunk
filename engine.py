@@ -236,6 +236,7 @@ class GameEngine:
         self.selected_item_actions: list[str] = []
         self.item_menu_cursor: int = 0
         self.combine_target_cursor: int | None = None  # inventory index highlighted in COMBINE_SELECT
+        self.inventory_page: int = 0  # current page for paged inventory display
 
         # --- Ring replacement state ---
         self.pending_ring_item_index: int | None = None  # inventory index of ring being equipped
@@ -280,18 +281,17 @@ class GameEngine:
 
         # --- Gun system state ---
         self.primary_gun: str | None = None       # "sidearm" or "weapon" slot name
-        self.gun_firing_mode: str = "accurate"    # current mode for gun targeting UI
         self.gun_targeting_cursor: list[int] = [0, 0]  # (x, y) cursor for gun targeting
         self.gun_consecutive_target_id: str | None = None  # instance_id of last target fired at
         self.gun_consecutive_count: int = 0                # stacking consecutive hit counter
-        self.gatting_consecutive_target_id: str | None = None  # Gatting L1 perk tracker
-        self.gatting_consecutive_count: int = 0                # Gatting L1 stacking bonus
+        self.gatting_consecutive_target_id: str | None = None  # Gunplay L1 perk tracker
+        self.gatting_consecutive_count: int = 0                # Gunplay L1 stacking bonus
         self.gun_ability_active: dict | None = None  # active gun ability spec during GUN_TARGETING
         self.gun_jammed: bool = False  # True when gun is jammed; must clear before firing
         self.staff_firing: dict | None = None  # active staff info during GUN_TARGETING
         self.arcane_flux_active: bool = False  # Elementalist L3: charge preservation applies to cooldowns
         self.snipers_mark_target_id: str | None = None  # instance_id of marked target
-        self.dead_eye_swagger_gained: int = 0              # Sniping L2: swagger gained this floor
+        self.dead_eye_swagger_gained: int = 0              # Gunplay L4: swagger gained this floor
         self.unfazed_swagger_gained: int = 0               # L Farming L3: swagger gained this floor
 
         # --- Spec energy system (spec weapon special attacks) ---
@@ -359,6 +359,8 @@ class GameEngine:
             "open_dev_menu": self._action_open_dev_menu,
             "autoexplore": self._action_autoexplore,
             "look": self._action_look,
+            "inventory_page_down": self._action_inventory_page_down,
+            "inventory_page_up": self._action_inventory_page_up,
         }
 
         self._menu_handlers = {
@@ -563,6 +565,8 @@ class GameEngine:
                 staves.append(weapon)
         # Check inventory
         for item in self.player.inventory:
+            if not hasattr(item, 'item_id'):
+                continue
             idefn = get_item_def(item.item_id)
             if idefn and idefn.get("staff_element"):
                 staves.append(item)
@@ -820,6 +824,16 @@ class GameEngine:
                     (f"Shoots {best_target.name} for {damage} dmg ({hp_str})", (220, 180, 100)),
                 ])
                 if not best_target.alive:
+                    # Dismantling L6: turret kills drop Scrap
+                    if self.skills.get("Dismantling").level >= 6:
+                        from items import create_item_entity
+                        scrap_kwargs = create_item_entity("scrap", best_target.x, best_target.y)
+                        if scrap_kwargs:
+                            self.dungeon.add_entity(Entity(**scrap_kwargs))
+                            self.messages.append([
+                                ("Scrap! ", (160, 130, 80)),
+                                (f"{best_target.name} drops salvageable scrap.", (180, 160, 120)),
+                            ])
                     self.event_bus.emit("entity_died", entity=best_target, killer=self.player)
 
     def _on_entity_died(self, entity, killer=None):
@@ -2150,7 +2164,7 @@ class GameEngine:
             "drop_item": "d", "fire_gun": "f", "start_entity_targeting": "r",
             "toggle_abilities": "a", "open_bestiary": "b", "open_perks_menu": "p",
             "open_log": "l", "wait": ".", "item_use": " ", "look": ";",
-            "autoexplore": "/", "toggle_firing_mode": "\t",
+            "autoexplore": "/",
             "swap_primary_gun": "f", "reload_gun": "r", "destroy_item": "d",
         }
         if action_type == "raw_char":
@@ -2666,6 +2680,16 @@ class GameEngine:
             self.crit_multiplier += 1
             self.messages.append(f"  [Crit+] Your critical hits now deal {self.crit_multiplier}x damage!")
 
+        if name == "Aftershock":
+            self.messages.append("  [Aftershock] Critical hits with blunt weapons empower your next 3 attacks!")
+
+        if name == "Overkill":
+            self.messages.append("  [Overkill] Excess damage from blunt weapon kills splashes to nearby enemies!")
+
+        if name == "Colossus":
+            self.grant_ability("colossus")
+            self.messages.append("  [Colossus] Toggle between Wrecking (+dmg) and Fortress (+DR, counter) stances!")
+
         if name == "Gouge":
             self.grant_ability("gouge")
             self.messages.append("  [Gouge] You learn to gouge enemies with your blade!")
@@ -2963,6 +2987,9 @@ class GameEngine:
             self._last_destroyed_item_value = 25  # default
             self.messages.append("  [Scrap Turret] Destroy items to load a turret charge. Place on adjacent tile to deploy!")
 
+        if name == "Salvage Volley":
+            self.messages.append("  [Salvage Volley] Destroying items fires 3 bonus turret shots. Turret kills drop Scrap!")
+
     def _handle_log_input(self, action):
         """Handle input while the log menu is open. UP/DOWN scroll; anything else closes."""
         action_type = action.get("type")
@@ -3002,10 +3029,40 @@ class GameEngine:
         return False
 
     def _action_select_item(self, action):
-        index = action["index"]
+        from config import INVENTORY_PAGE_SIZE
+        index = action["index"] + self.inventory_page * INVENTORY_PAGE_SIZE
         if 0 <= index < len(self.player.inventory):
             self._open_item_menu(index)
         return False
+
+    def _action_inventory_page_down(self, _action):
+        from config import INVENTORY_PAGE_SIZE
+        total = len(self.player.inventory)
+        last_page = max(0, (total - 1) // INVENTORY_PAGE_SIZE) if total > 0 else 0
+        if self.inventory_page >= last_page:
+            self.inventory_page = 0
+        else:
+            self.inventory_page += 1
+        return False
+
+    def _action_inventory_page_up(self, _action):
+        from config import INVENTORY_PAGE_SIZE
+        total = len(self.player.inventory)
+        last_page = max(0, (total - 1) // INVENTORY_PAGE_SIZE) if total > 0 else 0
+        if self.inventory_page <= 0:
+            self.inventory_page = last_page
+        else:
+            self.inventory_page -= 1
+        return False
+
+    def _clamp_inventory_page(self):
+        from config import INVENTORY_PAGE_SIZE
+        total = len(self.player.inventory)
+        if total == 0:
+            self.inventory_page = 0
+        else:
+            last_page = (total - 1) // INVENTORY_PAGE_SIZE
+            self.inventory_page = min(self.inventory_page, last_page)
 
     def _action_hotbar_use(self, action):
         """Use a hotbar-bound ability or item, or fall through to inventory selection."""
@@ -3019,8 +3076,16 @@ class GameEngine:
                 for i, ent in enumerate(self.player.inventory):
                     if ent.item_id == item_id:
                         from inventory_mgr import _use_item
+                        from menu_state import MenuState
+                        self._red_drank_free_action = False
+                        prev_menu = self.menu_state
                         _use_item(self, i)
-                        return False
+                        if self.menu_state != prev_menu:
+                            return False  # entered submenu — no turn cost yet
+                        if self._red_drank_free_action:
+                            self._red_drank_free_action = False
+                            return False
+                        return True
                 # Item not in inventory anymore — silently ignore
                 return False
 
@@ -3136,7 +3201,7 @@ class GameEngine:
                 self.sdl_overlay.show_title_card(event.get("name", event_id), duration=3.0)
             self.messages.append(event.get("message", "Something feels different about this floor..."))
 
-        # Reset Sniping L2 "Dead Eye" swagger bonus
+        # Reset Gunplay L4 "Dead Eye" swagger bonus
         if self.dead_eye_swagger_gained > 0:
             self.player_stats.swagger -= self.dead_eye_swagger_gained
             self.dead_eye_swagger_gained = 0

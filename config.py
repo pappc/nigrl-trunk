@@ -242,11 +242,9 @@ def get_zone_colors(zone: str) -> dict:
     """Get the color scheme for a zone, falling back to crack_den defaults."""
     return ZONE_COLORS.get(zone, _DEFAULT_ZONE_COLORS)
 
-# Inventory key labels — letters available for item selection.
-# Lowercase (18): excludes a (Abilities), c (char sheet), d (drop), e (equipment),
-#                 f (fire gun), q (quit), r (reach/entity targeting), s (skills)
-# Uppercase/Shift (19): excludes Shift+B (bestiary), Shift+D (destroy), Shift+F (swap gun),
-#                       Shift+L (log), Shift+P (perks), Shift+R (reload),
-#                       Shift+` (dev menu), Shift+. (stairs)
-# RULE: if a Shift+letter is later bound to a feature, remove it from INVENTORY_KEYS here.
-INVENTORY_KEYS = "bghijklmnoptuvwxyz" + "ACEGHIJKMOQSTUVWXYZ"
+# Inventory key labels — 18 lowercase letters available for item selection.
+# Excludes: a (Abilities), c (char sheet), d (drop), e (equipment),
+#           f (fire gun), q (quit), r (reach/entity targeting), s (skills)
+# Pages scrolled via PgUp/PgDown, Shift+Up/Down, or backslash.
+INVENTORY_KEYS = "bghijklmnoptuvwxyz"
+INVENTORY_PAGE_SIZE = 18

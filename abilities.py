@@ -471,6 +471,53 @@ def _execute_at_bash(engine, tx: int, ty: int) -> bool:
     return True
 
 
+def _execute_colossus(engine) -> bool:
+    """Toggle between Colossus stances: Wrecking and Fortress.
+    Free action (no energy cost). 5-turn cooldown to prevent spam."""
+    from effects import apply_effect
+
+    has_wrecking = any(getattr(e, 'id', '') == 'colossus_wrecking' for e in engine.player.status_effects)
+    has_fortress = any(getattr(e, 'id', '') == 'colossus_fortress' for e in engine.player.status_effects)
+
+    if has_wrecking:
+        # Switch to Fortress
+        for e in list(engine.player.status_effects):
+            if getattr(e, 'id', '') == 'colossus_wrecking':
+                e.expire(engine.player, engine)
+                engine.player.status_effects.remove(e)
+                break
+        apply_effect(engine.player, engine, "colossus_fortress", silent=True)
+        engine.messages.append([
+            ("Colossus: Fortress! ", (100, 160, 255)),
+            ("+4 DR, 30% counter+stun, -25% melee damage.", (140, 180, 255)),
+        ])
+    elif has_fortress:
+        # Switch to Wrecking
+        for e in list(engine.player.status_effects):
+            if getattr(e, 'id', '') == 'colossus_fortress':
+                e.expire(engine.player, engine)
+                engine.player.status_effects.remove(e)
+                break
+        apply_effect(engine.player, engine, "colossus_wrecking", silent=True)
+        engine.messages.append([
+            ("Colossus: Wrecking! ", (255, 120, 40)),
+            ("+40% melee damage, can't dodge, -2 DR.", (255, 180, 100)),
+        ])
+    else:
+        # First activation — default to Wrecking
+        apply_effect(engine.player, engine, "colossus_wrecking", silent=True)
+        engine.messages.append([
+            ("Colossus: Wrecking! ", (255, 120, 40)),
+            ("+40% melee damage, can't dodge, -2 DR.", (255, 180, 100)),
+        ])
+
+    engine.ability_cooldowns["colossus"] = 5
+    # Free action: refund energy cost
+    from config import ENERGY_THRESHOLD
+    engine.player.energy += ENERGY_THRESHOLD
+    return True
+
+
 def _execute_whirlwind(engine) -> bool:
     """Whirlwind: full melee attack on all adjacent enemies. Procs all on-hit
     effects (Swashbuckling, weapon on-hits, etc.). 22-turn cooldown.
@@ -1210,6 +1257,7 @@ def _execute_slow_metabolism(engine) -> bool:
         ])
     else:
         engine.messages.append("Slow Metabolism: no active drink buffs to extend.")
+        return False
     return True
 
 
@@ -1434,7 +1482,7 @@ def _execute_pandemic(engine) -> bool:
     visible = engine.dungeon.visible
     monsters = [
         m for m in engine.dungeon.get_monsters()
-        if m.alive and visible[m.x, m.y]
+        if m.alive and visible[m.y, m.x]
     ]
     if not monsters:
         engine.messages.append("Pandemic: no visible enemies!")
@@ -2103,12 +2151,10 @@ def _execute_web_trail(engine) -> bool:
 def _execute_purge(engine) -> bool:
     """Purge: remove 20 infection, gain 3-stack melee damage debuff.
     At Infected L5+: also grants Hunger buff (10t)."""
-    if engine.player.infection <= 0:
-        engine.messages.append("You have no infection to purge!")
-        return False
     from combat import remove_infection
     import effects
-    remove_infection(engine, engine.player, 20)
+    if engine.player.infection > 0:
+        remove_infection(engine, engine.player, 20)
     effects.apply_effect(engine.player, engine, "purge_infection")
     engine.messages.append([
         ("Purge! ", (120, 200, 50)),
@@ -2782,6 +2828,18 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         is_spell=False,
         max_range=1.5,
         execute_at=_execute_at_bash,
+    ),
+    "colossus": AbilityDef(
+        ability_id="colossus",
+        name="Colossus",
+        description="Toggle stance. Wrecking: +40% melee dmg, no dodge, -2 DR. Fortress: +4 DR, 30% counter+stun, -25% melee dmg. Free action. 5t cooldown.",
+        char="C",
+        color=(200, 150, 60),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        tags=frozenset({"buff", "stance", "toggle", "active"}),
+        execute=_execute_colossus,
+        is_spell=False,
     ),
     "black_eye_slap": AbilityDef(
         ability_id="black_eye_slap",

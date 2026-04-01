@@ -220,19 +220,16 @@ STRAIN_TABLES = {
         ( 1,  21, {"type": "dosidos_warp",            "min_count": 1, "max_count": 1}, {"type": "dosidos_bksmt_buff", "amount":  2}),
     ],
     "Iron Lung": [
-        (95, 100, {"type": "iron_lung_full"},       None),  # Remove all tox; heal tox+CON*2 (floor 20), excess→armor; +tox/20 DEF (50t)
-        (80,  94, {"type": "iron_lung_half"},        None),  # Remove 50 tox; heal removed*2+CON*2, excess→armor; if 25+ removed: +2 DEF (50t)
-        (45,  79, {"type": "iron_lung_half_weak"},   None),  # Same as above but -25% melee damage dealt (50t)
-        (30,  44, {"type": "iron_lung_minor"},       None),  # Gain 50 tox, heal 50 HP
-        ( 1,  29, {"type": "iron_lung_bad"},         None),  # Gain 100 tox
+        (95, 100, {"type": "iron_lung_full"},       None),  # Remove all tox; heal tox+CON*2, half excess→temp HP; +tox/20 DEF (50t)
+        (61,  94, {"type": "iron_lung_100"},        None),  # Remove 100 tox; heal removed*2+CON*2, half excess→temp HP; +1 DEF/10 removed (50t)
+        (31,  60, {"type": "iron_lung_50"},         None),  # Remove 50 tox; heal removed*2+CON*2, half excess→temp HP; +1 DEF/10 removed (50t)
+        ( 1,  30, {"type": "iron_lung_bad"},        None),  # Gain 100 tox
     ],
     "Skywalker OG": [
-        (100, 100, {"type": "skywalker_lightsaber"},  None),  # Green Lightsaber + Force Sensitive III
-        (75,   99, {"type": "skywalker_iii"},          None),  # Force Sensitive III (50+STR*5t, +30 rad)
-        (45,   74, {"type": "skywalker_ii"},           None),  # Force Sensitive II  (40+STR*4t, +20 rad)
-        (26,   44, {"type": "skywalker_i"},            None),  # Force Sensitive I   (30+STR*3t)
-        (11,   25, {"type": "skywalker_rad_gain"},     None),  # Gain 40 rad
-        ( 1,   10, {"type": "skywalker_rad_loss"},     None),  # Lose 30 rad
+        (100, 100, {"type": "skywalker_lightsaber"},  None),  # Green Lightsaber + Force Sensitive + 100 rad
+        (71,   99, {"type": "skywalker_force"},        None),  # Force Sensitive + 100 starting rad
+        (50,   70, {"type": "skywalker_force_half"},   None),  # Force Sensitive + 50 starting rad
+        ( 1,   49, {"type": "skywalker_rad_loss"},     None),  # Lose 50 rad
     ],
     "Street Scholar": [
         (75, 100, {"type": "calculated_aim_iii"},      None),  # Calc Aim III: 15% BKSMT/kill, 100% acc, auto-reload, +1x crit mult
@@ -3043,6 +3040,21 @@ ITEM_DEFS = {
         "use_verb": "Use",
         "use_effect": {"type": "add_radiation", "amount": 50},
     },
+    "scrap": {
+        "name": "Scrap",
+        "char": "*",
+        "color": (160, 130, 80),
+        "category": "material",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 25,
+        "skill": "Dismantling",
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+    },
     "chicken": {
         "name": "Chicken",
         "char": "f",
@@ -3409,10 +3421,7 @@ ITEM_DEFS = {
         "reload_per_floor": 1,
         "tags": ["decimator", "unique"],
         "name_gradient": [(255, 120, 40), (200, 30, 30)],
-        "firing_modes": {
-            "accurate": {"hit": 100, "energy": 50},
-            "fast":     {"hit": 100, "energy": 50},
-        },
+        "gun_stats": {"hit": 100, "energy": 50},
     },
     "thunder_gun": {
         "name": "Thunder Gun",
@@ -3439,10 +3448,7 @@ ITEM_DEFS = {
         "aoe_type": "target",
         "tags": ["thunder_gun", "unique"],
         "name_gradient": [(255, 255, 80), (80, 120, 255)],
-        "firing_modes": {
-            "accurate": {"hit": 90, "energy": 90},
-            "fast":     {"hit": 50, "energy": 30},
-        },
+        "gun_stats": {"hit": 80, "energy": 70},
     },
     "ruger_mark_v": {
         "name": "Ruger Mark V",
@@ -3466,10 +3472,7 @@ ITEM_DEFS = {
         "mag_size": 10,
         "reload_speed": 0,        # energy cost to reload (0 = free action)
         "gun_class": "small",     # small = sidearm slot, medium/large = weapon slot
-        "firing_modes": {
-            "accurate": {"hit": 90, "energy": 60},
-            "fast":     {"hit": 65, "energy": 30},
-        },
+        "gun_stats": {"hit": 80, "energy": 45},
     },
     "hv_express": {
         "name": "HV Express",
@@ -3495,10 +3498,7 @@ ITEM_DEFS = {
         "gun_class": "medium",        # medium = weapon slot only
         "aoe_type": "target",
         "consecutive_bonus": 2,       # +2 dmg per consecutive hit on same target (stacking)
-        "firing_modes": {
-            "accurate": {"hit": 90, "energy": 80},
-            "fast":     {"hit": 70, "energy": 45},
-        },
+        "gun_stats": {"hit": 80, "energy": 65},
     },
     "glizzy_19": {
         "name": "Glizzy-19",
@@ -3525,10 +3525,7 @@ ITEM_DEFS = {
         "gun_class": "small",         # small = sidearm slot only
         "aoe_type": "target",         # line AOE (first target only until piercing added)
         "grants_ability": "double_tap",
-        "firing_modes": {
-            "accurate": {"hit": 75, "energy": 70},
-            "fast":     {"hit": 60, "energy": 50},
-        },
+        "gun_stats": {"hit": 70, "energy": 60},
     },
     "uzi": {
         "name": "UZI",
@@ -3555,10 +3552,7 @@ ITEM_DEFS = {
         "aoe_type": "cone",
         "cone_angle": 30,             # degrees
         "ammo_per_shot": (3, 4),      # random 3-4 rounds per fire action
-        "firing_modes": {
-            "accurate": {"hit": 60, "energy": 60},
-            "fast":     {"hit": 40, "energy": 35},
-        },
+        "gun_stats": {"hit": 50, "energy": 45},
     },
     "ar_14": {
         "name": "AR-14",
@@ -3585,10 +3579,7 @@ ITEM_DEFS = {
         "aoe_type": "line",
         "cone_angle": 30,             # used by Spray ability
         "grants_ability": "spray",
-        "firing_modes": {
-            "accurate": {"hit": 90, "energy": 65},
-            "fast":     {"hit": 70, "energy": 50},
-        },
+        "gun_stats": {"hit": 80, "energy": 55},
     },
     "sawed_off": {
         "name": "Sawed Off",
@@ -3615,10 +3606,7 @@ ITEM_DEFS = {
         "aoe_type": "cone",
         "cone_angle": 90,
         "projectiles": 5,
-        "firing_modes": {
-            "accurate": {"hit": 60, "energy": 110},
-            "fast":     {"hit": 50, "energy": 90},
-        },
+        "gun_stats": {"hit": 55, "energy": 100},
     },
     "m16": {
         "name": "M16",
@@ -3644,10 +3632,7 @@ ITEM_DEFS = {
         "gun_class": "medium",              # medium = weapon slot only
         "aoe_type": "line",
         "grants_ability": "burst",
-        "firing_modes": {
-            "accurate": {"hit": 70, "energy": 70},
-            "fast":     {"hit": 50, "energy": 50},
-        },
+        "gun_stats": {"hit": 65, "energy": 60},
     },
     "tec_9": {
         "name": "Tec-9",
@@ -3675,10 +3660,7 @@ ITEM_DEFS = {
         "jam_chance": 18,             # % chance to jam per shot
         "jam_clear_cost": 100,        # energy cost to clear jam (full turn)
         "grants_ability": "spray_and_pray",
-        "firing_modes": {
-            "accurate": {"hit": 70, "energy": 35},
-            "fast":     {"hit": 50, "energy": 20},
-        },
+        "gun_stats": {"hit": 60, "energy": 30},
     },
     "rpg": {
         "name": "RPG",
@@ -3704,10 +3686,7 @@ ITEM_DEFS = {
         "gun_class": "large",
         "aoe_type": "circle",
         "aoe_radius": 2,
-        "firing_modes": {
-            "accurate": {"hit": 90, "energy": 100},
-            "fast":     {"hit": 60, "energy": 80},
-        },
+        "gun_stats": {"hit": 80, "energy": 90},
     },
     "cruiser_500": {
         "name": "Cruiser 500",
@@ -3734,10 +3713,7 @@ ITEM_DEFS = {
         "aoe_type": "cone",
         "cone_angle": 90,
         "projectiles": 5,
-        "firing_modes": {
-            "accurate": {"hit": 80, "energy": 100},
-            "fast":     {"hit": 60, "energy": 80},
-        },
+        "gun_stats": {"hit": 70, "energy": 90},
     },
     "draco": {
         "name": "Draco",
@@ -3762,10 +3738,7 @@ ITEM_DEFS = {
         "reload_speed": 60,
         "gun_class": "medium",              # medium = weapon slot only
         "aoe_type": "line",
-        "firing_modes": {
-            "accurate": {"hit": 60, "energy": 70},
-            "fast":     {"hit": 40, "energy": 40},
-        },
+        "gun_stats": {"hit": 50, "energy": 55},
     },
     # --- Ammo ----------------------------------------------------------------
     "light_rounds": {
@@ -4527,18 +4500,20 @@ def generate_examine_lines(item_id, engine=None):
                     "Iron Lung": [
                         "Tank strain (CON). Roll 1-100:",
                         "95+: Purge all tox, big heal,",
-                        "  excess HP becomes armor.",
-                        "45+: Remove 50 tox, heal, +DEF.",
-                        "30-44: +50 tox but heal 50 HP.",
-                        "1-29: +100 tox (bad hit).",
+                        "  excess→temp HP, +tox/20 DEF.",
+                        "61+: Remove 100 tox, heal,",
+                        "  +1 DEF per 10 tox removed.",
+                        "31+: Remove 50 tox, heal, +DEF.",
+                        "1-30: +100 tox (bad hit).",
                     ],
                     "Skywalker OG": [
                         "Force strain (STR). Roll 1-100:",
-                        "100: Green Lightsaber + Force III.",
-                        "75+: Force III (+30 rad).",
-                        "45+: Force II (+20 rad).",
-                        "26+: Force I (no rad cost).",
-                        "11-25: +40 rad. 1-10: -30 rad.",
+                        "100: Green Lightsaber + Force",
+                        "  Sensitive + 100 starting rad.",
+                        "71+: Force Sensitive + 100 rad.",
+                        "50+: Force Sensitive + 50 rad.",
+                        "1-49: Lose 50 rad.",
+                        "Force: +1 STR per 10 rad gained.",
                     ],
                     "Street Scholar": [
                         "Gun strain (STS). Roll 1-100:",

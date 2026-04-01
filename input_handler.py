@@ -11,8 +11,15 @@ def handle_input(key):
     if isinstance(key, tcod.event.KeyDown):
         key_sym = key.sym
 
+        # Shift+Up/Down — inventory page scroll (before plain arrow movement)
+        _shift = bool(key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT))
+        if _shift and key_sym == tcod.event.KeySym.UP:
+            return {"type": "inventory_page_up"}
+        elif _shift and key_sym == tcod.event.KeySym.DOWN:
+            return {"type": "inventory_page_down"}
+
         # Movement
-        if key_sym == tcod.event.KeySym.UP:
+        elif key_sym == tcod.event.KeySym.UP:
             return {"type": "move", "dx": 0, "dy": -1}
         elif key_sym == tcod.event.KeySym.DOWN:
             return {"type": "move", "dx": 0, "dy": 1}
@@ -166,10 +173,6 @@ def handle_input(key):
         ):
             return {"type": "start_entity_targeting"}
 
-        # TAB — toggle gun firing mode
-        elif key_sym == tcod.event.KeySym.TAB:
-            return {"type": "toggle_firing_mode"}
-
         # / — autoexplore (keyboard slash or numpad /)
         elif key_sym in (tcod.event.KeySym.SLASH, tcod.event.KeySym.KP_DIVIDE):
             return {"type": "autoexplore"}
@@ -178,20 +181,21 @@ def handle_input(key):
         elif key_sym == tcod.event.KeySym.SEMICOLON:
             return {"type": "look"}
 
+        # PgDown — inventory page down
+        elif key_sym == tcod.event.KeySym.PAGEDOWN:
+            return {"type": "inventory_page_down"}
+        # PgUp — inventory page up
+        elif key_sym == tcod.event.KeySym.PAGEUP:
+            return {"type": "inventory_page_up"}
+        # Backslash — inventory next page (accessible alternative)
+        elif key_sym == tcod.event.KeySym.BACKSLASH:
+            return {"type": "inventory_page_down"}
+
         # A — toggle Abilities menu (lowercase only, checked before inventory letter keys)
         elif key_sym == tcod.event.KeySym.a and not bool(
             key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
         ):
             return {"type": "toggle_abilities"}
-
-        # Shift+Letter keys — inventory item selection (uppercase slots in INVENTORY_KEYS)
-        elif tcod.event.KeySym.a <= key_sym <= tcod.event.KeySym.z and bool(
-            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
-        ):
-            char = chr(ord("A") + (key_sym - tcod.event.KeySym.a))
-            if char in INVENTORY_KEYS:
-                index = INVENTORY_KEYS.index(char)
-                return {"type": "select_item", "index": index}
 
         # Letter keys — inventory item selection (only keys in INVENTORY_KEYS)
         elif tcod.event.KeySym.a <= key_sym <= tcod.event.KeySym.z:

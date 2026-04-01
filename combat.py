@@ -53,10 +53,40 @@ def _massive_blunt_smoke_proc(engine):
     ])
 
 
+def _overkill_splash(engine, ox: int, oy: int, excess: int, depth: int = 0):
+    """Beating L5: splash excess damage to enemies within radius 2. Chains on kill."""
+    if excess <= 0 or depth > 20:  # safety cap
+        return
+    hit_any = False
+    for m in list(engine.dungeon.get_monsters()):
+        if not m.alive or m is engine.player:
+            continue
+        if max(abs(m.x - ox), abs(m.y - oy)) <= 2:
+            hp_before = m.hp
+            m.take_damage(excess)
+            hit_any = True
+            if not m.alive:
+                chain_excess = abs(m.hp)
+                engine.messages.append([
+                    ("Overkill! ", (255, 100, 40)),
+                    (f"{m.name} takes {excess} splash and dies!", (255, 160, 80)),
+                ])
+                engine.event_bus.emit("entity_died", entity=m, killer=engine.player)
+                if chain_excess > 0:
+                    _overkill_splash(engine, m.x, m.y, chain_excess, depth + 1)
+            else:
+                engine.messages.append([
+                    ("Overkill! ", (255, 100, 40)),
+                    (f"{m.name} takes {excess} splash ({m.hp}/{m.max_hp})", (255, 180, 100)),
+                ])
+    if hit_any and hasattr(engine, 'sdl_overlay') and engine.sdl_overlay:
+        engine.sdl_overlay.add_floating_text(ox, oy, "OVERKILL", (255, 100, 40))
+
+
 def check_mega_crit(engine) -> bool:
-    """Sniping L3: if you crit, roll again — second crit = mega crit (4x).
-    Only works with melee weapons or guns in accurate mode."""
-    if engine.skills.get("Sniping").level < 3:
+    """Gunplay L6: if you crit, roll again — second crit = mega crit (4x).
+    Works with melee weapons and guns."""
+    if engine.skills.get("Gunplay").level < 6:
         return False
     return random.random() < engine.player_stats.crit_chance
 
@@ -890,7 +920,7 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
 
     # On-hit effects: notify player's active buffs/debuffs
     if attacker == engine.player:
-        # Gatting L1: melee resets consecutive shot tracker
+        # Gunplay L1: melee resets consecutive shot tracker
         engine.gatting_consecutive_target_id = None
         engine.gatting_consecutive_count = 0
         engine._check_decontamination_proc(defender)
@@ -976,6 +1006,17 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             engine.messages.append([
                 ("Swashbuckling! ", (255, 220, 100)),
                 (f"+{stk} slash dmg, +{stk}% dodge ({stk} stacks, 20t)", (255, 240, 180)),
+            ])
+
+        # Beating L4 "Aftershock": crit with beating weapon → 3 empowered follow-up attacks
+        if (is_crit
+                and engine.skills.get("Beating").level >= 4
+                and weapon and wdefn
+                and weapon_matches_type(wdefn, "beating")):
+            effects.apply_effect(engine.player, engine, "aftershock", duration=15, stacks=3, silent=True)
+            engine.messages.append([
+                ("Aftershock! ", (255, 160, 40)),
+                ("Next 3 hits deal bonus damage and can stun. (15t)", (255, 200, 100)),
             ])
 
         # Slashing L5 "Crippling Strikes": 25% on slash hit → Hamstrung (-2 dmg/stack)
@@ -1261,6 +1302,15 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
                     engine.messages.append([
                         (f"[NEW SKILL UNLOCKED] {kill_xp['skill']}!", (255, 215, 0)),
                     ])
+
+        # Beating L5 "Overkill": excess damage splashes to nearby enemies, chains on kill
+        if (attacker == engine.player
+                and engine.skills.get("Beating").level >= 5
+                and weapon and wdefn
+                and weapon_matches_type(wdefn, "beating")):
+            excess = abs(defender.hp)
+            if excess > 0:
+                _overkill_splash(engine, defender.x, defender.y, excess)
     else:
         engine.messages.append(msg)
 
@@ -1445,6 +1495,24 @@ def handle_monster_attack(engine, monster):
             monster.take_damage(thorns_dmg)
             engine.messages.append(f"Thorns! {monster.name} takes {thorns_dmg} damage!")
             if not monster.alive:
+                engine.event_bus.emit("entity_died", entity=monster, killer=player)
+
+    # Colossus Fortress: 30% counter-attack for STR damage + 1-turn stun
+    if monster.alive and any(getattr(e, 'id', '') == 'colossus_fortress' for e in player.status_effects):
+        if random.random() < 0.30:
+            counter_dmg = max(1, engine.player_stats.effective_strength)
+            monster.take_damage(counter_dmg)
+            if monster.alive:
+                effects.apply_effect(monster, engine, "stun", duration=1, silent=True)
+                engine.messages.append([
+                    ("Counter! ", (100, 160, 255)),
+                    (f"{monster.name} takes {counter_dmg} dmg — stunned!", (140, 200, 255)),
+                ])
+            else:
+                engine.messages.append([
+                    ("Counter! ", (100, 160, 255)),
+                    (f"{monster.name} takes {counter_dmg} dmg and dies!", (140, 200, 255)),
+                ])
                 engine.event_bus.emit("entity_died", entity=monster, killer=player)
 
     if any(getattr(e, 'id', None) == 'soul_pair' for e in monster.status_effects):

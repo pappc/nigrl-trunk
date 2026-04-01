@@ -416,7 +416,7 @@ def check_monster_mutation(engine, monster):
     # Kill check — radiation damage mutations can kill
     if not monster.alive:
         engine.messages.append(f"The {monster.name} dies from radiation mutation!")
-        engine.event_bus.emit("entity_died", monster, killer=engine.player)
+        engine.event_bus.emit("entity_died", entity=monster, killer=engine.player)
 
 
 def force_monster_mutation(engine, monster):
@@ -437,7 +437,7 @@ def force_monster_mutation(engine, monster):
 
     if not monster.alive:
         engine.messages.append(f"The {monster.name} dies from forced mutation!")
-        engine.event_bus.emit("entity_died", monster, killer=engine.player)
+        engine.event_bus.emit("entity_died", entity=monster, killer=engine.player)
         return True
     return False
 

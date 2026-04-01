@@ -67,6 +67,7 @@ class Entity:
         # --- Timed hazard fields ---
         hazard_duration=0,      # turns remaining for timed hazards (0 = permanent)
         hazard_tox_per_turn=0,  # tox applied per tick to entities on this tile
+        hazard_damage_per_turn=0,  # direct damage per tick to entities on this tile
         # --- Death behavior fields ---
         death_split_type=None,  # enemy_type key to spawn on death (e.g. "mini_sludge")
         death_split_count=0,    # number of children to spawn on death

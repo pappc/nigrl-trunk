@@ -11,7 +11,7 @@ from config import (
     HEADER_HEIGHT, UI_HEIGHT, MAX_MESSAGES,
     MAP_WIDTH, PANEL_WIDTH,
     LEFT_PANEL_WIDTH, MAP_OFFSET_X,
-    INVENTORY_KEYS, LOG_HISTORY_SIZE, RING_SLOTS, RING_FINGER_NAMES,
+    INVENTORY_KEYS, INVENTORY_PAGE_SIZE, LOG_HISTORY_SIZE, RING_SLOTS, RING_FINGER_NAMES,
     DEV_MODE, ENERGY_THRESHOLD, PLAYER_BASE_SPEED,
 )
 from items import get_item_def, find_recipe, is_stackable, build_inventory_display_name, get_strain_color, PREFIX_TOOL_ITEMS, generate_examine_lines
@@ -827,13 +827,10 @@ def render_stats_panel(console, engine):
                 color   = C_BUFF if is_buff else C_DEBUFF
                 marker  = "+" if is_buff else "-"
 
-            # Line 1: marker + name, with stack count in parens if stackable
+            # Line 1: marker + name (stacks already in display_name where needed)
             max_w = pw - lx - 1  # usable columns before right border
             name = effect.display_name
-            stack_count = effect.stack_count
             header = f"{marker} {name}"
-            if stack_count is not None:
-                header += f" ({stack_count})"
             console.print(lx, row, header[:max_w], fg=color, bg=BG)
             row += 1
 
@@ -859,9 +856,8 @@ def render_stats_panel(console, engine):
         if gun_defn and gun_defn.get("subcategory") == "gun":
             gun_row = cash_section_y - 2
             if gun_row > row:
-                mode_tag = "ACC" if engine.gun_firing_mode == "accurate" else engine.gun_firing_mode.upper()
                 ammo_str = f"{primary_gun.current_ammo}/{primary_gun.mag_size}"
-                gun_line = f"Ammo: {ammo_str} [{mode_tag}]"
+                gun_line = f"Ammo: {ammo_str}"
                 max_w = pw - lx - 1
                 console.print(lx, gun_row, gun_line[:max_w], fg=(200, 180, 100), bg=BG)
 
@@ -930,15 +926,20 @@ def render_inventory_panel(console, engine):
     start_y   = HEADER_HEIGHT + 2
     end_row   = start_y + (map_h - 3)
 
+    # Paging
+    page = engine.inventory_page
+    page_start = page * INVENTORY_PAGE_SIZE
+    page_end = min(page_start + INVENTORY_PAGE_SIZE, len(inventory))
+    page_items = list(enumerate(inventory))[page_start:page_end]
+
     if not inventory:
         console.print(px + 1, start_y, " (empty)", fg=C_EMPTY, bg=BG)
     else:
         cur_row      = start_y
         last_cat_hdr = None
         key_idx      = 0    # index into INVENTORY_KEYS
-        overflow     = 0
 
-        for inv_idx, item in enumerate(inventory):
+        for inv_idx, item in page_items:
             defn    = get_item_def(item.item_id) if item.item_id else None
             cat     = defn.get("category", "") if defn else ""
             cat_lbl = _CAT_LABEL.get(cat, cat.upper())
@@ -946,7 +947,6 @@ def render_inventory_panel(console, engine):
             # Category header: "─ LABEL ──────"
             if cat_lbl != last_cat_hdr:
                 if cur_row >= end_row:
-                    overflow = len(inventory) - inv_idx
                     break
                 label_part = f"─ {cat_lbl} "
                 fill = "─" * max(0, (pw - 1) - len(label_part))
@@ -955,7 +955,6 @@ def render_inventory_panel(console, engine):
                 last_cat_hdr = cat_lbl
 
             if cur_row >= end_row or key_idx >= len(INVENTORY_KEYS):
-                overflow = len(inventory) - inv_idx
                 break
 
             label = INVENTORY_KEYS[key_idx]
@@ -1061,16 +1060,14 @@ def render_inventory_panel(console, engine):
             cur_row += 1
             key_idx += 1
 
-        if overflow > 0:
-            console.print(px + 2, cur_row, f"  +{overflow} more", fg=C_EMPTY, bg=BG)
-
-    # Divider above weight/count row
+    # Divider above page indicator row
     footer_y = HEADER_HEIGHT + map_h - 2
     for x in range(1, pw - 1):
         console.print(px + x, footer_y, "─", fg=C_SECTION_DIV, bg=BG)
 
-    count_text = f"Items: {len(inventory)}"
-    console.print(px + 2, footer_y + 1, count_text, fg=C_LABEL, bg=BG)
+    total_pages = max(1, (len(inventory) + INVENTORY_PAGE_SIZE - 1) // INVENTORY_PAGE_SIZE) if inventory else 1
+    page_text = f"Page {page + 1}/{total_pages}  (\\ next)"
+    console.print(px + 2, footer_y + 1, page_text, fg=C_LABEL, bg=BG)
 
 
 def render_item_menu(console, engine):
@@ -2084,9 +2081,7 @@ def render_gun_targeting_mode(console, engine):
     if gun_defn is None:
         return
     gun_range = gun_defn.get("gun_range", 4)
-    mode = engine.gun_firing_mode
-    modes = gun_defn.get("firing_modes", {})
-    mode_data = modes.get(mode, {"hit": 75, "energy": 50})
+    mode_data = gun_defn.get("gun_stats", {"hit": 75, "energy": 50})
 
     is_visible = engine.dungeon.visible[cy, cx]
     dist = max(abs(cx - engine.player.x), abs(cy - engine.player.y))
@@ -2239,7 +2234,7 @@ def render_gun_targeting_mode(console, engine):
             line1 = "No enemy here"
             line1_color = C_EMPTY
         line2 = f"Hit: {mode_data['hit']}%  Energy: {mode_data['energy']}  Ammo: {gun.current_ammo}/{gun.mag_size}"
-        line3 = "[Enter] Fire  [TAB] Mode  [Esc] Cancel"
+        line3 = "[Enter] Fire  [Esc] Cancel"
 
     popup_w = max(len(line0), len(line1), len(line2), len(line3)) + 4
     popup_h = 6  # border(2) + 4 content lines
