@@ -141,6 +141,7 @@ def create_vending_machine(x: int, y: int, stock: list = None) -> Entity:
         entity_type="hazard",
         hazard_type="vending_machine",
         blocks_movement=True,
+        reveals_on_sight=True,
     )
     vm.vending_stock = stock or []
     return vm

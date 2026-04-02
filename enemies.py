@@ -679,6 +679,67 @@ MONSTER_REGISTRY: dict[str, MonsterTemplate] = {
         cash_drop     = (5, 12),
     ),
 
+    # ── KEISHA ────────────────────────────────────────────────────────────
+    # Mini-boss: elite ugly stripper.  Spawns in her own room on floor 4
+    # surrounded by 6 ugly strippers.  Stronger bleed, longer fear, and a
+    # stun attack.  ~100 HP, comparable difficulty to Jerome.
+    "keisha": MonsterTemplate(
+        name          = "Keisha, Tyrone's Baby Momma",
+        char          = "K",
+        color         = (255, 50, 100),
+        constitution  = (10, 10),
+        strength      = (6, 7),
+        street_smarts = (2, 3),
+        book_smarts   = (2, 4),
+        tolerance     = (5, 7),
+        swagger       = (10, 12),
+        base_hp       = 50,             # 50 + 50 = 100 HP
+        base_damage   = (0, 0),
+        defense       = 1,
+        male_chance   = 0.0,
+        spawn_min     = 1,
+        spawn_max     = 1,
+        ai            = AIType.ROOM_COMBAT,
+        sight_radius  = 7,
+        speed         = 110,
+        special_attacks = [
+            SpecialAttack(
+                name         = "Stiletto Slash",
+                chance       = 0.30,
+                damage_mult  = 3.0,
+                on_hit_effect = OnHitEffect(
+                    name     = "Bleeding",
+                    kind     = EffectKind.DOT,
+                    amount   = 2,
+                    duration = 6,
+                ),
+            ),
+            SpecialAttack(
+                name         = "Weave Whip",
+                chance       = 0.15,
+                damage_mult  = 1.5,
+                on_hit_effect = OnHitEffect(
+                    name     = "Stunned",
+                    kind     = EffectKind.STUN,
+                    amount   = 0,
+                    duration = 2,
+                ),
+            ),
+        ],
+        on_hit_effects = [
+            OnHitEffect(
+                name     = "Frightened",
+                kind     = EffectKind.FEAR,
+                chance   = 0.30,
+                amount   = 0,
+                duration = 15,
+            ),
+        ],
+        cash_drop          = (15, 35),
+        death_drop_chance  = 1.0,
+        death_drop_table   = ["tyrones_coupon"],
+    ),
+
     # ── BIG NIGGA JEROME ──────────────────────────────────────────────────
     # Boss monster at the bottom of the crack den.  Tough, aggressive, and
     # dangerous.  Defense penetrating damage, knockback attacks, and self-healing

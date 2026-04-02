@@ -1,0 +1,181 @@
+STREET SCHOLAR STRAIN — MID-TIER FILL IDEAS
+============================================
+Brainstorm for the gap between Misfire (bad) and Calculated Aim (good)
+Target range context: roughly 1-39 on the new 3-tier table (or a split 2-tier middle band)
+
+Current roll table being redesigned (for reference):
+  75-100  Calculated Aim + 100 of each ammo  (strong good: buff + ammo)
+  40-74   Calculated Aim                      (moderate good: buff only)
+  1-39    Misfire                             (bad: dumps all loaded ammo)
+
+Request: 1-2 new instant/one-shot effects to either fill or split the 1-39 range.
+Constraint: NOT another timed buff. Gun-themed, STS-themed, gritty urban tone.
+
+========================================================================
+IDEA 1 — "Street Intelligence" (ammo transmutation)
+Effect type ID: street_scholar_transmute
+Roll bracket suggestion: 25-39 (splits the bad range into bad/neutral)
+
+You clear your head for a second and realize you're wasting shots on the wrong
+caliber. Converts all loaded ammo across equipped guns into a single pooled ammo
+type matching whichever gun has more ammo (or the weapon slot gun if tied).
+Surplus rounds are lost, but the surviving count is boosted by STS//4 extra rounds
+(minimum 1, max +3). Net-neutral to slightly good — you never gain ammo you didn't
+have, but you consolidate and get a small STS-scaled top-off.
+
+Implementation note:
+  - Check both weapon and sidearm slots for current_ammo and ammo_type
+  - Pick winning ammo_type by highest current_ammo (weapon slot wins ties)
+  - Set losing gun's current_ammo = 0
+  - Add floor(STS / 4) to winning gun's current_ammo, capped at mag_size
+  - Message: "You pool your rounds. [Gun] loaded with [N] [type] rounds."
+  - If only one gun equipped, still gives the STS top-off (minor reward)
+  - If no guns equipped: "Nothing to pool." (same inert handling as misfire no-gun case)
+
+STS scaling: STS 6 = +1, STS 8 = +2, STS 10 = +2, STS 12 = +3
+
+========================================================================
+IDEA 2 — "Spotted" (enemy marking, instant)
+Effect type ID: street_scholar_spotted
+Roll bracket suggestion: 20-39 (or 25-39 if transmute takes 25-39)
+
+You scope the room through the haze and lock onto every enemy in sight. All
+enemies currently in the player's FOV become "Spotted" — a floor-duration marker
+that causes the player's first gun hit against each marked enemy to ignore dodge
+and deal +STS bonus damage (flat, e.g. +STS on top of gun damage). The mark
+expires on that enemy after the first gun hit lands, or on floor transition.
+Thematically: you're reading the room while high, clocking positions and angles.
+
+Implementation note:
+  - Apply a "spotted" effect to every enemy entity within dungeon.visible FOV
+  - Effect: floor_duration=True, stores bonus_damage = player STS
+  - In gun_system.py hit resolution: if target has "spotted" effect, skip dodge roll
+    and add bonus_damage to the shot; then expire the effect on that target
+  - If no enemies in sight: "You scope the room... nothing to spot."
+  - Message on apply: "You clock [N] target(s). First shot on each ignores cover."
+  - Synergizes strongly with STS build — high STS = better Calculated Aim rolls AND
+    bigger Spotted bonus on the mid-rolls, creating a coherent strain identity
+
+STS scaling: The bonus damage equals effective_street_smarts (e.g. STS 10 = +10 first-hit damage per marked enemy)
+
+========================================================================
+IDEA 3 — "Dry Fire" (reload surge, instant)
+Effect type ID: street_scholar_dry_fire
+Roll bracket suggestion: 20-39
+
+Your hands move on autopilot — muscle memory kicking in while your mind drifts.
+Instantly fully reloads all equipped guns, but the next shot from each gun has a
+25% chance to misfire (deals 0 damage, wastes the round). Neutral-to-slightly-good:
+guaranteed reload is valuable, but the misfire risk on the very next trigger pull
+creates a moment of tension. Does not stack with gun_jammed — the gun fires, it
+just might produce a dead click.
+
+Implementation note:
+  - Set current_ammo = mag_size on both weapon and sidearm if equipped
+  - Apply a "next_shot_misfire_chance" flag or short-duration effect (dur=2 so it
+    covers the next turn's shot window): if effect active and random() < 0.25,
+    cancel the shot damage and print "Click — bad round chambered!"
+  - Cleanest implementation: a new "dry_fire_risk" Effect (dur=2, before_turn or
+    consumed on first gun_system.py fire call via check in _resolve_gun_shot)
+  - Message: "Mags topped. Your hands are moving faster than your brain."
+
+Balance note: Free reload is genuinely useful (especially mid-combat), so the misfire
+risk keeps this below the Calculated Aim tier. The 25% chance means 75% of the time
+it's a straight upgrade from an empty gun.
+
+========================================================================
+IDEA 4 — "Tunnel Vision" (instant perm STS trade-off)
+Effect type ID: street_scholar_tunnel_vision
+Roll bracket suggestion: 15-30 (slight negative lean)
+
+The weed clears out the mental static and you see exactly one thing: the nearest
+enemy. Gain +1 permanent STS, but your current FOV radius is halved (rounded up)
+for 15 turns. Fits the "drug has a cost" philosophy — the long-term reward (perm
+STS) is real, but the short-term sight penalty can be lethal if you're in the open.
+A calculated risk, which suits a STS-themed strain perfectly.
+
+Implementation note:
+  - engine.player_stats._base_street_smarts += 1
+  - Apply a "tunnel_vision" Effect (dur=15) that overrides fov_radius to
+    max(3, current_fov_radius // 2) via a modify_fov hook or by setting a
+    player_stats penalty field (e.g. fov_penalty = fov_radius // 2) checked
+    in dungeon._compute_fov
+  - On expire: remove the fov penalty
+  - Message: "Tunnel vision sets in. +1 STS permanently. Watch your flanks."
+  - Pairs with the "read_the_room_active" FOV penalty precedent already in the
+    engine (read_the_room_active applies _read_the_room_fov_penalty)
+
+Balance note: +1 perm STS is a meaningful long-term gain for a gun build. The FOV
+halving is severe enough mid-dungeon that this is genuinely scary. Misfires are pure
+loss; this gives you something to weigh.
+
+========================================================================
+IDEA 5 — "Recon Burst" (ammo-for-information trade)
+Effect type ID: street_scholar_recon_burst
+Roll bracket suggestion: 15-35 (neutral with minor cost)
+
+You snap off a quick burst into the dark to hear the echoes and map the room.
+Expends 3 rounds from your weapon-slot gun (or sidearm if weapon has no gun). In
+exchange, all entities in the entire current floor are revealed on the map for 5
+turns — including enemies outside FOV (shown as '?' glyphs in their map tiles if
+not yet visible). If no ammo available, the effect misfires instead (same as
+street_scholar_misfire). Thematically: you're "scouting by sound."
+
+Implementation note:
+  - Deduct min(3, current_ammo) from equipped gun; if current_ammo == 0 fall through
+    to misfire behavior
+  - For 5 turns, render all enemy entities even if not in dungeon.visible — mark them
+    with a dimmed '?' char (or their actual char at 50% alpha) using a flag like
+    engine.recon_active_turns = 5, decremented each turn in the energy loop
+  - In render.py, if recon_active_turns > 0: draw all living entities regardless of
+    visible status, using a distinct color (e.g. dim orange)
+  - Message: "Recon burst! [3] rounds spent. You hear movement everywhere."
+  - If gun jammed/no gun: falls back to misfire message
+
+Balance note: Costs ammo (meaningful mid-combat), gives tactical info (high STS
+players want to plan shots carefully). The 5-turn window is short enough that it
+rewards decisive action.
+
+========================================================================
+IDEA 6 — "Speed Loader" (instant, ammo-positive, STS-scaled)
+Effect type ID: street_scholar_speed_loader
+Roll bracket suggestion: 25-39 (slightly good)
+
+Your hands find the magazine before your eyes do. Instantly reloads all equipped
+guns AND adds STS//3 bonus rounds on top of mag capacity for this floor (temporary
+overflow ammo, capped at mag_size + 5). The overflow rounds are consumed first;
+when they run out the gun is back to normal mag behavior. Represents the player
+palming extra loose rounds they had pocketed.
+
+Implementation note:
+  - Set current_ammo = mag_size on all equipped guns
+  - Add floor(STS / 3) as "overflow_ammo" tracked on the gun entity (new optional
+    field overflow_ammo: int = 0; gun_system.py checks: total_ammo = current_ammo +
+    overflow_ammo; deduct from overflow first)
+  - Cap overflow at 5 extra rounds regardless of STS
+  - Message: "Speed Loader! Guns topped off, [N] bonus rounds pocketed."
+  - If no guns: "Speed Loader — but you aren't packing."
+
+STS scaling: STS 6 = +2 overflow, STS 9 = +3, STS 12 = +4 (floor(STS/3))
+Balance note: Less punishing than Dry Fire (no misfire risk), slightly weaker than
+Calculated Aim (no accuracy/kill-scaling buff). Fits as a reliable "decent roll"
+that a gun build is always happy to see.
+
+========================================================================
+RECOMMENDED TABLE SHAPE (if using 2 new middle effects)
+
+  75-100  calculated_aim_iii + 100 each ammo  (strong good)
+  40-74   calculated_aim_ii                   (good)
+  25-39   [IDEA 1: Transmute] or [IDEA 6: Speed Loader]  (neutral-good)
+  10-24   [IDEA 2: Spotted] or [IDEA 3: Dry Fire]        (neutral)
+  1-9     street_scholar_misfire                          (bad)
+
+Or if keeping 3 tiers with one new middle effect:
+  40-100  Calculated Aim (tiers II/III split by sub-roll)
+  15-39   [IDEA 2: Spotted] or [IDEA 4: Tunnel Vision]   (neutral/mixed)
+  1-14    street_scholar_misfire                          (bad)
+
+Best standalone pick for a single new mid-tier: IDEA 2 (Spotted) — it's
+thematically on-point (STS = reading the room), instant, has no duration buff,
+scales cleanly with STS, and creates a satisfying "set up your shots" moment
+before you fire. Easy to implement via the existing spotted/mark pattern.

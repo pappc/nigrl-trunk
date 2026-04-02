@@ -60,6 +60,18 @@ def _apply_briskness(engine, amount):
     engine.player_stats.briskness += amount
 
 
+def apply_scarred_tissue(engine):
+    """Scarred Tissue (Mutation L4): on bad mutation, grant +1 to a random stat.
+    Returns the stat name if applied, else None."""
+    if engine.skills.get("Mutation").level < 1:
+        return None
+    stat = random.choice(STAT_NAMES)
+    engine.player_stats.modify_base_stat(stat, 1)
+    display = _STAT_DISPLAY[stat]
+    engine.messages.append([(f"  [Scarred Tissue] +1 {display}", _COLOR_GOOD)])
+    return stat
+
+
 def _apply_dr(engine, amount):
     """Modify permanent damage reduction."""
     engine.player_stats.permanent_dr += amount
@@ -96,81 +108,121 @@ _STAT_DISPLAY = {
 
 
 # --- Mutation table builders ---
-# Each entry: (description_string, apply_function(engine) -> optional_suffix)
+# Each entry: (description_string, apply_function(engine) -> (suffix, reversal_dict))
+# reversal_dict is a JSON-serializable dict that undo_mutation() can interpret.
+
+def _mut_all_stats(engine, amount):
+    _apply_all_stats(engine, amount)
+    return "", {"type": "all_stats", "amount": amount}
+
+
+def _mut_single_stat(engine, stat, amount):
+    _apply_single_stat(engine, stat, amount)
+    return "", {"type": "single_stat", "stat": stat, "amount": amount}
+
+
+def _mut_resistance(engine, res_type, amount):
+    _apply_resistance(engine, res_type, amount)
+    return "", {"type": "resistance", "res_type": res_type, "amount": amount}
+
+
+def _mut_skill_points(engine, amount):
+    _apply_skill_points(engine, amount)
+    return "", {"type": "skill_points", "amount": amount}
+
+
+def _mut_skill_level(engine, skill_name, amount):
+    _apply_skill_level(engine, skill_name, amount)
+    return "", {"type": "skill_level", "skill": skill_name, "amount": amount}
+
+
+def _mut_briskness(engine, amount):
+    _apply_briskness(engine, amount)
+    return "", {"type": "briskness", "amount": amount}
+
+
+def _mut_dr(engine, amount):
+    _apply_dr(engine, amount)
+    return "", {"type": "dr", "amount": amount}
+
+
+def _mut_lose_slot(engine, slot):
+    suffix = _apply_lose_slot(engine, slot)
+    return suffix, {"type": "lose_slot", "slot": slot}
+
+
+def _mut_lose_5_skills(engine):
+    chosen = _apply_lose_5_skills(engine)
+    if chosen:
+        suffix = f" ({', '.join(chosen)})"
+    else:
+        suffix = " ...but nothing happened"
+        chosen = []
+    return suffix, {"type": "lose_5_skills", "skills": chosen}
+
 
 def _build_weak_bad():
     entries = []
-    # -1 to all stats
-    entries.append(("-1 to all stats", lambda e: _apply_all_stats(e, -1)))
-    # -1 to each specific stat
+    entries.append(("-1 to all stats", lambda e: _mut_all_stats(e, -1)))
     for stat in STAT_NAMES:
         desc = f"-1 {_STAT_DISPLAY[stat]}"
-        entries.append((desc, lambda e, s=stat: _apply_single_stat(e, s, -1)))
-    # -10% tox resistance
-    entries.append(("-10% toxicity resistance", lambda e: _apply_resistance(e, "tox", -10)))
-    # -10% rad resistance
-    entries.append(("-10% radiation resistance", lambda e: _apply_resistance(e, "rad", -10)))
-    # -100 skill points
-    entries.append(("-100 skill points", lambda e: _apply_skill_points(e, -100)))
+        entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, -1)))
+    entries.append(("-10% toxicity resistance", lambda e: _mut_resistance(e, "tox", -10)))
+    entries.append(("-10% radiation resistance", lambda e: _mut_resistance(e, "rad", -10)))
+    entries.append(("-100 skill points", lambda e: _mut_skill_points(e, -100)))
     return entries
 
 
 def _build_weak_good():
     entries = []
-    entries.append(("+1 to all stats", lambda e: _apply_all_stats(e, 1)))
+    entries.append(("+1 to all stats", lambda e: _mut_all_stats(e, 1)))
     for stat in STAT_NAMES:
         desc = f"+1 {_STAT_DISPLAY[stat]}"
-        entries.append((desc, lambda e, s=stat: _apply_single_stat(e, s, 1)))
-    entries.append(("+10% toxicity resistance", lambda e: _apply_resistance(e, "tox", 10)))
-    entries.append(("+10% radiation resistance", lambda e: _apply_resistance(e, "rad", 10)))
-    entries.append(("+100 skill points", lambda e: _apply_skill_points(e, 100)))
+        entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, 1)))
+    entries.append(("+10% toxicity resistance", lambda e: _mut_resistance(e, "tox", 10)))
+    entries.append(("+10% radiation resistance", lambda e: _mut_resistance(e, "rad", 10)))
+    entries.append(("+100 skill points", lambda e: _mut_skill_points(e, 100)))
     return entries
 
 
 def _build_strong_bad():
     entries = []
-    entries.append(("-1 to all stats", lambda e: _apply_all_stats(e, -1)))
+    entries.append(("-1 to all stats", lambda e: _mut_all_stats(e, -1)))
     for stat in STAT_NAMES:
         desc = f"-3 {_STAT_DISPLAY[stat]}"
-        entries.append((desc, lambda e, s=stat: _apply_single_stat(e, s, -3)))
+        entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, -3)))
     for skill in SKILL_NAMES:
         desc = f"-1 {skill} level"
-        entries.append((desc, lambda e, sk=skill: _apply_skill_level(e, sk, -1)))
-    entries.append(("-200 skill points", lambda e: _apply_skill_points(e, -200)))
+        entries.append((desc, lambda e, sk=skill: _mut_skill_level(e, sk, -1)))
+    entries.append(("-200 skill points", lambda e: _mut_skill_points(e, -200)))
     return entries
 
 
 def _build_strong_good():
     entries = []
-    entries.append(("+1 to all stats", lambda e: _apply_all_stats(e, 1)))
+    entries.append(("+1 to all stats", lambda e: _mut_all_stats(e, 1)))
     for stat in STAT_NAMES:
         desc = f"+3 {_STAT_DISPLAY[stat]}"
-        entries.append((desc, lambda e, s=stat: _apply_single_stat(e, s, 3)))
+        entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, 3)))
     for skill in SKILL_NAMES:
         desc = f"+1 {skill} level"
-        entries.append((desc, lambda e, sk=skill: _apply_skill_level(e, sk, 1)))
-    entries.append(("+200 skill points", lambda e: _apply_skill_points(e, 200)))
-    entries.append(("+5% briskness", lambda e: _apply_briskness(e, 5)))
-    entries.append(("+3 DR", lambda e: _apply_dr(e, 3)))
+        entries.append((desc, lambda e, sk=skill: _mut_skill_level(e, sk, 1)))
+    entries.append(("+200 skill points", lambda e: _mut_skill_points(e, 200)))
+    entries.append(("+5% briskness", lambda e: _mut_briskness(e, 5)))
+    entries.append(("+3 DR", lambda e: _mut_dr(e, 3)))
     return entries
 
 
 def _build_huge_bad():
     entries = []
-    # -1 level to 5 random skills
-    def _lose_5(e):
-        chosen = _apply_lose_5_skills(e)
-        if chosen:
-            return f" ({', '.join(chosen)})"
-        return " ...but nothing happened"
-    entries.append(("-1 level to 5 random skills", _lose_5))
-    entries.append(("-2 to all stats", lambda e: _apply_all_stats(e, -2)))
+    entries.append(("-1 level to 5 random skills", lambda e: _mut_lose_5_skills(e)))
+    entries.append(("-2 to all stats", lambda e: _mut_all_stats(e, -2)))
     for stat in STAT_NAMES:
         desc = f"-5 {_STAT_DISPLAY[stat]}"
-        entries.append((desc, lambda e, s=stat: _apply_single_stat(e, s, -5)))
-    entries.append(("lose neck item", lambda e: _apply_lose_slot(e, "neck")))
-    entries.append(("lose feet item", lambda e: _apply_lose_slot(e, "feet")))
-    entries.append(("lose hat item", lambda e: _apply_lose_slot(e, "hat")))
+        entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, -5)))
+    entries.append(("lose neck item", lambda e: _mut_lose_slot(e, "neck")))
+    entries.append(("lose feet item", lambda e: _mut_lose_slot(e, "feet")))
+    entries.append(("lose hat item", lambda e: _mut_lose_slot(e, "hat")))
     return entries
 
 
@@ -178,13 +230,13 @@ def _build_huge_good():
     entries = []
     for skill in SKILL_NAMES:
         desc = f"+5 {skill} levels"
-        entries.append((desc, lambda e, sk=skill: _apply_skill_level(e, sk, 5)))
-    entries.append(("+2 to all stats", lambda e: _apply_all_stats(e, 2)))
+        entries.append((desc, lambda e, sk=skill: _mut_skill_level(e, sk, 5)))
+    entries.append(("+2 to all stats", lambda e: _mut_all_stats(e, 2)))
     for stat in STAT_NAMES:
         desc = f"+5 {_STAT_DISPLAY[stat]}"
-        entries.append((desc, lambda e, s=stat: _apply_single_stat(e, s, 5)))
-    entries.append(("+5% briskness", lambda e: _apply_briskness(e, 5)))
-    entries.append(("+5 DR", lambda e: _apply_dr(e, 5)))
+        entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, 5)))
+    entries.append(("+5% briskness", lambda e: _mut_briskness(e, 5)))
+    entries.append(("+5 DR", lambda e: _mut_dr(e, 5)))
     return entries
 
 
@@ -244,14 +296,8 @@ def check_mutation(engine):
     # Deduct rad
     engine.player.radiation = max(0, rad - RAD_COSTS[tier])
 
-    # Refresh Force Sensitive buff on mutation
-    for eff in engine.player.status_effects:
-        if getattr(eff, 'id', '') == 'force_sensitive':
-            eff.refresh(engine.player, engine)
-            break
-
     # Apply mutation
-    suffix = apply_fn(engine) or ""
+    suffix, reversal = apply_fn(engine)
 
     # Mutation skill XP: weak=100, strong=250, huge=500
     _MUTATION_XP = {"weak": 100, "strong": 250, "huge": 500}
@@ -265,13 +311,92 @@ def check_mutation(engine):
 
     engine.messages.append([(full_desc, color)])
 
+    # Scarred Tissue: bad mutations grant +1 random stat
+    if polarity == "bad":
+        apply_scarred_tissue(engine)
+
     # Log to mutation_log
     engine.mutation_log.append({
         "tier": tier,
         "polarity": polarity,
         "description": desc,
         "suffix": suffix,
+        "reversal": reversal,
     })
+
+
+# --- Mutation reversal (Shed ability) ---
+
+_RAD_REFUND = {"weak": RAD_THRESHOLDS["weak"] // 2,
+               "strong": RAD_THRESHOLDS["strong"] // 2,
+               "huge": RAD_THRESHOLDS["huge"] // 2}
+
+
+def undo_mutation(engine, reversal):
+    """Reverse a mutation's effects using its stored reversal dict."""
+    t = reversal["type"]
+    if t == "all_stats":
+        _apply_all_stats(engine, -reversal["amount"])
+    elif t == "single_stat":
+        _apply_single_stat(engine, reversal["stat"], -reversal["amount"])
+    elif t == "resistance":
+        _apply_resistance(engine, reversal["res_type"], -reversal["amount"])
+    elif t == "skill_points":
+        _apply_skill_points(engine, -reversal["amount"])
+    elif t == "skill_level":
+        _apply_skill_level(engine, reversal["skill"], -reversal["amount"])
+    elif t == "briskness":
+        _apply_briskness(engine, -reversal["amount"])
+    elif t == "dr":
+        _apply_dr(engine, -reversal["amount"])
+    elif t == "lose_slot":
+        pass  # item is gone, can't restore
+    elif t == "lose_5_skills":
+        for skill in reversal.get("skills", []):
+            _apply_skill_level(engine, skill, 1)
+
+
+def shed_mutation(engine):
+    """Shed ability: remove a random good mutation, undo it, remove a debuff,
+    grant half the rad threshold for that tier back.
+    Returns True if successful, False if no good mutations to shed."""
+    good_mutations = [(i, m) for i, m in enumerate(engine.mutation_log)
+                      if m["polarity"] == "good" and m.get("reversal")]
+    if not good_mutations:
+        engine.messages.append("No good mutations to shed.")
+        return False
+
+    idx, entry = random.choice(good_mutations)
+
+    # Undo the mutation
+    undo_mutation(engine, entry["reversal"])
+    engine.mutation_log.pop(idx)
+
+    # Grant radiation back
+    tier = entry["tier"]
+    rad_refund = _RAD_REFUND.get(tier, 25)
+    from combat import add_radiation
+    add_radiation(engine, engine.player, rad_refund, pierce_resistance=True)
+
+    # Remove a random debuff
+    debuffs = [e for e in engine.player.status_effects if e.category == "debuff"]
+    removed_name = None
+    if debuffs:
+        debuff = random.choice(debuffs)
+        removed_name = debuff.display_name
+        debuff.expire(engine.player, engine)
+        engine.player.status_effects.remove(debuff)
+
+    # Messages
+    desc = entry["description"]
+    engine.messages.append([(f"[Shed] Reversed mutation: {desc}", (200, 150, 255))])
+    engine.messages.append([(f"  +{rad_refund} radiation refunded", (100, 200, 255))])
+    if removed_name:
+        engine.messages.append([(f"  Cleansed: {removed_name}", _COLOR_GOOD)])
+    else:
+        engine.messages.append("  No debuffs to cleanse.")
+
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -461,12 +586,7 @@ def force_mutation(engine):
     table = MUTATION_TABLES[(tier, polarity)]
     desc, apply_fn = random.choice(table)
 
-    for eff in engine.player.status_effects:
-        if getattr(eff, 'id', '') == 'force_sensitive':
-            eff.refresh(engine.player, engine)
-            break
-
-    suffix = apply_fn(engine) or ""
+    suffix, reversal = apply_fn(engine)
 
     bksmt = engine.player_stats.effective_book_smarts
     engine.skills.gain_potential_exp("Mutation", {"weak": 100, "strong": 250, "huge": 500}[tier], bksmt)
@@ -476,10 +596,15 @@ def force_mutation(engine):
     full_desc = f"You mutate! [{tier_label}] {desc}{suffix}"
     engine.messages.append([(full_desc, color)])
 
+    # Scarred Tissue: bad mutations grant +1 random stat
+    if polarity == "bad":
+        apply_scarred_tissue(engine)
+
     # Log to mutation_log
     engine.mutation_log.append({
         "tier": tier,
         "polarity": polarity,
         "description": desc,
         "suffix": suffix,
+        "reversal": reversal,
     })

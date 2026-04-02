@@ -59,12 +59,6 @@ def get_zone_gen_param(zone: str, key: str):
                 "max_rooms": MAX_ROOMS, "corridor_width": 1}
     return ZONE_GENERATION_PARAMS.get(zone, {}).get(key, defaults.get(key))
 
-# Legacy aliases (kept for any straggling references)
-ML_ROOM_MIN_SIZE = ZONE_GENERATION_PARAMS["meth_lab"]["room_min"]
-ML_ROOM_MAX_SIZE = ZONE_GENERATION_PARAMS["meth_lab"]["room_max"]
-ML_MAX_ROOMS = ZONE_GENERATION_PARAMS["meth_lab"]["max_rooms"]
-ML_CORRIDOR_WIDTH = ZONE_GENERATION_PARAMS["meth_lab"]["corridor_width"]
-
 # Entity spawning
 MAX_MONSTERS_PER_ROOM = 3
 MAX_ITEMS_PER_ROOM = 4
@@ -82,6 +76,10 @@ BASE_DEFENSE = 1
 BASE_HP = 30
 MIN_DAMAGE = 1      # floor on all damage rolls
 UNARMED_STR_BASE = 5  # STR baseline for unarmed damage bonus (bonus = STR - this)
+
+# Toxicity / Radiation caps
+MAX_TOXICITY = 500
+MAX_RADIATION = 500
 
 # Tile types
 TILE_WALL = 0

@@ -10,6 +10,7 @@ import random
 
 from config import (
     MIN_DAMAGE, UNARMED_STR_BASE, TILE_FLOOR,
+    MAX_TOXICITY, MAX_RADIATION,
 )
 from items import get_item_def, weapon_matches_type
 import effects
@@ -25,7 +26,7 @@ def _massive_blunt_smoke_proc(engine):
 
     zone = engine.current_zone
     strain = pick_strain(zone, engine.player_stats)
-    if not strain:
+    if not strain or strain == "Snickelfritz":
         return
 
     # Tolerance multi-roll (same as normal smoking)
@@ -560,7 +561,7 @@ def deal_damage(engine, damage: int, target) -> bool:
     # Channel interrupt: 25% chance when the player takes damage
     if target is engine.player and damage > 0:
         engine._channel_interrupt_on_damage()
-    # Lifesteal on spell/gun damage (melee handled via on_player_melee_hit)
+    # Lifesteal on all player damage (melee/gun/spell)
     if target is not engine.player and damage > 0:
         sangria = next(
             (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'sangria'),
@@ -612,7 +613,7 @@ def add_toxicity(engine, entity, amount: int, from_player: bool = False,
         gain = max(0, int(round(actual)))
         resisted = amount - gain
     if gain > 0:
-        entity.toxicity += gain
+        entity.toxicity = min(entity.toxicity + gain, MAX_TOXICITY)
     # Chemical Warfare XP: 2 per point of toxicity gained (player receives tox)
     if entity is engine.player and gain > 0:
         bksmt = engine.player_stats.effective_book_smarts
@@ -628,6 +629,32 @@ def add_toxicity(engine, entity, amount: int, from_player: bool = False,
         if engine.skills.get("White Power").level >= 3:
             xp *= 2
         engine.skills.gain_potential_exp("White Power", xp, bksmt)
+    # Reject the Poison (WP L1): resisted tox → Purity stacks (min 1 if any resistance)
+    if entity is engine.player and engine.skills.get("White Power").level >= 1:
+        if not pierce_resistance and amount > 0:
+            res = engine.player_stats.total_tox_resistance
+            if res > 0:
+                stacks_to_add = max(1, resisted)
+                existing = next(
+                    (e for e in entity.status_effects
+                     if getattr(e, 'id', '') == 'purity_stacks'),
+                    None,
+                )
+                if existing:
+                    existing.add_stacks(stacks_to_add, engine=engine)
+                else:
+                    from effects import apply_effect
+                    apply_effect(entity, engine, "purity_stacks",
+                                 stacks=stacks_to_add, duration=20)
+    # Absolution (WP L5): resisted tox deals damage to nearby enemies
+    if entity is engine.player and resisted > 0:
+        absolution = next(
+            (e for e in entity.status_effects if getattr(e, 'id', '') == 'absolution'),
+            None,
+        )
+        if absolution:
+            from effects import absolution_on_tox_lost
+            absolution_on_tox_lost(engine, resisted)
 
 
 def remove_toxicity(engine, entity, amount: int):
@@ -643,6 +670,15 @@ def remove_toxicity(engine, entity, amount: int):
     if entity is engine.player and removed > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("White Power", removed * 2, bksmt)
+    # Absolution (WP L5): removed tox deals damage to nearby enemies
+    if entity is engine.player and removed > 0:
+        absolution = next(
+            (e for e in entity.status_effects if getattr(e, 'id', '') == 'absolution'),
+            None,
+        )
+        if absolution:
+            from effects import absolution_on_tox_lost
+            absolution_on_tox_lost(engine, removed)
 
 
 def add_radiation(engine, entity, amount: int, pierce_resistance: bool = False,
@@ -676,16 +712,11 @@ def add_radiation(engine, entity, amount: int, pierce_resistance: bool = False,
         if bonus > 0:
             gain += bonus
     if gain > 0:
-        entity.radiation += gain
+        entity.radiation = min(entity.radiation + gain, MAX_RADIATION)
     # Nuclear Research XP: 2 per point of radiation gained
     if entity is engine.player and gain > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("Nuclear Research", gain * 2, bksmt)
-        # Force Sensitive: notify buff of rad gained
-        for eff in entity.status_effects:
-            if getattr(eff, 'id', '') == 'force_sensitive':
-                eff.on_rad_gained(entity, engine, gain)
-                break
     # Nuclear Research XP: half of radiation spread to enemies by the player
     if from_player and entity is not engine.player and gain > 0:
         bksmt = engine.player_stats.effective_book_smarts
@@ -709,6 +740,11 @@ def remove_radiation(engine, entity, amount: int):
     if entity is engine.player and removed > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("Decontamination", removed * 2, bksmt)
+        # Force Sensitive: notify buff of rad lost
+        for eff in entity.status_effects:
+            if getattr(eff, 'id', '') == 'force_sensitive':
+                eff.on_rad_lost(entity, engine, removed)
+                break
 
 
 def add_infection(engine, entity, amount: int):
@@ -927,6 +963,9 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         if execute and defender.max_hp > 0:
             if defender.hp / defender.max_hp <= execute["threshold"]:
                 damage = int(damage * execute["multiplier"])
+
+    # Cap XP-eligible damage to defender's remaining HP (no overkill XP)
+    xp_damage = min(damage, max(0, defender.hp))
 
     deal_damage(engine, damage, defender)
 
@@ -1243,7 +1282,7 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
                         if granted:
                             engine.revoke_ability(granted)
 
-        # Melee skill XP: equal to damage dealt
+        # Melee skill XP: equal to damage dealt (capped to defender's remaining HP)
         _WEAPON_TYPE_SKILL = {"stabbing": "Stabbing", "beating": "Beating", "slashing": "Slashing"}
         if weapon and wdefn:
             melee_skill = _WEAPON_TYPE_SKILL.get(wdefn.get("weapon_type"))
@@ -1252,11 +1291,11 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             if alt_type:
                 alt_skill = _WEAPON_TYPE_SKILL.get(alt_type)
                 if alt_skill:
-                    engine._gain_melee_xp(alt_skill, damage)
+                    engine._gain_melee_xp(alt_skill, xp_damage)
         else:
             melee_skill = "Smacking"
         if melee_skill:
-            engine._gain_melee_xp(melee_skill, damage)
+            engine._gain_melee_xp(melee_skill, xp_damage)
 
         # Smacking L3 passive: 10% chance to black eye on unarmed hits
         if (not weapon and attacker == engine.player and defender.alive
@@ -1461,6 +1500,8 @@ def handle_monster_attack(engine, monster):
             hit_eff = sa.get("on_hit_effect")
             if hit_eff:
                 _apply_monster_hit_effect(engine, hit_eff, monster=monster)
+            # Immaculate (WP L6): melee hit while Bastion active → 3 Purity stacks
+            _immaculate_on_melee_hit(engine)
             if not player.alive:
                 engine.event_bus.emit("entity_died", entity=player, killer=monster)
             return
@@ -1539,8 +1580,33 @@ def handle_monster_attack(engine, monster):
         if random.random() < hit_eff["chance"]:
             _apply_monster_hit_effect(engine, hit_eff, monster=monster)
 
+    # Immaculate (WP L6): melee hit while Bastion active → 3 Purity stacks
+    _immaculate_on_melee_hit(engine)
+
     if not player.alive:
         engine.event_bus.emit("entity_died", entity=player, killer=monster)
+
+
+def _immaculate_on_melee_hit(engine):
+    """Immaculate (WP L6): grant 3 Purity stacks when hit while Bastion is active."""
+    if engine.skills.get("White Power").level < 6:
+        return
+    has_bastion = any(
+        getattr(e, 'id', '') == 'bastion'
+        for e in engine.player.status_effects
+    )
+    if not has_bastion:
+        return
+    existing = next(
+        (e for e in engine.player.status_effects
+         if getattr(e, 'id', '') == 'purity_stacks'),
+        None,
+    )
+    if existing:
+        existing.add_stacks(3, engine=engine)
+    else:
+        from effects import apply_effect
+        apply_effect(engine.player, engine, "purity_stacks", stacks=3, duration=20)
 
 
 def _apply_monster_hit_effect(engine, effect, monster=None):

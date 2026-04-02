@@ -630,6 +630,11 @@ def _handle_equipment_input(engine, action):
         did_unequip = False
         if engine.equipment_cursor < len(occupied):
             slot_id, item = occupied[engine.equipment_cursor]
+            # Block unequip for items flagged no_unequip (e.g. Toxic Slingshot)
+            item_defn = get_item_def(item.item_id) if item.item_id else None
+            if item_defn and item_defn.get("no_unequip"):
+                engine.messages.append(f"{item.name} cannot be unequipped!")
+                return False
             if slot_id == "weapon":
                 engine.equipment["weapon"] = None
                 old_defn = get_item_def(item.item_id)
@@ -1619,6 +1624,10 @@ def _handle_midas_brew_input(engine, action):
 
         slot_id, item = occupied[engine.midas_cursor]
         defn = get_item_def(item.item_id)
+        # Block Midas conversion for no_unequip items
+        if defn and defn.get("no_unequip"):
+            engine.messages.append(f"{item.name} cannot be removed!")
+            return False
         value = defn.get("value", 0) if defn else 0
         gold = value * 5
 
@@ -1973,17 +1982,11 @@ def _is_valid_combine_target(engine, inv_idx):
         return True
     if src.item_id in PREFIX_TOOL_ITEMS and cand.item_id in FOOD_DEFS:
         return getattr(cand, "prefix", None) is None
-    if src.item_id in FOOD_DEFS and cand.item_id in PREFIX_TOOL_ITEMS:
-        return getattr(src, "prefix", None) is None
     # Nutrient Producer: works on any consumable (category "consumable" or food item)
     if src.item_id == "nutrient_producer" and cand.item_id != "nutrient_producer":
         cand_def = get_item_def(cand.item_id)
         is_consumable = (cand_def and cand_def.get("category") == "consumable") or cand.item_id in FOOD_DEFS
         return is_consumable and cand.item_id != "radbar"
-    if cand.item_id == "nutrient_producer" and src.item_id != "nutrient_producer":
-        src_def_chk = get_item_def(src.item_id)
-        is_consumable = (src_def_chk and src_def_chk.get("category") == "consumable") or src.item_id in FOOD_DEFS
-        return is_consumable and src.item_id != "radbar"
     src_def = get_item_def(src.item_id)
     if src_def and (src_def.get("use_effect") or {}).get("type") == "torch_burn":
         return True

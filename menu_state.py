@@ -36,3 +36,5 @@ class MenuState(Enum):
     VENDING_MACHINE = "vending_machine"
     MIDAS_BREW = "midas_brew"
     SHOP_ITEM = "shop_item"
+    MUTATIONS = "mutations"
+    STATUS_EFFECTS = "status_effects"

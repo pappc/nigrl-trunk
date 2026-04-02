@@ -1,0 +1,19 @@
+SUMMARY: Meth Lab Tox-Removal Food Concepts
+============================================
+File: nigrl-ideas/item-meth-lab-tox-foods.txt
+
+6 new meth_lab-exclusive foods that all remove toxicity + heal HP + grant a novel buff.
+Each buff introduces a new mechanic rather than a stat bonus.
+
+  mystery_meat_surprise  | eat 8  | +40 HP | -80 tox  | 15t hard tox immunity + tox reflect onto attackers
+  gutter_nachos          | eat 6  | +50 HP | -60 tox  | 20t: 50% of incoming tox -> temp HP (max 40), decays 2/turn
+  prison_pruno           | eat 4  | +30 HP | -50 tox  | 25t: 40% kill drop (altoid/ammo/strain/ramen) + item radar through walls
+  chalupa_supreme        | eat 10 | +60 HP | -100 tox | 30t: lock tox damage multiplier at 1.0; expire heal +20 if tox>=150
+  sloppy_joe             | eat 7  | +45 HP | -70 tox  | 20t: show enemy tox level as ~ on map + warn on tox-primed enemies + FOV +2
+  grandmas_casserole     | eat 12 | +80 HP | -150 tox | floor: auto-purge 100 tox + heal 25 HP if tox hits 200 (one-time trigger)
+
+New effect IDs: tox_immunity_window, tox_recycling, scavengers_eye, tox_threshold, danger_sense, tox_insurance
+New food effect types (for foods.py validate + item_effects.py dispatch): 6 new *_buff types
+Key hook points: add_toxicity() in combat.py (4 of 6 effects), render.py (danger_sense, scavengers_eye)
+
+Top picks if implementing 2-3: gutter_nachos + grandmas_casserole

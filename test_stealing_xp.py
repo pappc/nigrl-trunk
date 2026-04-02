@@ -83,17 +83,17 @@ def test_different_item_instances_grant_separate_xp():
     initial_xp = engine.skills.get("Stealing").potential_exp
     expected_xp_per_grinder = get_skill_xp("grinder", "Stealing") * engine.player_stats.xp_multiplier
 
-    # Pick up both items
+    # Pick up both items (both are at player's tile, picked up in one call)
     engine._pickup_items_at(player.x, player.y)
-    xp_after_first = engine.skills.get("Stealing").potential_exp
+    xp_after_pickup = engine.skills.get("Stealing").potential_exp
 
-    engine._pickup_items_at(player.x, player.y)
-    xp_after_second = engine.skills.get("Stealing").potential_exp
-
-    # Verify both granted XP (different instances)
-    assert xp_after_first > initial_xp, "First grinder should grant XP"
-    assert xp_after_second > xp_after_first, "Second grinder instance should also grant XP"
-    print(f"[OK] Different instances grant separate XP: {initial_xp} -> {xp_after_first} -> {xp_after_second}")
+    # Both different instances should have granted XP
+    total_xp_gained = xp_after_pickup - initial_xp
+    assert total_xp_gained >= expected_xp_per_grinder * 2, (
+        f"Two different grinder instances should each grant XP. "
+        f"Expected at least {expected_xp_per_grinder * 2}, got {total_xp_gained}"
+    )
+    print(f"[OK] Different instances grant separate XP: {initial_xp} -> {xp_after_pickup}")
 
 
 def test_stealing_xp_scales_by_item():

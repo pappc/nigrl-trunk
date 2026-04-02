@@ -75,8 +75,8 @@ ZONE_STRAIN_WEIGHTS = {
         "Skywalker OG":    5,
         "Street Scholar":  5,
         "Kushenheimer":    5,
-        "Nigle Fart":      5,
-        "Purple Halt":     5,
+        "Swamp Gas":      5,
+        "Double Helix":     5,
     },
     "casino": {},   # TODO: define strain weights for casino
     "the_underprison":  {},   # TODO: define strain weights for The Underprison
@@ -231,7 +231,6 @@ ZONE_FOOD_TABLES = {
         ("protein_powder", 1),
         ("muffin", 1),
         ("jolly_rancher", 1),
-        ("mirror_cake", 1),
         ("holy_wafer", 0.5),
         ("hard_boiled_egg", 0.5),
         ("carrot_cake", 1),
@@ -249,11 +248,12 @@ ZONE_FOOD_TABLES = {
         ("meatball_sub", 3, "Smartsness"),
         ("heinz_baked_beans", 3, "Smartsness"),
         ("jolly_rancher", 1),
-        ("mirror_cake", 1),
         ("holy_wafer", 1),
         ("hard_boiled_egg", 1),
         ("carrot_cake", 1),
+        ("kimchi", 2),
         ("yellowcake", 1, "Nuclear Research"),
+        ("banana_pudding", 2),
     ],
     "casino_botanical": [],   # TODO
     "the_underprison":  [],   # TODO
@@ -302,8 +302,8 @@ _STRAIN_STAT_MAP = {
     "Skywalker OG":   "effective_strength",
     "Street Scholar":  "effective_street_smarts",
     "Kushenheimer":   "effective_book_smarts",
-    "Nigle Fart":     "effective_tolerance",
-    "Purple Halt":    "effective_swagger",
+    "Swamp Gas":     "effective_tolerance",
+    "Double Helix":    "effective_swagger",
 }
 
 

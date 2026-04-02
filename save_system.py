@@ -450,7 +450,7 @@ def save_game(engine, path=None):
             continue
         if k == "messages":
             engine_data[k] = [
-                _serialize_message(m) for m in v
+                _serialize_message(m) for m in v.stamped()
             ]
             continue
         if k == "menu_state":
@@ -635,6 +635,9 @@ def load_game(path=None):
         if k == "special_rooms_spawned":
             engine.special_rooms_spawned = set(v)
             continue
+        if k == "zones_visited":
+            engine.zones_visited = set(v)
+            continue
         if k == "visited_rooms":
             engine.visited_rooms = {int(floor): set(rooms) for floor, rooms in v.items()}
             continue
@@ -649,6 +652,14 @@ def load_game(path=None):
     # Clean up legacy gun_firing_mode from old saves
     if hasattr(engine, 'gun_firing_mode'):
         del engine.gun_firing_mode
+
+    # Migrate legacy entered_meth_lab flag to zones_visited
+    if hasattr(engine, 'entered_meth_lab'):
+        if engine.entered_meth_lab:
+            if not hasattr(engine, 'zones_visited') or not isinstance(engine.zones_visited, set):
+                engine.zones_visited = set()
+            engine.zones_visited.add("meth_lab")
+        del engine.entered_meth_lab
 
     # Restore player
     engine.player = _deserialize_entity(data["player"], entity_index)

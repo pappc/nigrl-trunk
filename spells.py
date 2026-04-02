@@ -616,6 +616,11 @@ def _ray_of_frost_beam(engine, dx: int, dy: int) -> None:
     bksmt  = engine.player_stats.effective_book_smarts
     damage = random.randint(6, 12) + bksmt // 2 + engine.player_stats.total_spell_damage
     tiles  = _ray_tiles(engine, engine.player.x, engine.player.y, dx, dy, max_dist=10)
+    # Frost beam flash — all tiles pulse at once
+    sdl = getattr(engine, "sdl_overlay", None)
+    if sdl and tiles:
+        sdl.add_tile_flash_ripple(tiles, engine.player.x, engine.player.y,
+                                  color=(100, 200, 255), duration=0.3, ripple_speed=0.0)
     hit_count = 0
     for x, y in tiles:
         for entity in list(engine.dungeon.get_entities_at(x, y)):
@@ -678,6 +683,11 @@ def _spell_firebolt(engine, tx: int, ty: int) -> bool:
     if hit is None:
         engine.messages.append("Firebolt fizzles \u2014 no target in path!")
         return False
+    # Fire trail animation along projectile path
+    sdl = getattr(engine, "sdl_overlay", None)
+    if sdl:
+        path = _get_firebolt_affected_tiles(engine, hit.x, hit.y)
+        sdl.add_tile_flash_trail(path, color=(255, 120, 30), duration=0.35, trail_speed=0.03)
     _deal_damage(engine, damage, hit)
     from xp_progression import _gain_elementalist_xp
     _gain_elementalist_xp(engine, hit, damage, "fire")
@@ -1047,7 +1057,7 @@ def _spell_ags_charge(engine, tx: int, ty: int) -> bool:
     old_power = engine.player.power
     engine.player.power = boosted
     engine.messages.append([
-        ("Charge! ", (255, 215, 0)),
+        ("Judgement! ", (255, 215, 0)),
         (f"You charge {dist} tiles for {boosted} damage!", (255, 230, 150)),
     ])
     _combat.handle_attack(engine, engine.player, target)
@@ -1285,6 +1295,12 @@ def _spell_curse_of_ham(engine, tx: int, ty: int) -> bool:
         engine.messages.append("Curse of Ham: no enemies cursed!")
         return False
 
+    # Curse cone pulse animation
+    sdl = getattr(engine, "sdl_overlay", None)
+    if sdl and cone_tiles:
+        sdl.add_tile_flash_ripple(cone_tiles, engine.player.x, engine.player.y,
+                                  color=(140, 60, 180), duration=0.4, ripple_speed=0.0)
+
     names = ", ".join(e.name for e in cursed)
     engine.messages.append([
         ("Curse of Ham! ", (140, 60, 180)),
@@ -1365,6 +1381,35 @@ def _get_ray_of_frost_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int
     unit_dy = (1 if dy > 0 else -1) if dy != 0 else 0
 
     return _ray_tiles(engine, engine.player.x, engine.player.y, unit_dx, unit_dy, max_dist=10)
+
+
+def _get_firebolt_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int, int]]:
+    """Get the projectile path tiles from player to target (same interpolation as _trace_projectile)."""
+    x0, y0 = engine.player.x, engine.player.y
+    dx = tx - x0
+    dy = ty - y0
+    steps = max(abs(dx), abs(dy))
+    if steps == 0:
+        return []
+    tiles = []
+    for step in range(1, steps + 1):
+        x = round(x0 + dx * step / steps)
+        y = round(y0 + dy * step / steps)
+        if not (0 <= x < DUNGEON_WIDTH and 0 <= y < DUNGEON_HEIGHT):
+            break
+        if engine.dungeon.is_terrain_blocked(x, y):
+            break
+        tiles.append((x, y))
+        # Stop at the first monster (projectile impacts here)
+        for entity in engine.dungeon.get_entities_at(x, y):
+            if entity.entity_type == "monster" and entity.alive:
+                return tiles
+    return tiles
+
+
+def get_firebolt_path(engine, tx: int, ty: int) -> list[tuple[int, int]]:
+    """Public helper: returns the firebolt projectile path for animation use."""
+    return _get_firebolt_affected_tiles(engine, tx, ty)
 
 
 # ======================================================================

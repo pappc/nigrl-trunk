@@ -85,20 +85,22 @@ SKILL_PERKS: dict[str, list[dict]] = {
 }
 
 SKILL_PERKS["White Power"] = [
-    {"name": "Bleached",  "perk_type": "stat", "effect": {"swagger": 4}, "desc": "+4 Swagger, +20% toxicity resistance. Your body rejects the poison."},  # level 1
-    {"name": "White Out", "perk_type": "activated", "effect": {"ability": "white_out"}, "desc": "3/floor. Gain 25 toxicity. +8 Swagger, -25% damage dealt for 50 turns."},  # level 2
-    {"name": "Pure",  "perk_type": "stat", "effect": {"swagger": 4}, "desc": "+4 Swagger. Double XP from toxicity resisted."},  # level 3
-    {"name": "Whitewash", "perk_type": "activated", "effect": {"ability": "whitewash", "constitution": 4}, "desc": "+4 CON. 1/floor: consume half your toxicity and gain it as temporary HP."},  # level 4
-    _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 5-10
+    {"name": "Reject the Poison", "perk_type": "passive", "effect": None, "desc": "+20% toxicity resistance. Toxicity resisted builds Purity stacks (max 50, 20t, refreshes). When Purity expires: heal for stacks, overflow as temp HP (cap 50)."},  # level 1
+    {"name": "Bastion", "perk_type": "activated", "effect": {"ability": "bastion", "swagger": 2}, "desc": "+2 Swagger. Toggle (5/floor): ON costs 1 charge + 10 tox. OFF is free. While ON: -25% damage taken, -20% damage dealt."},  # level 2
+    {"name": "Pure",  "perk_type": "stat", "effect": {"swagger": 4}, "desc": "+4 Swagger, +20% toxicity resistance. Double XP from toxicity resisted."},  # level 3
+    {"name": "Whitewash", "perk_type": "activated", "effect": {"ability": "whitewash", "constitution": 4}, "desc": "+4 CON. 1/floor: consume half your toxicity. Heals first, overflow as temp HP."},  # level 4
+    {"name": "Absolution", "perk_type": "activated", "effect": {"ability": "absolution"}, "desc": "3/floor. 15 turns: gain 5 tox/turn. All toxicity you lose deals that amount as damage to 2 random enemies within 4 tiles."},  # level 5
+    {"name": "Immaculate", "perk_type": "passive", "effect": {"swagger": 2}, "desc": "+2 Swagger. Purity stack cap → 100, temp HP cap → 100. Purity stacks accumulate 2x faster while Bastion is active. Taking a melee hit while Bastion is active grants 3 Purity stacks."},  # level 6
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 7-10
 ]
 
 SKILL_PERKS["Mutation"] = [
-    {"name": "Mutagen", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 to all stats. Immediately mutate for free."},  # level 1
-    {"name": "Unstable", "perk_type": "passive", "effect": None, "desc": "20% on melee hit: gain Unstable buff (20t). +5 rad on apply, +2 melee dmg, hits irradiate enemies for 10 rad."},  # level 2
+    {"name": "Scarred Tissue", "perk_type": "passive", "effect": None, "desc": "Bad mutations also grant +1 to a random stat permanently. Your body adapts to the damage."},  # level 1
+    {"name": "Unstable", "perk_type": "passive", "effect": None, "desc": "20% on melee hit: gain Unstable buff (20t). +5 rad on apply, +2 melee and gun dmg, hits irradiate enemies for 10 rad."},  # level 2
     {"name": "Favorable Odds", "perk_type": "passive", "effect": None, "desc": "+50% good mutation multiplier. Mutations are more likely to be positive."},  # level 3
-    _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+    {"name": "Shed", "perk_type": "activated", "effect": {"ability": "shed"}, "desc": "Grants Shed ability (unlimited). Sacrifice a random good mutation, undoing it. Cleanses a debuff. Refunds half the tier's rad threshold."},  # level 4
+    _PLACEHOLDER,
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 5-10
 ]
 
 SKILL_PERKS["Nuclear Research"] = [
@@ -171,7 +173,7 @@ SKILL_PERKS["Rolling"] = [
     {"name": "+2 SWG, +2 TOL",       "perk_type": "stat",    "effect": {"swagger": 2, "tolerance": 2}, "desc": "+2 Swagger, +2 Tolerance. Rolling builds swagger and resistance."},  # level 1
     {"name": "Spectral Paper", "perk_type": "stat",    "effect": {"tolerance": 2},                "desc": "+2 Tolerance. Gain a Spectral Paper — a reusable rolling paper that is never consumed."},  # level 2
     {"name": "Seeing Double",  "perk_type": "passive", "effect": None,                             "desc": "50% chance to roll an extra blunt when you roll one up."},           # level 3
-    {"name": "Snickelfritz",  "perk_type": "passive", "effect": None,                             "desc": "25% chance to gain a bonus Snickelfritz joint when rolling. Very negative strain."},  # level 4
+    {"name": "Snickelfritz",  "perk_type": "passive", "effect": None,                             "desc": "25% chance to gain a bonus Snickelfritz joint when rolling. Grenade strain — best thrown at enemies."},  # level 4
     {"name": "Rollin' Cloud", "perk_type": "passive", "effect": None,                             "desc": "Rolling a joint triggers Phat Cloud, hitting the nearest visible enemy."},              # level 5
     _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                      # levels 6-10
@@ -283,11 +285,12 @@ SKILL_PERKS["Gunplay"] = [
 ]
 
 SKILL_PERKS["Chemical Warfare"] = [
-    {"name": "Toxic Harvest", "perk_type": "activated", "effect": {"ability": "toxic_harvest"}, "desc": "50t cooldown. For 10 turns, any monster kill grants +5 toxicity and refreshes this buff."},  # level 1
-    {"name": "Toxic Frenzy", "perk_type": "passive", "effect": {"tolerance": 2}, "desc": "+2 TOL. +1% melee and gun damage per 10 toxicity (cap 500 tox, max +50%). +1 speed per 20 toxicity (cap +25). The poison fuels your fury."},  # level 2
+    {"name": "Toxic Harvest", "perk_type": "activated", "effect": {"ability": "toxic_harvest"}, "desc": "50t cooldown. For 10 turns, any monster kill grants +25 toxicity and refreshes this buff."},  # level 1
+    {"name": "Toxic Frenzy", "perk_type": "passive", "effect": {"tolerance": 2}, "desc": "+2 TOL. +1% melee and gun damage per 10 toxicity (cap 500 tox, max +50%). +1 speed per 10 toxicity (cap +50). The poison fuels your fury."},  # level 2
     {"name": "Acid Meltdown", "perk_type": "activated", "effect": {"ability": "acid_meltdown"}, "desc": "50t cooldown. Cost: 25 tox. 10 turns: halve move cost. Kills explode into 3x3 acid pools."},  # level 3
-    _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 4-10
+    {"name": "Toxic Slingshot", "perk_type": "activated", "effect": {"ability": "toxic_slingshot"}, "desc": "10t cooldown. Cost: 50 tox. Conjure a toxic slingshot in your sidearm (requires empty slot). 20 ammo, 30 turn duration. Damage scales with CW level. Applies toxicity on hit. Grants Scattershot (cone AOE)."},  # level 4
+    {"name": "Toxic Shell", "perk_type": "activated", "effect": {"ability": "toxic_shell"}, "desc": "3/floor. Consume 1/10th of your toxicity as a barrier (temp HP). When temp HP hits 0, nova (radius 4): deals tox/5 + CW×5 + STS/3 damage, applies tox_consumed/2 toxicity to enemies."},  # level 5
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 6-10
 ]
 
 SKILL_PERKS["Meth-Head"] = [

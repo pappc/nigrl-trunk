@@ -1,0 +1,534 @@
+METH LAB TOX-REMOVAL FOOD CONCEPTS
+====================================
+Design document for 5-6 new Meth Lab food items that remove toxicity, heal HP,
+and grant a mechanically novel buff. Intended zone: "meth_lab" exclusively (or
+"meth_lab" primary). All concepts designed to fit the declarative FOOD_DEFS
+structure in foods.py with a new named effect type dispatched in item_effects.py
+and implemented as an Effect subclass in effects.py.
+
+Balance reference:
+  - Standard food heal: 50 HP
+  - Standard eat_length: 5-10 turns
+  - Altoid: removes 50 tox (no heal, no buff)
+  - Iron Lung strain best roll: removes ALL tox, heals tox*2+CON*2, temp DEF
+  - Hot Cheetos: 5 turns to eat, +2 all stats / 50% ignite for 30 turns
+  - Phase Walk (Jolly Rancher): 3 turns to eat, walk through walls 12 turns
+  - Hard Boiled Egg: 2 turns to eat, revive at 50% HP once
+  - Tox damage multiplier: 1.0 + (tox/100)^0.6 — at 100 tox: x1.58, at 200 tox: x2.0
+
+Design philosophy:
+  - The buff must interact with the Meth Lab's toxicity/radiation threat loop
+  - Prefer buffs that create interesting decision points or emergent interactions
+  - Avoid simple stat buffs (+X STR etc.) — the effect should DO something
+  - The 10-turn eat window is the key risk; eating requires standing still
+  - Tox-removal + heal means these are crisis items; buff should reward the risk
+
+
+==============================================================================
+CONCEPT 1: MYSTERY MEAT SURPRISE
+==============================================================================
+
+Name:       Mystery Meat Surprise
+Food ID:    mystery_meat_surprise
+Char:       f
+Color:      (160, 80, 60)    # dark reddish-brown, unappetizing
+Zones:      ["meth_lab"]
+Eat length: 8 turns
+Skill:      Munching
+Weight:     6
+
+Flavor:
+  A styrofoam container of unidentified meat swimming in brackish liquid.
+  Nobody in the Meth Lab knows what's in it. Nobody asks. The man who sells it
+  goes by "Glands." It smells like chemicals and regret and somehow tastes fine.
+
+Effects on completion:
+  1. heal: 40 HP
+  2. remove_toxicity: 80
+  3. mystery_meat_buff  (new effect type)
+
+BUFF — "Tox Immunity Window" (effect id: "tox_immunity_window")
+
+  Mechanical description:
+    For 15 turns, ALL incoming toxicity gain is blocked entirely
+    (100% tox resistance, not just resistance — a hard immunity, piercing nothing).
+    Additionally, when a hit would DEAL toxicity to the player during this window,
+    the tox is reflected back: the attacker gains that tox instead (or the hazard
+    source is ignored). This is a one-way mirror for tox only.
+
+  Implementation notes:
+    - New Effect subclass ToxImmunityWindowEffect (id="tox_immunity_window")
+    - Override modify_incoming_damage: no — tox gain is not combat damage
+    - Need a hook in add_toxicity() in combat.py: check if player has
+      "tox_immunity_window" active; if so, skip gain and instead call
+      add_toxicity() on the attacker entity (if source entity provided)
+    - add_toxicity() already exists as a central function — add optional
+      `source_entity` param; if effect active, redirect tox to source
+    - Duration: 15 turns (short enough to feel precious, long enough to matter)
+    - Message on apply: "You feel chemically armored!"
+    - Message on expire: "Your tox immunity fades."
+
+  Why it's interesting:
+    The Meth Lab constantly drips toxicity from environmental sources, enemy
+    attacks, and AoE. A 15-turn hard window lets you wade through a toxic room
+    without kiting. The reflect mechanic punishes enemies that rely on on-hit
+    toxicity (Covid-26, Toxic Slug, Purger) by turning their tox attacks back
+    on themselves. Creates a "fight back with their own weapon" power fantasy.
+
+  Balance:
+    15 turns is roughly 1 room's worth of aggressive play. Not renewable
+    mid-fight (8-turn eat). Tox reflect on mobs is situational (only tox-dealing
+    enemies). Comparable upside to Alco-Seltzer tox resist, but trades the
+    debuff immunity for the reflect component.
+
+  Edge cases:
+    - Environmental grease tiles add NO tox — reflect doesn't apply there
+    - Fire hazards don't deal tox — unaffected
+    - If player has normal tox resistance AND this effect, immunity takes
+      precedence (effect check runs first in add_toxicity)
+    - On expire, do NOT remove existing tox that accumulated before eating
+
+
+==============================================================================
+CONCEPT 2: GUTTER NACHOS
+==============================================================================
+
+Name:       Gutter Nachos
+Food ID:    gutter_nachos
+Char:       f
+Color:      (220, 180, 60)   # tortilla yellow
+Zones:      ["meth_lab"]
+Eat length: 6 turns
+Skill:      Deep-Frying
+Weight:     7
+
+Flavor:
+  A tin tray of chips pulled from a dumpster behind a gas station, drenched in
+  liquid cheese product of unknown vintage and sprinkled with something green.
+  The Meth Lab's best chef, a man named Boodrow, made these. He did not survive
+  the experience.
+
+Effects on completion:
+  1. heal: 50 HP
+  2. remove_toxicity: 60
+  3. gutter_nachos_buff  (new effect type)
+
+BUFF — "Tox Recycling" (effect id: "tox_recycling")
+
+  Mechanical description:
+    For 20 turns: whenever the player would gain toxicity, instead of adding
+    it to their tox pool, 50% of it is converted to temporary HP (max temp HP
+    pool: 40). The other 50% goes to tox as normal.
+    Formula: converted = incoming_tox * 0.5; temp_hp += converted (cap 40).
+    The temp HP decays at 2 per turn (normal temp HP decay rate if one exists,
+    or a fixed 2/turn drain on the temp HP pool from this effect only).
+
+  Implementation notes:
+    - New Effect subclass ToxRecyclingEffect (id="tox_recycling")
+    - Hook in add_toxicity(): if "tox_recycling" active, halve the incoming
+      amount before applying, then add halved_amount to entity.temp_hp
+      capped at 40 via min(entity.temp_hp + halved, 40)
+    - Temp HP decay: add a tick() method that does entity.temp_hp -= 2 each
+      turn IF entity.temp_hp > 0 (only tox_recycling-sourced temp HP; or
+      just drain shared temp HP pool by 2/turn — simpler and acceptable)
+    - Duration: 20 turns
+    - Message on apply: "Your body starts converting toxins to vitality!"
+    - Temp HP gain message: "Tox converted to temp HP! (+X)"
+
+  Why it's interesting:
+    Completely flips the risk model of the Meth Lab. Instead of toxicity being
+    pure punishment, it becomes a resource that fills a temp HP buffer.
+    Enemies that deal heavy tox (Purger, Covid-26) actually help you build a
+    buffer. Incentivizes staying near toxic sources rather than retreating.
+    Creates a gameplay loop where high-tox environments become SAFER with this
+    buff active. Pairs beautifully with Swamp Gas strain and Chemical Warfare.
+    The decay means you burn through the buffer if you stop taking tox hits.
+
+  Balance:
+    20 turns, 40 temp HP max — that's roughly 2 big tox hits converted.
+    The 50/50 split means tox still accumulates, just slower. Not infinite:
+    temp HP decays at 2/turn so you burn through 40 in 20 turns naturally
+    (roughly matches the effect duration). Eat window of 6 turns is short
+    enough that this might be eaten pre-fight in a corridor.
+
+  Edge cases:
+    - If player has tox resistance: resistance applies first, then recycling
+      applies to the post-resistance amount
+    - No interaction with pierce_resistance — same as normal tox gain path
+    - Temp HP from this effect uses the same entity.temp_hp field as all
+      other temp HP sources (consistent with existing system)
+
+
+==============================================================================
+CONCEPT 3: PRISON PRUNO
+==============================================================================
+
+Name:       Prison Pruno
+Food ID:    prison_pruno
+Char:       f
+Color:      (120, 60, 100)   # murky purple
+Zones:      ["meth_lab"]
+Eat length: 4 turns
+Skill:      Alcoholism
+Weight:     5
+
+Flavor:
+  A zip-lock bag of fermented fruit juice, bread, and suffering, carefully aged
+  in a toilet for 14 days by someone who owed you a favor. Technically food.
+  Technically drink. Technically illegal. Tastes like raisins had a funeral.
+
+Effects on completion:
+  1. heal: 30 HP
+  2. remove_toxicity: 50
+  3. prison_pruno_buff  (new effect type)
+
+BUFF — "Scavenger's Eye" (effect id: "scavengers_eye")
+
+  Mechanical description:
+    For 25 turns: enemies killed while this buff is active have a 40% chance
+    to drop an extra consumable item from a weighted table of:
+      - Altoid (remove 50 tox)          — weight 4
+      - Light ammo stack (5)             — weight 3
+      - Random strain (meth_lab table)   — weight 2
+      - Instant Ramen                    — weight 1
+    Additionally, the player can detect all items on the floor even through
+    unexplored tiles (item omniscience: items appear as their char on the map
+    regardless of FOV or exploration state, for the buff's duration).
+
+  Implementation notes:
+    - New Effect subclass ScavengersEyeEffect (id="scavengers_eye")
+    - On-kill hook: override on_kill() or check in engine's entity death handler
+      for "scavengers_eye" effect on player; roll 40% chance, then spawn
+      a random item from the weighted table at the corpse's position
+    - Item omniscience: in render.py, when drawing map tiles, if player has
+      "scavengers_eye" effect, render ALL items (not just FOV/explored) using
+      their entity char at dimmed color (e.g., multiply color channels by 0.5)
+    - Weighted drop table: implement as a local list of (weight, item_id) pairs
+      in the effect's on_kill method or a helper dict in effects.py
+    - Duration: 25 turns
+    - Message on apply: "Your eyes sharpen. You can sense every scrap on this floor."
+    - Message on expire: "Your hunter's instinct fades."
+
+  Why it's interesting:
+    The two components synergize: you're incentivized to actively hunt enemies
+    during the buff (for drops) while the item radar lets you plan a safe route
+    to grab resources. In a resource-scarce Meth Lab, finding a hidden Altoid or
+    ammo pile mid-combat is massively impactful. Rewards aggressive play and
+    exploration literacy. The 40% drop rate on a 25-turn window against typical
+    enemy density means you'll probably net 3-6 free items if you push hard.
+
+  Balance:
+    4-turn eat makes this a fast tactical pivot. 30 HP heal and 50 tox removal
+    are below average for the eat time (trade-off for the powerful buff). The
+    drop table is deliberately low-value items: this isn't a loot explosion,
+    it's a survivability sustain system. Item radar is limited to the current
+    floor — no floor-transition persistence.
+
+  Edge cases:
+    - Summon kills (spider hatchlings, mirror_entity copies) trigger the on_kill
+      hook — should they count? Safest: only trigger for player-kill events,
+      not player-adjacent ally kills. Filter: entity_type == "monster" and
+      killed_by == "player" or killed_by_entity == engine.player
+    - Item spawned by drop must not stack-spawn in a wall tile: use dungeon
+      helper to find nearest open floor tile if corpse is on a wall (shouldn't
+      happen, but defensive)
+    - Item omniscience rendering: only draw items (entity_type == "item") in
+      dimmed color; do not reveal enemies or hazards
+
+
+==============================================================================
+CONCEPT 4: CHALUPA SUPREME (METH LAB EDITION)
+==============================================================================
+
+Name:       Chalupa Supreme
+Food ID:    chalupa_supreme
+Char:       f
+Color:      (200, 140, 60)   # golden brown
+Zones:      ["meth_lab"]
+Eat length: 10 turns
+Skill:      Munching
+Weight:     4
+
+Flavor:
+  A deep-fried tortilla shell that's somehow still crispy despite having been
+  in a trash bag for an indeterminate amount of time. Stuffed with seasoned
+  meat, sour cream, and what appears to be a crystalline substance that is
+  definitely not cheese. Tastes incredible. You feel wrong for enjoying it.
+
+Effects on completion:
+  1. heal: 60 HP
+  2. remove_toxicity: 100
+  3. chalupa_buff  (new effect type)
+
+BUFF — "Tox Threshold Spike" (effect id: "tox_threshold")
+
+  Mechanical description:
+    For 30 turns: the player's effective tox for the damage formula is treated
+    as 0, regardless of actual tox level. This means the tox damage multiplier
+    is locked at 1.0 — the player takes no extra damage from their toxicity.
+    Additionally, if the player's actual tox is above 150 when this buff
+    expires, they immediately receive 20 HP of restoration (the body "purging"
+    the stored tox in a final flush).
+
+  Implementation notes:
+    - New Effect subclass ToxThresholdEffect (id="tox_threshold")
+    - Hook in combat.py's tox damage multiplier calculation:
+        if player has "tox_threshold" effect, skip the multiplier (return 1.0)
+    - Check is in the tox_damage_multiplier function/section in combat.py
+    - On expire: check engine.player.toxicity >= 150; if so, heal player 20 HP
+    - The buff does NOT remove tox — tox continues to accumulate normally.
+      It just masks its damage penalty.
+    - Message on apply: "You feel chemically insulated. Tox can't slow you down."
+    - Message on expire (low tox): "Your chemical insulation fades."
+    - Message on expire (high tox): "Your system purges! (+20 HP)"
+
+  Why it's interesting:
+    This is the "glass cannon tox" fantasy: you deliberately let toxicity
+    build to dangerous levels knowing the damage penalty is suspended, then
+    the buff expiring forces a hard decision — do you keep fighting at full
+    tox efficiency, or burn more resources to reduce tox before the shield
+    drops? The expire heal at 150+ tox creates a counterintuitive incentive
+    to NOT reduce your toxicity while the buff is active (so you hit the 150
+    threshold for the heal bonus). Pairs explosively with Swamp Gas strain
+    (which gains tox intentionally) and Chemical Warfare abilities.
+
+  Balance:
+    10-turn eat makes this the highest-commitment food. 60 HP and 100 tox
+    removal are above average — you need the buff to compensate for standing
+    still 10 turns in a dangerous zone. 30-turn duration is long but it ONLY
+    masks tox penalty; the actual tox still accumulates and becomes lethal
+    when buff ends if unchecked. The expire heal is a safety valve, not a
+    power spike. Net effect: this buys you 30 turns to play at high tox
+    without penalty, but tox management is still required.
+
+  Edge cases:
+    - If player is already at tox=0 when buff expires: no expire heal (below 150)
+    - Tox still kills via radiation interactions or other tox-check systems —
+      only the combat damage multiplier is bypassed, not actual tox number
+    - If buff is dispelled early (debuff removal): no expire heal
+    - Stacking with alco_seltzer_tox_resist: both can be active; this bypasses
+      the multiplier entirely; tox_resist reduces incoming gain; different layers
+
+
+==============================================================================
+CONCEPT 5: SLOPPY JOE DELUXE
+==============================================================================
+
+Name:       Sloppy Joe Deluxe
+Food ID:    sloppy_joe
+Char:       f
+Color:      (180, 70, 30)    # saucy red-brown
+Zones:      ["meth_lab"]
+Eat length: 7 turns
+Skill:      Munching
+Weight:     6
+
+Flavor:
+  A bun barely containing a meat sauce that has been simmering on a hot plate
+  in an abandoned office for three days. Someone left a sticky note on it that
+  says "DO NOT EAT" but the note is three weeks old and you are very hungry.
+  Served with a side of resolution.
+
+Effects on completion:
+  1. heal: 45 HP
+  2. remove_toxicity: 70
+  3. sloppy_joe_buff  (new effect type)
+
+BUFF — "Danger Sense" (effect id: "danger_sense")
+
+  Mechanical description:
+    For 20 turns: the player gains awareness of enemy toxicity levels and
+    is alerted to "tox aura" threats before stepping into them.
+    Mechanically:
+    a) ALL enemies within FOV have their current toxicity displayed as a
+       small indicator next to their character on the map (e.g., a "~" glyph
+       rendered adjacent to any enemy with tox > 30).
+    b) The player receives a message warning ("A Purger is primed!") when any
+       visible enemy with a tox-based special attack enters attack range and has
+       tox > 50. This warning fires once per enemy per buff activation.
+    c) The player gains +2 to FOV radius (effectively gains sight range boost).
+
+  Implementation notes:
+    - New Effect subclass DangerSenseEffect (id="danger_sense")
+    - Part (a): in render.py, when drawing enemy characters in FOV, check if
+      player has "danger_sense" active; if so, draw a "~" in tox-amber color
+      (200, 180, 60) one tile to the right of any enemy with toxicity > 30.
+      If that tile is occupied, skip the indicator (don't overwrite other chars).
+    - Part (b): in ai.py or engine.py, during the enemy AI turn, when an enemy
+      with a tox special attack (check enemy_type in a whitelist: "purger",
+      "toxic_slug", "covid_26") moves within attack range of the player, check
+      player "danger_sense" and if entity.toxicity > 50, add a warning message.
+      Track warned enemies via a set on the effect object to avoid spam.
+    - Part (c): Apply +2 to FOV radius in apply(), remove in expire(), using
+      engine's FOV radius modifier (same approach as read_the_room_active or
+      eagle_eye). Recompute FOV on apply.
+    - Duration: 20 turns
+    - Color for "~" indicator: (200, 140, 40) — amber, visible but not alarming
+
+  Why it's interesting:
+    The Meth Lab's tox enemies are terrifying because their attack telegraphing
+    is weak. Danger Sense makes enemy toxicity visible as information — suddenly
+    you know the Purger next to you is maxed out and about to unload. It shifts
+    the gameplay from reactive (take the hit, then manage tox) to proactive
+    (see the threat, plan a response). The FOV bonus synergizes by letting you
+    see more enemies to read. This is a scouting/information buff in a game
+    where information is usually very limited, making it feel qualitatively
+    different from any combat stat buff.
+
+  Balance:
+    Mostly informational — it does not reduce damage, only helps you avoid it.
+    The FOV bonus (+2) is the only direct mechanical boost. Its power is
+    entirely skill-dependent: a player who can act on the information gets
+    enormous value; a player who can't still gets 45 HP and 70 tox removal.
+    7-turn eat is a moderate commitment. No interaction with permadeath to worry
+    about — it expires cleanly with just the FOV reversal.
+
+  Edge cases:
+    - The "~" indicator should NOT be drawn if the tile to the right is a wall,
+      another entity, or the player. Fallback: skip drawing (no crash).
+    - FOV radius: apply +2 on apply(), subtract 2 on expire(). If multiple FOV
+      modifiers exist, they stack additively (same pattern as read_the_room).
+    - Warning message spam: use a set on the effect instance tracking
+      warned_entity_ids; clear it only if the effect is re-applied.
+    - On floor change (floor_duration=False on this one): the effect expires
+      naturally when its turn counter runs out, not floor-based.
+
+
+==============================================================================
+CONCEPT 6: GRANDMA'S CASSEROLE
+==============================================================================
+
+Name:       Grandma's Casserole
+Food ID:    grandmas_casserole
+Char:       f
+Color:      (200, 160, 100)  # warm beige, comforting
+Zones:      ["meth_lab"]
+Eat length: 12 turns
+Skill:      Munching
+Weight:     3
+
+Flavor:
+  A glass baking dish sealed in cling wrap and labeled "LOVE YOU — GRANDMA"
+  in blue marker. You don't know how it got here. You don't know whose grandma.
+  It is still warm. Inside: tuna noodle with crushed potato chips on top.
+  You eat the whole thing. The Meth Lab feels slightly less terrible for a
+  moment.
+
+Effects on completion:
+  1. heal: 80 HP
+  2. remove_toxicity: 150
+  3. grandmas_casserole_buff  (new effect type)
+
+BUFF — "Tox Insurance" (effect id: "tox_insurance")
+
+  Mechanical description:
+    A passive floor-duration buff. While active, if the player's toxicity
+    ever hits 200 or above (a threshold that normally means extreme danger),
+    this effect automatically triggers a one-time emergency purge:
+      - Immediately remove 100 tox
+      - Heal player for 25 HP
+      - Display message: "Grandma's cooking saves you!"
+    After the emergency purge triggers, the insurance is consumed (effect ends).
+    If the player never hits 200 tox, the buff persists until end of floor.
+    The buff is not otherwise visible except as a status indicator.
+
+  Implementation notes:
+    - New Effect subclass ToxInsuranceEffect (id="tox_insurance")
+    - floor_duration=True (persists until floor change if not consumed)
+    - No tick() passive behavior; the trigger logic lives in add_toxicity()
+      in combat.py: after tox is added, check if player has "tox_insurance"
+      effect AND player.toxicity >= 200; if so, call the emergency purge,
+      then remove the effect from player.status_effects
+    - Emergency purge: remove_toxicity(100) + heal(25) + message + effect.expire()
+    - The effect should display as a small icon/indicator in status — name:
+      "Tox Insurance" with description "Auto-purge 100 tox if you hit 200"
+    - On apply: "Grandma's love protects you. (Tox Insurance active)"
+    - On expire without trigger: "Grandma's blessing fades." (floor-end expire)
+    - On trigger: "Grandma's cooking saves you! (100 tox purged, +25 HP)"
+    - eat_length is 12 turns — longest of all concepts. This is intentional:
+      it is a premium safety item. 80 HP + 150 tox are the best flat numbers
+      here, and the insurance is stackable in value with careful play.
+
+  Why it's interesting:
+    This is a "safety net" mechanic that changes how risk is calculated.
+    Knowing you have Tox Insurance lets you push into a tox-heavy room with
+    confidence — if things go wrong and you spike to 200 tox, the safety net
+    fires. This shifts decision-making from conservative to aggressive because
+    the downside is bounded. It also creates a mini-game around the trigger:
+    experienced players might DELIBERATELY let tox creep to 190 (burning
+    resources carefully) then use the insurance as a free 100-tox purge exactly
+    when they need it most. The floor-duration means you carry the peace of mind
+    for the whole floor, not just 20 turns.
+
+  Balance:
+    12-turn eat is the biggest time investment — you're committed. 80 HP and
+    150 tox removal on completion are generous; this is clearly a "premium"
+    food. The insurance being one-time prevents it from being an infinite
+    safety blanket. Low weight (3) = rare spawn. Not worth crafting shortcuts
+    around since you can't guarantee the trigger fires at the right moment.
+
+  Edge cases:
+    - If player is ALREADY at 200+ tox when they finish eating, the insurance
+      does NOT retroactively fire — the check only runs inside add_toxicity()
+      on new tox gain. This is intentional: eating it when already critical
+      still gives the 80 HP + 150 tox removal, just no insurance bonus.
+    - On floor transition while active: effect expires cleanly via floor_duration
+      without triggering the emergency purge.
+    - Multiple casseroles: eating a second one while insurance is still active
+      would normally re-apply the effect. Simplest handling: re-applying just
+      resets the effect (it's already there); don't double-stack.
+    - save_system: floor_duration effects serialize correctly already.
+
+
+==============================================================================
+IMPLEMENTATION SUMMARY TABLE
+==============================================================================
+
+  Food ID               | Eat | HP  | Tox  | Buff                         | Dur
+  ----------------------|-----|-----|------|------------------------------|--------
+  mystery_meat_surprise |  8  |  40 |  80  | Tox Immunity + reflect       | 15 turns
+  gutter_nachos         |  6  |  50 |  60  | Tox -> Temp HP conversion    | 20 turns
+  prison_pruno          |  4  |  30 |  50  | Kill drops + item radar      | 25 turns
+  chalupa_supreme       | 10  |  60 | 100  | Lock tox multiplier at 1.0   | 30 turns
+  sloppy_joe            |  7  |  45 |  70  | Enemy tox display + FOV +2   | 20 turns
+  grandmas_casserole    | 12  |  80 | 150  | Auto-purge at 200 tox (once) | floor
+
+==============================================================================
+NEW EFFECT IDS (effects.py subclasses needed)
+==============================================================================
+
+  tox_immunity_window    — ToxImmunityWindowEffect
+  tox_recycling          — ToxRecyclingEffect
+  scavengers_eye         — ScavengersEyeEffect
+  tox_threshold          — ToxThresholdEffect
+  danger_sense           — DangerSenseEffect
+  tox_insurance          — ToxInsuranceEffect
+
+==============================================================================
+NEW FOOD EFFECT TYPES (foods.py validate + item_effects.py dispatch)
+==============================================================================
+
+  "mystery_meat_buff"      -> apply_effect(entity, engine, "tox_immunity_window", ...)
+  "gutter_nachos_buff"     -> apply_effect(entity, engine, "tox_recycling", ...)
+  "prison_pruno_buff"      -> apply_effect(entity, engine, "scavengers_eye", ...)
+  "chalupa_buff"           -> apply_effect(entity, engine, "tox_threshold", ...)
+  "sloppy_joe_buff"        -> apply_effect(entity, engine, "danger_sense", ...)
+  "grandmas_casserole_buff"-> apply_effect(entity, engine, "tox_insurance", floor_duration=True)
+
+  All six should be added to the elif-chain in item_effects.py:
+  _apply_food_effect() around line 3750, and added to the validate passthrough
+  list around line 375 in foods.py.
+
+==============================================================================
+RANKING BY DESIGN INTEREST (subjective)
+==============================================================================
+
+  1. Gutter Nachos (Tox Recycling) — most novel mechanic, flips risk model
+  2. Grandma's Casserole (Tox Insurance) — best strategic depth, floor-duration
+  3. Chalupa Supreme (Tox Threshold) — best build synergy with Swamp Gas/ChemWar
+  4. Prison Pruno (Scavenger's Eye) — most fun in play, dual utility
+  5. Mystery Meat Surprise (Tox Immunity Window) — cleanest implementation
+  6. Sloppy Joe (Danger Sense) — most informational, unique information buff
+
+  If only implementing 2-3: recommend Gutter Nachos + Grandma's Casserole
+  as they cover different strategic roles (active vs. passive protection).

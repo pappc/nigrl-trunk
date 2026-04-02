@@ -91,7 +91,7 @@ def force_mutation(engine, tier="weak", polarity="bad", table_index=0):
     """Directly apply a specific mutation entry for testing."""
     table = mutations.MUTATION_TABLES[(tier, polarity)]
     desc, apply_fn = table[table_index]
-    suffix = apply_fn(engine) or ""
+    suffix, reversal = apply_fn(engine)
     return desc, suffix
 
 
@@ -241,7 +241,7 @@ class TestStrongMutations:
         idx = len(table) - 2  # +5% briskness
         desc, apply_fn = table[idx]
         assert "briskness" in desc
-        apply_fn(engine)
+        apply_fn(engine)  # returns (suffix, reversal) — ignored here
         assert engine.player_stats.briskness == 5
 
     def test_dr_plus_3(self):
@@ -250,7 +250,7 @@ class TestStrongMutations:
         idx = len(table) - 1  # +3 DR
         desc, apply_fn = table[idx]
         assert "DR" in desc
-        apply_fn(engine)
+        apply_fn(engine)  # returns (suffix, reversal) — ignored here
         assert engine.player_stats.permanent_dr == 3
 
 
@@ -289,7 +289,7 @@ class TestHugeMutations:
         table = mutations.MUTATION_TABLES[("huge", "bad")]
         idx = len(table) - 3  # lose neck
         desc, apply_fn = table[idx]
-        suffix = apply_fn(engine)
+        suffix, reversal = apply_fn(engine)
         assert engine.neck is None
         assert "Gold Chain" in suffix
 
@@ -299,7 +299,7 @@ class TestHugeMutations:
         table = mutations.MUTATION_TABLES[("huge", "bad")]
         idx = len(table) - 3  # lose neck
         desc, apply_fn = table[idx]
-        suffix = apply_fn(engine)
+        suffix, reversal = apply_fn(engine)
         assert "nothing happened" in suffix
 
     def test_lose_feet_item(self):
@@ -308,7 +308,7 @@ class TestHugeMutations:
         table = mutations.MUTATION_TABLES[("huge", "bad")]
         idx = len(table) - 2  # lose feet
         desc, apply_fn = table[idx]
-        suffix = apply_fn(engine)
+        suffix, reversal = apply_fn(engine)
         assert engine.feet is None
 
     def test_lose_hat_item(self):
@@ -317,7 +317,7 @@ class TestHugeMutations:
         table = mutations.MUTATION_TABLES[("huge", "bad")]
         idx = len(table) - 1  # lose hat
         desc, apply_fn = table[idx]
-        suffix = apply_fn(engine)
+        suffix, reversal = apply_fn(engine)
         assert engine.hat is None
 
     def test_skill_plus_5_levels(self):
@@ -331,7 +331,7 @@ class TestHugeMutations:
         table = mutations.MUTATION_TABLES[("huge", "good")]
         idx = len(SKILL_NAMES)  # +2 to all stats entry
         desc, apply_fn = table[idx]
-        apply_fn(engine)
+        apply_fn(engine)  # returns (suffix, reversal) — ignored here
         assert engine.player_stats.constitution == 12
         assert engine.player_stats.swagger == 7
 
@@ -340,7 +340,7 @@ class TestHugeMutations:
         table = mutations.MUTATION_TABLES[("huge", "good")]
         idx = len(table) - 1  # +5 DR
         desc, apply_fn = table[idx]
-        apply_fn(engine)
+        apply_fn(engine)  # returns (suffix, reversal) — ignored here
         assert engine.player_stats.permanent_dr == 5
 
 

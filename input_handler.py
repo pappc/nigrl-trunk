@@ -119,6 +119,12 @@ def handle_input(key):
         ):
             return {"type": "open_bestiary"}
 
+        # Shift+E — open status effects menu
+        elif key_sym == tcod.event.KeySym.e and bool(
+            key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
+        ):
+            return {"type": "open_status_effects"}
+
         # Shift+P — open perks menu
         elif key_sym == tcod.event.KeySym.p and bool(
             key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT)
@@ -202,7 +208,7 @@ def handle_input(key):
             char = chr(ord("a") + (key_sym - tcod.event.KeySym.a))
             if char in INVENTORY_KEYS:
                 index = INVENTORY_KEYS.index(char)
-                return {"type": "select_item", "index": index}
+                return {"type": "select_item", "index": index, "char": char}
             else:
                 # Unbound letter — emit raw char for dev search and future text input
                 return {"type": "raw_char", "char": char}

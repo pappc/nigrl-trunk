@@ -718,6 +718,7 @@ SPECIAL_ROOM_DEFS = [
     ("dive_bar",     {1, 2, 3}, 0.10),
     ("trap_kitchen", {1, 2, 3}, 0.10),
     ("stash_house",  {0, 1, 2, 3}, 0.20),
+    ("keisha_room",  {3},       1.00),
     ("jerome_room",  {3},       1.00),
 ]
 
@@ -737,7 +738,17 @@ def _roll_special_rooms(dungeon, floor_num, zone, special_rooms_spawned):
         if not available_indices:
             break
 
-        if room_key == "jerome_room":
+        if room_key == "keisha_room":
+            # Small-medium room (12–35 tiles) for a packed stripper encounter
+            small = [i for i in available_indices
+                     if 12 <= len(dungeon.rooms[i].floor_tiles(dungeon)) <= 35]
+            if not small:
+                small = [i for i in available_indices
+                         if len(dungeon.rooms[i].floor_tiles(dungeon)) >= 12]
+            if not small:
+                continue
+            room_idx = random.choice(small)
+        elif room_key == "jerome_room":
             # Need >= 20 tiles AND enough vertical space below for door + 2×2 back room
             large = []
             for i in available_indices:
@@ -770,6 +781,8 @@ def _roll_special_rooms(dungeon, floor_num, zone, special_rooms_spawned):
             _spawn_trap_kitchen(dungeon, room, floor_tiles, zone)
         elif room_key == "stash_house":
             _spawn_stash_house(dungeon, room, floor_tiles, zone, floor_num)
+        elif room_key == "keisha_room":
+            _spawn_keisha_room(dungeon, room, floor_tiles)
         elif room_key == "jerome_room":
             _spawn_jerome_room(dungeon, room, floor_tiles)
 
@@ -984,6 +997,37 @@ def _spawn_stash_house(dungeon, room, floor_tiles, zone, floor_num):
             dungeon.entities.append(Entity(**kwargs))
 
 
+def _spawn_keisha_room(dungeon, room, floor_tiles):
+    """Spawn Keisha's room: 6 ugly strippers with Keisha in the back."""
+    room_tile_set = frozenset(floor_tiles)
+
+    max_y = max(y for x, y in floor_tiles)
+
+    # Keisha in the back of the room (highest y rows)
+    back_tiles = [(x, y) for x, y in floor_tiles if y >= max_y - 1]
+    if not back_tiles:
+        back_tiles = list(floor_tiles)
+
+    free = [(x, y) for x, y in back_tiles if not dungeon.is_blocked(x, y)]
+    if not free:
+        free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
+    if free:
+        kx, ky = random.choice(free)
+        keisha = create_enemy("keisha", kx, ky)
+        keisha.spawn_room_tiles = room_tile_set
+        dungeon.entities.append(keisha)
+
+    # 6 ugly strippers filling the room
+    for _ in range(6):
+        free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
+        if not free:
+            break
+        x, y = random.choice(free)
+        stripper = create_enemy("ugly_stripper", x, y)
+        stripper.spawn_room_tiles = room_tile_set
+        dungeon.entities.append(stripper)
+
+
 def _spawn_jerome_room(dungeon, room, floor_tiles):
     """Spawn Jerome's guarded chamber on floor 4."""
     room_tile_set = frozenset(floor_tiles)
@@ -996,7 +1040,16 @@ def _spawn_jerome_room(dungeon, room, floor_tiles):
     mid_y    = (min_y + max_y) // 2
 
     # ── Door entity + 2×2 back room ──────────────────────────────────
+    # Door goes directly below a floor tile on the room's bottom row.
+    # center_x may not be a floor tile on max_y for non-rectangular rooms,
+    # so scan outward from center to find a valid position.
     door_x = center_x
+    for candidate_x in [center_x, center_x - 1, center_x + 1,
+                         center_x - 2, center_x + 2,
+                         center_x - 3, center_x + 3]:
+        if (candidate_x, max_y) in room_tile_set:
+            door_x = candidate_x
+            break
     door_y = max_y + 1
 
     if 0 < door_y < dungeon.height - 3:
@@ -1019,19 +1072,24 @@ def _spawn_jerome_room(dungeon, room, floor_tiles):
         room_bot   = door_y + 2
         back_room_tiles = []
 
-        # Wall off the border around the back room — FORCE overwrite any
-        # existing floor tiles (corridors).  The MST guarantees all rooms
-        # are reachable via other paths, so sealing a stray corridor here
-        # cannot disconnect the map.  Skip only the door tile itself.
+        # Wall off the border around the back room.  Skip the door tile
+        # and the tile directly above it (the room-side entry point).
+        above_door = (door_x, door_y - 1)
         for ry in range(room_top - 1, room_bot + 2):
             for rx in range(room_left - 1, room_right + 2):
-                if rx == door_x and ry == door_y:
+                if (rx == door_x and ry == door_y):
                     continue  # don't overwrite the door tile
+                if (rx, ry) == above_door:
+                    continue  # preserve the room-side entry
                 is_interior = (room_left <= rx <= room_right
                                and room_top <= ry <= room_bot)
                 if not is_interior:
                     if 0 < rx < dungeon.width - 1 and 0 < ry < dungeon.height - 1:
                         dungeon.tiles[ry][rx] = TILE_WALL
+
+        # Ensure the tile above the door is floor (room entry point)
+        if 0 < above_door[0] < dungeon.width - 1 and 0 < above_door[1] < dungeon.height - 1:
+            dungeon.tiles[above_door[1]][above_door[0]] = TILE_FLOOR
 
         for ry in range(room_top, room_bot + 1):
             for rx in range(room_left, room_right + 1):
@@ -1052,11 +1110,74 @@ def _spawn_jerome_room(dungeon, room, floor_tiles):
             )
             dungeon.entities.append(stairs)
 
-    # ── Jerome: back row, centered ────
-    jerome_x = center_x
+        # Ensure the Jerome room is still connected to the rest of the map.
+        # The back room walling can seal the only corridor into the room.
+        # Fix: find the main connected component (from room 0) and if the
+        # entry tile above the door is disconnected, carve an L-shaped
+        # corridor from the entry to the nearest connected floor tile.
+        # The corridor stays at or above door_y to avoid breaching the
+        # sealed back room.
+        entry_x, entry_y = door_x, door_y - 1
+        r0 = dungeon.rooms[0]
+        r0_tiles = r0.floor_tiles(dungeon)
+        if r0_tiles:
+            start = r0_tiles[0]
+            connected = set()
+            _q = [start]
+            connected.add(start)
+            while _q:
+                _cx, _cy = _q.pop()
+                for _dx, _dy in ((-1,0),(1,0),(0,-1),(0,1)):
+                    _nx, _ny = _cx + _dx, _cy + _dy
+                    if (_nx, _ny) in connected:
+                        continue
+                    if not (0 <= _nx < dungeon.width and 0 <= _ny < dungeon.height):
+                        continue
+                    if dungeon.tiles[_ny][_nx] != TILE_FLOOR:
+                        continue
+                    connected.add((_nx, _ny))
+                    _q.append((_nx, _ny))
+            if (entry_x, entry_y) not in connected and connected:
+                # Find nearest connected tile that is above or at door_y
+                best_dist = 999
+                best_conn = None
+                for ct in connected:
+                    if ct[1] > door_y:
+                        continue  # skip tiles below door to avoid breaching back room
+                    d = abs(entry_x - ct[0]) + abs(entry_y - ct[1])
+                    if d < best_dist:
+                        best_dist = d
+                        best_conn = ct
+                if best_conn is None:
+                    # Fallback: use any connected tile
+                    for ct in connected:
+                        d = abs(entry_x - ct[0]) + abs(entry_y - ct[1])
+                        if d < best_dist:
+                            best_dist = d
+                            best_conn = ct
+                if best_conn:
+                    # Carve L-shaped corridor: horizontal from entry, then vertical
+                    cx, cy = best_conn
+                    # Horizontal leg at entry_y
+                    step_x = 1 if cx >= entry_x else -1
+                    x = entry_x
+                    while x != cx:
+                        x += step_x
+                        if 0 < x < dungeon.width - 1 and 0 < entry_y < dungeon.height - 1:
+                            dungeon.tiles[entry_y][x] = TILE_FLOOR
+                    # Vertical leg at cx
+                    step_y = 1 if cy >= entry_y else -1
+                    y = entry_y
+                    while y != cy:
+                        y += step_y
+                        if 0 < cx < dungeon.width - 1 and 0 < y < dungeon.height - 1:
+                            dungeon.tiles[y][cx] = TILE_FLOOR
+
+    # ── Jerome: back row, directly above the door ────
     jerome_y = max_y
-    for candidate_x in [center_x, center_x - 1, center_x + 1,
-                         center_x - 2, center_x + 2]:
+    jerome_x = door_x  # prefer door_x so he's on the connected path
+    for candidate_x in [door_x, door_x - 1, door_x + 1,
+                         center_x, center_x - 1, center_x + 1]:
         if (candidate_x, jerome_y) in room_tile_set and \
            not dungeon.is_blocked(candidate_x, jerome_y):
             jerome_x = candidate_x

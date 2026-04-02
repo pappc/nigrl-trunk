@@ -24,8 +24,8 @@ STRAINS = [
     "Skywalker OG",
     "Street Scholar",
     "Kushenheimer",
-    "Nigle Fart",
-    "Purple Halt",
+    "Swamp Gas",
+    "Double Helix",
     "Snickelfritz",
 ]
 
@@ -43,8 +43,8 @@ STRAIN_SMOKING_XP = {
     "Skywalker OG": 125,     # STR-based rad synergy strain
     "Street Scholar": 125,   # STSMT-based gun strain
     "Kushenheimer": 125,         # BKSMT-based radiation spell strain
-    "Nigle Fart": 125,           # TOL-based toxicity spillover strain
-    "Purple Halt": 125,           # SWG-based mutation control strain
+    "Swamp Gas": 125,           # TOL-based toxicity spillover strain
+    "Double Helix": 125,           # SWG-based mutation control strain
     "Snickelfritz": 30,           # Very negative trash strain (Rolling L4 proc)
 }
 
@@ -61,8 +61,8 @@ STRAIN_ROLLING_XP = {
     "Skywalker OG": 125,     # STR-based rad synergy strain
     "Street Scholar": 125,   # STSMT-based gun strain
     "Kushenheimer": 125,         # BKSMT-based radiation spell strain
-    "Nigle Fart": 125,           # TOL-based toxicity spillover strain
-    "Purple Halt": 125,           # SWG-based mutation control strain
+    "Swamp Gas": 125,           # TOL-based toxicity spillover strain
+    "Double Helix": 125,           # SWG-based mutation control strain
     "Snickelfritz": 30,           # Very negative trash strain (Rolling L4 proc)
 }
 
@@ -86,8 +86,8 @@ STRAIN_TOLERANCE_THRESHOLDS = {
     "Skywalker OG":  {"first_bonus_roll": 11, "add_bonus_roll": 6},
     "Street Scholar": {"first_bonus_roll": 11, "add_bonus_roll": 6},
     "Kushenheimer":      {"first_bonus_roll": 11, "add_bonus_roll": 6},
-    "Nigle Fart":        {"first_bonus_roll": 11, "add_bonus_roll": 6},
-    "Purple Halt":       {"first_bonus_roll": 11, "add_bonus_roll": 6},
+    "Swamp Gas":        {"first_bonus_roll": 11, "add_bonus_roll": 6},
+    "Double Helix":       {"first_bonus_roll": 11, "add_bonus_roll": 6},
     "Snickelfritz":      {"first_bonus_roll": 99, "add_bonus_roll": 99},  # always 1 roll, always bad
 }
 
@@ -128,9 +128,10 @@ FOOD_MUNCHING_XP = {
     "protein_powder": 80,    # Floor-duration stat doubling buff
     "muffin": 80,            # Floor-duration charge preservation buff
     "jolly_rancher": 70,     # Phase walk through walls
-    "yellowcake": 120,       # +100 rad, 10x mutation chance, no weak mutations
+    "kimchi": 80,             # Meth Lab: -100 tox, +50 HP, 50% kill drops consumable for 100 turns
+    "yellowcake": 120,       # +100 rad, 10x mutation chance for 50 turns, no weak mutations
+    "banana_pudding": 80,    # Meth Lab: -50% rad, temp HP equal to rad removed
     "holy_wafer": 100,       # +5 Divine Shield stacks
-    "mirror_cake": 70,       # +3 Mirror Entity charges
     "hard_boiled_egg": 100,  # Death save: revive at half HP
     "carrot_cake": 70,       # Unlimited FOV for floor
     "jell_o": 100,           # Meth Lab: mirror entity charges
@@ -226,40 +227,41 @@ STRAIN_TABLES = {
         ( 1,  30, {"type": "iron_lung_bad"},        None),  # Gain 100 tox
     ],
     "Skywalker OG": [
-        (100, 100, {"type": "skywalker_lightsaber"},  None),  # Green Lightsaber + Force Sensitive + 100 rad
-        (71,   99, {"type": "skywalker_force"},        None),  # Force Sensitive + 100 starting rad
-        (50,   70, {"type": "skywalker_force_half"},   None),  # Force Sensitive + 50 starting rad
-        ( 1,   49, {"type": "skywalker_rad_loss"},     None),  # Lose 50 rad
+        (100, 100, {"type": "skywalker_lightsaber"},       None),  # Lightsaber + Force Sensitive + -50 rad + 5 Rad Nova
+        (90,   99, {"type": "skywalker_force_nova_3"},     None),  # Force Sensitive + -50 rad + 3 Rad Nova
+        (70,   89, {"type": "skywalker_force_nova_2"},     None),  # Force Sensitive + -30 rad + 2 Rad Nova
+        (49,   69, {"type": "skywalker_nova_2"},           None),  # -30 rad + 2 Rad Nova
+        ( 1,   48, {"type": "skywalker_rad_loss"},         None),  # -30 rad
     ],
     "Street Scholar": [
-        (75, 100, {"type": "calculated_aim_iii"},      None),  # Calc Aim III: 15% BKSMT/kill, 100% acc, auto-reload, +1x crit mult
-        (45,  74, {"type": "calculated_aim_ii"},       None),  # Calc Aim II:  10% BKSMT/kill, auto-reload, +1x crit mult
-        (25,  44, {"type": "calculated_aim_i"},        None),  # Calc Aim I:   5% BKSMT/kill, +1x crit mult
-        (11,  24, {"type": "street_scholar_jam"},      None),  # Jam all equipped guns
-        ( 1,  10, {"type": "street_scholar_misfire"},   None),  # Dump all gun ammo
+        (90, 100, {"type": "calculated_aim_hp_ammo"},  None),  # Calc Aim (30+STS*3) + 5 Hollow Points + 100 each ammo
+        (75,  89, {"type": "calculated_aim_hp"},       None),  # Calc Aim (20+STS*2) + 5 Hollow Points
+        (40,  74, {"type": "calculated_aim"},          None),  # Calc Aim (20+STS*2): auto-reload, 10% gun kill → +1 perm STS
+        ( 1,  39, {"type": "street_scholar_misfire"},  None),  # Dump all gun ammo
     ],
     "Kushenheimer": [
-        (80, 100, {"type": "rad_nova_5"},  None),  # Tier 5: +10-20 rad, +12 spell dmg, +3+BKS/5 Nova charges, +1 perm BKS
-        (60,  79, {"type": "rad_nova_4"},  None),  # Tier 4: +15-25 rad, +10 spell dmg, +3 Nova charges
-        (40,  59, {"type": "rad_nova_3"},  None),  # Tier 3: +20-30 rad, +7 spell dmg, +2 Nova charges
-        (20,  39, {"type": "rad_nova_2"},  None),  # Tier 2: +25-35 rad, +5 spell dmg
-        ( 1,  19, {"type": "rad_nova_1"},  None),  # Tier 1: +30-40 rad, no buff
+        (90, 100, {"type": "kush_best"},  None),  # +70-80 rad, +10 spell dmg (20+BKS*2 t), +5 Rad Vent, +1 perm BKS
+        (65,  89, {"type": "kush_good"},  None),  # +50-60 rad, +10 spell dmg (20+BKS*2 t), +4 Rad Vent
+        (40,  64, {"type": "kush_mid"},   None),  # +30-40 rad, +3 Rad Vent
+        ( 1,  39, {"type": "kush_bad"},   None),  # -100 rad
     ],
-    "Nigle Fart": [
-        (80, 100, {"type": "nigle_fart_5"},  None),  # Tier 5: +30 tox, 100% spillover aura, +4 Pandemic, perm TOL chance
-        (60,  79, {"type": "nigle_fart_4"},  None),  # Tier 4: +40 tox, 75% spillover aura, +3 Pandemic, perm TOL chance
-        (40,  59, {"type": "nigle_fart_3"},  None),  # Tier 3: +50 tox, 50% spillover aura, +3 Pandemic, perm TOL chance
-        (20,  39, {"type": "nigle_fart_2"},  None),  # Tier 2: +70 tox, +2 Pandemic
-        ( 1,  19, {"type": "nigle_fart_1"},  None),  # Tier 1: +100 tox, +1 Pandemic
+    "Swamp Gas": [
+        (90, 100, {"type": "nf_best"},  None),  # +80-100 tox, 50% spillover (20+TOL*2 t), +3 Pandemic
+        (65,  89, {"type": "nf_good"},  None),  # +50-70 tox, 50% spillover (20+TOL t), +2 Pandemic
+        (40,  64, {"type": "nf_mid"},   None),  # +30-40 tox, +1 Pandemic
+        ( 1,  39, {"type": "nf_bad"},   None),  # -100 tox
     ],
-    "Purple Halt": [
-        (90, 100, {"type": "purple_halt_glory"},   None),  # Glory: force random-tier mutation, NO rad cost
-        (55,  89, {"type": "purple_halt_strong"},  None),  # Strong: force random-tier mutation, rad consumed
-        (20,  54, {"type": "purple_halt_weak"},    None),  # Weak: -15 rad (whiff)
-        ( 1,  19, {"type": "purple_halt_bad"},     None),  # Bad: -40 rad, +1 temp SWG (15t)
+    "Double Helix": [
+        (90, 100, {"type": "dh_glory"},   None),  # Force mutation (no rad cost), heal 15 HP per mutation
+        (55,  89, {"type": "dh_strong"},  None),  # Force mutation (rad consumed), heal 10 HP per mutation
+        (20,  54, {"type": "dh_weak"},    None),  # Heal 5 HP per mutation
+        ( 1,  19, {"type": "dh_bad"},     None),  # -40 rad, +1 temp SWG (15t)
     ],
     "Snickelfritz": [
-        ( 1, 100, {"type": "snickelfritz"},        None),  # TBD: very negative effects
+        (90, 100, {"type": "snick_best"},   {"type": "snick_best"}),    # 100 dmg + stun (2t)
+        (65,  89, {"type": "snick_good"},   {"type": "snick_good"}),    # 60-80 dmg + cripple (5t)
+        (40,  64, {"type": "snick_mid"},    {"type": "snick_mid"}),     # 30-50 dmg + slow (5t)
+        ( 1,  39, {"type": "snick_bad"},    {"type": "snick_bad"}),     # 10-20 dmg
     ],
 }
 
@@ -315,7 +317,8 @@ def get_strain_color(strain_name):
         "Skywalker OG": (80, 200, 120),   # Force green
         "Street Scholar": (180, 160, 220), # Studious purple
         "Kushenheimer": (160, 220, 100),         # Sickly nuclear green
-        "Nigle Fart": (200, 180, 60),            # Sickly amber
+        "Swamp Gas": (120, 160, 60),            # Murky swamp green
+        "Double Helix": (180, 100, 220),         # Mutagenic purple
     }
 
     return strain_colors.get(strain_name, (150, 150, 150))  # Fallback gray
@@ -1810,7 +1813,7 @@ ITEM_DEFS = {
         "weapon_type": "slashing",
         "value": 400,
         "tags": ["ag_sword", "spec_weapon", "unique"],
-        "description": "Spec: Charge through a clear line to an enemy 2-5 tiles away for 1.5x damage. On kill: +20 spec.",
+        "description": "Spec: Judgement — charge through a clear line to an enemy 2-5 tiles away for 1.5x damage. On kill: +20 spec.",
         "name_alternating": [(255, 215, 0), (200, 170, 0)],
         "grants_ability": "ags_charge",
         "zones": [],
@@ -2366,6 +2369,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
+        "description": "Detonates curses on enemies based off curse turn count.",
         "value": 20,
         "use_verb": "Use",
         "use_effect": {
@@ -2504,7 +2508,7 @@ ITEM_DEFS = {
         "equip_slot": None,
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 30,
+        "value": 8,
         "skill": "Drinking",
         "zones": ["crack_den", "meth_lab"],
         "use_verb": "Drink",
@@ -3260,23 +3264,6 @@ ITEM_DEFS = {
         "use_verb": "Eat",
         "use_effect": {"type": "food", "food_id": "holy_wafer"},
     },
-    "mirror_cake": {
-        "name": "Mirror Cake",
-        "char": "f",
-        "color": (150, 200, 255),
-        "category": "consumable",
-        "subcategory": None,
-        "equip_slot": None,
-        "power_bonus": 0,
-        "defense_bonus": 0,
-        "value": 70,
-        "primary_skill": None,
-        "secondary_skill": None,
-        "tertiary_skill": None,
-        "zones": ["crack_den", "meth_lab"],
-        "use_verb": "Eat",
-        "use_effect": {"type": "food", "food_id": "mirror_cake"},
-    },
     "hard_boiled_egg": {
         "name": "Hard Boiled Egg",
         "char": "f",
@@ -3311,6 +3298,23 @@ ITEM_DEFS = {
         "use_verb": "Eat",
         "use_effect": {"type": "food", "food_id": "carrot_cake"},
     },
+    "kimchi": {
+        "name": "Kimchi",
+        "char": "f",
+        "color": (200, 80, 60),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 80,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "kimchi"},
+    },
     "yellowcake": {
         "name": "Yellowcake",
         "char": "f",
@@ -3327,6 +3331,23 @@ ITEM_DEFS = {
         "zones": ["meth_lab"],
         "use_verb": "Eat",
         "use_effect": {"type": "food", "food_id": "yellowcake"},
+    },
+    "banana_pudding": {
+        "name": "Banana Pudding",
+        "char": "f",
+        "color": (255, 230, 120),
+        "category": "consumable",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 80,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": ["meth_lab"],
+        "use_verb": "Eat",
+        "use_effect": {"type": "food", "food_id": "banana_pudding"},
     },
     "jell_o": {
         "name": "Jell-O",
@@ -3412,6 +3433,24 @@ ITEM_DEFS = {
         "zones": [],
         "use_verb": None,
         "use_effect": None,
+    },
+    "tyrones_coupon": {
+        "name": "Tyrone's Coupon",
+        "char": "%",
+        "color": (255, 215, 0),
+        "category": "tool",
+        "subcategory": None,
+        "equip_slot": None,
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 0,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": [],
+        "use_verb": None,
+        "use_effect": None,
+        "description": "A crumpled coupon stamped with Tyrone's gold seal. Good for one free item at the Penthouse.",
     },
     # --- Guns ----------------------------------------------------------------
     "decimator": {
@@ -3760,6 +3799,40 @@ ITEM_DEFS = {
         "aoe_type": "line",
         "gun_stats": {"hit": 50, "energy": 55},
     },
+    # --- Temporary / Ability-spawned guns -------------------------------------
+    "toxic_slingshot": {
+        "name": "Toxic Slingshot",
+        "char": ")",
+        "color": (80, 255, 80),
+        "category": "equipment",
+        "subcategory": "gun",
+        "equip_slot": "sidearm",
+        "power_bonus": 0,
+        "defense_bonus": 0,
+        "value": 50,
+        "primary_skill": None,
+        "secondary_skill": None,
+        "tertiary_skill": None,
+        "zones": [],                          # never drops naturally
+        "use_verb": None,
+        "use_effect": None,
+        "base_damage": (8, 14),               # + CW_level * 2 added at runtime
+        "gun_range": 6,
+        "ammo_type": "toxic",                 # unique ammo type — cannot be reloaded
+        "mag_size": 20,
+        "reload_speed": 0,
+        "gun_class": "small",                 # sidearm slot
+        "aoe_type": "line",
+        "grants_ability": "scattershot",
+        "no_reload": True,
+        "no_unequip": True,
+        "temporary": True,
+        "on_hit_tox": 5,                      # applies 5 toxicity to target on hit
+        "cw_damage_bonus": 2,                 # +2 per Chemical Warfare level
+        "tags": ["toxic_slingshot"],
+        "description": "A toxic projectile launcher fueled by your toxicity. Cannot be reloaded or unequipped. Disappears when ammo runs out or its duration expires.",
+        "gun_stats": {"hit": 70, "energy": 60},
+    },
     # --- Ammo ----------------------------------------------------------------
     "light_rounds": {
         "name": "Light Rounds",
@@ -3833,7 +3906,7 @@ SKILL_VALUE_MULTIPLIERS = {
 
 _METH_LAB_STRAINS = frozenset({
     "Iron Lung", "Skywalker OG", "Street Scholar",
-    "Kushenheimer", "Nigle Fart", "Purple Halt",
+    "Kushenheimer", "Swamp Gas", "Double Helix",
 })
 
 
@@ -4107,19 +4180,26 @@ def get_craft_result_strain(item_a, item_b):
 
 
 def can_combine(item_id):
-    """Return True if item_id can participate in any combine (recipe or prefix-tool)."""
+    """Return True if item_id can initiate a combine (recipe or prefix-tool).
+
+    Only tools and materials show 'Use on...' — the workflow is
+    'use tool on target', not 'use consumable on tool'.
+    """
+    defn = ITEM_DEFS.get(item_id)
+    if not defn:
+        return False
+    cat = defn.get("category")
+    if cat not in ("tool", "material"):
+        return False
     for a, b in RECIPES:
         if item_id == a or item_id == b:
             return True
     if item_id in PREFIX_TOOL_ITEMS:
         return True
-    if item_id in FOOD_DEFS:
-        return True
     if item_id == "nutrient_producer":
         return True
-    # Consumable items can be combined with nutrient_producer
-    defn = ITEM_DEFS.get(item_id)
-    if defn and defn.get("category") == "consumable":
+    # torch_burn tools (BIC Torch) can combine with anything
+    if (defn.get("use_effect") or {}).get("type") == "torch_burn":
         return True
     return False
 
@@ -4528,46 +4608,55 @@ def generate_examine_lines(item_id, engine=None):
                     ],
                     "Skywalker OG": [
                         "Force strain (STR). Roll 1-100:",
-                        "100: Green Lightsaber + Force",
-                        "  Sensitive + 100 starting rad.",
-                        "71+: Force Sensitive + 100 rad.",
-                        "50+: Force Sensitive + 50 rad.",
-                        "1-49: Lose 50 rad.",
-                        "Force: +1 STR per 10 rad gained.",
+                        "100: Lightsaber + Force + 5 Nova.",
+                        "90+: Force Sensitive + 3 Rad Nova.",
+                        "70+: Force Sensitive + 2 Rad Nova.",
+                        "49+: -30 rad, +2 Rad Nova.",
+                        "1-48: -30 rad.",
+                        "Force: +2 STR per 25 rad lost.",
                     ],
                     "Street Scholar": [
                         "Gun strain (STS). Roll 1-100:",
-                        "75+: Calc Aim III (auto-reload,",
-                        "  100% acc, +BKS on kill).",
-                        "45+: Calc Aim II (auto-reload).",
-                        "25+: Calc Aim I (+crit mult).",
-                        "11-24: Jam guns. 1-10: Dump ammo.",
+                        "90+: Calc Aim + Hollow Pts + ammo.",
+                        "75+: Calc Aim + 5 Hollow Pts.",
+                        "40+: Calc Aim (auto-reload,",
+                        "  10% per kill → +1 perm STS).",
+                        "1-39: Misfire (dump all ammo).",
                     ],
                     "Kushenheimer": [
                         "Nuclear strain (BKS). Roll 1-100:",
-                        "80+: Rad Nova charges, +12 spell",
-                        "  dmg, +1 perm BKS.",
-                        "60+: +10 spell dmg, +3 charges.",
-                        "40+: +7 spell dmg, +2 charges.",
-                        "1-39: +rad, minor or no buff.",
+                        "90+: +70-80 rad, +10 spell dmg,",
+                        "  +5 Rad Vent, +1 perm BKS.",
+                        "65+: +50-60 rad, +10 spell dmg,",
+                        "  +4 Rad Vent.",
+                        "40+: +30-40 rad, +3 Rad Vent.",
+                        "1-39: Lose 100 rad.",
                     ],
-                    "Nigle Fart": [
+                    "Swamp Gas": [
                         "Toxic strain (TOL). Roll 1-100:",
-                        "80+: +30 tox, spillover aura,",
-                        "  +4 Pandemic, perm TOL chance.",
-                        "40+: +50 tox, aura, +3 Pandemic.",
-                        "20+: +70 tox, +2 Pandemic.",
-                        "1-19: +100 tox, +1 Pandemic.",
+                        "90+: +80-100 tox, 50% spillover,",
+                        "  +3 Pandemic.",
+                        "65+: +50-70 tox, 50% spillover,",
+                        "  +2 Pandemic.",
+                        "40+: +30-40 tox, +1 Pandemic.",
+                        "1-39: Lose 100 tox.",
                     ],
-                    "Purple Halt": [
+                    "Double Helix": [
                         "Mutation strain (SWG). Roll 1-100:",
-                        "90+: Force mutation, NO rad cost.",
-                        "55+: Force mutation, rad consumed.",
-                        "20-54: -15 rad (whiff).",
+                        "90+: Force mutation (free),",
+                        "  heal 15 HP per mutation.",
+                        "55+: Force mutation (rad cost),",
+                        "  heal 10 HP per mutation.",
+                        "20+: Heal 5 HP per mutation.",
                         "1-19: -40 rad, +1 SWG (15t).",
                     ],
                     "Snickelfritz": [
-                        "Ditch weed. Don't smoke this.",
+                        "Grenade strain. Best thrown.",
+                        "90+: 100 dmg + Stun (2t).",
+                        "65+: 60-80 dmg + Cripple (5t).",
+                        "40+: 30-50 dmg + Slow (5t).",
+                        "1-39: 10-20 dmg.",
+                        "Self-smoke: half damage to you.",
                     ],
                 }
                 # Find the strain from the item entity context
@@ -4663,14 +4752,14 @@ def generate_examine_lines(item_id, engine=None):
                     "virulent_vodka": [
                         "100 turn buff. Direct damage",
                         "applies max(dmg,10) tox. Stacks.",
-                        "25% +1 CON on kill w/ 100+ tox.",
+                        "10% +1 CON on kill w/ 100+ tox.",
                         "+1 hangover stack.",
                     ],
                     "five_loco": [
-                        "Lasts until floor change. Stacks.",
+                        "Lasts until floor change.",
                         "2x radiation gain.",
-                        "+25% good mutation chance.",
-                        "+1 hangover stack.",
+                        "+33% good mutation chance.",
+                        "Does not stack. +1 hangover.",
                     ],
                     "white_gonster": [
                         "50 turn buff. Stacks.",
@@ -4816,11 +4905,22 @@ def generate_examine_lines(item_id, engine=None):
                         elif ft == "eagle_eye":
                             lines.append([("Unlimited view distance.", C_GOOD)])
                             lines.append([("Lasts until floor change.", C_GOOD)])
+                        elif ft == "scavengers_eye":
+                            dur = eff.get("duration", 100)
+                            lines.append([(f"Lasts {dur} turns.", C_GOOD)])
+                            lines.append([("50% chance on kill to drop a", C_GOOD)])
+                            lines.append([("random consumable (RadBar,", C_GOOD)])
+                            lines.append([("RadAway, Altoid, Asbestos).", C_GOOD)])
                         elif ft == "yellowcake_buff":
-                            lines.append([("Lasts until floor change.", C_GOOD)])
+                            lines.append([("Lasts 50 turns.", C_GOOD)])
                             lines.append([("10x mutation chance.", C_GOOD)])
                             lines.append([("Weak mutations blocked.", C_GOOD)])
                             lines.append([("Only strong/huge mutations.", C_INFO)])
+                        elif ft == "banana_pudding":
+                            lines.append([("Removes half your Radiation.", C_GOOD)])
+                            lines.append([("Grants Temp HP equal to", C_GOOD)])
+                            lines.append([("the radiation removed.", C_GOOD)])
+                            lines.append([("Lasts 100 turns.", C_INFO)])
                         elif ft == "remove_toxicity":
                             amt = eff.get("amount", 0)
                             lines.append([("Removes: ", C_LABEL), (f"{amt} Toxicity", C_GOOD)])

@@ -17,6 +17,7 @@ from ai import (
     kite_at_range,
 )
 from stats import PlayerStats
+from skills import Skills
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -389,6 +390,9 @@ class TestMonsterRangedAttack:
         engine.cash = 0
         engine.kills = 0
         engine.game_over = False
+        engine.equipment = {"weapon": None, "sidearm": None}
+        engine.skills = Skills()
+        engine.turn = 0
 
         # Stub out event_bus
         class FakeEventBus:

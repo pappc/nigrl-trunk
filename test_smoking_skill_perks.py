@@ -2,9 +2,9 @@
 Tests for Smoking skill perks.
 
 Perks:
-  Level 1 - +2 TOL         : +2 Tolerance.
-  Level 2 - +2 TOL, +2 CON : +2 Tolerance, +2 Constitution (permanent stat perk).
-  Level 3 - Phat Cloud      : When you smoke, deal 10 + tolerance//2 dmg to nearest visible enemy.
+  Level 1 - +3 TOL, +3 CON : +3 Tolerance, +3 Constitution (permanent stat perk).
+  Level 2 - Phat Cloud      : When you smoke, deal 10 + tolerance//2 dmg to nearest visible enemy.
+  Level 3 - Stress Smoke    : 10% chance when hit to auto-smoke a random joint.
   Level 4 - Roach Fiend     : 30% chance a blunt is not consumed when smoked.
 """
 
@@ -145,10 +145,10 @@ def test_phat_cloud_no_crash_when_no_enemies():
     smoke_joint(engine, idx)
 
 
-def test_phat_cloud_not_active_below_level_3():
-    """Enemies should take no Phat Cloud damage at Smoking level 2."""
+def test_phat_cloud_not_active_below_level_2():
+    """Enemies should take no Phat Cloud damage at Smoking level 1."""
     engine = make_engine()
-    set_smoking_level(engine, 2)
+    set_smoking_level(engine, 1)
 
     monster = place_visible_monster(engine, dx=2, hp=500)
     initial_hp = monster.hp
@@ -158,7 +158,7 @@ def test_phat_cloud_not_active_below_level_3():
 
     # No Phat Cloud damage (OG Kush has no direct damage effect)
     assert monster.hp == initial_hp, (
-        f"Monster should not have taken Phat Cloud damage at Smoking level 2, "
+        f"Monster should not have taken Phat Cloud damage at Smoking level 1, "
         f"but HP changed: {initial_hp} -> {monster.hp}"
     )
 
@@ -207,11 +207,11 @@ def test_phat_cloud_kills_enemy_and_emits_death_event():
 
 
 # ---------------------------------------------------------------------------
-# +2 TOL, +2 CON (Level 1)
+# +3 TOL, +3 CON (Level 1)
 # ---------------------------------------------------------------------------
 
 def test_stat_up_increases_tolerance_and_constitution():
-    """+2 TOL, +2 CON perk should add +2 tolerance and +2 constitution."""
+    """+3 TOL, +3 CON perk should add +3 tolerance and +3 constitution."""
     engine = make_engine()
     ps = engine.player_stats
 
@@ -220,11 +220,11 @@ def test_stat_up_increases_tolerance_and_constitution():
 
     engine._apply_perk("Smoking", 1)
 
-    assert ps.tolerance == old_tol + 2, (
-        f"Expected tolerance {old_tol + 2}, got {ps.tolerance}"
+    assert ps.tolerance == old_tol + 3, (
+        f"Expected tolerance {old_tol + 3}, got {ps.tolerance}"
     )
-    assert ps.constitution == old_con + 2, (
-        f"Expected constitution {old_con + 2}, got {ps.constitution}"
+    assert ps.constitution == old_con + 3, (
+        f"Expected constitution {old_con + 3}, got {ps.constitution}"
     )
 
 
@@ -244,20 +244,20 @@ def test_stat_up_updates_base_dict():
 
 
 def test_stat_up_increases_max_hp_and_heals():
-    """+2 CON from stat perk should add 20 max HP and heal 20 HP."""
+    """+3 CON from stat perk should add 30 max HP and heal 30 HP."""
     engine = make_engine()
     # Damage the player first so there's room to heal
-    engine.player.hp = max(1, engine.player.hp - 30)
+    engine.player.hp = max(1, engine.player.hp - 40)
     old_hp = engine.player.hp
     old_max_hp = engine.player.max_hp
 
     engine._apply_perk("Smoking", 1)
 
-    assert engine.player.max_hp == old_max_hp + 20, (
-        f"Expected max_hp {old_max_hp + 20}, got {engine.player.max_hp}"
+    assert engine.player.max_hp == old_max_hp + 30, (
+        f"Expected max_hp {old_max_hp + 30}, got {engine.player.max_hp}"
     )
-    assert engine.player.hp == old_hp + 20, (
-        f"Expected hp {old_hp + 20} after heal, got {engine.player.hp}"
+    assert engine.player.hp == old_hp + 30, (
+        f"Expected hp {old_hp + 30} after heal, got {engine.player.hp}"
     )
 
 
@@ -283,7 +283,7 @@ def test_stat_up_no_double_apply_on_repeated_calls():
     engine._apply_perk("Smoking", 1)
     engine._apply_perk("Smoking", 1)
 
-    assert ps.tolerance == old_tol + 4, (
+    assert ps.tolerance == old_tol + 6, (
         "Two calls to _apply_perk should stack; this is a caller-side guard issue"
     )
 

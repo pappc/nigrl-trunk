@@ -1073,7 +1073,10 @@ BEHAVIORS = {
     "female_alarm": {
         "initial_state": AIState.WANDERING,
         "transitions": {
-            AIState.WANDERING: [(female_killed_on_floor, AIState.CHASING)],
+            AIState.WANDERING: [
+                (was_provoked, AIState.CHASING),
+                (female_killed_on_floor, AIState.CHASING),
+            ],
         },
         "actions": {
             AIState.WANDERING: wander,

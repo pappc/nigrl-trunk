@@ -475,7 +475,7 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
 
     # ── Skywalker OG (STR-based rad synergy strain) ─────────────────────
     elif eff_type == "skywalker_lightsaber":
-        # Roll 100: Green Lightsaber + Force Sensitive + 100 starting rad
+        # Roll 100: Lightsaber + Force Sensitive + -50 rad + 5 Rad Nova
         if is_player:
             from items import create_item_entity
             from entity import Entity
@@ -489,93 +489,127 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
             str_val = engine.player_stats.effective_strength
             duration = 50 + str_val * 2
             effects.apply_effect(entity, engine, "force_sensitive", duration=duration, silent=True)
-            from combat import add_radiation
-            add_radiation(engine, entity, 100)
-            engine.messages.append(f"Force Sensitive! ({duration} turns, +1 STR per 10 rad gained, +100 rad)")
+            from combat import remove_radiation
+            remove_radiation(engine, entity, 50)
+            engine.grant_ability_charges("radiation_nova", 5)
+            engine.messages.append([
+                ("Force Sensitive! ", (80, 200, 120)),
+                (f"({duration}t, +2 STR per 25 rad lost) ", (160, 255, 180)),
+                ("-50 rad, +5 Rad Nova", (120, 255, 80)),
+            ])
         else:
             engine.messages.append(f"{entity.name} glows with an eerie green light!")
 
-    elif eff_type == "skywalker_force":
-        # Force Sensitive + 100 starting rad
+    elif eff_type == "skywalker_force_nova_3":
+        # 90-99: Force Sensitive + -50 rad + 3 Rad Nova
         if is_player:
             str_val = engine.player_stats.effective_strength
             duration = 50 + str_val * 2
             effects.apply_effect(entity, engine, "force_sensitive", duration=duration, silent=True)
-            from combat import add_radiation
-            add_radiation(engine, entity, 100)
-            engine.messages.append(f"Force Sensitive! ({duration} turns, +1 STR per 10 rad gained, +100 rad)")
+            from combat import remove_radiation
+            remove_radiation(engine, entity, 50)
+            engine.grant_ability_charges("radiation_nova", 3)
+            engine.messages.append([
+                ("Force Sensitive! ", (80, 200, 120)),
+                (f"({duration}t, +2 STR per 25 rad lost) ", (160, 255, 180)),
+                ("-50 rad, +3 Rad Nova", (120, 255, 80)),
+            ])
         else:
             engine.messages.append(f"{entity.name} surges with power!")
 
-    elif eff_type == "skywalker_force_half":
-        # Force Sensitive + 50 starting rad
+    elif eff_type == "skywalker_force_nova_2":
+        # 70-89: Force Sensitive + -30 rad + 2 Rad Nova
         if is_player:
             str_val = engine.player_stats.effective_strength
             duration = 50 + str_val * 2
             effects.apply_effect(entity, engine, "force_sensitive", duration=duration, silent=True)
-            from combat import add_radiation
-            add_radiation(engine, entity, 50)
-            engine.messages.append(f"Force Sensitive! ({duration} turns, +1 STR per 10 rad gained, +50 rad)")
+            from combat import remove_radiation
+            remove_radiation(engine, entity, 30)
+            engine.grant_ability_charges("radiation_nova", 2)
+            engine.messages.append([
+                ("Force Sensitive! ", (80, 200, 120)),
+                (f"({duration}t, +2 STR per 25 rad lost) ", (160, 255, 180)),
+                ("-30 rad, +2 Rad Nova", (120, 255, 80)),
+            ])
         else:
             engine.messages.append(f"{entity.name} surges with power!")
+
+    elif eff_type == "skywalker_nova_2":
+        # 49-69: -30 rad + 2 Rad Nova (no buff)
+        if is_player:
+            from combat import remove_radiation
+            remove_radiation(engine, entity, 30)
+            engine.grant_ability_charges("radiation_nova", 2)
+            engine.messages.append([
+                ("Skywalker OG: ", (80, 200, 120)),
+                ("-30 rad, +2 Rad Nova", (120, 255, 80)),
+            ])
+        else:
+            engine.messages.append(f"{entity.name} loses some radiation!")
 
     elif eff_type == "skywalker_rad_loss":
-        # Lose 50 rad
-        old_rad = getattr(entity, "radiation", 0)
-        entity.radiation = max(0, old_rad - 50)
-        lost = old_rad - entity.radiation
+        # 1-48: -30 rad only
         if is_player:
-            engine.messages.append(f"Skywalker OG fizzles. Lost {lost} rad.")
+            from combat import remove_radiation
+            remove_radiation(engine, entity, 30)
+            engine.messages.append("Skywalker OG: -30 rad.")
         else:
             engine.messages.append(f"{entity.name} loses some radiation.")
 
     # ── Street Scholar (STSMT-based gun strain) ─────────────────────────
-    elif eff_type == "calculated_aim_iii":
+    elif eff_type == "calculated_aim_hp_ammo":
+        # 90-100: Calculated Aim (long) + 5 Hollow Points + 100 each ammo
         if is_player:
             stsmt = engine.player_stats.effective_street_smarts
             duration = 30 + stsmt * 3
             effects.apply_effect(entity, engine, "calculated_aim",
-                                 duration=duration, tier=3, bksmt_chance=0.15, silent=True)
-            engine.messages.append(
-                f"Calculated Aim III! ({duration}t, 15% BKSMT/kill, 100% accuracy, auto-reload, +1x crit mult)"
-            )
+                                 duration=duration, silent=True)
+            effects.apply_effect(entity, engine, "hollow_points",
+                                 charges=5, silent=True)
+            from inventory_mgr import _add_item_to_inventory
+            for ammo_id in ("light_rounds", "medium_rounds", "heavy_rounds"):
+                _add_item_to_inventory(engine, ammo_id, quantity=100)
+            engine.messages.append([
+                ("Calculated Aim! ", (180, 160, 220)),
+                (f"({duration}t, auto-reload, 10% STS/kill) ", (200, 180, 240)),
+                ("+ 5 Hollow Points + 100 each ammo!", (255, 180, 80)),
+            ])
         else:
             engine.messages.append(f"{entity.name} focuses intently!")
 
-    elif eff_type == "calculated_aim_ii":
+    elif eff_type == "calculated_aim_hp":
+        # 75-89: Calculated Aim + 5 Hollow Points
         if is_player:
             stsmt = engine.player_stats.effective_street_smarts
-            duration = 30 + stsmt * 3
+            duration = 20 + stsmt * 2
             effects.apply_effect(entity, engine, "calculated_aim",
-                                 duration=duration, tier=2, bksmt_chance=0.10, silent=True)
-            engine.messages.append(
-                f"Calculated Aim II! ({duration}t, 10% BKSMT/kill, auto-reload, +1x crit mult)"
-            )
+                                 duration=duration, silent=True)
+            effects.apply_effect(entity, engine, "hollow_points",
+                                 charges=5, silent=True)
+            engine.messages.append([
+                ("Calculated Aim! ", (180, 160, 220)),
+                (f"({duration}t, auto-reload, 10% STS/kill) ", (200, 180, 240)),
+                ("+ 5 Hollow Points!", (255, 180, 80)),
+            ])
         else:
             engine.messages.append(f"{entity.name} focuses intently!")
 
-    elif eff_type == "calculated_aim_i":
+    elif eff_type == "calculated_aim":
+        # 40-74: Calculated Aim only
         if is_player:
             stsmt = engine.player_stats.effective_street_smarts
-            duration = 30 + stsmt * 3
+            duration = 20 + stsmt * 2
             effects.apply_effect(entity, engine, "calculated_aim",
-                                 duration=duration, tier=1, bksmt_chance=0.05, silent=True)
-            engine.messages.append(
-                f"Calculated Aim I! ({duration}t, 5% BKSMT/kill, +1x crit mult)"
-            )
+                                 duration=duration, silent=True)
+            engine.messages.append([
+                ("Calculated Aim! ", (180, 160, 220)),
+                (f"({duration}t, auto-reload, 10% STS/kill)", (200, 180, 240)),
+            ])
         else:
             engine.messages.append(f"{entity.name} focuses intently!")
-
-    elif eff_type == "street_scholar_jam":
-        # Jam all equipped guns
-        if is_player:
-            engine.gun_jammed = True
-            engine.messages.append("Your guns jam up from the smoke!")
-        else:
-            engine.messages.append(f"{entity.name} coughs violently!")
 
     elif eff_type == "street_scholar_misfire":
-        # Dump all ammo from equipped guns
+        # 1-39: Dump all ammo from equipped guns
         if is_player:
             dumped = False
             for slot in ["weapon", "sidearm"]:
@@ -592,109 +626,249 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
             engine.messages.append(f"{entity.name} fumbles around!")
 
     # ── Kushenheimer strain ──────────────────────────────────────────────────
-    elif eff_type in ("rad_nova_1", "rad_nova_2", "rad_nova_3", "rad_nova_4", "rad_nova_5"):
+    elif eff_type == "kush_best":
+        # 90-100: +70-80 rad, +10 spell dmg, +5 Rad Vent, +1 perm BKS
         import random as _rn
         from combat import add_radiation
-        tier = int(eff_type[-1])  # 1-5
-        # Each tier gains random radiation — lower tiers gain more
-        rad_ranges = {1: (30, 40), 2: (25, 35), 3: (20, 30), 4: (15, 25), 5: (10, 20)}
-        rad_lo, rad_hi = rad_ranges[tier]
-        rad_gain = _rn.randint(rad_lo, rad_hi)
+        rad_gain = _rn.randint(70, 80)
         add_radiation(engine, entity, rad_gain)
         if is_player:
-            if tier >= 2:
-                # Tiers 2-5: flat temporary spell damage, duration scales with BKS
-                bksmt = engine.player_stats.effective_book_smarts
-                spell_dmg = {2: 5, 3: 7, 4: 10, 5: 12}[tier]
-                duration = 20 + bksmt * 2
-                effects.apply_effect(entity, engine, "rad_nova_spell_buff",
-                                     duration=duration, amount=spell_dmg, silent=True)
-                engine.messages.append(
-                    f"Kushenheimer tier {tier}! +{rad_gain} rad, +{spell_dmg} spell dmg ({duration}t)"
-                )
-            else:
-                engine.messages.append(f"Kushenheimer tier 1! +{rad_gain} rad.")
-            # Tiers 3-5: grant Radiation Nova charges
-            if tier >= 3:
-                bksmt = engine.player_stats.effective_book_smarts
-                base_charges = {3: 2, 4: 3, 5: 3}[tier]
-                bonus = bksmt // 5 if tier == 5 else 0
-                charges = base_charges + bonus
-                engine.grant_ability_charges("radiation_nova", charges)
-            if tier == 5:
-                # +1 permanent Book Smarts
-                engine.player_stats.modify_base_stat("book_smarts", 1)
-                engine.messages.append([
-                    ("Kushenheimer: +1 permanent Book Smarts!", (160, 220, 100)),
-                ])
+            bksmt = engine.player_stats.effective_book_smarts
+            duration = 20 + bksmt * 2
+            effects.apply_effect(entity, engine, "rad_nova_spell_buff",
+                                 duration=duration, amount=10, silent=True)
+            engine.grant_ability_charges("radiation_vent", 5)
+            engine.player_stats.modify_base_stat("book_smarts", 1)
+            engine.messages.append([
+                ("Kushenheimer! ", (160, 220, 100)),
+                (f"+{rad_gain} rad, +10 spell dmg ({duration}t), +5 Rad Vent, ", (200, 255, 200)),
+                ("+1 permanent Book Smarts!", (160, 220, 100)),
+            ])
         else:
             engine.messages.append(f"{entity.name} glows with nuclear energy!")
 
-    # ── Nigle Fart strain (TOL-based toxicity spillover) ────────────────
-    elif eff_type in ("nigle_fart_1", "nigle_fart_2", "nigle_fart_3", "nigle_fart_4", "nigle_fart_5"):
+    elif eff_type == "kush_good":
+        # 65-89: +50-60 rad, +10 spell dmg, +4 Rad Vent
+        import random as _rn
+        from combat import add_radiation
+        rad_gain = _rn.randint(50, 60)
+        add_radiation(engine, entity, rad_gain)
+        if is_player:
+            bksmt = engine.player_stats.effective_book_smarts
+            duration = 20 + bksmt * 2
+            effects.apply_effect(entity, engine, "rad_nova_spell_buff",
+                                 duration=duration, amount=10, silent=True)
+            engine.grant_ability_charges("radiation_vent", 4)
+            engine.messages.append([
+                ("Kushenheimer! ", (160, 220, 100)),
+                (f"+{rad_gain} rad, +10 spell dmg ({duration}t), +4 Rad Vent", (200, 255, 200)),
+            ])
+        else:
+            engine.messages.append(f"{entity.name} glows with nuclear energy!")
+
+    elif eff_type == "kush_mid":
+        # 40-64: +30-40 rad, +3 Rad Vent
+        import random as _rn
+        from combat import add_radiation
+        rad_gain = _rn.randint(30, 40)
+        add_radiation(engine, entity, rad_gain)
+        if is_player:
+            engine.grant_ability_charges("radiation_vent", 3)
+            engine.messages.append([
+                ("Kushenheimer: ", (160, 220, 100)),
+                (f"+{rad_gain} rad, +3 Rad Vent", (200, 255, 200)),
+            ])
+        else:
+            engine.messages.append(f"{entity.name} glows with nuclear energy!")
+
+    elif eff_type == "kush_bad":
+        # 1-39: Lose 100 rad
+        if is_player:
+            from combat import remove_radiation
+            remove_radiation(engine, entity, 100)
+            engine.messages.append("Kushenheimer fizzles. Lost 100 rad.")
+        else:
+            engine.messages.append(f"{entity.name} loses some radiation.")
+
+    # ── Swamp Gas strain (TOL-based toxicity spillover) ────────────────
+    elif eff_type == "nf_best":
+        # 90-100: +80-100 tox, 50% spillover (20+TOL*2 t), +3 Pandemic
+        import random as _rn
         from combat import add_toxicity
-        tier = int(eff_type[-1])  # 1-5
-        tox_amounts = {1: 100, 2: 70, 3: 50, 4: 40, 5: 30}
-        tox_gain = tox_amounts[tier]
+        tox_gain = _rn.randint(80, 100)
         add_toxicity(engine, entity, tox_gain)
         if is_player:
-            # All tiers grant Pandemic charges
-            charges = {1: 1, 2: 2, 3: 3, 4: 3, 5: 4}[tier]
-            engine.grant_ability_charges("pandemic", charges)
-            # Tiers 3-5: grant spillover aura
-            if tier >= 3:
-                tol = engine.player_stats.effective_tolerance
-                spillover_pct = {3: 50, 4: 75, 5: 100}[tier]
-                duration = 20 + tol * 2
-                effects.apply_effect(entity, engine, "tox_spillover_aura",
-                                     duration=duration, spillover_pct=spillover_pct, silent=True)
-                engine.messages.append(
-                    f"Nigle Fart tier {tier}! +{tox_gain} tox, {spillover_pct}% spillover aura ({duration}t), +{charges} Pandemic"
-                )
-            else:
-                engine.messages.append(
-                    f"Nigle Fart tier {tier}! +{tox_gain} tox, +{charges} Pandemic"
-                )
+            tol = engine.player_stats.effective_tolerance
+            duration = 20 + tol * 2
+            effects.apply_effect(entity, engine, "tox_spillover_aura",
+                                 duration=duration, spillover_pct=50, silent=True)
+            engine.grant_ability_charges("pandemic", 3)
+            engine.messages.append([
+                ("Swamp Gas! ", (200, 180, 60)),
+                (f"+{tox_gain} tox, 50% spillover ({duration}t), +3 Pandemic", (200, 255, 200)),
+            ])
         else:
             engine.messages.append(f"{entity.name} releases a toxic cloud!")
 
-    # ── Purple Halt strain (SWG-based mutation control) ──────────────────
-    elif eff_type in ("purple_halt_glory", "purple_halt_strong",
-                       "purple_halt_weak", "purple_halt_bad"):
+    elif eff_type == "nf_good":
+        # 65-89: +50-70 tox, 50% spillover (20+TOL t), +2 Pandemic
+        import random as _rn
+        from combat import add_toxicity
+        tox_gain = _rn.randint(50, 70)
+        add_toxicity(engine, entity, tox_gain)
         if is_player:
-            if eff_type == "purple_halt_glory":
-                # Force a mutation at a random eligible tier, NO rad cost
-                _purple_halt_force_mutation(engine, spend_rad=False)
-            elif eff_type == "purple_halt_strong":
-                # Force a mutation at a random eligible tier, rad consumed
-                _purple_halt_force_mutation(engine, spend_rad=True)
-            elif eff_type == "purple_halt_weak":
-                # -15 rad (whiff)
-                old_rad = entity.radiation
-                entity.radiation = max(0, old_rad - 15)
-                lost = old_rad - entity.radiation
-                engine.messages.append(f"Purple Halt fizzles. -{lost} rad.")
-            elif eff_type == "purple_halt_bad":
-                # -40 rad (worst — drains mutation buildup), +1 temp SWG consolation
-                old_rad = entity.radiation
-                entity.radiation = max(0, old_rad - 40)
-                lost = old_rad - entity.radiation
-                effects.apply_effect(entity, engine, "purple_halt_swagger",
-                                     duration=15, amount=1, silent=True)
-                engine.messages.append(
-                    f"Purple Halt drains your radiation. -{lost} rad. +1 SWG (15t)."
-                )
+            tol = engine.player_stats.effective_tolerance
+            duration = 20 + tol
+            effects.apply_effect(entity, engine, "tox_spillover_aura",
+                                 duration=duration, spillover_pct=50, silent=True)
+            engine.grant_ability_charges("pandemic", 2)
+            engine.messages.append([
+                ("Swamp Gas! ", (200, 180, 60)),
+                (f"+{tox_gain} tox, 50% spillover ({duration}t), +2 Pandemic", (200, 255, 200)),
+            ])
+        else:
+            engine.messages.append(f"{entity.name} releases a toxic cloud!")
+
+    elif eff_type == "nf_mid":
+        # 40-64: +30-40 tox, +1 Pandemic
+        import random as _rn
+        from combat import add_toxicity
+        tox_gain = _rn.randint(30, 40)
+        add_toxicity(engine, entity, tox_gain)
+        if is_player:
+            engine.grant_ability_charges("pandemic", 1)
+            engine.messages.append([
+                ("Swamp Gas: ", (200, 180, 60)),
+                (f"+{tox_gain} tox, +1 Pandemic", (200, 255, 200)),
+            ])
+        else:
+            engine.messages.append(f"{entity.name} releases a toxic cloud!")
+
+    elif eff_type == "nf_bad":
+        # 1-39: Lose 100 tox
+        if is_player:
+            from combat import remove_toxicity
+            remove_toxicity(engine, entity, 100)
+            engine.messages.append("Swamp Gas fizzles. Lost 100 tox.")
+        else:
+            engine.messages.append(f"{entity.name} loses some toxicity.")
+
+    # ── Double Helix strain (SWG-based mutation control) ──────────────────
+    elif eff_type == "dh_glory":
+        # 90-100: Force mutation (no rad cost), heal 15 HP per mutation
+        if is_player:
+            _purple_halt_force_mutation(engine, spend_rad=False)
+            mut_count = len(engine.mutation_log)
+            heal = 15 * mut_count
+            if heal > 0:
+                entity.hp = min(entity.max_hp, entity.hp + heal)
+                engine.messages.append([
+                    ("Double Helix: ", (180, 100, 220)),
+                    (f"Healed {heal} HP ({mut_count} mutations x 15)!", (100, 255, 100)),
+                ])
         else:
             engine.messages.append(f"{entity.name} seems unaffected.")
 
-    # ── Snickelfritz strain (very negative, TBD) ─────────────────────────
-    elif eff_type == "snickelfritz":
+    elif eff_type == "dh_strong":
+        # 55-89: Force mutation (rad consumed), heal 10 HP per mutation
         if is_player:
+            _purple_halt_force_mutation(engine, spend_rad=True)
+            mut_count = len(engine.mutation_log)
+            heal = 10 * mut_count
+            if heal > 0:
+                entity.hp = min(entity.max_hp, entity.hp + heal)
+                engine.messages.append([
+                    ("Double Helix: ", (180, 100, 220)),
+                    (f"Healed {heal} HP ({mut_count} mutations x 10)!", (100, 255, 100)),
+                ])
+        else:
+            engine.messages.append(f"{entity.name} seems unaffected.")
+
+    elif eff_type == "dh_weak":
+        # 20-54: Heal 5 HP per mutation (no mutation forced)
+        if is_player:
+            mut_count = len(engine.mutation_log)
+            heal = 5 * mut_count
+            if heal > 0:
+                entity.hp = min(entity.max_hp, entity.hp + heal)
+                engine.messages.append([
+                    ("Double Helix: ", (180, 100, 220)),
+                    (f"Healed {heal} HP ({mut_count} mutations x 5)!", (100, 255, 100)),
+                ])
+            else:
+                engine.messages.append("Double Helix fizzles. No mutations to draw from.")
+        else:
+            engine.messages.append(f"{entity.name} seems unaffected.")
+
+    elif eff_type == "dh_bad":
+        # 1-19: -40 rad, +1 temp SWG consolation
+        if is_player:
+            from combat import remove_radiation
+            remove_radiation(engine, entity, 40)
+            effects.apply_effect(entity, engine, "purple_halt_swagger",
+                                 duration=15, amount=1, silent=True)
+            engine.messages.append(
+                f"Double Helix drains your radiation. -40 rad. +1 SWG (15t)."
+            )
+        else:
+            engine.messages.append(f"{entity.name} seems unaffected.")
+
+    # ── Snickelfritz strain (offensive throw strain) ──────────────────────
+    elif eff_type in ("snick_best", "snick_good", "snick_mid", "snick_bad"):
+        import random as _rn
+        from combat import deal_damage
+        if is_player:
+            # Self-smoke: take half damage, no debuff
+            if eff_type == "snick_best":
+                dmg = 50
+            elif eff_type == "snick_good":
+                dmg = _rn.randint(30, 40)
+            elif eff_type == "snick_mid":
+                dmg = _rn.randint(15, 25)
+            else:
+                dmg = _rn.randint(5, 10)
+            deal_damage(engine, dmg, entity)
             engine.messages.append([
                 ("You smoke the Snickelfritz. ", (150, 120, 60)),
-                ("It tastes like regret.", (200, 200, 200)),
+                (f"It burns! -{dmg} HP.", (255, 80, 80)),
             ])
-            # TBD: very negative effects go here
+        else:
+            # Enemy target: full damage + debuffs
+            if eff_type == "snick_best":
+                dmg = 100
+                actual = max(1, dmg - entity.defense)
+                deal_damage(engine, actual, entity)
+                effects.apply_effect(entity, engine, "stun", duration=2, silent=True)
+                engine.messages.append([
+                    ("Snickelfritz! ", (150, 120, 60)),
+                    (f"{entity.name} takes {actual} dmg + Stunned!", (255, 200, 80)),
+                ])
+            elif eff_type == "snick_good":
+                dmg = _rn.randint(60, 80)
+                actual = max(1, dmg - entity.defense)
+                deal_damage(engine, actual, entity)
+                effects.apply_effect(entity, engine, "crippled", duration=5, silent=True)
+                engine.messages.append([
+                    ("Snickelfritz! ", (150, 120, 60)),
+                    (f"{entity.name} takes {actual} dmg + Crippled!", (255, 200, 80)),
+                ])
+            elif eff_type == "snick_mid":
+                dmg = _rn.randint(30, 50)
+                actual = max(1, dmg - entity.defense)
+                deal_damage(engine, actual, entity)
+                effects.apply_effect(entity, engine, "slow", duration=5, silent=True)
+                engine.messages.append([
+                    ("Snickelfritz! ", (150, 120, 60)),
+                    (f"{entity.name} takes {actual} dmg + Slowed!", (255, 200, 80)),
+                ])
+            else:
+                dmg = _rn.randint(10, 20)
+                actual = max(1, dmg - entity.defense)
+                deal_damage(engine, actual, entity)
+                engine.messages.append([
+                    ("Snickelfritz! ", (150, 120, 60)),
+                    (f"{entity.name} takes {actual} dmg.", (255, 200, 80)),
+                ])
 
     # ── Dosidos monster buff ─────────────────────────────────────────────
     elif eff_type == "dosidos_bksmt_buff":
@@ -705,7 +879,8 @@ def _apply_strain_effect(engine, entity, strain, roll, target="player"):
         )
 
     # ── Contact High (Smoking L5): spread strain effect to enemies within 3 tiles ──
-    if not is_player and not _contact_high_spreading and engine.skills.get("Smoking").level >= 5:
+    # Snickelfritz is excluded — its damage is already applied directly
+    if not is_player and not _contact_high_spreading and strain != "Snickelfritz" and engine.skills.get("Smoking").level >= 5:
         _contact_high_spreading = True
         spread_count = 0
         for mon in engine.dungeon.get_monsters():
@@ -734,7 +909,7 @@ def _purple_halt_force_mutation(engine, spend_rad: bool) -> None:
     """
     from mutations import (
         RAD_THRESHOLDS, RAD_COSTS, BAD_CHANCE, MUTATION_TABLES,
-        _COLOR_GOOD, _COLOR_BAD,
+        _COLOR_GOOD, _COLOR_BAD, apply_scarred_tissue,
     )
     rad = engine.player.radiation
 
@@ -761,14 +936,8 @@ def _purple_halt_force_mutation(engine, spend_rad: bool) -> None:
     table = MUTATION_TABLES[(tier, polarity)]
     desc, apply_fn = random.choice(table)
 
-    # Refresh Force Sensitive buff if present
-    for eff in engine.player.status_effects:
-        if getattr(eff, 'id', '') == 'force_sensitive':
-            eff.refresh(engine.player, engine)
-            break
-
     # Apply mutation
-    suffix = apply_fn(engine) or ""
+    suffix, reversal = apply_fn(engine)
 
     # Award Mutation XP
     _MUTATION_XP = {"weak": 100, "strong": 250, "huge": 500}
@@ -780,14 +949,20 @@ def _purple_halt_force_mutation(engine, spend_rad: bool) -> None:
     if spend_rad:
         cost_spent = rad - engine.player.radiation
         engine.messages.append(
-            f"Purple Halt forces a mutation! (-{cost_spent} rad)"
+            f"Double Helix forces a mutation! (-{cost_spent} rad)"
         )
     else:
         engine.messages.append("PURPLE HALT — free mutation! Radiation unchanged.")
     engine.messages.append([(f"You mutate! [{tier.capitalize()}] {desc}{suffix}", color)])
+
+    # Scarred Tissue: bad mutations grant +1 random stat
+    if polarity == "bad":
+        apply_scarred_tissue(engine)
+
     engine.mutation_log.append({
         "tier": tier, "polarity": polarity,
         "description": desc, "suffix": suffix,
+        "reversal": reversal,
     })
 
 
@@ -1107,8 +1282,9 @@ def _detonate_covid(engine, monster, stacks):
     old_tox = getattr(monster, 'toxicity', 0)
     old_rad = getattr(monster, 'radiation', 0)
 
-    monster.toxicity = old_tox * 2
-    monster.radiation = old_rad * 2
+    from config import MAX_TOXICITY, MAX_RADIATION
+    monster.toxicity = min(old_tox * 2, MAX_TOXICITY)
+    monster.radiation = min(old_rad * 2, MAX_RADIATION)
 
     engine.messages.append([
         (f"{monster.name}: ", (200, 200, 200)),

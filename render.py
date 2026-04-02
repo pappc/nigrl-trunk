@@ -96,6 +96,11 @@ def _is_combine_target(src, cand) -> bool:
         return getattr(cand, "prefix", None) is None
     if src.item_id in FOOD_DEFS and cand.item_id in PREFIX_TOOL_ITEMS:
         return getattr(src, "prefix", None) is None
+    # Nutrient Producer: works on any consumable/food except itself and RadBars
+    if src.item_id == "nutrient_producer" and cand.item_id != "nutrient_producer":
+        cand_def = get_item_def(cand.item_id)
+        is_consumable = (cand_def and cand_def.get("category") == "consumable") or cand.item_id in FOOD_DEFS
+        return is_consumable and cand.item_id != "radbar"
     # Items with torch_burn use_effect can target any item
     src_def = get_item_def(src.item_id)
     if src_def and (src_def.get("use_effect") or {}).get("type") == "torch_burn":
@@ -190,10 +195,16 @@ def render_all(console, engine):
     render_header(console, engine)
     render_stats_panel(console, engine)
     render_dungeon(console, engine.dungeon)
-    render_entities(console, engine.dungeon)
+    render_entities(console, engine.dungeon, engine)
     render_inventory_panel(console, engine)
     render_hotbar(console, engine)
     render_ui(console, engine)
+
+    # Clear SDL targeting line when not in spell targeting mode
+    if engine.menu_state != MenuState.TARGETING:
+        sdl = getattr(engine, "sdl_overlay", None)
+        if sdl:
+            sdl.set_targeting_line(None)
 
     # Overlay menus (one at a time)
     if engine.menu_state == MenuState.SKILLS:
@@ -253,6 +264,10 @@ def render_all(console, engine):
         render_midas_brew_menu(console, engine)
     elif engine.menu_state == MenuState.SHOP_ITEM:
         render_shop_item_popup(console, engine)
+    elif engine.menu_state == MenuState.MUTATIONS:
+        render_mutations_menu(console, engine)
+    elif engine.menu_state == MenuState.STATUS_EFFECTS:
+        render_status_effects_menu(console, engine)
 
 def _wall_noise(x, y):
     """Return two deterministic offsets for a wall tile — subtle grime variation."""
@@ -366,7 +381,7 @@ def get_entity_color(entity):
         return entity.color      # Fallback to entity's own color
 
 
-def render_entities(console, dungeon):
+def render_entities(console, dungeon, engine=None):
     """Render visible entities on the map, offset by MAP_OFFSET_X.
 
     Render order: items/cash first, then monsters, then player last.
@@ -382,6 +397,7 @@ def render_entities(console, dungeon):
             return -1 if e.hazard_type in ("fire", "toxic_creep") else 0
         return 0  # item, cash
 
+    ch_info = engine.channel_info if engine else None
     for entity in sorted(dungeon.entities, key=_render_priority):
         if not entity.alive:
             continue
@@ -396,6 +412,14 @@ def render_entities(console, dungeon):
                     int(90 + 50 * t),           # R: 90–140
                     0,
                     int(120 + 80 * (1.0 - t)),  # B: 120–200
+                )
+            # Channel pulse: player @ oscillates toward ability color
+            if entity.entity_type == "player" and ch_info is not None:
+                _name, _turns, ch_color = ch_info
+                t = (math.sin(time.time() * 4.0) + 1.0) / 2.0
+                color = tuple(
+                    int(color[i] * (1.0 - 0.6 * t) + ch_color[i] * 0.6 * t)
+                    for i in range(3)
                 )
             console.print(entity.x + MAP_OFFSET_X, entity.y + HEADER_HEIGHT, entity.char, fg=color)
         elif entity.always_visible and dungeon.explored[entity.y, entity.x]:
@@ -734,7 +758,7 @@ def render_stats_panel(console, engine):
     # ── Meth (only visible after entering the Meth Lab) ────────────
     C_METH_BAR   = (0, 140, 255)
     C_METH_EMPTY = (30, 30, 30)
-    if engine.entered_meth_lab:
+    if "meth_lab" in engine.zones_visited:
         meth_ratio = p.meth / max(1, p.max_meth) if p.max_meth > 0 else 0
         meth_label = "Meth"
         meth_value = f"{p.meth}/{p.max_meth}"
@@ -791,7 +815,7 @@ def render_stats_panel(console, engine):
     row += 1
 
     # Reserve bottom rows: 2 for cash + 2 for tox/rad when in meth lab
-    tox_rad_rows = 2 if engine.entered_meth_lab else 0
+    tox_rad_rows = 2 if "meth_lab" in engine.zones_visited else 0
     cash_section_y = map_h - 3 - tox_rad_rows
 
     status_effects = engine.player.status_effects
@@ -862,7 +886,7 @@ def render_stats_panel(console, engine):
                 console.print(lx, gun_row, gun_line[:max_w], fg=(200, 180, 100), bg=BG)
 
     # ── Toxicity / Radiation (Meth Lab only) ──────────────────────────
-    if engine.entered_meth_lab:
+    if "meth_lab" in engine.zones_visited:
         C_TOX = (0, 255, 100)
         C_RAD = (100, 255, 50)
         tox_y = cash_section_y
@@ -1376,7 +1400,7 @@ def render_char_sheet(console, engine):
         derived_count += 1
     if ps.total_spell_damage > 0:
         derived_count += 1
-    if engine.entered_meth_lab:
+    if "meth_lab" in engine.zones_visited:
         derived_count += 5  # meth + toxicity + tox resist + radiation + rad resist
     # title(2) + div(1) + headers(1) + div(1) + stats(6) + div(1) + header(1)
     # + derived rows + div(1) + rep_header(1) + factions(2) + hint(2) + border(1)
@@ -1479,7 +1503,7 @@ def render_char_sheet(console, engine):
         derived.append(("Briskness", f"{sign}{ps.total_briskness}%", "Bonus to skill points from potential XP"))
     if ps.total_spell_damage > 0:
         derived.append(("Spell Damage", f"+{ps.total_spell_damage}", "Flat bonus to all spell damage"))
-    if engine.entered_meth_lab:
+    if "meth_lab" in engine.zones_visited:
         derived.append(("Meth", f"{engine.player.meth}/{engine.player.max_meth}", "Spent on strong abilities"))
         tox = engine.player.toxicity
         mult = 1.0 + (tox / 100) ** 0.6 if tox > 0 else 1.0
@@ -1514,7 +1538,176 @@ def render_char_sheet(console, engine):
         console.print(panel_x + 30, row, f"({rep_val})", fg=C_DESC, bg=BG)
 
     # Hint
-    hint = "[C/Esc] Close"
+    hint = "[M] Mutations  [C/Esc] Close"
+    console.print(panel_x + (panel_w - len(hint)) // 2,
+                  panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
+
+
+def render_mutations_menu(console, engine):
+    """Render the mutations log as a scrollable overlay (opened from char sheet)."""
+    BG       = (22, 22, 32)
+    C_TITLE  = (255, 255, 180)
+    C_HEAD   = (180, 180, 255)
+    C_DIV    = (80, 80, 120)
+    C_HINT   = (100, 100, 100)
+    C_GOOD   = (80, 255, 80)
+    C_BAD    = (255, 80, 80)
+    C_TIER   = (180, 180, 220)
+    C_EMPTY  = (120, 120, 160)
+
+    panel_w = 50
+    muts = engine.mutation_log
+    # 3 rows per mutation (tier line, desc line, blank), plus header area
+    visible_rows = 12  # max mutations visible at once
+    content_h = max(visible_rows, 1)
+    # title(2) + div(1) + header(1) + div(1) + content + hint(2) + border(1)
+    panel_h = 8 + content_h
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+
+    title = "MUTATIONS"
+    console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+
+    count_str = f"{len(muts)} mutation{'s' if len(muts) != 1 else ''}"
+    console.print(panel_x + 2, panel_y + 3, count_str, fg=C_HEAD, bg=BG)
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 4, "─", fg=C_DIV, bg=BG)
+
+    if not muts:
+        console.print(panel_x + 2, panel_y + 5, "No mutations yet.", fg=C_EMPTY, bg=BG)
+    else:
+        scroll = getattr(engine, '_mutations_scroll', 0)
+        max_scroll = max(0, len(muts) - visible_rows)
+        scroll = min(scroll, max_scroll)
+        engine._mutations_scroll = scroll
+        visible = muts[scroll:scroll + visible_rows]
+        for i, entry in enumerate(visible):
+            row = panel_y + 5 + i
+            tier = entry.get("tier", "?").capitalize()
+            polarity = entry.get("polarity", "bad")
+            desc = entry.get("description", "???")
+            suffix = entry.get("suffix", "")
+            pol_color = C_GOOD if polarity == "good" else C_BAD
+            pol_label = "+" if polarity == "good" else "-"
+            tier_str = f"[{tier}]"
+            console.print(panel_x + 2, row, tier_str, fg=C_TIER, bg=BG)
+            console.print(panel_x + 2 + len(tier_str) + 1, row, pol_label, fg=pol_color, bg=BG)
+            desc_x = panel_x + 2 + len(tier_str) + 3
+            full = f"{desc}{suffix}"
+            console.print(desc_x, row, full[:panel_w - (desc_x - panel_x) - 2], fg=pol_color, bg=BG)
+        # Scroll indicator
+        if max_scroll > 0:
+            indicator = f"[{scroll + 1}-{scroll + len(visible)}/{len(muts)}]"
+            console.print(panel_x + panel_w - len(indicator) - 2, panel_y + 3,
+                          indicator, fg=C_HINT, bg=BG)
+
+    hint = "[Up/Down] Scroll  [Esc] Back"
+    console.print(panel_x + (panel_w - len(hint)) // 2,
+                  panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
+
+
+def render_status_effects_menu(console, engine):
+    """Render the active status effects menu (Shift+E)."""
+    BG       = (22, 22, 32)
+    C_TITLE  = (255, 255, 180)
+    C_HEAD   = (180, 180, 255)
+    C_DIV    = (80, 80, 120)
+    C_HINT   = (100, 100, 100)
+    C_BUFF   = (100, 220, 120)
+    C_DEBUFF = (255, 100, 100)
+    C_NAME   = (255, 220, 80)
+    C_DESC   = (180, 180, 200)
+    C_DUR    = (140, 140, 170)
+    C_EMPTY  = (120, 120, 160)
+
+    # Gather effects, split into buffs and debuffs
+    effects = engine.player.status_effects
+    buffs = [e for e in effects if e.category == "buff"]
+    debuffs = [e for e in effects if e.category == "debuff"]
+    all_effects = []
+    if buffs:
+        all_effects.append(("header", "BUFFS", C_BUFF))
+        for e in buffs:
+            all_effects.append(("effect", e))
+    if debuffs:
+        all_effects.append(("header", "DEBUFFS", C_DEBUFF))
+        for e in debuffs:
+            all_effects.append(("effect", e))
+
+    panel_w = 56
+    visible_rows = 16
+    # title(2) + div(1) + count(1) + div(1) + content + hint(2) + border(1)
+    panel_h = 8 + visible_rows
+    panel_x = (SCREEN_WIDTH - panel_w) // 2
+    panel_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - panel_h) // 2
+
+    _draw_panel(console, panel_x, panel_y, panel_w, panel_h, BG)
+
+    title = "STATUS EFFECTS"
+    console.print(panel_x + (panel_w - len(title)) // 2, panel_y + 1, title, fg=C_TITLE, bg=BG)
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 2, "─", fg=C_DIV, bg=BG)
+
+    count_str = f"{len(buffs)} buff{'s' if len(buffs) != 1 else ''}  {len(debuffs)} debuff{'s' if len(debuffs) != 1 else ''}"
+    console.print(panel_x + 2, panel_y + 3, count_str, fg=C_HEAD, bg=BG)
+    for px in range(1, panel_w - 1):
+        console.print(panel_x + px, panel_y + 4, "─", fg=C_DIV, bg=BG)
+
+    if not all_effects:
+        console.print(panel_x + 2, panel_y + 5, "No active effects.", fg=C_EMPTY, bg=BG)
+    else:
+        # Build display rows: each effect takes 2 rows (name+duration, description)
+        rows = []
+        for entry in all_effects:
+            if entry[0] == "header":
+                rows.append(("header", entry[1], entry[2]))
+            else:
+                eff = entry[1]
+                rows.append(("name", eff))
+                desc = eff.short_description
+                if desc:
+                    rows.append(("desc", desc))
+
+        scroll = getattr(engine, '_status_effects_scroll', 0)
+        max_scroll = max(0, len(rows) - visible_rows)
+        scroll = min(scroll, max_scroll)
+        engine._status_effects_scroll = scroll
+        visible = rows[scroll:scroll + visible_rows]
+
+        for i, row in enumerate(visible):
+            y = panel_y + 5 + i
+            if row[0] == "header":
+                console.print(panel_x + 2, y, f"── {row[1]} ──", fg=row[2], bg=BG)
+            elif row[0] == "name":
+                eff = row[1]
+                cat_color = C_BUFF if eff.category == "buff" else C_DEBUFF
+                name = eff.display_name
+                stacks = eff.stack_count
+                if stacks and stacks > 1:
+                    name += f" x{stacks}"
+                dur = eff.display_duration
+                dur_str = f"  [{dur}]"
+                max_name_w = panel_w - 4 - len(dur_str)
+                if len(name) > max_name_w:
+                    name = name[:max_name_w - 2] + ".."
+                console.print(panel_x + 2, y, name, fg=cat_color, bg=BG)
+                console.print(panel_x + 2 + len(name), y, dur_str, fg=C_DUR, bg=BG)
+            elif row[0] == "desc":
+                desc_text = row[1]
+                if len(desc_text) > panel_w - 6:
+                    desc_text = desc_text[:panel_w - 8] + ".."
+                console.print(panel_x + 4, y, desc_text, fg=C_DESC, bg=BG)
+
+        if max_scroll > 0:
+            indicator = f"[{scroll + 1}-{min(scroll + visible_rows, len(rows))}/{len(rows)}]"
+            console.print(panel_x + panel_w - len(indicator) - 2, panel_y + 3,
+                          indicator, fg=C_HINT, bg=BG)
+
+    hint = "[Up/Down] Scroll  [Shift+E/Esc] Close"
     console.print(panel_x + (panel_w - len(hint)) // 2,
                   panel_y + panel_h - 2, hint, fg=C_HINT, bg=BG)
 
@@ -1548,7 +1741,7 @@ def render_log_menu(console, engine):
     content_w    = panel_w - 4
     first_row_y  = panel_y + 3
 
-    all_msgs  = list(engine.messages)   # oldest → newest
+    all_msgs  = list(engine.messages.stamped())   # oldest → newest
     total     = len(all_msgs)
     scroll    = engine.log_scroll       # 0 = newest at bottom
     max_scroll = max(0, total - visible_rows)
@@ -1835,8 +2028,15 @@ def render_targeting_mode(console, engine):
                 ch_color = tuple(tile['fg'][:3]) if tile['fg'] is not None else (255, 255, 255)
                 console.print(sx, sy, ch, fg=ch_color, bg=C_INVALID_BG)
 
-    # Highlight spell affected tiles (if applicable)
+    # Set SDL targeting line for projectile spells (firebolt)
     stype = engine.targeting_spell.get("type", "") if engine.targeting_spell else ""
+    sdl = getattr(engine, "sdl_overlay", None)
+    if sdl and stype == "firebolt":
+        sdl.set_targeting_line(engine.get_targeting_affected_tiles(cx, cy))
+    elif sdl:
+        sdl.set_targeting_line(None)
+
+    # Highlight spell affected tiles (if applicable)
     if engine.targeting_spell is not None:
         affected_tiles = engine.get_targeting_affected_tiles(cx, cy)
         for tx, ty in affected_tiles:
@@ -2199,7 +2399,7 @@ def render_gun_targeting_mode(console, engine):
         line2 = f"Dmg: {ga_dmg[0]}-{ga_dmg[1]}  Hit: {ga_acc}%  Energy: {ga_energy}  Ammo: {gun.current_ammo}/{gun.mag_size}"
         line3 = "[Enter] Fire  [Esc] Cancel"
     else:
-        line0 = f"Fire: {gun.name} ({mode.upper()})"
+        line0 = f"Fire: {gun.name}"
         if aoe_type == "cone":
             ammo_per_shot = gun_defn.get("ammo_per_shot", (1, 1))
             if isinstance(ammo_per_shot, (list, tuple)):
@@ -2972,7 +3172,8 @@ def render_dev_menu(console, engine):
         ("Teleport to Stairs",             "teleport_stairs"),
         ("Teleport to Floor...",           "teleport_floor"),
         ("Add +5 to All Stats",            "add_stats"),
-        ("Meth Lab Kit",                   "meth_lab_kit"),
+        ("5x Random Crack Den Consumables", "spawn_crack_consumables"),
+        ("5x Random Meth Lab Consumables",  "spawn_meth_consumables"),
     ]
 
     panel_w = 42
@@ -3456,6 +3657,10 @@ def render_shop_item_popup(console, engine):
     description = defn.get("description", "")
     item_color = defn.get("color", (255, 255, 255))
     can_afford = engine.cash >= price
+    has_coupon = any(
+        getattr(it, "item_id", None) == "tyrones_coupon"
+        for it in engine.player.inventory
+    )
 
     # Wrap description to fit popup width
     popup_w = 34
@@ -3472,7 +3677,7 @@ def render_shop_item_popup(console, engine):
         if line:
             desc_lines.append(line)
 
-    popup_h = 6 + len(desc_lines)
+    popup_h = 6 + len(desc_lines) + (1 if has_coupon else 0)
     # Position popup near the item entity on screen
     # Convert world coords to screen coords (map panel offset)
     from config import LEFT_PANEL_WIDTH, HEADER_HEIGHT, MAP_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, UI_HEIGHT
@@ -3504,6 +3709,11 @@ def render_shop_item_popup(console, engine):
 
     cash_str = f"Cash: ${engine.cash}"
     console.print(popup_x + popup_w - len(cash_str) - 2, price_y, cash_str, fg=C_PRICE, bg=BG)
+
+    # Coupon line (gold, shown only when player has one)
+    if has_coupon:
+        coupon_y = price_y + 1
+        console.print(popup_x + 2, coupon_y, "[C] Use Coupon (FREE)", fg=C_PRICE, bg=BG)
 
     # Hint
     hint = "[Enter] Buy  [Esc] Cancel"
@@ -3591,6 +3801,16 @@ def render_ui(console, engine):
     hint_text = "[Shift+L] Log"
     console.print(2, ui_y, hint_text, fg=C_HINT, bg=BG)
 
+    # Channeling indicator on the top border
+    ch_info = engine.channel_info
+    if ch_info is not None:
+        ch_name, ch_turns, ch_color = ch_info
+        ch_text = f" CHANNELING {ch_name} ({ch_turns}) "
+        ch_x = 2 + len(hint_text) + 2
+        t = (math.sin(time.time() * 4.0) + 1.0) / 2.0
+        pulse_color = tuple(int(c * (0.6 + 0.4 * t)) for c in ch_color)
+        console.print(ch_x, ui_y, ch_text, fg=pulse_color, bg=BG)
+
     # Turn counter just left of the stats column
     turn_text = f"Turn: {engine.turn}"
     console.print(stats_x - len(turn_text) - 2, ui_y, turn_text, fg=C_TURN, bg=BG)
@@ -3635,7 +3855,7 @@ def render_ui(console, engine):
 
     # Message history — truncated to stay left of the stats border
     C_TURN_TAG = (60, 60, 90)
-    all_msgs  = list(engine.messages)
+    all_msgs  = list(engine.messages.stamped())
     visible   = UI_HEIGHT - 2  # reserve bottom row for border
     shown     = all_msgs[-visible:] if len(all_msgs) > visible else all_msgs
     n_shown   = len(shown)

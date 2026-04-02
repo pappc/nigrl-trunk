@@ -56,6 +56,22 @@ All require new Effect subclasses in effects.py + food handler dispatch in item_
 - The Last Supper (8-turn eat) is intended as a planning puzzle — use only in cleared rooms.
 - Mystery Meat Stew (one_of_random) has 4 outcomes ranging from great to costly.
 
+## Meth Lab Tox-Removal Foods (2026-04-02)
+
+Design doc: `nigrl-ideas/item-meth-lab-tox-foods.txt`
+6 meth_lab-exclusive foods. All remove tox + heal + novel buff. Pattern: hook into add_toxicity() in combat.py.
+
+  mystery_meat_surprise  eat=8  heal=40 tox=-80  effect=tox_immunity_window (15t; hard immunity + reflect)
+  gutter_nachos          eat=6  heal=50 tox=-60  effect=tox_recycling (20t; 50% tox->temp HP max 40, decay 2/t)
+  prison_pruno           eat=4  heal=30 tox=-50  effect=scavengers_eye (25t; 40% kill drop + item radar)
+  chalupa_supreme        eat=10 heal=60 tox=-100 effect=tox_threshold (30t; lock multiplier at 1.0; +20 HP on expire if tox>=150)
+  sloppy_joe             eat=7  heal=45 tox=-70  effect=danger_sense (20t; show enemy tox as ~ + FOV+2 + warn)
+  grandmas_casserole     eat=12 heal=80 tox=-150 effect=tox_insurance (floor; auto-purge 100 tox+25 HP at 200 tox, once)
+
+Key hook: add_toxicity() in combat.py checks for tox_immunity_window, tox_recycling, tox_threshold, tox_insurance.
+Render hook: render.py needs danger_sense (~indicator) and scavengers_eye (item radar through unexplored).
+Top 2 picks if implementing subset: gutter_nachos + grandmas_casserole.
+
 ## Notable Synergies
 
 - Ghost Pepper Jerky: hot_cheetos effect (existing) + thorns — "burning porcupine" combo.

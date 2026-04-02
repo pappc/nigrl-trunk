@@ -32,10 +32,16 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "colossus_wrecking": "+40% melee damage, can't dodge, -2 DR",
     "colossus_fortress": "+4 DR, 30% counter-attack + stun, -25% melee damage",
     "acid_meltdown": "Halved move cost; kills explode into acid pools",
+    "toxic_slingshot_timer": "Toxic Slingshot active; dissipates when timer or ammo runs out",
+    "toxic_shell": "Toxic barrier; nova detonates when temp HP hits 0",
+    "purity_stacks": "Building purity; temp HP when this expires",
+    "bastion": "-25% damage taken, -20% damage dealt",
+    "absolution": "Gaining tox; tox lost deals damage to nearby enemies",
     "agent_orange": "Can't deal melee damage; 20 damage when it expires",
     "alco_seltzer_immunity": "Immune to debuffs",
     "alco_seltzer_tox_resist": "100% toxicity resistance",
     "arcane_intelligence": "+1 spell damage per stack",
+    "banana_pudding": "Temp HP equal to rad removed; decays over 100 turns",
     "berserk": "+4 STR per stack",
     "bksmt_buff": "+Book-Smarts",
     "black_eye": "Stunned, then wanders aimlessly",
@@ -43,7 +49,7 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "bleeding": "Damage over time from wounds",
     "blue_lagoon_buff": "Using consumables chills nearest enemy",
     "butterbeer_buff": "+25% briskness",
-    "calculated_aim": "Chance to gain +1 Book Smarts per ammo spent",
+    "calculated_aim": "Auto-reload, 10% per gun kill → +1 perm STS",
     "child_support": "Drains $1 per step",
     "chill": "-15% speed per stack",
     "columbian_gold": "1 damage/turn, +5 power",
@@ -67,8 +73,8 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "fear": "Forced to flee",
     "fiery_fists": "Melee attacks apply ignite",
     "fireball_shooter_buff": "Using consumables ignites nearest enemy",
-    "five_loco": "2x rad gain, increased good mutation chance",
-    "force_sensitive": "+1 STR per 10 rad gained, refreshes on mutation",
+    "five_loco": "2x rad gain, +33% good mutation chance",
+    "force_sensitive": "+2 temp STR per 25 rad lost, reverts on expire",
     "forty_oz": "+5 Swagger per stack",
     "frozen": "Frozen solid; can't act, +99 damage resistance",
     "glass_shards": "1 damage per stack per turn",
@@ -81,6 +87,7 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "hard_boiled_egg": "Revive at half HP when killed",
     "hennessy": "-2 STR, +5 TOL, can double-smoke",
     "hex_slow": "-10 speed per stack",
+    "hollow_points": "Next N gun shots deal +50% damage",
     "hollowed_out": "",
     "hot": "Healing over time",
     "hot_cheetos": "+2 to all stats per stack",
@@ -121,6 +128,7 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "quick_eat": "Next food eaten instantly",
     "rabies": "-1 to all stats",
     "rad_nova_spell_buff": "+spell damage",
+    "radiation_vent": "Vent radiates enemies and fires bolts",
     "rad_poison": "Gaining radiation each turn",
     "rainbow_rotgut": "Melee hits apply shocked, ignite, and chill to 3 random enemies in LOS",
     "rat_race": "+10 speed per stack",
@@ -149,10 +157,10 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "titan_form": "+50 temp HP, +50% melee damage, stuns on hit",
     "tox_spillover_aura": "Killed enemies spread their toxicity nearby",
     "toxic_harvest": "Gain 5 toxicity on kill",
-    "unstable": "+2 melee damage, hits irradiate enemies",
+    "unstable": "+2 melee/gun damage, hits irradiate enemies",
     "venom": "1 damage per stack per turn",
     "victory_rush": "Next melee attack has crit advantage",
-    "virulent_vodka": "Damage applies toxicity; chance for +1 CON on toxic kills",
+    "virulent_vodka": "Damage applies toxicity; 10% for +1 CON on toxic kills",
     "voodoo_ham_stun": "Stunned",
     "web_stuck": "Stuck in a web, 50% escape chance per turn",
     "web_trail": "Leaving cobwebs behind when moving",
@@ -340,6 +348,15 @@ class HotEffect(Effect):
         super().__init__(duration=1, **kwargs)  # base duration unused; expiry via stack_timers
         self.amount = amount
         self.stack_timers: list = [duration]
+
+    @property
+    def duration(self) -> int:
+        """Return the longest remaining stack timer (matches expected HoT duration)."""
+        return max(self.stack_timers) if self.stack_timers else 0
+
+    @duration.setter
+    def duration(self, value: int):
+        pass  # duration is derived from stack_timers; ignore direct sets
 
     @property
     def expired(self) -> bool:
@@ -1848,20 +1865,76 @@ class EagleEyeEffect(Effect):
 
 @register
 class YellowcakeBuff(Effect):
-    """Buff (Yellowcake): 10x mutation chance, blocks weak-tier mutations. Floor duration."""
+    """Buff (Yellowcake): 10x mutation chance, blocks weak-tier mutations. 50 turns."""
     id = "yellowcake_buff"
     category = "buff"
     priority = 0
 
-    def __init__(self, **kwargs):
-        super().__init__(floor_duration=True, **kwargs)
+    def __init__(self, duration: int = 50, **kwargs):
+        super().__init__(duration=duration, **kwargs)
 
     @property
     def display_name(self) -> str:
         return "Critical Mass"
 
     def on_reapply(self, existing, entity, engine):
-        pass  # Already active — no stacking needed
+        existing.duration = max(existing.duration, self.duration)
+
+
+@register
+class BananaPuddingShield(Effect):
+    """Buff (Banana Pudding): removes half player's radiation, grants that much temp HP for 100 turns."""
+    id = "banana_pudding"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, temp_hp_amount: int = 0, duration: int = 100, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self._temp_hp_granted = temp_hp_amount
+
+    @property
+    def display_name(self) -> str:
+        return "Potassium Shield"
+
+    def apply(self, entity, engine):
+        if self._temp_hp_granted > 0:
+            entity.temp_hp += self._temp_hp_granted
+
+    def tick(self, entity, engine):
+        if self._temp_hp_granted > 0 and entity.temp_hp <= 0:
+            self.duration = 0
+            return
+        self.duration -= 1
+
+    def expire(self, entity, engine):
+        pass  # temp HP stays until consumed or naturally lost
+
+    def on_reapply(self, existing, entity, engine):
+        # Stack: add new temp HP and refresh duration
+        if self._temp_hp_granted > 0:
+            entity.temp_hp += self._temp_hp_granted
+            existing._temp_hp_granted += self._temp_hp_granted
+        existing.duration = max(existing.duration, self.duration)
+
+
+@register
+class ScavengersEyeEffect(Effect):
+    """Buff (Kimchi): 50% chance on kill to drop a random lesser consumable (radbar, rad_away, altoid, asbestos)."""
+    id = "scavengers_eye"
+    category = "buff"
+    priority = 0
+
+    _DROP_TABLE = ["radbar", "rad_away", "altoid", "asbestos"]
+
+    def __init__(self, duration: int = 100, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Scavenger's Eye"
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
 
 
 @register
@@ -2310,7 +2383,7 @@ class ManaDrinkEffect(Effect):
 
 @register
 class VirulentVodkaEffect(Effect):
-    """Buff (Virulent Vodka): direct player damage applies max(dmg, 10) toxicity per hit per stack. 25% chance +1 CON on killing enemy with 100+ tox."""
+    """Buff (Virulent Vodka): direct player damage applies max(dmg, 10) toxicity per hit per stack. 10% chance +1 CON on killing enemy with 100+ tox."""
     id = "virulent_vodka"
     category = "buff"
     priority = 0
@@ -2343,7 +2416,7 @@ def _apply_virulent_vodka_tox(engine, target, damage, stacks):
 
     # Check for +1 CON on kill with 100+ tox
     if not target.alive and getattr(target, 'toxicity', 0) >= 100:
-        if _rng.random() < 0.25:
+        if _rng.random() < 0.10:
             engine.player_stats.modify_base_stat("constitution", 1)
             engine.player.max_hp = engine.player_stats.max_hp
             engine.messages.append([
@@ -2410,34 +2483,31 @@ class RainbowRotgutEffect(Effect):
 
 @register
 class FiveLocoEffect(Effect):
-    """Buff (Five Loco): 2x rad gain, +25% good mutation multiplier per stack. Lasts until floor change."""
+    """Buff (Five Loco): 2x rad gain, +33% good mutation chance. Does not stack. Lasts until floor change."""
     id = "five_loco"
     category = "buff"
     priority = 0
 
-    def __init__(self, stacks: int = 1, **kwargs):
+    def __init__(self, **kwargs):
         kwargs.pop("duration", None)
+        kwargs.pop("stacks", None)
         super().__init__(floor_duration=True, **kwargs)
-        self.stacks = stacks
 
     @property
     def display_name(self) -> str:
-        if self.stacks > 1:
-            return f"Five Loco x{self.stacks}"
         return "Five Loco"
 
     def apply(self, entity, engine):
         engine.player_stats.rad_gain_multiplier_bonus += 1.0
-        engine.player_stats.good_mutation_multiplier += 0.25
+        engine.player_stats.good_mutation_multiplier += 0.33
 
     def on_reapply(self, existing, entity, engine):
-        existing.stacks += self.stacks
-        engine.player_stats.rad_gain_multiplier_bonus += 1.0
-        engine.player_stats.good_mutation_multiplier += 0.25
+        # Does not stack — just refresh duration
+        pass
 
     def expire(self, entity, engine):
-        engine.player_stats.rad_gain_multiplier_bonus -= 1.0 * self.stacks
-        engine.player_stats.good_mutation_multiplier -= 0.25 * self.stacks
+        engine.player_stats.rad_gain_multiplier_bonus -= 1.0
+        engine.player_stats.good_mutation_multiplier -= 0.33
 
 
 @register
@@ -2543,6 +2613,23 @@ def get_dead_shot_stacks(engine):
 def dead_shot_gun_bonus(engine):
     """Return flat gun damage bonus from Dead Shot Daiquiri (+5 per stack)."""
     return 5 * get_dead_shot_stacks(engine)
+
+
+def unstable_gun_bonus(engine):
+    """Return flat gun damage bonus from Unstable effect (+2 while active)."""
+    for e in engine.player.status_effects:
+        if e.id == "unstable":
+            return 2
+    return 0
+
+
+def unstable_gun_irradiate(engine, target):
+    """If player has Unstable buff, irradiate gun hit target for 10 rad."""
+    for e in engine.player.status_effects:
+        if e.id == "unstable":
+            from combat import add_radiation
+            add_radiation(engine, target, 10)
+            return
 
 
 def dead_shot_ammo_recovery(engine, num_shots, ammo_type):
@@ -2854,6 +2941,82 @@ class RadNovaSpellBuffEffect(Effect):
 
 
 @register
+class RadiationVentEffect(Effect):
+    """Buff (Kushenheimer): Tracks a placed radiation vent entity.
+    Each tick: 10 rad to enemies within 2 tiles, bolt nearest enemy within 3 tiles.
+    Bolt dmg: 10 + randint(1, BKS//2). Duration 10 turns. Removes vent entity on expire.
+    Multiple vents = multiple instances (stackable=False bypassed by unique vent_id).
+    """
+    id = "radiation_vent"
+    category = "buff"
+    priority = 0
+    stackable = False
+
+    def __init__(self, vent_x: int = 0, vent_y: int = 0,
+                 duration: int = 10, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self.vent_x = vent_x
+        self.vent_y = vent_y
+
+    @property
+    def display_name(self) -> str:
+        return f"Radiation Vent ({self.duration}t)"
+
+    def apply(self, entity, engine):
+        pass
+
+    def on_reapply(self, existing, entity, engine):
+        # Each vent is unique — this shouldn't be called, but just refresh if it is
+        existing.duration = max(existing.duration, self.duration)
+
+    def tick(self, entity, engine):
+        from combat import add_radiation, deal_damage
+        vx, vy = self.vent_x, self.vent_y
+        # Rad aura: 10 rad to enemies within 2 tiles
+        for ent in list(engine.dungeon.entities):
+            if ent.entity_type != "monster" or not ent.alive:
+                continue
+            if max(abs(ent.x - vx), abs(ent.y - vy)) <= 2:
+                add_radiation(engine, ent, 10)
+        # Bolt: nearest enemy within 3 tiles
+        best = None
+        best_dist = 999
+        for ent in engine.dungeon.entities:
+            if ent.entity_type != "monster" or not ent.alive:
+                continue
+            dist = max(abs(ent.x - vx), abs(ent.y - vy))
+            if dist <= 3 and dist < best_dist:
+                best = ent
+                best_dist = dist
+        if best is not None:
+            bks = engine.player_stats.effective_book_smarts
+            half_bks = max(1, bks // 2)
+            dmg = 10 + _random.randint(1, half_bks)
+            actual = max(1, dmg - best.defense)
+            killed = deal_damage(engine, actual, best)
+            engine.messages.append([
+                ("Rad Vent zaps ", (120, 255, 80)),
+                (best.name, best.color),
+                (f" for {actual}!", (120, 255, 80)),
+            ])
+            if killed:
+                engine.event_bus.emit("entity_died", entity=best, killer=engine.player)
+        self.duration -= 1
+
+    def expire(self, entity, engine):
+        # Remove the vent entity from the dungeon by position
+        to_remove = None
+        for ent in engine.dungeon.entities:
+            if (getattr(ent, 'hazard_type', '') == 'radiation_vent'
+                    and ent.x == self.vent_x and ent.y == self.vent_y):
+                to_remove = ent
+                break
+        if to_remove is not None:
+            engine.dungeon.entities.remove(to_remove)
+        engine.messages.append("A Radiation Vent fizzles out.")
+
+
+@register
 class ToxicHarvestEffect(Effect):
     """Buff (Chemical Warfare L1): on any monster kill, gain 5 toxicity and
     refresh this buff's duration.  Cannot stack — reapply just refreshes."""
@@ -3012,8 +3175,160 @@ class AcidMeltdownEffect(Effect):
 
 
 @register
+class ToxicSlingTimerEffect(Effect):
+    """Timer for the Toxic Slingshot conjured gun.
+    When this effect expires (or the gun runs out of ammo), the slingshot
+    is removed from the sidearm slot (or inventory) and its granted ability revoked."""
+    id = "toxic_slingshot_timer"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, duration: int = 30, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return f"Toxic Slingshot ({self.duration}t)"
+
+    def tick(self, entity, engine):
+        """Check if the gun still has ammo each tick. If not, expire early."""
+        gun = engine.equipment.get("sidearm")
+        if gun is not None and gun.item_id == "toxic_slingshot":
+            if gun.current_ammo <= 0:
+                self.duration = 0  # trigger expiry
+                return
+        # Also check inventory
+        inv_gun = next(
+            (item for item in entity.inventory if item.item_id == "toxic_slingshot"),
+            None,
+        )
+        if gun is None and inv_gun is None:
+            # Gun is gone already (somehow destroyed)
+            self.duration = 0
+            return
+
+    def expire(self, entity, engine):
+        _remove_toxic_slingshot(engine)
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
+
+
+def _remove_toxic_slingshot(engine):
+    """Remove the Toxic Slingshot from sidearm slot or inventory and revoke Scattershot."""
+    from items import get_item_def
+    removed = False
+
+    # Check sidearm slot
+    gun = engine.equipment.get("sidearm")
+    if gun is not None and gun.item_id == "toxic_slingshot":
+        engine.equipment["sidearm"] = None
+        if engine.primary_gun == "sidearm":
+            # Fall back to weapon slot gun if available
+            if engine.equipment.get("weapon") and get_item_def(
+                engine.equipment["weapon"].item_id
+            ).get("subcategory") == "gun":
+                engine.primary_gun = "weapon"
+            else:
+                engine.primary_gun = None
+        removed = True
+
+    # Check inventory
+    inv_gun = next(
+        (item for item in engine.player.inventory if item.item_id == "toxic_slingshot"),
+        None,
+    )
+    if inv_gun is not None:
+        engine.player.inventory.remove(inv_gun)
+        removed = True
+
+    # Revoke Scattershot ability
+    engine.revoke_ability("scattershot")
+
+    if removed:
+        engine.messages.append([
+            ("Toxic Slingshot ", (80, 255, 80)),
+            ("dissipates!", (160, 160, 160)),
+        ])
+
+
+@register
+class ToxicShellEffect(Effect):
+    """Buff (Chemical Warfare L5): watches for temp HP hitting 0, then fires
+    a toxic nova (radius 4).  Damage = tox_consumed/2 + CW_level*2.
+    Applies tox_consumed/2 toxicity to all enemies hit."""
+    id = "toxic_shell"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, tox_consumed: int = 0, **kwargs):
+        super().__init__(duration=9999, floor_duration=True, **kwargs)
+        self.tox_consumed = tox_consumed
+
+    @property
+    def display_name(self) -> str:
+        return f"Toxic Shell ({self.tox_consumed} tox)"
+
+    def tick(self, entity, engine):
+        """Fire nova when temp HP is depleted."""
+        if entity.temp_hp <= 0:
+            self._fire_nova(entity, engine)
+            self.duration = 0  # expire
+
+    def expire(self, entity, engine):
+        # Floor transition — don't fire nova, just clean up silently
+        pass
+
+    def on_reapply(self, existing, entity, engine):
+        # Should not happen (blocked in execute), but just in case
+        pass
+
+    def _fire_nova(self, entity, engine):
+        """Toxic nova: radius 4, damage + tox to all enemies."""
+        import combat
+        cw_level = engine.skills.get("Chemical Warfare").level
+        sts = engine.player_stats.effective_street_smarts
+        nova_damage = self.tox_consumed // 5 + cw_level * 5 + sts // 3
+        nova_tox = self.tox_consumed // 2
+        px, py = entity.x, entity.y
+        hits = 0
+
+        for monster in engine.dungeon.get_monsters():
+            if not monster.alive:
+                continue
+            dist = max(abs(monster.x - px), abs(monster.y - py))
+            if dist <= 4:
+                killed = combat.deal_damage(engine, nova_damage, monster)
+                if nova_tox > 0:
+                    combat.add_toxicity(engine, monster, nova_tox, from_player=True)
+                hits += 1
+                if killed:
+                    engine.event_bus.emit("entity_died", entity=monster, killer=entity)
+
+        engine.messages.append([
+            ("Toxic Shell detonates! ", (80, 255, 80)),
+            (f"{nova_damage} damage + {nova_tox} tox to {hits} enemies!", (160, 255, 160)),
+        ])
+
+        # Green ripple animation
+        if engine.sdl_overlay:
+            from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+            nova_tiles = [
+                (px + dx, py + dy)
+                for dx in range(-4, 5) for dy in range(-4, 5)
+                if max(abs(dx), abs(dy)) <= 4
+                and 0 <= px + dx < DUNGEON_WIDTH
+                and 0 <= py + dy < DUNGEON_HEIGHT
+            ]
+            engine.sdl_overlay.add_tile_flash_ripple(
+                nova_tiles, px, py,
+                color=(80, 255, 80), duration=0.8, ripple_speed=0.06,
+            )
+
+
+@register
 class ToxSpilloverAuraEffect(Effect):
-    """Buff (Nigle Fart strain): on monster kill, transfer % of dead monster's tox
+    """Buff (Swamp Gas strain): on monster kill, transfer % of dead monster's tox
     to nearest alive enemy. Perm tolerance chance handled in engine event handler."""
     id = "tox_spillover_aura"
     category = "buff"
@@ -3239,8 +3554,13 @@ class HotCheetosEffect(Effect):
                 apply_effect(entity, engine, "ignite", duration=5, stacks=1, silent=False)
 
     def expire(self, entity, engine):
-        """All stacks already handled in tick; nothing to do here."""
-        pass
+        """Clean up any remaining stat bonuses from active stacks."""
+        remaining = len(self.stack_timers)
+        if remaining > 0 and entity == engine.player:
+            for stat in self._STATS:
+                engine.player_stats.add_temporary_stat_bonus(stat, -2 * remaining)
+            engine._sync_player_max_hp()
+            self.stack_timers.clear()
 
     def on_reapply(self, existing, entity, engine):
         new_dur = self.stack_timers[0] if self.stack_timers else 30
@@ -3382,8 +3702,12 @@ class LeftoversWellFedEffect(Effect):
             engine.player_stats.add_temporary_spell_damage(-expired_count)
 
     def expire(self, entity, engine):
-        """All stacks already handled in tick; nothing to do here."""
-        pass
+        """Clean up any remaining power/spell damage bonuses from active stacks."""
+        remaining = len(self.stack_timers)
+        if remaining > 0:
+            entity.power -= remaining
+            engine.player_stats.add_temporary_spell_damage(-remaining)
+            self.stack_timers.clear()
 
     def on_reapply(self, existing, entity, engine):
         new_dur = self.stack_timers[0] if self.stack_timers else 10
@@ -3586,6 +3910,34 @@ class EatingFoodEffect(Effect):
                 yc_effect = apply_effect(entity, engine, "yellowcake_buff", silent=True)
                 if yc_effect:
                     engine.messages.append(f"You feel {self.well_fed_effect_name}! 10x mutation chance. No weak mutations.")
+
+            elif effect_type == "scavengers_eye":
+                duration = effect_dict.get("duration", 100)
+                se_effect = apply_effect(entity, engine, "scavengers_eye", duration=duration, silent=True)
+                if se_effect:
+                    engine.messages.append([
+                        (f"You feel {self.well_fed_effect_name}! ", (180, 120, 200)),
+                        ("50% chance for kills to drop consumables!", (100, 255, 100)),
+                    ])
+
+            elif effect_type == "banana_pudding":
+                from combat import remove_radiation
+                current_rad = entity.radiation
+                rad_to_remove = current_rad // 2
+                if rad_to_remove > 0:
+                    remove_radiation(engine, entity, rad_to_remove)
+                    bp_effect = apply_effect(entity, engine, "banana_pudding",
+                                             temp_hp_amount=rad_to_remove, duration=100, silent=True)
+                    if bp_effect:
+                        engine.messages.append([
+                            (f"You feel {self.well_fed_effect_name}! ", (255, 230, 120)),
+                            (f"-{rad_to_remove} Radiation, +{rad_to_remove} Temp HP!", (100, 255, 100)),
+                        ])
+                else:
+                    engine.messages.append([
+                        (f"You feel {self.well_fed_effect_name}... ", (255, 230, 120)),
+                        ("but you have no radiation to purge.", (180, 180, 180)),
+                    ])
 
         # Grant munching skill XP
         if self.food_id:
@@ -3894,6 +4246,12 @@ class CurseCovidEffect(Effect):
                     best = m
             if best is not None:
                 apply_effect(best, engine, "curse_covid", stacks=0, silent=True)
+                # Curse spread trail animation
+                sdl = getattr(engine, "sdl_overlay", None)
+                if sdl:
+                    from engine import _curse_spread_path
+                    path = _curse_spread_path(entity.x, entity.y, best.x, best.y)
+                    sdl.add_tile_flash_trail(path, color=(140, 60, 180), duration=0.3, trail_speed=0.04)
                 # +20 Blackkk Magic XP on spread
                 adjusted_xp = round(20 * engine.player_stats.xp_multiplier)
                 engine.skills.gain_potential_exp(
@@ -4260,6 +4618,7 @@ def tick_all_effects(entity, engine) -> None:
     is_player = entity == engine.player
     still_active = []
     hair_of_dog_reapply = []
+    original_effects = set(id(e) for e in entity.status_effects)
 
     for effect in list(entity.status_effects):
         if effect not in entity.status_effects:
@@ -4279,6 +4638,12 @@ def tick_all_effects(entity, engine) -> None:
         else:
             still_active.append(effect)
 
+    # Preserve effects added during expire() callbacks (e.g. eating_food
+    # applying hot_cheetos on completion). Only keep truly new effects,
+    # not expired ones that were already in the original list.
+    for eff in entity.status_effects:
+        if id(eff) not in original_effects and eff not in still_active:
+            still_active.append(eff)
     entity.status_effects = still_active
 
     # Apply Hair of the Dog reapplications after the main loop
@@ -4362,52 +4727,80 @@ class ConversionEffect(Effect):
 
 @register
 class CalculatedAimEffect(Effect):
-    """Buff (Street Scholar): Per ammo spent, chance to gain +1 permanent Book Smarts.
-    Tiers grant: crit multiplier, auto-reload, 100% accuracy.
-    """
+    """Buff (Street Scholar): Auto-reload. 10% chance per gun kill → +1 permanent STS."""
     id = "calculated_aim"
     category = "buff"
     priority = 0
 
-    def __init__(self, duration: int = 50, tier: int = 1,
-                 bksmt_chance: float = 0.05, **kwargs):
+    def __init__(self, duration: int = 50, **kwargs):
+        # Ignore legacy tier/bksmt_chance params from old saves
+        kwargs.pop("tier", None)
+        kwargs.pop("bksmt_chance", None)
         super().__init__(duration=duration, **kwargs)
-        self.tier = tier
-        self.bksmt_chance = bksmt_chance   # chance per gun kill to gain +1 BKSMT
-        self.auto_reload = tier >= 2       # tier II+ auto-reloads
-        self.perfect_accuracy = tier >= 3  # tier III = 100% hit
+        self.auto_reload = True
 
     @property
     def display_name(self) -> str:
-        tier_names = {1: "I", 2: "II", 3: "III"}
-        pct = int(self.bksmt_chance * 100)
-        return f"Calculated Aim {tier_names.get(self.tier, 'I')} ({pct}% BKSMT/kill)"
+        return "Calculated Aim (10% STS/kill)"
 
     def apply(self, entity, engine):
-        engine.crit_multiplier += 1
+        pass
 
     def expire(self, entity, engine):
-        engine.crit_multiplier -= 1
+        pass
 
     def on_gun_kill(self, entity, engine):
-        """Called when a gun kill happens. Roll for permanent BKSMT."""
-        if _random.random() < self.bksmt_chance:
-            engine.player_stats.modify_base_stat("book_smarts", 1)
+        """Called when a gun kill happens. 10% chance for +1 permanent STS."""
+        if _random.random() < 0.10:
+            engine.player_stats.modify_base_stat("street_smarts", 1)
             engine.messages.append([
-                ("Calculated Aim: +1 permanent Book Smarts!", (180, 160, 220)),
+                ("Calculated Aim: +1 permanent Street Smarts!", (180, 160, 220)),
             ])
 
     def on_reapply(self, existing, entity, engine):
-        if self.tier > existing.tier:
-            engine.crit_multiplier -= 1  # remove old
-            existing.tier = self.tier
-            existing.bksmt_chance = self.bksmt_chance
-            existing.auto_reload = self.auto_reload
-            existing.perfect_accuracy = self.perfect_accuracy
-            existing.duration = self.duration
-            engine.crit_multiplier += 1  # re-add
-        else:
-            existing.duration = max(existing.duration, self.duration)
+        existing.duration = max(existing.duration, self.duration)
+
+
+@register
+class HollowPointsEffect(Effect):
+    """Buff (Street Scholar): Next N gun shots deal +50% damage. Charges consumed per shot."""
+    id = "hollow_points"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, charges: int = 5, **kwargs):
+        kwargs.pop("duration", None)
+        super().__init__(duration=9999, floor_duration=True, **kwargs)
+        self.charges = charges
+
+    @property
+    def display_name(self) -> str:
+        return f"Hollow Points ({self.charges} shots)"
+
+    def apply(self, entity, engine):
+        pass
+
+    def expire(self, entity, engine):
+        pass
+
+    def on_reapply(self, existing, entity, engine):
+        existing.charges += self.charges
+
+
+def hollow_points_modify_damage(engine, damage):
+    """If Hollow Points active, consume 1 charge and return damage * 1.5. Else return damage unchanged."""
+    for eff in engine.player.status_effects:
+        if getattr(eff, 'id', '') == 'hollow_points' and eff.charges > 0:
+            eff.charges -= 1
+            boosted = int(damage * 1.5)
+            engine.messages.append([
+                ("Hollow Point! ", (255, 180, 80)),
+                (f"{damage}\u2192{boosted} damage", (255, 220, 140)),
+            ])
+            if eff.charges <= 0:
+                eff.duration = 0  # expire on next tick
+            return boosted
+    return damage
 
 
 def notify_gun_kill(engine):
@@ -4423,8 +4816,8 @@ def notify_gun_kill(engine):
 
 @register
 class ForceSensitiveEffect(Effect):
-    """Buff (Skywalker OG): Tracks rad gained during buff. +1 STR per 10 rad gained.
-    Refreshes on mutation. Re-smoking refreshes duration.
+    """Buff (Skywalker OG): Tracks rad lost during buff. +2 temp STR per 25 rad lost.
+    All bonus STR reverts on expire. Re-smoking resets and refreshes.
     """
     id = "force_sensitive"
     category = "buff"
@@ -4433,9 +4826,9 @@ class ForceSensitiveEffect(Effect):
     def __init__(self, duration: int = 66, **kwargs):
         kwargs.pop("tier", None)  # ignore legacy tier param from old saves
         super().__init__(duration=duration, **kwargs)
-        self.rad_counter = 0        # rad gained during this buff
-        self.bonus_str = 0          # STR awarded so far from rad
-        self.max_duration = duration  # for refresh
+        self.rad_lost_counter = 0   # rad lost during this buff
+        self.bonus_str = 0          # temp STR awarded so far
+        self.max_duration = duration
 
     @property
     def display_name(self) -> str:
@@ -4444,25 +4837,20 @@ class ForceSensitiveEffect(Effect):
     def apply(self, entity, engine):
         pass
 
-    def on_rad_gained(self, entity, engine, amount):
-        """Called when the entity gains radiation. Track and award STR."""
-        self.rad_counter += amount
-        new_bonus = self.rad_counter // 10
-        if new_bonus > self.bonus_str:
-            gained = new_bonus - self.bonus_str
-            self.bonus_str = new_bonus
+    def on_rad_lost(self, entity, engine, amount):
+        """Called when the entity loses radiation. Track and award +2 temp STR per 25 lost."""
+        self.rad_lost_counter += amount
+        new_thresholds = self.rad_lost_counter // 25
+        old_thresholds = (self.rad_lost_counter - amount) // 25
+        if new_thresholds > old_thresholds:
+            crossed = new_thresholds - old_thresholds
+            gained = crossed * 2
+            self.bonus_str += gained
             entity.power += gained
             engine.player_stats.modify_base_stat("strength", gained)
             engine.messages.append(
-                f"Force Sensitive: +{gained} STR from radiation! (total +{self.bonus_str})"
+                f"Force Sensitive: +{gained} STR from rad loss! (total +{self.bonus_str})"
             )
-
-    def refresh(self, entity, engine):
-        """Refresh duration to max on mutation."""
-        self.duration = self.max_duration
-        engine.messages.append(
-            f"Force Sensitive refreshed! ({self.duration} turns remaining)"
-        )
 
     def expire(self, entity, engine):
         """Remove all bonus STR when the buff ends."""
@@ -4474,9 +4862,8 @@ class ForceSensitiveEffect(Effect):
             )
 
     def on_reapply(self, existing, entity, engine):
-        # Re-smoking fully resets the buff with the new duration
         existing.expire(entity, engine)
-        existing.rad_counter = 0
+        existing.rad_lost_counter = 0
         existing.bonus_str = 0
         existing.max_duration = self.max_duration
         existing.duration = self.max_duration
@@ -4540,7 +4927,7 @@ class IronLungDmgReductionEffect(Effect):
 
 @register
 class UnstableEffect(Effect):
-    """Buff (Mutation L2): +5 rad on apply, +2 melee dmg, melee hits irradiate enemies for 10 rad. 20 turns."""
+    """Buff (Mutation L2): +5 rad on apply, +2 melee/gun dmg, hits irradiate enemies for 10 rad. 20 turns."""
     id = "unstable"
     category = "buff"
     priority = 0
@@ -4570,37 +4957,183 @@ class UnstableEffect(Effect):
 
 
 @register
-class WhiteOutEffect(Effect):
-    """Buff (White Out): +8 Swagger, -25% damage dealt for 50 turns."""
-    id = "white_out"
+class AbsolutionEffect(Effect):
+    """Buff (White Power L5 'Absolution'): gain 5 tox/turn.
+    All toxicity the player loses (resisted or removed) deals that amount
+    as damage to 2 random enemies within 4 tiles."""
+    id = "absolution"
     category = "buff"
     priority = 0
 
-    def __init__(self, duration: int = 50, **kwargs):
+    def __init__(self, duration: int = 15, **kwargs):
         super().__init__(duration=duration, **kwargs)
 
     @property
     def display_name(self) -> str:
-        return "White Out (+8 SWG, -25% dmg)"
+        return f"Absolution ({self.duration}t)"
+
+    def tick(self, entity, engine):
+        """Gain 5 toxicity per turn (goes through resistance)."""
+        from combat import add_toxicity
+        add_toxicity(engine, entity, 5)
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
+
+
+def absolution_on_tox_lost(engine, amount: int):
+    """Called when the player loses toxicity while Absolution is active.
+    Deals `amount` damage split across 2 random enemies within 4 tiles."""
+    import random as _rng
+    import combat
+
+    if amount <= 0:
+        return
+    player = engine.player
+    # Find alive enemies within Chebyshev distance 4
+    candidates = [
+        m for m in engine.dungeon.get_monsters()
+        if m.alive and max(abs(m.x - player.x), abs(m.y - player.y)) <= 4
+    ]
+    if not candidates:
+        return
+
+    # Pick up to 2 different targets
+    if len(candidates) >= 2:
+        targets = _rng.sample(candidates, 2)
+    else:
+        targets = [candidates[0]]
+
+    for target in targets:
+        killed = combat.deal_damage(engine, amount, target)
+        engine.messages.append([
+            ("Absolution: ", (220, 220, 255)),
+            (f"{amount} damage to {target.name}!", (180, 200, 255)),
+        ])
+        if killed:
+            engine.event_bus.emit("entity_died", entity=target, killer=player)
+
+
+@register
+class BastionEffect(Effect):
+    """Buff (White Power L2 'Bastion'): toggle.
+    While active: -25% incoming damage, -20% outgoing damage.
+    floor_duration so it persists until toggled off or floor ends."""
+    id = "bastion"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=9999, floor_duration=True, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Bastion (-25% taken, -20% dealt)"
 
     def apply(self, entity, engine):
-        engine.player_stats.add_temporary_stat_bonus("swagger", 8)
-        engine.player_stats.outgoing_damage_mults.append(0.75)
+        engine.player_stats.outgoing_damage_mults.append(0.80)
+
+    def modify_incoming_damage(self, damage: int, entity) -> int:
+        return max(1, int(damage * 0.75))
 
     def expire(self, entity, engine):
-        engine.player_stats.add_temporary_stat_bonus("swagger", -8)
         try:
-            engine.player_stats.outgoing_damage_mults.remove(0.75)
+            engine.player_stats.outgoing_damage_mults.remove(0.80)
         except ValueError:
             pass
 
     def on_reapply(self, existing, entity, engine):
-        existing.duration = self.duration  # refresh, don't stack
+        pass  # shouldn't happen — toggle logic prevents it
+
+
+@register
+class PurityStacksEffect(Effect):
+    """Buff (White Power L1 'Reject the Poison'): accumulates stacks from
+    resisted toxicity.  When the buff expires, heals for stacks then overflow
+    as temp HP.  Immaculate (WP L6) doubles caps and grants 2x stacks
+    while Bastion is active."""
+    id = "purity_stacks"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, stacks: int = 0, duration: int = 20, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self.stacks = min(stacks, 100)  # hard max even with Immaculate
+
+    @staticmethod
+    def _has_immaculate(engine) -> bool:
+        return engine.skills.get("White Power").level >= 6
+
+    def _max_stacks(self, engine) -> int:
+        return 100 if self._has_immaculate(engine) else 50
+
+    def _max_temp_hp(self, engine) -> int:
+        return 100 if self._has_immaculate(engine) else 50
+
+    @property
+    def display_name(self) -> str:
+        return f"Purity ({self.stacks})"
+
+    def add_stacks(self, amount: int, engine=None):
+        """Add stacks and refresh duration. Returns actual stacks added.
+        If engine is provided and Immaculate + Bastion active, stacks are doubled."""
+        # Immaculate (WP L6): 2x stacks while Bastion is active
+        if engine and self._has_immaculate(engine):
+            has_bastion = any(
+                getattr(e, 'id', '') == 'bastion'
+                for e in engine.player.status_effects
+            )
+            if has_bastion:
+                amount *= 2
+        cap = self._max_stacks(engine) if engine else 100
+        old = self.stacks
+        self.stacks = min(self.stacks + amount, cap)
+        self.duration = 20  # refresh
+        return self.stacks - old
+
+    def expire(self, entity, engine):
+        if self.stacks <= 0:
+            return
+        remaining = self.stacks
+        healed = 0
+        temp_gained = 0
+        max_temp = self._max_temp_hp(engine)
+        # Heal first
+        missing_hp = entity.max_hp - entity.hp
+        if missing_hp > 0:
+            healed = min(remaining, missing_hp)
+            entity.hp += healed
+            remaining -= healed
+        # Overflow as temp HP (capped)
+        if remaining > 0:
+            temp_gained = max(0, min(remaining, max_temp - entity.temp_hp))
+            entity.temp_hp += temp_gained
+        # Message
+        parts = []
+        if healed > 0:
+            parts.append(f"+{healed} HP")
+        if temp_gained > 0:
+            parts.append(f"+{temp_gained} temp HP")
+        if parts:
+            engine.messages.append([
+                ("Purity crystallizes! ", (220, 220, 255)),
+                (", ".join(parts), (180, 255, 180)),
+            ])
+        else:
+            engine.messages.append([
+                ("Purity fades ", (220, 220, 255)),
+                ("(HP full, temp HP at cap)", (160, 160, 160)),
+            ])
+
+    def on_reapply(self, existing, entity, engine):
+        # Shouldn't happen — stacks added via add_stacks(), not reapply
+        existing.stacks = min(existing.stacks + self.stacks, self.MAX_STACKS)
+        existing.duration = 20
 
 
 @register
 class PurpleHaltSwaggerEffect(Effect):
-    """Temporary Swagger buff from Purple Halt strain (bad tier consolation)."""
+    """Temporary Swagger buff from Double Helix strain (bad tier consolation)."""
     id = "purple_halt_swagger"
     category = "buff"
     priority = 3
@@ -4611,7 +5144,7 @@ class PurpleHaltSwaggerEffect(Effect):
 
     @property
     def display_name(self) -> str:
-        return f"Purple Halt (+{self.amount} SWG)"
+        return f"Double Helix (+{self.amount} SWG)"
 
     def apply(self, entity, engine):
         if entity == engine.player:
@@ -5484,17 +6017,7 @@ class NineRingEffect(Effect):
     def on_reapply(self, existing, entity, engine):
         pass  # only one ring
 
-    def on_player_melee_hit(self, engine, defender, damage: int) -> None:
-        if damage <= 0:
-            return
-        heal = max(1, int(damage * self._LIFESTEAL))
-        engine.player.heal(heal)
-        engine.messages.append([
-            ("The 9 Ring: ", (255, 220, 50)),
-            (f"+{heal} HP", (100, 255, 100)),
-            (f" ({engine.player.hp}/{engine.player.max_hp})", (150, 150, 150)),
-        ])
-
+    # Lifesteal handled centrally in deal_damage() for all damage types (melee/gun/spell).
 
 @register
 class HamstrungEffect(Effect):

@@ -1,4 +1,4 @@
-NIGRL - Complete Perk Reference Table (Updated 2026-03-30)
+NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 ===========================================================
 
 ### Smoking (4 perks)
@@ -167,12 +167,13 @@ NIGRL - Complete Perk Reference Table (Updated 2026-03-30)
 | 3 | Pure | +4 Swagger. Double XP from toxicity resisted |
 | 4 | Whitewash | +4 CON. 1/floor: consume half your toxicity and gain it as temporary HP |
 
-### Mutation (3 perks)
+### Mutation (4 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Mutagen | +1 all stats. Immediately force-mutate |
-| 2 | Unstable | 20% on melee hit: gain Unstable buff (20t, +5 rad, +2 melee dmg, hits irradiate enemies 10 rad) |
+| 1 | Scarred Tissue | Bad mutations also grant +1 to a random stat permanently |
+| 2 | Unstable | 20% on melee hit: gain Unstable buff (20t, +5 rad, +2 melee/gun dmg, hits irradiate enemies 10 rad) |
 | 3 | Favorable Odds | +50% good mutation multiplier |
+| 4 | Shed | Unlimited. Sacrifice a random good mutation (undone). Cleanses a random debuff. Refunds half the tier's rad threshold |
 
 ### Nuclear Research (4 perks)
 | Lvl | Perk | Effect |
@@ -273,7 +274,7 @@ NIGRL - Complete Perk Reference Table (Updated 2026-03-30)
 | 3 | Arcane Flux | +10% spell charge preservation. Charge preservation (Muffin, Blue Paint, etc.) now also negates cooldowns on spells |
 
 ===========================================================
-34 skills, 120 defined perks (rest are placeholders up to level 10)
+34 skills, 121 defined perks (rest are placeholders up to level 10)
 
 Changes from previous version (2026-03-29):
 - Smartsness: Completely reworked. L2 Spell Retention, L3 Arcane Intelligence (spell damage stacks), L4 Spell Echo, L5 Spellweaver
@@ -292,3 +293,5 @@ Changes from previous version (2026-03-29):
 - Dismantling: Added L5 Scrap Turret (destroy item loads charge, place turret that shoots enemies, blocks movement, AI attacks it)
 - Dismantling: Added L6 Salvage Volley (destroy fires 3 turret shots, turret kills drop Scrap item)
 - Total perks: 115 -> 120
+- Mutation: L1 changed from Mutagen to Scarred Tissue. Mutagen removed. Total perks stays at 120
+- Mutation: Added L4 Shed (sacrifice good mutation, cleanse debuff, refund rad). Total perks: 120 -> 121

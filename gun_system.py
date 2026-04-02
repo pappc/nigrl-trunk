@@ -10,7 +10,7 @@ import random
 import combat
 from combat import _apply_toxic_frenzy
 from config import DUNGEON_WIDTH, DUNGEON_HEIGHT, MIN_DAMAGE
-from effects import notify_gun_kill, dead_shot_gun_bonus, dead_shot_ammo_recovery
+from effects import notify_gun_kill, dead_shot_gun_bonus, dead_shot_ammo_recovery, hollow_points_modify_damage, unstable_gun_bonus, unstable_gun_irradiate
 from items import get_item_def
 from menu_state import MenuState
 
@@ -24,6 +24,15 @@ _GUN_AMMO_XP = {"light": 20, "medium": 50, "heavy": 100}
 def _sts_gun_bonus(engine):
     """Street Smarts gun damage bonus: +1 per 5 effective STS."""
     return engine.player_stats.effective_street_smarts // 5
+
+
+def _cw_damage_bonus(engine, gun_defn) -> int:
+    """Chemical Warfare scaling bonus for guns with cw_damage_bonus field."""
+    per_level = gun_defn.get("cw_damage_bonus", 0)
+    if per_level <= 0:
+        return 0
+    cw_level = engine.skills.get("Chemical Warfare").level
+    return per_level * cw_level
 
 
 def _award_gun_skill_xp(engine, gun_defn, num_shots):
@@ -58,10 +67,6 @@ def _get_calculated_aim(engine):
     )
 
 
-def _has_perfect_accuracy(engine):
-    """Check if Calculated Aim III grants 100% accuracy."""
-    aim = _get_calculated_aim(engine)
-    return aim is not None and aim.perfect_accuracy
 
 
 def _apply_sideways(engine, base_hit, energy_cost):
@@ -562,13 +567,13 @@ def _resolve_gun_ability_shot(engine, tx, ty):
             break
         shots_fired += 1
         # Accuracy roll
-        if not _has_perfect_accuracy(engine) and random.randint(1, 100) > accuracy:
+        if random.randint(1, 100) > accuracy:
             continue
         # Dodge roll
         if random.random() * 100 < target.dodge_chance:
             continue
         # Damage
-        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine) + unstable_gun_bonus(engine)
         is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
         if is_crit:
             damage *= engine.crit_multiplier
@@ -579,9 +584,16 @@ def _resolve_gun_ability_shot(engine, tx, ty):
         damage = _apply_toxic_frenzy(engine, damage)
         damage = engine._apply_damage_modifiers(damage, target)
         damage = engine._apply_toxicity(damage, target)
+        damage = hollow_points_modify_damage(engine, damage)
         killed = combat.deal_damage(engine, damage, target)
         engine._apply_virulent_vodka(target, damage)
         engine._check_decontamination_proc(target)
+        if target.alive:
+            unstable_gun_irradiate(engine, target)
+        # On-hit toxicity from ability spec or gun definition
+        ability_tox = spec.get("on_hit_tox", 0) or gun_defn.get("on_hit_tox", 0)
+        if ability_tox and target.alive:
+            combat.add_toxicity(engine, target, ability_tox, from_player=True)
         total_hits += 1
         if killed and target not in kills:
             kills.append(target)
@@ -621,6 +633,9 @@ def _resolve_cone_shot(engine, tx, ty):
         energy_cost = int(energy_cost * engine.action_cost_mult)
     base_hit = stats["hit"]
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
+    cw_bonus = _cw_damage_bonus(engine, gun_defn)
+    min_dmg += cw_bonus
+    max_dmg += cw_bonus
 
     # Determine ammo to use and projectile count
     ammo_per_shot = gun_defn.get("ammo_per_shot", (1, 1))
@@ -676,7 +691,7 @@ def _resolve_cone_shot(engine, tx, ty):
         if not target.alive:
             continue
         # Accuracy roll
-        if not _has_perfect_accuracy(engine) and random.randint(1, 100) > base_hit:
+        if random.randint(1, 100) > base_hit:
             continue
         # Dodge roll
         defender_dodge = target.dodge_chance
@@ -684,7 +699,7 @@ def _resolve_cone_shot(engine, tx, ty):
             continue
 
         # Damage
-        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine) + unstable_gun_bonus(engine)
         is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
         if is_crit:
             damage *= engine.crit_multiplier
@@ -695,9 +710,16 @@ def _resolve_cone_shot(engine, tx, ty):
         damage = _apply_toxic_frenzy(engine, damage)
         damage = engine._apply_damage_modifiers(damage, target)
         damage = engine._apply_toxicity(damage, target)
+        damage = hollow_points_modify_damage(engine, damage)
         killed = combat.deal_damage(engine, damage, target)
         engine._apply_virulent_vodka(target, damage)
         engine._check_decontamination_proc(target)
+        if target.alive:
+            unstable_gun_irradiate(engine, target)
+        # On-hit toxicity (e.g. Toxic Slingshot)
+        on_hit_tox = gun_defn.get("on_hit_tox", 0)
+        if on_hit_tox and target.alive:
+            combat.add_toxicity(engine, target, on_hit_tox, from_player=True)
         total_hits += 1
         if killed and target not in kills:
             kills.append(target)
@@ -724,6 +746,9 @@ def _resolve_circle_shot(engine, tx, ty):
         energy_cost = int(energy_cost * engine.action_cost_mult)
     base_hit = stats["hit"]
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
+    cw_bonus = _cw_damage_bonus(engine, gun_defn)
+    min_dmg += cw_bonus
+    max_dmg += cw_bonus
     aoe_radius = gun_defn.get("aoe_radius", 2)
 
     # Consume ammo
@@ -737,7 +762,7 @@ def _resolve_circle_shot(engine, tx, ty):
 
     # Accuracy roll — hit means explosion at target, miss means near player
     px, py = engine.player.x, engine.player.y
-    if _has_perfect_accuracy(engine) or random.randint(1, 100) <= base_hit:
+    if random.randint(1, 100) <= base_hit:
         # Direct hit
         ex, ey = tx, ty
         engine.messages.append("Direct hit! The rocket explodes!")
@@ -765,7 +790,7 @@ def _resolve_circle_shot(engine, tx, ty):
     # Damage all alive monsters in blast radius
     for entity in engine.dungeon.get_monsters():
         if entity.alive and (entity.x, entity.y) in blast_tiles:
-            damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+            damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine) + unstable_gun_bonus(engine)
             is_crit = _gun_crit_unlocked(engine) and random.random() < engine.player_stats.crit_chance
             if is_crit:
                 damage *= engine.crit_multiplier
@@ -775,9 +800,16 @@ def _resolve_circle_shot(engine, tx, ty):
                 damage = int(damage * mult)
             damage = engine._apply_damage_modifiers(damage, entity)
             damage = engine._apply_toxicity(damage, entity)
+            damage = hollow_points_modify_damage(engine, damage)
             killed = combat.deal_damage(engine, damage, entity)
             engine._apply_virulent_vodka(entity, damage)
             engine._check_decontamination_proc(entity)
+            if entity.alive:
+                unstable_gun_irradiate(engine, entity)
+            # On-hit toxicity (e.g. Toxic Slingshot)
+            on_hit_tox = gun_defn.get("on_hit_tox", 0)
+            if on_hit_tox and entity.alive:
+                combat.add_toxicity(engine, entity, on_hit_tox, from_player=True)
             if killed:
                 kills.append(entity)
 
@@ -812,6 +844,9 @@ def _resolve_gun_shot(engine, tx, ty):
     if engine.action_cost_mult != 1.0:
         energy_cost = int(energy_cost * engine.action_cost_mult)
     min_dmg, max_dmg = gun_defn.get("base_damage", (1, 1))
+    cw_bonus = _cw_damage_bonus(engine, gun_defn)
+    min_dmg += cw_bonus
+    max_dmg += cw_bonus
 
     # Consume ammo
     gun.current_ammo = max(0, gun.current_ammo - 1)
@@ -866,7 +901,7 @@ def _resolve_gun_shot(engine, tx, ty):
         return
 
     # Accuracy roll
-    if not _has_perfect_accuracy(engine) and random.randint(1, 100) > base_hit:
+    if random.randint(1, 100) > base_hit:
         engine.messages.append([
             ("You miss ", _C_MSG_NEUTRAL),
             (target.name, target.color),
@@ -891,7 +926,7 @@ def _resolve_gun_shot(engine, tx, ty):
     if "decimator" in gun_defn.get("tags", []):
         damage = engine.player.max_hp - engine.player.hp
     else:
-        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine)
+        damage = random.randint(min_dmg, max_dmg) + _sts_gun_bonus(engine) + dead_shot_gun_bonus(engine) + unstable_gun_bonus(engine)
 
     # Consecutive hit bonus (HV Express)
     bonus = 0
@@ -927,10 +962,18 @@ def _resolve_gun_shot(engine, tx, ty):
     damage = _apply_toxic_frenzy(engine, damage)
     damage = engine._apply_damage_modifiers(damage, target)
     damage = engine._apply_toxicity(damage, target)
+    damage = hollow_points_modify_damage(engine, damage)
 
     killed = combat.deal_damage(engine, damage, target)
     engine._apply_virulent_vodka(target, damage)
     engine._check_decontamination_proc(target)
+    if target.alive:
+        unstable_gun_irradiate(engine, target)
+
+    # On-hit toxicity (e.g. Toxic Slingshot)
+    on_hit_tox = gun_defn.get("on_hit_tox", 0)
+    if on_hit_tox and target.alive:
+        combat.add_toxicity(engine, target, on_hit_tox, from_player=True)
 
     crit_tag = " MEGA CRIT!" if is_mega_crit else (" CRIT!" if is_crit else "")
     total_consec = bonus + gatting_bonus
@@ -1003,6 +1046,11 @@ def _action_reload_gun(engine, _action):
         return False
     gun_defn = get_item_def(gun.item_id)
     if gun_defn is None:
+        return False
+
+    # Block reload for temporary guns (e.g. Toxic Slingshot)
+    if gun_defn.get("no_reload"):
+        engine.messages.append("This gun cannot be reloaded.")
         return False
 
     # Clear jam if jammed (costs energy, doesn't reload ammo)

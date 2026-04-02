@@ -166,7 +166,7 @@ FOOD_DEFS = {
 
         "effects": [
             {"type": "heal", "amount": 58},
-            {"type": "grant_ability_charges", "ability_id": "mirror_entity", "charges": [1, 3]},
+            {"type": "grant_ability_charges", "ability_id": "mirror_entity", "charges": [2, 4]},
         ],
     },
     "meatball_sub": {
@@ -290,20 +290,6 @@ FOOD_DEFS = {
             {"type": "holy_wafer"},
         ],
     },
-    "mirror_cake": {
-        "name": "Mirror Cake",
-        "eat_length": 10,
-        "eating_effect_name": "Eating Mirror Cake",
-        "well_fed_effect_name": "Mirrored",
-        "char": "f",
-        "color": (150, 200, 255),
-        "zones": ["crack_den", "meth_lab"],
-        "skill": "Smartsness",
-
-        "effects": [
-            {"type": "grant_ability_charges", "ability_id": "mirror_entity", "charges": 3},
-        ],
-    },
     "hard_boiled_egg": {
         "name": "Hard Boiled Egg",
         "eat_length": 2,
@@ -318,6 +304,22 @@ FOOD_DEFS = {
             {"type": "hard_boiled_egg"},
         ],
     },
+    "kimchi": {
+        "name": "Kimchi",
+        "eat_length": 4,
+        "eating_effect_name": "Eating Kimchi",
+        "well_fed_effect_name": "Scavenger's Eye",
+        "char": "f",
+        "color": (200, 80, 60),
+        "zones": ["meth_lab"],
+        "skill": "White Power",
+
+        "effects": [
+            {"type": "heal", "amount": 50},
+            {"type": "remove_toxicity", "amount": 100},
+            {"type": "scavengers_eye", "duration": 100},
+        ],
+    },
     "yellowcake": {
         "name": "Yellowcake",
         "eat_length": 5,
@@ -330,6 +332,20 @@ FOOD_DEFS = {
         "effects": [
             {"type": "radiation", "amount": 100},
             {"type": "yellowcake_buff"},
+        ],
+    },
+    "banana_pudding": {
+        "name": "Banana Pudding",
+        "eat_length": 6,
+        "eating_effect_name": "Eating Banana Pudding",
+        "well_fed_effect_name": "Potassium Shield",
+        "char": "f",
+        "color": (255, 230, 120),
+        "zones": ["meth_lab"],
+        "skill": "Decontamination",
+
+        "effects": [
+            {"type": "banana_pudding"},
         ],
     },
 }
@@ -386,5 +402,5 @@ def validate_food_registry():
                 assert "amount" in effect, f"Food {food_id} toxicity effect missing 'amount'"
             elif effect_type == "remove_toxicity":
                 assert "amount" in effect, f"Food {food_id} remove_toxicity effect missing 'amount'"
-            elif effect_type in ("grant_ability_charges", "cornbread_buff", "leftovers_well_fed", "protein_powder", "muffin_buff", "phase_walk", "yellowcake_buff", "eagle_eye", "hard_boiled_egg", "holy_wafer"):
+            elif effect_type in ("grant_ability_charges", "cornbread_buff", "leftovers_well_fed", "protein_powder", "muffin_buff", "phase_walk", "yellowcake_buff", "eagle_eye", "hard_boiled_egg", "holy_wafer", "scavengers_eye", "banana_pudding"):
                 pass  # No extra required fields beyond "type"

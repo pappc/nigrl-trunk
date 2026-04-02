@@ -147,6 +147,7 @@ class SDLOverlay:
         self._gradient_tiles: list[tuple] = []  # (dungeon_x, dungeon_y, item_id) for gradient items
         self._gradient_textures: dict = {}  # item_id -> SDL texture (lazily built)
         self._status_icon_data: list[tuple[int, int, list[tuple[str, tuple[int,int,int]]]]] = []
+        self._targeting_line: list[tuple[int, int]] = []
         self._last_ember_spawn: float = 0.0
         self._init_digit_textures()
         self._init_status_glyph_textures()
@@ -449,6 +450,28 @@ class SDLOverlay:
                 "color": color,
             })
 
+    def add_tile_flash_trail(self, tiles: list[tuple[int, int]],
+                            color: tuple[int, int, int] = (255, 120, 30),
+                            duration: float = 0.35,
+                            trail_speed: float = 0.03):
+        """Flash tiles sequentially along a path (e.g. projectile trail).
+
+        trail_speed: seconds of delay per step along the path.
+        """
+        now = time.time()
+        for i, (tx, ty) in enumerate(tiles):
+            delay = i * trail_speed
+            self._tile_flashes.append({
+                "x": tx, "y": ty,
+                "birth": now, "delay": delay,
+                "duration": duration,
+                "color": color,
+            })
+
+    def set_targeting_line(self, tiles: list[tuple[int, int]] | None):
+        """Set tiles to draw as a targeting line overlay (or None to clear)."""
+        self._targeting_line = list(tiles) if tiles else []
+
     def show_title_card(self, text: str, duration: float = 3.0):
         """Show a full-screen title card that fades out over the given duration."""
         self._title_card = {"text": text, "birth": time.time(), "duration": duration}
@@ -472,7 +495,7 @@ class SDLOverlay:
         if (self._floating_texts or self._tile_flashes
                 or self._title_card or self._embers
                 or self._frozen_tiles or self._gradient_tiles
-                or self._status_icon_data):
+                or self._status_icon_data or self._targeting_line):
             console_px_w = console.width * TILE_PX
             console_px_h = console.height * TILE_PX
             self._renderer.logical_size = (console_px_w, console_px_h)
@@ -482,6 +505,8 @@ class SDLOverlay:
                 self._render_frozen_tiles()
             if self._gradient_tiles:
                 self._render_gradient_tiles()
+            if self._targeting_line:
+                self._render_targeting_line()
             if self._tile_flashes:
                 self._render_tile_flashes()
             if self._status_icon_data:
@@ -561,6 +586,26 @@ class SDLOverlay:
     def render_title_text_on_console(self, console):
         """No-op — title text is now rendered entirely in the SDL layer."""
         pass
+
+    def _render_targeting_line(self):
+        """Draw a semi-transparent line of tiles showing the projectile path."""
+        if not self._targeting_line:
+            return
+        old_blend = self._renderer.draw_blend_mode
+        self._renderer.draw_blend_mode = tcod.sdl.render.BlendMode.BLEND
+        n = len(self._targeting_line)
+        for i, (tx, ty) in enumerate(self._targeting_line):
+            # Gradient from bright near player to dimmer at end
+            progress = i / max(n - 1, 1)
+            alpha = int(100 - 40 * progress)  # 100 → 60
+            r = 255
+            g = int(160 - 80 * progress)  # 160 → 80 (orange → red-orange)
+            b = int(40 - 30 * progress)   # 40 → 10
+            self._renderer.draw_color = (r, g, b, alpha)
+            px = (tx + MAP_OFFSET_X) * TILE_PX
+            py = (ty + HEADER_HEIGHT) * TILE_PX
+            self._renderer.fill_rect((px, py, TILE_PX, TILE_PX))
+        self._renderer.draw_blend_mode = old_blend
 
     def _render_tile_flashes(self):
         """Draw fading colored rectangles over tiles (e.g. fire breath impact)."""

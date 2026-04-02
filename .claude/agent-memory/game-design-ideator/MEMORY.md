@@ -51,7 +51,7 @@ Full L4/L5 designs: `nigrl-ideas/skill_perks_L4_L5.txt`. Table: `nigrl-ideas/ski
 - `nigrl-ideas/stat-scaling-strains-v2.txt` — 30 strains V2 (CURRENT)
 - [roguelike-drinks.md](roguelike-drinks.md) — 30 roguelike drinks; `roguelike-inspired-drinks.txt`
 - [meth-lab-drinks.md](meth-lab-drinks.md) — 10 Meth Lab drinks; [colored-dranks.md](colored-dranks.md) — 14 colored dranks
-- [food-compendium.md](food-compendium.md) — 50+35 foods; `item-food-compendium.txt`, `roguelike-inspired-foods-part2.txt`
+- [food-compendium.md](food-compendium.md) — 50+35 foods; `item-food-compendium.txt`, `roguelike-inspired-foods-part2.txt`; + 6 meth lab tox-removal foods `item-meth-lab-tox-foods.txt`
 
 ### Skills / Abilities
 - `nigrl-ideas/wow-inspired-melee-abilities.txt` — 25 WoW-adapted melee abilities; all 4 weapon types

@@ -20,13 +20,19 @@ class MessageLog:
         self._data.append((self._engine.turn, msg))
 
     def __iter__(self):
+        """Yield just the message content (without turn stamp)."""
+        return (msg for _turn, msg in self._data)
+
+    def stamped(self):
+        """Yield (turn, msg) tuples — used by render and save."""
         return iter(self._data)
 
     def __len__(self):
         return len(self._data)
 
     def __getitem__(self, index):
-        return self._data[index]
+        _turn, msg = self._data[index]
+        return msg
 
     def __bool__(self):
         return bool(self._data)
@@ -111,6 +117,32 @@ def _monster_toxicity_multiplier(toxicity: int) -> float:
     if toxicity <= 0:
         return 1.0
     return 1.0 + (toxicity / 50) ** 0.6
+
+
+_CHANNEL_DISPLAY_NAMES = {
+    "ray_of_frost": "Ray of Frost",
+    "discharge": "Discharge",
+}
+
+_CHANNEL_COLORS = {
+    "ray_of_frost": (100, 200, 255),   # ice blue
+    "discharge": (180, 160, 255),      # electric purple
+}
+
+
+def _curse_spread_path(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
+    """Build a tile path from (x0,y0) to (x1,y1) via linear interpolation."""
+    dx = x1 - x0
+    dy = y1 - y0
+    steps = max(abs(dx), abs(dy))
+    if steps == 0:
+        return [(x1, y1)]
+    tiles = []
+    for step in range(1, steps + 1):
+        x = round(x0 + dx * step / steps)
+        y = round(y0 + dy * step / steps)
+        tiles.append((x, y))
+    return tiles
 
 
 class GameEngine:
@@ -220,7 +252,7 @@ class GameEngine:
         self.midas_cursor: int = 0
         self._midas_brew_item = None
         self.restart_requested: bool = False
-        self.entered_meth_lab: bool = False  # unlocks toxicity display on char sheet
+        self.zones_visited: set[str] = set()  # tracks first-visit per zone
         self.skills_cursor: int = 0        # selected skill row (0-14)
         self.skills_spend_mode: bool = False   # spend-amount prompt open
         self.skills_spend_input: str = ""      # digits typed by user
@@ -329,6 +361,8 @@ class GameEngine:
 
         # --- Mutation system ---
         self.mutation_log: list[dict] = []
+        self._mutations_scroll: int = 0
+        self._status_effects_scroll: int = 0
 
         # --- Vending machine state ---
         self.vending_machine: object = None     # Entity ref: active vending machine
@@ -468,6 +502,30 @@ class GameEngine:
         self.event_bus.on("entity_died", self._on_kill_berserk)
         self.event_bus.on("entity_died", self._on_kill_corpse_explosion)
         self.event_bus.on("entity_died", self._on_kill_curse_voodoo_drop)
+        self.event_bus.on("entity_died", self._on_kill_scavengers_eye)
+
+    def _on_kill_scavengers_eye(self, entity, killer=None):
+        """Scavenger's Eye (Kimchi): 50% chance on kill to drop a random lesser consumable."""
+        if entity.entity_type != "monster" or killer is not self.player:
+            return
+        eff = next(
+            (e for e in self.player.status_effects
+             if getattr(e, 'id', '') == 'scavengers_eye'),
+            None,
+        )
+        if eff is None:
+            return
+        if random.random() < 0.50:
+            from items import create_item_entity
+            from effects import ScavengersEyeEffect
+            item_id = random.choice(ScavengersEyeEffect._DROP_TABLE)
+            kwargs = create_item_entity(item_id, entity.x, entity.y)
+            self.dungeon.add_entity(Entity(**kwargs))
+            item_name = kwargs.get("name", item_id)
+            self.messages.append([
+                ("Scavenger's Eye! ", (180, 120, 200)),
+                (f"{entity.name} dropped {item_name}.", (100, 255, 100)),
+            ])
 
     def _on_kill_berserk(self, entity, killer=None):
         """Berserker's Ring: on melee kill, apply independent +4 STR for 10 turns."""
@@ -988,7 +1046,7 @@ class GameEngine:
             if chance > 0 and random.randint(1, 100) <= chance:
                 self.player_stats.modify_base_stat("tolerance", 1)
                 self.messages.append([
-                    ("Nigle Fart: +1 permanent Tolerance!", (200, 180, 60)),
+                    ("Swamp Gas: +1 permanent Tolerance!", (200, 180, 60)),
                 ])
         # Spillover: transfer % of dead monster's tox to nearest alive enemy
         if dead_tox <= 0:
@@ -1014,7 +1072,7 @@ class GameEngine:
             )
 
     def _on_kill_toxic_harvest(self, entity, killer=None):
-        """Toxic Harvest buff: any monster kill grants +5 toxicity and refreshes the buff."""
+        """Toxic Harvest buff: any monster kill grants +25 toxicity and refreshes the buff."""
         if entity.entity_type != "monster":
             return
         harvest = next(
@@ -1025,11 +1083,11 @@ class GameEngine:
         if harvest is None:
             return
         # Goes through resistance: positive res reduces gain, negative res increases it
-        self.add_toxicity(self.player, 5)
+        self.add_toxicity(self.player, 25)
         harvest.duration = 10  # refresh full duration
         self.messages.append([
             ("Toxic Harvest: ", (80, 255, 80)),
-            ("+5 toxicity!", (160, 255, 160)),
+            ("+25 toxicity!", (160, 255, 160)),
         ])
 
     def _on_kill_acid_meltdown(self, entity, killer=None):
@@ -1129,6 +1187,11 @@ class GameEngine:
         if best is None:
             return
         _eff.apply_effect(best, self, "curse_dot", stacks=stacks, silent=True)
+        # Curse spread trail animation
+        sdl = getattr(self, "sdl_overlay", None)
+        if sdl:
+            path = _curse_spread_path(entity.x, entity.y, best.x, best.y)
+            sdl.add_tile_flash_trail(path, color=(140, 60, 180), duration=0.3, trail_speed=0.04)
         # +20 Blackkk Magic XP on spread
         adjusted_xp = round(20 * self.player_stats.xp_multiplier)
         self.skills.gain_potential_exp(
@@ -1405,6 +1468,35 @@ class GameEngine:
         if self.menu_state == MenuState.CHAR_SHEET:
             if action_type == "close_menu":
                 self.menu_state = MenuState.NONE
+            elif action.get("char") == "m" or action_type == "raw_char" and action.get("char") == "m":
+                self.menu_state = MenuState.MUTATIONS
+                self._mutations_scroll = 0
+            return False
+
+        if self.menu_state == MenuState.MUTATIONS:
+            if action_type == "close_menu":
+                self.menu_state = MenuState.CHAR_SHEET
+            elif action_type == "move" and action.get("dy", 0) < 0:
+                self._mutations_scroll = max(0, self._mutations_scroll - 1)
+            elif action_type == "move" and action.get("dy", 0) > 0:
+                self._mutations_scroll += 1
+            return False
+
+        if action_type == "open_status_effects":
+            if self.menu_state == MenuState.NONE:
+                self.menu_state = MenuState.STATUS_EFFECTS
+                self._status_effects_scroll = 0
+            elif self.menu_state == MenuState.STATUS_EFFECTS:
+                self.menu_state = MenuState.NONE
+            return False
+
+        if self.menu_state == MenuState.STATUS_EFFECTS:
+            if action_type == "close_menu":
+                self.menu_state = MenuState.NONE
+            elif action_type == "move" and action.get("dy", 0) < 0:
+                self._status_effects_scroll = max(0, self._status_effects_scroll - 1)
+            elif action_type == "move" and action.get("dy", 0) > 0:
+                self._status_effects_scroll += 1
             return False
 
         if action_type == "open_bestiary":
@@ -1557,9 +1649,9 @@ class GameEngine:
                     # Meth-Head L3: Tweaker — +10 speed per 25 meth
                     if self.skills.get("Meth-Head").level >= 3:
                         gain += (self.player.meth // 25) * 10
-                    # Chemical Warfare L2: Toxic Frenzy — +1 speed per 20 tox (cap 500)
+                    # Chemical Warfare L2: Toxic Frenzy — +1 speed per 10 tox (cap 500)
                     if self.skills.get("Chemical Warfare").level >= 2:
-                        gain += min(self.player.toxicity, 500) // 20
+                        gain += min(self.player.toxicity, 500) // 10
                 entity.energy += gain
 
             # 2. Process all monsters that have enough energy, highest energy first
@@ -1864,6 +1956,15 @@ class GameEngine:
             return self._channel_tick()
         return True
 
+    @property
+    def channel_info(self) -> tuple[str, int, tuple[int,int,int]] | None:
+        """Return (display_name, turns_remaining, color) if channeling, else None."""
+        if self._channel is None:
+            return None
+        aid = self._channel["ability_id"]
+        color = _CHANNEL_COLORS.get(aid, (100, 200, 255))
+        return (_CHANNEL_DISPLAY_NAMES.get(aid, aid), self._channel["turns_remaining"], color)
+
     def start_channel(self, ability_id: str, turns: int, params: dict):
         """Begin channeling an ability. The first tick fires immediately;
         subsequent ticks fire when the player presses Wait."""
@@ -1896,6 +1997,12 @@ class GameEngine:
         ch["turns_remaining"] -= 1
         if ch["turns_remaining"] <= 0:
             self._channel_end("Channel complete.")
+        elif ch["turns_remaining"] == 1:
+            name = _CHANNEL_DISPLAY_NAMES.get(ability_id, ability_id)
+            self.messages.append([
+                ("Final tick! ", (255, 220, 100)),
+                (f"Press Wait to finish {name}.", (220, 200, 150)),
+            ])
         else:
             self.messages.append([
                 ("Channeling... ", (100, 200, 255)),
@@ -1949,7 +2056,8 @@ class GameEngine:
         "teleport_stairs",
         "teleport_floor",
         "add_stats",
-        "meth_lab_kit",
+        "spawn_crack_consumables",
+        "spawn_meth_consumables",
     ]
 
     def _action_open_dev_menu(self, _action):
@@ -2077,83 +2185,21 @@ class GameEngine:
             self.player.hp = min(self.player.hp, self.player.max_hp)
             self.messages.append("[DEV] +5 to all base stats.")
 
-        elif option == "meth_lab_kit":
-            self._dev_meth_lab_kit()
+        elif option == "spawn_crack_consumables":
+            from loot import pick_random_consumable
+            for _ in range(5):
+                item_id, strain = pick_random_consumable("crack_den")
+                self._add_item_to_inventory(item_id, strain=strain)
+            self.messages.append("[DEV] Spawned 5 random Crack Den consumables.")
+
+        elif option == "spawn_meth_consumables":
+            from loot import pick_random_consumable
+            for _ in range(5):
+                item_id, strain = pick_random_consumable("meth_lab")
+                self._add_item_to_inventory(item_id, strain=strain)
+            self.messages.append("[DEV] Spawned 5 random Meth Lab consumables.")
 
         self.menu_state = MenuState.NONE
-
-    def _dev_meth_lab_kit(self):
-        """Set up a mid-game character for Meth Lab testing."""
-        import random as _rng
-        from skills import SKILL_NAMES, MAX_LEVEL
-        from items import ITEM_DEFS, create_item_entity
-        from loot import pick_random_consumable
-
-        # --- Skills: 1 at level 2, 4 at level 4 ---
-        skill_pool = list(SKILL_NAMES)
-        _rng.shuffle(skill_pool)
-        picked = skill_pool[:5]
-        # First skill → level 2
-        s = self.skills.get(picked[0])
-        old = s.level
-        s.level = max(s.level, 2)
-        for lvl in range(old + 1, s.level + 1):
-            self._apply_perk(picked[0], lvl)
-        # Next 4 skills → level 4
-        for name in picked[1:5]:
-            s = self.skills.get(name)
-            old = s.level
-            s.level = max(s.level, 4)
-            for lvl in range(old + 1, s.level + 1):
-                self._apply_perk(name, lvl)
-
-        # --- 5,000 potential XP spread across random skills ---
-        all_skills = list(SKILL_NAMES)
-        for _ in range(50):  # 50 chunks of 100
-            sk = _rng.choice(all_skills)
-            self.skills.get(sk).potential_exp += 100
-
-        # --- 300 skill points ---
-        self.skills.skill_points += 300
-
-        # --- 15 random consumables ---
-        for _ in range(15):
-            item_id, strain = pick_random_consumable("crack_den")
-            ent = Entity(**create_item_entity(item_id, 0, 0))
-            if strain:
-                ent.strain = strain
-            self.player.inventory.append(ent)
-
-        # --- Equipment: 4 rings, 1 neck, 1 feet, 2 weapons (crack_den only, no guns) ---
-        def _in_crack_den(v):
-            return "crack_den" in v.get("zones", [])
-
-        ring_ids = [k for k, v in ITEM_DEFS.items()
-                    if v.get("equip_slot") == "ring" and _in_crack_den(v)]
-        neck_ids = [k for k, v in ITEM_DEFS.items()
-                    if v.get("equip_slot") == "neck" and _in_crack_den(v)]
-        feet_ids = [k for k, v in ITEM_DEFS.items()
-                    if v.get("equip_slot") == "feet" and _in_crack_den(v)]
-        weapon_ids = [k for k, v in ITEM_DEFS.items()
-                      if v.get("equip_slot") == "weapon" and "gun_class" not in v
-                      and _in_crack_den(v)]
-
-        for item_id in _rng.sample(ring_ids, min(4, len(ring_ids))):
-            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
-        for item_id in _rng.sample(neck_ids, min(1, len(neck_ids))):
-            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
-        for item_id in _rng.sample(feet_ids, min(1, len(feet_ids))):
-            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
-        for item_id in _rng.sample(weapon_ids, min(2, len(weapon_ids))):
-            self.player.inventory.append(Entity(**create_item_entity(item_id, 0, 0)))
-
-        # --- All crack den tools ---
-        from loot import ZONE_TOOL_TABLES
-        for tool_id, _ in ZONE_TOOL_TABLES.get("crack_den", []):
-            self.player.inventory.append(Entity(**create_item_entity(tool_id, 0, 0)))
-
-        self._sort_inventory()
-        self.messages.append("[DEV] Meth Lab Kit applied! Skills, items, and equipment added.")
 
     def _dev_item_apply_search(self):
         """Filter dev_item_list by search string, matching item name or id."""
@@ -2356,9 +2402,8 @@ class GameEngine:
         self._compute_fov()
         self.player.energy = ENERGY_THRESHOLD
 
-        # Track meth lab entry
-        if zone_key == "meth_lab" and not self.entered_meth_lab:
-            self.entered_meth_lab = True
+        # Track zone first visit
+        self.zones_visited.add(zone_key)
 
         zone_total = get_zone_total_floors(zone_key)
         if zone_type == "pseudozone":
@@ -2816,9 +2861,9 @@ class GameEngine:
             self._static_reserve_timer = 0
             self.messages.append("  [Static Reserve] +3 Chain Lightning charges. Regen 1 charge every 50 turns while below 3.")
 
-        if name == "Bleached":
+        if name == "Reject the Poison":
             self.player_stats.tox_resistance += 20
-            self.messages.append("  [Bleached] +20% toxicity resistance.")
+            self.messages.append("  [Reject the Poison] +20% tox resistance. Resisted tox builds Purity → temp HP!")
 
         if name == "Whitewash":
             self.grant_ability("whitewash")
@@ -2884,21 +2929,43 @@ class GameEngine:
         if name == "Toxic Frenzy":
             self.messages.append("  [Toxic Frenzy] Your toxicity fuels your fury! +damage and +speed scaling with tox.")
 
-        if name == "Mutagen":
-            from mutations import force_mutation
-            force_mutation(self)
+        if name == "Scarred Tissue":
+            self.messages.append("  [Scarred Tissue] Bad mutations now also grant +1 to a random stat.")
 
         if name == "Favorable Odds":
             self.player_stats.good_mutation_multiplier += 0.50
             self.messages.append("  [Favorable Odds] +50% good mutation chance multiplier.")
 
-        if name == "White Out":
-            self.grant_ability("white_out")
-            self.messages.append("  [White Out] Gain 25 tox for +8 Swagger and -25% damage dealt (50t). 3/floor.")
+        if name == "Shed":
+            self.grant_ability("shed")
+            self.messages.append("  [Shed] Sacrifice a good mutation to cleanse a debuff and regain radiation.")
+
+        if name == "Pure":
+            self.player_stats.tox_resistance += 20
+            self.messages.append("  [Pure] +20% tox resistance. Double XP from toxicity resisted.")
+
+        if name == "Bastion":
+            self.grant_ability("bastion")
+            self.messages.append("  [Bastion] Toggle: -25% damage taken, -20% dealt. Costs 10 tox per activation. (5/floor)")
+
+        if name == "Absolution":
+            self.grant_ability("absolution")
+            self.messages.append("  [Absolution] Your cleansing becomes wrath. Tox lost deals damage to 2 nearby enemies! (3/floor)")
+
+        if name == "Immaculate":
+            self.messages.append("  [Immaculate] Purity cap → 100, temp HP cap → 100. 2x Purity stacks while Bastion active. Melee hits in Bastion grant 3 stacks.")
 
         if name == "Acid Meltdown":
             self.grant_ability("acid_meltdown")
             self.messages.append("  [Acid Meltdown] Spend 25 tox: halve move cost, kills explode into acid!")
+
+        if name == "Toxic Slingshot":
+            self.grant_ability("toxic_slingshot")
+            self.messages.append("  [Toxic Slingshot] Spend 50 tox to conjure a toxic gun in your sidearm! Scales with CW level.")
+
+        if name == "Toxic Shell":
+            self.grant_ability("toxic_shell")
+            self.messages.append("  [Toxic Shell] Barrier from your toxicity. When it breaks, toxic nova! (3/floor)")
 
         if name == "Fast Food":
             ps = self.player_stats
@@ -3323,9 +3390,9 @@ class GameEngine:
             if placed > 0:
                 self.messages.append(f"  [Anotha Motha] {placed} extra items spawned on this floor!")
 
-        # Track meth lab entry
-        if zone_key == "meth_lab" and not self.entered_meth_lab:
-            self.entered_meth_lab = True
+        # Track zone first visit
+        first_visit = zone_key not in self.zones_visited
+        self.zones_visited.add(zone_key)
 
         # Zone transition message
         zone_total = get_zone_total_floors(zone_key)
@@ -3333,7 +3400,7 @@ class GameEngine:
             self.messages.append(f"You enter {display_name}.")
         if zone_type == "pseudozone":
             self.messages.append(f"{display_name}")
-            if zone_key == "tyrones_penthouse":
+            if zone_key == "tyrones_penthouse" and first_visit:
                 self.messages.append([
                     ("Tyrone: ", (255, 215, 0)),
                     ("Welcome to the Penthouse. Watch your fingers — buy whatever you want.", (220, 220, 220)),
@@ -4154,12 +4221,44 @@ class GameEngine:
         self.menu_state = MenuState.SHOP_ITEM
 
     def _handle_shop_item_input(self, action):
-        """Handle input for the shop item popup: Enter=buy, Esc=cancel."""
+        """Handle input for the shop item popup: Enter=buy, C=coupon, Esc=cancel."""
         from menu_state import MenuState
         from items import get_item_def
         action_type = action.get("type")
 
         if action_type == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.shop_item_entity = None
+            return False
+
+        # [C] Use Tyrone's Coupon — free item
+        if action_type == "open_char_sheet":
+            entity = self.shop_item_entity
+            if entity is None:
+                self.menu_state = MenuState.NONE
+                return False
+            coupon = next(
+                (it for it in self.player.inventory
+                 if getattr(it, "item_id", None) == "tyrones_coupon"),
+                None,
+            )
+            if not coupon:
+                self.messages.append("You don't have a coupon.")
+                return False
+            item_id = getattr(entity, "item_id", None)
+            self.player.inventory.remove(coupon)
+            self._add_item_to_inventory(item_id)
+            defn = get_item_def(item_id) or {}
+            name = defn.get("name", item_id)
+            self.messages.append([
+                ("Redeemed ", (255, 215, 0)),
+                ("Tyrone's Coupon", (255, 215, 0)),
+                (" for ", (255, 215, 0)),
+                (name, defn.get("color", (255, 255, 255))),
+                ("!", (255, 215, 0)),
+            ])
+            if entity in self.dungeon.entities:
+                self.dungeon.entities.remove(entity)
             self.menu_state = MenuState.NONE
             self.shop_item_entity = None
             return False
@@ -4176,7 +4275,7 @@ class GameEngine:
                 self.menu_state = MenuState.NONE
                 self.shop_item_entity = None
                 return False
-            # Purchase
+            # Normal purchase
             self.cash -= price
             self._add_item_to_inventory(item_id)
             defn = get_item_def(item_id) or {}

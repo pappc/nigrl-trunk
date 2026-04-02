@@ -262,6 +262,11 @@ def _execute_firebolt(engine) -> bool:
     return False
 
 
+def _get_firebolt_affected_tiles(engine, tx: int, ty: int) -> list[tuple[int, int]]:
+    from spells import _get_firebolt_affected_tiles as _impl
+    return _impl(engine, tx, ty)
+
+
 def _execute_arcane_missile(engine) -> bool:
     engine._enter_spell_targeting({"type": "arcane_missile", "count": 1})
     return False
@@ -1477,7 +1482,7 @@ def _execute_at_freeze(engine, tx: int, ty: int) -> bool:
 
 
 def _execute_pandemic(engine) -> bool:
-    """Pandemic: apply 100 toxicity to every visible monster."""
+    """Pandemic: apply 50 toxicity to every visible monster."""
     from combat import add_toxicity
     visible = engine.dungeon.visible
     monsters = [
@@ -1488,10 +1493,10 @@ def _execute_pandemic(engine) -> bool:
         engine.messages.append("Pandemic: no visible enemies!")
         return False
     for m in monsters:
-        add_toxicity(engine, m, 100)
+        add_toxicity(engine, m, 50)
     engine.messages.append([
         ("Pandemic! ", (200, 180, 60)),
-        (f"100 toxicity applied to {len(monsters)} enemy(ies)!", (200, 255, 200)),
+        (f"50 toxicity applied to {len(monsters)} enemy(ies)!", (200, 255, 200)),
     ])
     return True
 
@@ -1961,6 +1966,50 @@ def _execute_radiation_nova(engine) -> bool:
     return True
 
 
+def _execute_radiation_vent(engine) -> bool:
+    """Radiation Vent: enter tile targeting (range 7) to place a vent."""
+    engine._enter_spell_targeting({"type": "radiation_vent"})
+    return False  # charge consumed when spell fires in _execute_spell_at
+
+
+def _execute_at_radiation_vent(engine, tx: int, ty: int) -> bool:
+    """Place a Radiation Vent at the target tile."""
+    from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+    from entity import Entity
+    from effects import RadiationVentEffect
+    px, py = engine.player.x, engine.player.y
+    dist = max(abs(tx - px), abs(ty - py))
+    if dist > 7:
+        engine.messages.append("Out of range! (max 7 tiles)")
+        return False
+    if tx < 0 or tx >= DUNGEON_WIDTH or ty < 0 or ty >= DUNGEON_HEIGHT:
+        engine.messages.append("Invalid target!")
+        return False
+    if engine.dungeon.is_terrain_blocked(tx, ty):
+        engine.messages.append("Can't place a vent on a wall!")
+        return False
+    # Create vent entity (hazard, doesn't block movement)
+    vent = Entity(
+        x=tx, y=ty,
+        char="*",
+        color=(120, 255, 80),
+        name="Radiation Vent",
+        entity_type="hazard",
+        hazard_type="radiation_vent",
+        blocks_movement=False,
+    )
+    engine.dungeon.entities.append(vent)
+    # Apply effect directly to player (bypasses on_reapply so multiple vents work)
+    eff = RadiationVentEffect(vent_x=tx, vent_y=ty, duration=10)
+    engine.player.status_effects.append(eff)
+    eff.apply(engine.player, engine)
+    engine.messages.append([
+        ("Radiation Vent placed! ", (120, 255, 80)),
+        (f"({tx},{ty}) — 10 turns", (160, 255, 120)),
+    ])
+    return True
+
+
 def _execute_gas_attack(engine) -> bool:
     """Gas Attack: apply fear to all enemies within 4 tiles of the player."""
     from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
@@ -2056,6 +2105,119 @@ def _execute_fire_meatball(engine) -> bool:
     return True
 
 
+def _execute_toxic_shell(engine) -> bool:
+    """Activate Toxic Shell: consume tox/10 as temp HP, apply buff that novas when temp HP hits 0."""
+    from effects import apply_effect
+
+    # Check if buff already active
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'toxic_shell'),
+        None,
+    )
+    if existing:
+        engine.messages.append("Toxic Shell is already active!")
+        return False
+
+    # Need at least 10 tox to get 1 temp HP
+    if engine.player.toxicity < 10:
+        engine.messages.append("Not enough toxicity! (need at least 10)")
+        return False
+
+    # Consume 1/10th of current toxicity
+    tox_consumed = engine.player.toxicity // 10
+    engine.player.toxicity -= tox_consumed
+
+    # Grant temp HP
+    engine.player.temp_hp += tox_consumed
+
+    # Apply buff that watches for temp HP depletion
+    apply_effect(engine.player, engine, "toxic_shell", tox_consumed=tox_consumed)
+
+    engine.messages.append([
+        ("Toxic Shell! ", (80, 255, 80)),
+        (f"+{tox_consumed} temp HP (nova: {tox_consumed // 5 + engine.skills.get('Chemical Warfare').level * 5 + engine.player_stats.effective_street_smarts // 3} dmg)", (160, 255, 160)),
+    ])
+    return True
+
+
+def _execute_toxic_slingshot(engine) -> bool:
+    """Conjure a Toxic Slingshot in the sidearm slot. Costs 50 toxicity. 10-turn CD."""
+    from effects import apply_effect
+    from items import get_item_def, create_item_entity
+    from entity import Entity
+
+    # Check if sidearm slot is empty
+    if engine.equipment.get("sidearm") is not None:
+        engine.messages.append("Sidearm slot must be empty to conjure the Toxic Slingshot!")
+        return False
+
+    # Check toxicity cost
+    if engine.player.toxicity < 50:
+        engine.messages.append("Not enough toxicity! (need 50)")
+        return False
+
+    # Deduct toxicity
+    engine.player.toxicity -= 50
+
+    # Create the gun entity
+    gun_kwargs = create_item_entity("toxic_slingshot", engine.player.x, engine.player.y)
+    gun = Entity(**gun_kwargs)
+
+    # Equip directly into sidearm slot
+    engine.equipment["sidearm"] = gun
+
+    # Grant Scattershot ability
+    defn = get_item_def("toxic_slingshot")
+    granted = defn.get("grants_ability")
+    if granted:
+        engine.grant_ability(granted)
+
+    # Set as primary gun if no other gun active
+    if engine.primary_gun is None:
+        engine.primary_gun = "sidearm"
+
+    # Apply timer effect (30 turns) — handles cleanup on expiry
+    apply_effect(engine.player, engine, "toxic_slingshot_timer", duration=30)
+
+    # Start cooldown
+    engine.ability_cooldowns["toxic_slingshot"] = 10
+
+    cw_level = engine.skills.get("Chemical Warfare").level
+    min_dmg = 8 + cw_level * 2
+    max_dmg = 14 + cw_level * 2
+    engine.messages.append([
+        ("Toxic Slingshot conjured! ", (80, 255, 80)),
+        (f"({min_dmg}-{max_dmg} dmg, 20 rounds, 30 turns)", (160, 255, 160)),
+    ])
+    return True
+
+
+def _execute_scattershot(engine) -> bool:
+    """Scattershot: cone AOE using the Toxic Slingshot. Costs 3 ammo."""
+    gun = engine.equipment.get("sidearm")
+    if gun is None or gun.item_id != "toxic_slingshot":
+        engine.messages.append("Scattershot requires an equipped Toxic Slingshot!")
+        return False
+    if gun.current_ammo < 3:
+        engine.messages.append(f"Need 3 ammo for Scattershot! ({gun.current_ammo} remaining)")
+        return False
+    cw_level = engine.skills.get("Chemical Warfare").level
+    min_dmg = 8 + cw_level * 2
+    max_dmg = 14 + cw_level * 2
+    return engine._enter_gun_ability_targeting({
+        "ability_id": "scattershot",
+        "name": "Scattershot",
+        "aoe_type": "cone",
+        "num_shots": 3,
+        "damage": (min_dmg, max_dmg),
+        "accuracy": 60,
+        "energy": 80,
+        "range": 5,
+        "cooldown": 0,
+        "on_hit_tox": 5,
+    })
+
+
 def _execute_acid_meltdown(engine) -> bool:
     """Activate the Acid Meltdown buff. Costs 25 toxicity. 50-turn cooldown."""
     from effects import apply_effect
@@ -2102,39 +2264,88 @@ def _execute_toxic_harvest(engine) -> bool:
 
 
 def _execute_whitewash(engine) -> bool:
-    """Whitewash: consume half your toxicity, gain that amount as temp HP."""
+    """Whitewash: consume half your toxicity, heal first, overflow as temp HP."""
+    from combat import remove_toxicity
     tox = engine.player.toxicity
     if tox <= 0:
         engine.messages.append("You have no toxicity to convert!")
         return False
     consumed = tox // 2
-    engine.player.toxicity -= consumed
-    engine.player.temp_hp += consumed
+    # Use remove_toxicity so Absolution and WP XP hooks fire
+    remove_toxicity(engine, engine.player, consumed)
+    # Heal first, overflow as temp HP
+    remaining = consumed
+    healed = 0
+    temp_gained = 0
+    missing_hp = engine.player.max_hp - engine.player.hp
+    if missing_hp > 0:
+        healed = min(remaining, missing_hp)
+        engine.player.hp += healed
+        remaining -= healed
+    if remaining > 0:
+        engine.player.temp_hp += remaining
+        temp_gained = remaining
+    parts = []
+    if healed > 0:
+        parts.append(f"+{healed} HP")
+    if temp_gained > 0:
+        parts.append(f"+{temp_gained} temp HP")
     engine.messages.append([
         ("Whitewash! ", (240, 240, 255)),
-        (f"-{consumed} toxicity, +{consumed} temp HP.", (200, 255, 200)),
+        (f"-{consumed} toxicity, {', '.join(parts)}.", (200, 255, 200)),
     ])
     return True
 
 
-def _execute_white_out(engine) -> bool:
-    """White Out: gain 25 toxicity, +8 swagger / -25% damage dealt for 50 turns."""
+def _execute_absolution(engine) -> bool:
+    """Absolution: 15 turns, gain 5 tox/turn, tox lost deals damage to 2 random enemies."""
     from effects import apply_effect
-    from combat import add_toxicity
     existing = next(
-        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'white_out'),
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'absolution'),
         None,
     )
     if existing:
-        engine.messages.append("White Out is already active!")
+        engine.messages.append("Absolution is already active!")
         return False
-    add_toxicity(engine, engine.player, 25, pierce_resistance=True)
-    apply_effect(engine.player, engine, "white_out", duration=50)
+    apply_effect(engine.player, engine, "absolution", duration=15)
     engine.messages.append([
-        ("White Out! ", (240, 240, 255)),
-        ("+25 toxicity. +8 Swagger, -25% damage dealt for 50 turns.", (200, 200, 240)),
+        ("Absolution! ", (220, 220, 255)),
+        ("Your cleansing becomes wrath. (15 turns)", (180, 200, 255)),
     ])
     return True
+
+
+def _execute_bastion(engine) -> bool:
+    """Bastion: toggle ON/OFF. Toggle ON costs a charge + 10 tox.
+    While ON: 25% less damage taken, 20% less damage dealt."""
+    from effects import apply_effect
+    from combat import add_toxicity
+
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'bastion'),
+        None,
+    )
+    if existing:
+        # Toggle OFF — free, no charge cost
+        existing.duration = 0  # triggers expire cleanup
+        existing.expire(engine.player, engine)
+        engine.player.status_effects = [
+            e for e in engine.player.status_effects if e is not existing
+        ]
+        engine.messages.append([
+            ("Bastion OFF. ", (200, 200, 240)),
+            ("Full damage restored.", (180, 255, 180)),
+        ])
+        return False  # don't consume a charge
+    else:
+        # Toggle ON — costs a charge + 10 tox
+        add_toxicity(engine, engine.player, 10, pierce_resistance=True)
+        apply_effect(engine.player, engine, "bastion")
+        engine.messages.append([
+            ("Bastion ON! ", (240, 240, 255)),
+            ("-25% damage taken, -20% damage dealt. (+10 tox)", (200, 200, 240)),
+        ])
+        return True
 
 
 def _execute_web_trail(engine) -> bool:
@@ -2453,7 +2664,8 @@ def _execute_emission(engine) -> bool:
     for m in monsters:
         old_rad = getattr(m, 'radiation', 0)
         if player_rad > old_rad:
-            m.radiation = player_rad
+            from config import MAX_RADIATION
+            m.radiation = min(player_rad, MAX_RADIATION)
             count += 1
     engine.messages.append([
         ("EMISSION! ", (120, 255, 80)),
@@ -2662,6 +2874,12 @@ def _execute_at_ddd_puncture(engine, tx: int, ty: int) -> bool:
     return engine._spell_ddd_puncture(tx, ty)
 
 
+def _execute_shed(engine, **kwargs):
+    """Shed: sacrifice a random good mutation, undo it, cleanse a debuff, refund rad."""
+    from mutations import shed_mutation
+    return shed_mutation(engine)
+
+
 # ---------------------------------------------------------------------------
 # Registry — add new abilities here; nothing else in the codebase changes.
 # ---------------------------------------------------------------------------
@@ -2740,6 +2958,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         is_spell=True,
         max_range=12.0,
         execute_at=_execute_at_firebolt,
+        get_affected_tiles=_get_firebolt_affected_tiles,
     ),
     "arcane_missile": AbilityDef(
         ability_id="arcane_missile",
@@ -3204,7 +3423,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "pandemic": AbilityDef(
         ability_id="pandemic",
         name="Pandemic",
-        description="Release a toxic wave. Applies 100 toxicity to every visible monster.",
+        description="Release a toxic wave. Applies 50 toxicity to every visible monster.",
         char="P",
         color=(200, 180, 60),
         target_type=TargetType.SELF,
@@ -3264,6 +3483,21 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=0,
         tags=frozenset({"spell", "aoe", "damage", "self_cast", "active", "radiation"}),
         execute=_execute_radiation_nova,
+        is_spell=True,
+    ),
+    "radiation_vent": AbilityDef(
+        ability_id="radiation_vent",
+        name="Radiation Vent",
+        description="Place a vent (range 7). 10 turns: 10 rad/turn in 2 tiles, bolt nearest enemy in 3 tiles (10 + 1-BKS/2 dmg).",
+        char="V",
+        color=(120, 255, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.TOTAL,
+        max_charges=0,
+        max_range=7.0,
+        tags=frozenset({"spell", "active", "radiation"}),
+        execute=_execute_radiation_vent,
+        execute_at=_execute_at_radiation_vent,
         is_spell=True,
     ),
     "ice_nova": AbilityDef(
@@ -3361,6 +3595,45 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_range=6.0,
         execute_at=_execute_at_ice_lance,
     ),
+    "toxic_shell": AbilityDef(
+        ability_id="toxic_shell",
+        name="Toxic Shell",
+        description="Consume 1/10th of your toxicity as temp HP. When temp HP hits 0, nova (radius 4): deals tox/5 + CW×5 + STS/3 damage and applies tox/2 toxicity to all enemies hit.",
+        char="B",
+        color=(60, 220, 60),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=3,
+        tags=frozenset({"toxicity", "buff", "self_cast", "active", "defensive"}),
+        execute=_execute_toxic_shell,
+        is_spell=False,
+    ),
+    "toxic_slingshot": AbilityDef(
+        ability_id="toxic_slingshot",
+        name="Toxic Slingshot",
+        description="Cost: 50 toxicity. Conjure a toxic slingshot in your sidearm slot (must be empty). 20 ammo, 30 turn duration. Damage scales with Chemical Warfare level. Applies toxicity on hit. Grants Scattershot. 10-turn cooldown.",
+        char="S",
+        color=(80, 255, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"toxicity", "gun", "self_cast", "active", "cooldown"}),
+        execute=_execute_toxic_slingshot,
+        is_spell=False,
+    ),
+    "scattershot": AbilityDef(
+        ability_id="scattershot",
+        name="Scattershot",
+        description="Fire 3 toxic rounds in a cone. Requires Toxic Slingshot equipped. Costs 3 ammo.",
+        char="C",
+        color=(100, 255, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        max_charges=0,
+        tags=frozenset({"toxicity", "gun", "active", "cone"}),
+        execute=_execute_scattershot,
+        is_spell=False,
+    ),
     "acid_meltdown": AbilityDef(
         ability_id="acid_meltdown",
         name="Acid Meltdown",
@@ -3377,7 +3650,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "toxic_harvest": AbilityDef(
         ability_id="toxic_harvest",
         name="Toxic Harvest",
-        description="Activate: for 10 turns, any monster kill grants +5 toxicity and refreshes this buff. 50-turn cooldown.",
+        description="Activate: for 10 turns, any monster kill grants +25 toxicity and refreshes this buff. 50-turn cooldown.",
         char="T",
         color=(80, 255, 80),
         target_type=TargetType.SELF,
@@ -3387,23 +3660,36 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         execute=_execute_toxic_harvest,
         is_spell=False,
     ),
-    "white_out": AbilityDef(
-        ability_id="white_out",
-        name="White Out",
-        description="Gain 25 toxicity. +8 Swagger, -25% damage dealt for 50 turns.",
-        char="W",
-        color=(240, 240, 255),
+    "bastion": AbilityDef(
+        ability_id="bastion",
+        name="Bastion",
+        description="Toggle. ON: -25% damage taken, -20% damage dealt. Costs 1 charge + 10 tox to toggle ON. Toggle OFF is free. 5 charges/floor.",
+        char="B",
+        color=(220, 220, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=5,
+        tags=frozenset({"defensive", "buff", "self_cast", "active", "toggle"}),
+        execute=_execute_bastion,
+        is_spell=False,
+    ),
+    "absolution": AbilityDef(
+        ability_id="absolution",
+        name="Absolution",
+        description="15 turns: gain 5 tox/turn. All toxicity you lose deals that amount as damage to 2 random enemies within 4 tiles. 3/floor.",
+        char="A",
+        color=(220, 220, 255),
         target_type=TargetType.SELF,
         charge_type=ChargeType.PER_FLOOR,
         max_charges=3,
-        tags=frozenset({"toxicity", "buff", "self_cast", "active"}),
-        execute=_execute_white_out,
+        tags=frozenset({"defensive", "buff", "self_cast", "active"}),
+        execute=_execute_absolution,
         is_spell=False,
     ),
     "whitewash": AbilityDef(
         ability_id="whitewash",
         name="Whitewash",
-        description="Consume half your toxicity and gain it as temporary HP. 1/floor.",
+        description="Consume half your toxicity. Heals first, overflow as temp HP. 1/floor.",
         char="W",
         color=(255, 255, 255),
         target_type=TargetType.SELF,
@@ -3673,9 +3959,9 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     ),
     "ags_charge": AbilityDef(
         ability_id="ags_charge",
-        name="Charge",
+        name="Judgement",
         description="Charge through a clear line to an enemy 2-5 tiles away. Deals 1.5x damage. If it kills, restores 20 spec. Costs 50 spec energy.",
-        char="C",
+        char="J",
         color=(255, 215, 0),
         target_type=TargetType.SINGLE_ENEMY_LOS,
         charge_type=ChargeType.INFINITE,
@@ -3717,6 +4003,18 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_range=1.5,
         execute_at=_execute_at_ddd_puncture,
         spec_cost=25,
+    ),
+    "shed": AbilityDef(
+        ability_id="shed",
+        name="Shed",
+        description="Sacrifice a random good mutation, undoing its effects. Cleanses a random debuff. Refunds half the mutation's radiation threshold.",
+        char="S",
+        color=(200, 150, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        tags=frozenset({"mutation", "utility", "active"}),
+        execute=_execute_shed,
+        is_spell=False,
     ),
 }
 

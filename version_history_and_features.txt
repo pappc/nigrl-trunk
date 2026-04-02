@@ -163,6 +163,7 @@ version 0.10 (CRACKENHEISENBERG) opened 3/20/2026 12:00 am closed 3/31/2026 8:00
 -2nd floor meth lab more reputation decisions
     -one with health clinic
     -one with a item shot
+-throwing blunts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Future Features:
 -future add ability to make a hotbar to easily select abilities

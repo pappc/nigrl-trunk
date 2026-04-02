@@ -62,11 +62,11 @@ These were extracted from `engine.py` and take `engine` as first parameter:
 - **abilities.py**: `AbilityDef` (declarative) + `AbilityInstance` (runtime). `ABILITY_REGISTRY` keyed by string id. `TargetType` enum: SELF, SINGLE_ENEMY_LOS, LINE_FROM_PLAYER, AOE_CIRCLE, ADJACENT, ADJACENT_TILE. `ChargeType` enum: INFINITE, PER_FLOOR, TOTAL, ONCE, FLOOR_ONLY. Abilities granted via `engine.grant_ability()`.
 - **loot.py**: Zone-based loot generation. `generate_floor_loot(zone, floor_num, player_skills)` returns `(item_id, strain_or_None)` tuples.
 - **stats.py**: `PlayerStats` class. Six stats: Constitution, Strength, Book-Smarts, Street-Smarts, Tolerance, Swagger. 45 points distributed across 5 stats (each [6,12]); Swagger starts at 8 independently. Defence formula: `swagger_defence = int((effective_swagger - 8) / 2)`. Also tracks faction reputation, dodge chance, spell damage, tox/rad resistance, briskness, DR.
-- **skills.py**: XP-based progression across 27 skill trees. Skills unlock perks (stat bonuses, passives, activated abilities) at level thresholds. Dual XP tracking: potential_exp (earned passively) converted to real_exp via skill_points.
-- **effects.py**: Central status effect system. Base `Effect` class with lifecycle hooks: `apply()`, `tick()`, `expire()`, `before_turn()`, `modify_movement()`, `modify_energy_gain()`, `modify_incoming_damage()`, `on_player_melee_hit()`. Effects use `@register` class decorator. 80+ concrete effect subclasses.
+- **skills.py**: XP-based progression across 33 skill trees. Skills unlock perks (stat bonuses, passives, activated abilities) at level thresholds. Dual XP tracking: potential_exp (earned passively) converted to real_exp via skill_points.
+- **effects.py**: Central status effect system. Base `Effect` class with lifecycle hooks: `apply()`, `tick()`, `expire()`, `before_turn()`, `modify_movement()`, `modify_energy_gain()`, `modify_incoming_damage()`, `on_player_melee_hit()`. Effects use `@register` class decorator. 140+ concrete effect subclasses.
 - **mutations.py**: Radiation mutation system. Per-tick chance scales with rad level (0.1% per 50 rad). Three tiers: weak (75+ rad), strong (125+ rad), huge (250+ rad). Rad costs on mutation: weak=50, strong=125, huge=200. 67% bad / 33% good polarity. Mutations are permanent stat/skill/equipment changes. Rad consumed on mutation.
 - **zone_generators.py**: Zone generation registry. Delegates to zone-specific `generate()` and `spawn()` callables. Room types: Rect, L, U, T, Hall, Oct, Cross, Diamond, Cavern, Pillar, Circle.
-- **menu_state.py**: `MenuState` enum (NONE, SKILLS, CHAR_SHEET, EQUIPMENT, ITEM_MENU, COMBINE_SELECT, LOG, DESTROY_CONFIRM, BESTIARY, TARGETING, ABILITIES, RING_REPLACE, ENTITY_TARGETING, PERKS, DEV_MENU, DEV_ITEM_SELECT, ADJACENT_TILE_TARGETING, EXAMINE, DEATH_SCREEN, DEEP_FRYER, GUN_TARGETING, DEV_FLOOR_SELECT).
+- **menu_state.py**: `MenuState` enum (NONE, SKILLS, CHAR_SHEET, EQUIPMENT, ITEM_MENU, COMBINE_SELECT, LOG, DESTROY_CONFIRM, BESTIARY, TARGETING, ABILITIES, RING_REPLACE, ENTITY_TARGETING, PERKS, DEV_MENU, DEV_ITEM_SELECT, ADJACENT_TILE_TARGETING, EXAMINE, DEATH_SCREEN, DEEP_FRYER, GUN_TARGETING, DEV_FLOOR_SELECT, DEV_SKILL_SELECT, PERK_POPUP, LOOK_TARGETING, LOOK_INFO, SETTINGS, VENDING_MACHINE, MIDAS_BREW, SHOP_ITEM, MUTATIONS).
 - **event_bus.py**: EventBus for decoupled event publishing.
 - **save_system.py**: JSON save/load. `save_game(engine)`, `load_game()`, `has_save()`. Clipboard export/import for sharing. Auto-saves on floor transition. Saves go to `saves/save.json`.
 - **sdl_overlay.py**: `SDLOverlay` class. SDL2-based pixel rendering layer on top of tcod console. Handles floating damage/heal numbers, glyph rendering, status effect icons. Replaces `context.present()` with a pipeline: console→texture→overlays→present.
@@ -124,6 +124,23 @@ ALL abilities that target an adjacent tile use quick-select (not cursor targetin
 - 11 guns across 3 ammo types (light, medium, heavy). AOE types: target, cone, line, circle.
 - Keybinds: F=fire, Shift+R=reload, Shift+F=swap, TAB=toggle mode.
 - AOE rule: all valid targets have equal chance; one target hit at most `ceil(num_shots / 2)` times.
+
+### Toxicity / Radiation
+- Both capped at 500 (`MAX_TOXICITY`, `MAX_RADIATION` in config.py).
+- Central gain/loss functions in combat.py: `add_toxicity()`, `remove_toxicity()`, `add_radiation()`, `remove_radiation()`. All tox/rad changes should go through these for XP tracking and effect hooks.
+- `pierce_resistance` param bypasses resistance — used sparingly (ability costs, Conversion effect only).
+
+### Meth Lab Strains
+Seven strains exclusive to the Meth Lab zone, each tied to a stat and skill:
+- **Iron Lung** (CON / White Power): Tox removal + heal + temporary DEF.
+- **Skywalker OG** (STR / Decontamination): Rad removal + Force Sensitive buff (+2 temp STR per 25 rad lost) + Rad Nova charges.
+- **Street Scholar** (STS / Gunplay): Calculated Aim buff (auto-reload, 10% per gun kill → +1 perm STS) + Hollow Points (5 charges, +50% gun dmg) + ammo.
+- **Kushenheimer** (BKS / Nuclear Research): Rad gain + spell damage buff + Radiation Vent charges (placed turret: 10 rad aura + bolt attack).
+- **Swamp Gas** (TOL / Chemical Warfare): Tox gain + Pandemic charges (50 tox to all visible enemies) + Spillover Aura (50% kill tox transfer).
+- **Double Helix** (SWG / Mutation): Forces mutations + heals HP per mutation count.
+- **Snickelfritz** (Rolling L4 only): Grenade strain — damage + debuffs on enemies when thrown, self-damage when smoked. Excluded from Contact High and Massive Blunt.
+
+All strains use a 1-100 roll table. Higher rolls = better effects. Bad rolls (typically 1-39) have negative or no effects. Strain effects dispatched in `item_effects.py:_apply_strain_effect()`.
 
 ### Faction System
 - Two factions: Aldor and Scryer. Reputation tracked as integer values in `PlayerStats.reputation`.
