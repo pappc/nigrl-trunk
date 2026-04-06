@@ -1,0 +1,58 @@
+SUMMARY: skill-decontamination-L6-aura-options.txt
+Generated: 2026-04-02
+----------------------------------------------------------------------
+6 capstone aura options for Decontamination Level 6 (third toggle aura,
+offensive counterpart to defensive Ironsoul Aura at L4).
+
+All options: ChargeType.INFINITE, TargetType.SELF, floor_duration Effect,
+added to abilities._DECON_AURA_IDS set.
+
+OPTION 1 — Wrath of God Aura
+  Passive: +2 STS
+  Aura: enemy melee hits on player → retributive true damage (player.rad // 20,
+  cap 30) + drain 5 player rad. Hook in combat.py hit-receive block.
+  No new engine state.
+
+OPTION 2 — Corona of Judgment Aura
+  Passive: +15% rad resist
+  Aura: tick() scans enemies within chebyshev 5 at 100+ rad → Judgment Burst
+  (true dmg = rad//10, halve rad, 5 splash on neighbors within chebyshev 2,
+  feared 4t). Once per enemy per floor.
+  New state: engine.judgment_burst_ids: set (reset on floor).
+
+OPTION 3 — Martyr's Fire Aura
+  Passive: +2 CON
+  Aura: 1 true dmg/turn to all enemies within chebyshev 3. Once per floor:
+  killing blow blocked → Radiant Detonation (rad//5 + 20 true dmg to all
+  visible, rad zeroed, survive at 1 HP). Hook in combat.py damage resolution.
+  New state: engine.martyr_detonated: bool (reset on floor).
+
+OPTION 4 — Penitent Aura
+  Passive: +3 STR
+  Aura: player armor and DR treated as 0. Each absorbed point banked as
+  penitent_charge (cap 50). Next melee swing spends all charge as bonus damage.
+  Hook in combat.py damage receive + melee damage calculation.
+  New state: engine.penitent_charge: int (reset on floor + aura expire).
+
+OPTION 5 — Radiant Presence Aura
+  Passive: +2 SWG, +2 TOL
+  Aura: tick() gives 3 true dmg per active debuff on enemies within chebyshev 3.
+  Enemies within chebyshev 5 that would flee are stunned 2t instead.
+  Hooks in tick() + ai.py FLEEING handler. No new engine state.
+
+OPTION 6 — Atomic Fist Aura
+  Passive: +2 STR, +15% rad resist
+  Aura: on_player_melee_hit() fires radiant explosion at target's position —
+  all OTHER enemies within chebyshev 1 take (5 + player.rad//40) true dmg
+  + 15 radiation. Melee vs irradiated enemies: +3 bonus damage.
+  Hook in on_player_melee_hit. No new engine state.
+
+IMPLEMENTATION TABLE:
+  Easiest: Option 6 (on_player_melee_hit, no state)
+  Easy:    Option 1 (combat.py inline, no state)
+  Medium:  Option 4 (combat.py intercept + int), Option 5 (tick + ai.py)
+  Harder:  Option 2 (tick burst + set + splash)
+  Hardest: Option 3 (kill prevention + bool)
+
+Designer note: Options 1/4/6 cleanest. Option 6 most readable combat
+identity. Option 1 strongest paladin theme. Option 4 boldest inversion.

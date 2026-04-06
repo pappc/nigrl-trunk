@@ -203,9 +203,13 @@ def handle_input(key):
         ):
             return {"type": "toggle_abilities"}
 
-        # Letter keys — inventory item selection (only keys in INVENTORY_KEYS)
+        # Letter keys — inventory item selection (lowercase + uppercase in INVENTORY_KEYS)
         elif tcod.event.KeySym.a <= key_sym <= tcod.event.KeySym.z:
-            char = chr(ord("a") + (key_sym - tcod.event.KeySym.a))
+            _is_shift = bool(key.mod & (tcod.event.Modifier.LSHIFT | tcod.event.Modifier.RSHIFT))
+            if _is_shift:
+                char = chr(ord("A") + (key_sym - tcod.event.KeySym.a))
+            else:
+                char = chr(ord("a") + (key_sym - tcod.event.KeySym.a))
             if char in INVENTORY_KEYS:
                 index = INVENTORY_KEYS.index(char)
                 return {"type": "select_item", "index": index, "char": char}

@@ -1,0 +1,157 @@
+QUD x RIMWORLD HYBRID MUTATIONS — SUMMARY
+==========================================
+Source: nigrl-ideas/mutation-overhaul/qud-rimworld-hybrid-mutations.txt
+10 additional mutation candidates (100+ total candidate pool before these).
+Distribution: 3 Weak Good, 2 Weak Bad, 3 Strong Good, 2 Strong Bad.
+Design principle: Qud gameplay verbs + Rimworld cost structures = something
+neither game alone would produce.
+
+------------------------------------------------------------------------
+WEAK GOOD (3)
+------------------------------------------------------------------------
+
+1. HORN GROWTH (Weak Good)
+   Qud: Horns charge attack | Rimworld: Unstoppable gene
+   Move 3+ tiles in a straight line and end adjacent to an enemy to deal
+   bonus damage (distance + mutation_count//4). Immune to slow effects on
+   the charging turn. L2: 2-tile threshold, bonus doubles (distance*2),
+   free step on kill. L3: stuns target 2 turns on charge.
+   New fields: engine.horn_charge_dir, engine.horn_charge_distance,
+   player_stats.horn_growth_active.
+
+2. CHAIN DISCHARGE (Weak Good)
+   Qud: Electrical Generation chaining | Rimworld: Crowd dynamics
+   Grants Chain Discharge ability (INFINITE/cooldown, SINGLE_ENEMY_LOS,
+   6 tiles). Primary: 7+count//3 shock dmg, 2 shocked stacks. Chains
+   to enemies within 2 tiles for 4+count//4. Max 1 chain at L1.
+   L2: chain range 3 tiles, 2 chains, applies wet. L3: 3 chains, death
+   discharge (enemies that die shocked fire 1 additional chain burst).
+   5t/4t/3t cooldown scaling. New ability: "chain_discharge".
+
+3. MASS RESONANCE (Weak Good)
+   Qud: Mass Mind scaling | Rimworld: Kill Thirst crowd reversal
+   Passive. For each enemy within 4 tiles: +1 temp melee power. At 3+
+   enemies: +10 speed. At 5+ enemies: +1 DR. All bonuses reset instantly
+   when count drops (no lag at L1). L2: radius 5, +2 power/enemy, +20
+   speed, +2 DR, stagger adjacent on melee hit. L3: radius 6, +30 speed,
+   +3 DR, cleave replaces stagger, 3-turn resonance echo on enemy death.
+   New fields: mass_resonance_power_bonus, mass_resonance_speed_bonus,
+   mass_resonance_dr_bonus, engine.mass_resonance_echo_turns.
+
+------------------------------------------------------------------------
+WEAK BAD (2)
+------------------------------------------------------------------------
+
+4. AMNESIAC PULSES (Weak Bad)
+   Qud: Amnesia defect | Rimworld: Slow Learning cognitive degradation
+   Every 30 turns, un-explore a 6-tile radius (fog of war returns; tiles
+   in current FOV are protected). Items on affected tiles go hidden. L2:
+   every 22 turns, 8-tile radius, enemy last-seen memory cleared too.
+   L3: every 15 turns, 10-tile radius, 30% chance to apply ConfuseEffect
+   (1 turn) when pulse fires. Counter: engine.amnesiac_pulse_counter.
+   Reversal stops future pulses; existing fog state stays as-is.
+
+5. SPONTANEOUS COMBUSTION (Weak Bad)
+   Qud: Spontaneous Combustion defect | Rimworld: Fire Spew / Impid chaos
+   Every 20 turns, 30% chance to ignite (IgniteEffect 3 turns, 2 dmg/t)
+   AND deal 3 splash fire to all adjacent entities. Timer resets after
+   each check. Upside: splash hits enemies if in melee range. L2: every
+   15 turns, 40% chance, 3 dmg/t, 4 turns; low-HP extends to 6 turns.
+   L3: every 10 turns, 50% chance, 4 dmg/t, 5 turns; wet cannot extinguish
+   combustion-sourced ignite (combustion_ignite flag on effect). Counter:
+   engine.combustion_counter.
+
+------------------------------------------------------------------------
+STRONG GOOD (3)
+------------------------------------------------------------------------
+
+6. FORCE BARRICADE (Strong Good)
+   Qud: Force Wall terrain creation | Rimworld: Foam Spray tactical utility
+   Grants Force Barricade ability (1/floor, ADJACENT_TILE). Spawns 3-tile
+   wall of force_wall hazard entities perpendicular to player→target vector.
+   Blocks movement AND gun shots. Lasts 12 turns. New hazard type:
+   hazard_type="force_wall" (char='#', pale blue). L2: 2/floor, 5-tile
+   wall, 18 turns, 3 dmg to entities that walk into wall. L3: 2/floor,
+   5 tiles, 24 turns, 6 barrier dmg, +2 DR cover bonus while barricaded
+   (engine.force_barricade_cover). New ability: "force_barricade".
+   Requires: dungeon.is_blocked() update, gun LOS update.
+
+7. BODY JACK (Strong Good)
+   Qud: Domination possession | Rimworld: Psychic Bonding vulnerability
+   Grants Body Jack ability (1/floor, SINGLE_ENEMY_LOS, 5 tiles). Possess
+   an enemy for 8 turns: play from their position using their stats. Your
+   real body goes dormant and is vulnerable — any hit ends possession
+   immediately. Natural exit: host stunned 3t, 5 psychic dmg. L2: 12 turns,
+   5t stun, 8 dmg, 6-tile range. L3: 2/floor, 15 turns, 7-tile range,
+   host death grants 30% max-HP temp HP (death absorption). New entity
+   fields: possessed_by_player, new AI mode "dormant". New engine fields:
+   possession_active, possessed_entity_id, possession_turns_remaining.
+   Architecturally significant: input routing changes while possessed.
+
+8. CORROSIVE AURA (Strong Good)
+   Qud: Corrosive Gas Generation | Rimworld: Pollution Rush inversion
+   Passive. 3-tile radius aura applies CorrosiveAuraEffect to enemies
+   each turn: -1 DR per stack (cap -5 stacks), 4t persistence off-radius,
+   2 acid dmg/t at -5 stacks. Player is immune. New effect:
+   "corrosive_aura_stacks" with stacks: int field. L2: radius 4, cap -7,
+   3 acid dmg, corrosive floor tiles (dungeon.corrosive_tiles dict) on
+   tiles player stands on 2+ turns. L3: radius 5, cap -8, 4 acid dmg,
+   enemies at -5+ stacks that die within radius explode in 3-tile acid burst.
+   New dungeon field: corrosive_tiles: dict[tuple, int].
+
+------------------------------------------------------------------------
+STRONG BAD (2)
+------------------------------------------------------------------------
+
+9. EVIL TWIN (Strong Bad)
+   Qud: Evil Twin defect | Rimworld: Kill Thirst escalating pursuit
+   At floor start, spawn Shadow Twin (enemy_type="shadow_twin"): player's
+   power, defense, 70% player max HP. Hostile to player only. CHASING
+   always (ignores fear/confuse direction change). If Twin lands 3 hits:
+   steal 1 permanent stat point (random stat, min 1). On kill: +5 temp HP,
+   +1 melee power (floor). Passive: -2 SWG (exposed vulnerability).
+   L2: Twin 100% player HP, 2 hits for theft. L3: Twin 130% HP +2 power,
+   1 hit for theft, +10 temp HP/+2 power kill reward, BLOCKS STAIRS until
+   killed (L3 signature: forced final confrontation each floor). New fields:
+   engine.evil_twin_hits_this_floor, player_stats.evil_twin_swagger_penalty.
+
+10. GLIMMER BUILDUP (Strong Bad)
+    Qud: Esper Glimmer accumulation | Rimworld: Freak Magnet escalation
+    Each ability use increments engine.glimmer_stacks (RUN-PERSISTENT, never
+    decreases). At thresholds, spawn Glimmer Hunter enemies (hostile only to
+    player, spawn_weight=0):
+      5:  Glimmer Scout (fast, alerts all enemies to player on first sight)
+      10: Glimmer Stalker (psychic bolt, bypasses armor, applies SilencedEffect 3t)
+      15: Glimmer Reaper (AOE psychic scream, 3 radius, 4 dmg, confuse 4t)
+      +5: additional Reaper per 5 Glimmer beyond 20.
+    Each threshold spawns exactly once (glimmer_thresholds_triggered set).
+    L2: thresholds 3/7/12/+4, hunters +1 power/defense, Scouts 20% chance
+    to drain 1 charge from next ability. L3: thresholds 2/5/9/+3, +2 power/
+    defense, Reapers 20% death-spawn second Reaper, Silence extends to 5 turns.
+    New effect: SilencedEffect (blocks ability input for duration). New enemies:
+    glimmer_scout, glimmer_stalker, glimmer_reaper. Must serialize glimmer_stacks
+    and glimmer_thresholds_triggered in save system. Designed in intentional
+    conflict with Psychic Amplifier (Strong Good) — having both is a build
+    archetype, not a trap.
+
+------------------------------------------------------------------------
+NEW SYSTEMS INTRODUCED
+------------------------------------------------------------------------
+  - Terrain creation (force_wall hazard type) — first in NIGRL
+  - Body possession (routing player input through another entity) — first
+  - Run-persistent escalating threat counter (glimmer_stacks)
+  - CorrosiveAuraEffect with stack-based DR modification
+  - SilencedEffect that blocks ability use via before_turn hook
+  - Directional charge tracking (horn_charge_dir + distance)
+  - Per-floor un-explore mechanic (amnesiac pulse)
+  - Combustion timer with wet immunity flag on specific IgniteEffect instances
+  - Stair blocking by mutation-spawned enemy (Evil Twin L3)
+
+------------------------------------------------------------------------
+IMPLEMENTATION PRIORITY
+------------------------------------------------------------------------
+  Lowest complexity: Chain Discharge, Mass Resonance, Amnesiac Pulses,
+                     Spontaneous Combustion, Evil Twin.
+  Medium complexity: Horn Growth, Corrosive Aura, Force Barricade.
+  Highest complexity: Body Jack (input routing), Glimmer Buildup
+                      (run-persistent counter, 3 new enemy types).

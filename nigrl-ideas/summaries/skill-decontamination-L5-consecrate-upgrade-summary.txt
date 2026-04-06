@@ -1,0 +1,65 @@
+SUMMARY: skill-decontamination-L5-consecrate-upgrade.txt
+=========================================================
+Generated: 2026-04-02
+
+PURPOSE: 6 perk options for Decontamination L5 — a Consecrate upgrade.
+Passive component (+30 max armor) already decided. All options add
+offensive capability to the 5x3 Consecrate zone.
+
+SHARED BASELINE: Consecrate (L3) lays a 5x3 rad zone (20t), +10 rad/turn,
+true damage (2 + decon_level//2), player gets +1 Swagger/turn (cap 5),
+2 charges/floor. L5 modifies what the zone DOES and optionally grows it.
+
+----------------------------------------------------------------------
+OPTION 1 — Nuclear Verdict (zone: 7x5, mode: "verdict")
+  New debuff: VerdictMarkedEffect (8t). Enemies exiting zone cannot decay
+  rad; if they reach 200 rad while marked, detonate (rad//8 AOE true dmg
+  within 2 tiles). New effect class required.
+  Best with: Emission (pre-load rad). High-variance payoff.
+
+OPTION 2 — Sanctified Discharge (zone: 5x3, mode: "discharge")
+  30% chance/turn on tile: Shocked (3t, +50% damage taken). Enemies
+  already Shocked: reset duration to 3 (no stacking). Player immune to
+  own tile's Shocked proc. Shocked already exists in effects.py.
+  Best with: Gamma Aura (rad DOT amplified by Shocked). Low complexity.
+
+OPTION 3 — Scourging Flame (zone: 7x5, mode: "scourge")
+  Rad reduced to +8/turn. Every 3 turns on tile: Ignite 3 stacks (8t).
+  Scourge tiles overlapping grease tiles detonate (8 fire dmg, radius 2,
+  grease removed). entity.scourge_tick_count (new field). Ignite already
+  exists. Emergent grease interaction is unique to this option.
+  Best with: grease tiles + Gamma Aura. Multi-DOT vector.
+
+OPTION 4 — Divine Terror (zone: 5x3, mode: "terror")
+  Enemies ENTERING the zone while below 60% HP: Feared (4t). Player
+  melee hits on Feared enemies extend fear by +2t. entity.last_pos_was_terror
+  (new field). Feared already exists. CC-oriented; safest option to use.
+  Best with: Ironsoul Aura (DR still counts from visible Feared enemies).
+
+OPTION 5 — Cursed Earth (zone: 7x5, mode: "cursed_earth")
+  Every 4 ticks on tile: Bleeding (5t, 4 dmg/turn). Enemies exiting tile
+  leave a blood_patch hazard entity at old position (bleeding 2t on enemies
+  stepping on it). entity.cursed_earth_ticks (new field). Bleeding and
+  blood_patch hazard already designed. Highest floor-control potential.
+  Best with: Gamma Aura (forces flight, seeds blood patches).
+
+OPTION 6 — Judgment Strike (zone: 5x3, mode: "judgment")
+  Enemies in zone at 150+ rad AND below 35% HP: instant execute (9999 dmg).
+  Floating JUDGMENT! text (yellow-gold). Each execution: +15 HP to player.
+  Bosses immune to execute; instead take rad//12 true damage. No new effects.
+  entity.is_boss check (field already proposed). Highest skill ceiling.
+  Best with: Gamma Aura (fastest path to 150 rad).
+
+----------------------------------------------------------------------
+IMPLEMENTATION COMPLEXITY
+  Low:    Option 2 (Shocked proc, existing effect), Option 6 (threshold check)
+  Medium: Option 1 (new VerdictMarkedEffect + exit detection), Option 3
+          (tick counter + grease interaction), Option 4 (entry detection)
+  High:   Option 5 (tick counter + blood patch exit spawning)
+
+STATUS EFFECTS FIRST USED IN DECON (by option):
+  1=None new | 2=Shocked | 3=Ignite | 4=Feared | 5=Bleeding | 6=None new
+  (option 6 uses an execute threshold, not a status effect)
+
+RECOMMENDED (per design doc): Option 6 (Judgment Strike) for "feels
+powerful" factor; Option 3 (Scourging Flame) for multi-DOT reliability.

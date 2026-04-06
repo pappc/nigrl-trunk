@@ -1,0 +1,853 @@
+================================================================================
+TYRONE'S PENTHOUSE — 10TH NPC BRAINSTORM
+"The Final Slot"
+================================================================================
+
+Design context: 9 one-time service NPCs already exist:
+  Gun Dealer (free gun), Chef (food fusion), Plug (5 joints),
+  La'Quisha (skill level trade), Precious (stat +1 / random -1),
+  Rico (equip item for Meth Lab random), Soloman (enchant + lock item),
+  Sage/Mixologist (drink on the rocks, 3 charges, clears hangover),
+  Dice/Craps Dealer (replayable ghetto craps gambling)
+
+Design spaces not yet owned by any NPC:
+  - Abilities / spell charges
+  - HP / temp HP / survivability structures
+  - Status effect cleanse / debuff removal
+  - Armor (defense rating)
+  - Movement / speed
+  - Senses / FOV / information-at-a-distance
+
+User request: weird. Not a healer. Not a straight buff dispenser.
+Think lateral. What strange service maps onto these mechanics unexpectedly?
+
+================================================================================
+OPTION 1 — THE MEDIUM: MAMA EZRA
+================================================================================
+
+CONCEPT SUMMARY
+---------------
+Mama Ezra is a fat woman sitting in a folding chair with a table full of candles,
+cards, and burning incense. She reads your fate. Specifically: she reveals the
+exact contents of a single room on the current floor — but the room she reads is
+random. She cannot control what the spirits show. After the reading, the player
+gets a yes/no offer: she will GUIDE you to that room (placing a trail of revealed
+tiles on the map leading to it) or simply tell you what kind of room it is.
+
+The twist: "the current floor" means the Meth Lab floor 1. She is seeing what is
+BELOW. The reveal is about the next zone.
+
+But here is the actual weird mechanical hook: Mama Ezra does not show you items
+or enemies. She shows you THREATS AND OPPORTUNITIES expressed as raw numeric
+information. "There is a room ahead with four creatures and one of them is sleeping"
+or "There is a room with a crate. The crate has something sharp inside." She reads
+in cryptic language, not game-system language. Players who know the game systems
+well can translate; new players must guess.
+
+Design classification: information / scouting hybrid.
+Weirdness factor: moderate. The weird part is the intentional abstraction — she
+never says "4 enemies," she says "I see four souls restless in a small space."
+
+CHAR / COLOR
+------------
+char = 'Z'   (no obvious letter; Z for Ezra, uncommon enough to feel distinct)
+color = (200, 140, 60)  — amber-orange, candlelight
+
+INTERACTION FLOW
+----------------
+On first bump:
+
+  Mama Ezra: "Child, sit down. I been waitin' for you."
+
+  A short flavor text paragraph appears (the "reading") describing one room on
+  Meth Lab floor 1 in oblique terms. The description is procedurally assembled
+  from templates based on actual room contents:
+
+  Template examples:
+    - If room has 3+ enemies: "I see a space full of bodies that breathe wrong."
+    - If room has a crate: "Something heavy is sitting in a corner. Waiting."
+    - If room has a loot item: "The spirits show me something small and useful,
+      abandoned by whoever came before."
+    - If room is the staircase room: "I see a way down. But something stands
+      between you and it."
+    - If room has a faction enemy: "There is loyalty in that room. Dangerous loyalty."
+    - If room has an elite/special enemy: "One of them is different. Worse."
+    - If room is empty: "Quiet. Either nothing was there, or it left."
+
+  After the reading, one follow-up prompt:
+
+    [A] Ask her to mark the direction   (adds a blinking '?' marker at the edge of
+        the map in the direction of that room — compass only, not exact location)
+    [B] Leave it to chance
+
+  Either way, engine flag sets. One reading per run.
+
+  On second bump: "Mama Ezra: I told you what I saw. Spirits don't repeat themselves."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.mama_ezra_used: bool = False
+  - At Penthouse generation time (or on first bump), randomly select one room from
+    meth_lab floor 1's room list (dungeon.rooms for that floor, accessed if pre-
+    generated, or pre-rolled during Penthouse generation).
+  - Build the reading text by checking actual room spawn data: what entity types
+    are in that room, whether there is a crate hazard, whether any loot is flagged.
+  - Option A: store (direction_angle, room_id) in engine. On Meth Lab floor 1 load,
+    render a blinking '?' marker at the closest map edge tile in that compass direction.
+    Clear marker when player enters the revealed room.
+  - The information is real but encoded. No false readings.
+
+BALANCE CONSIDERATIONS
+----------------------
+  - Pure information. No mechanical stat effect. Value scales with player knowledge
+    of the game's systems.
+  - The direction marker (option A) is the mechanical "use" — it helps orient the
+    player in an unknown floor.
+  - Risk: if the pre-revealed room turns out to be unimportant (empty or trivial),
+    the information feels worthless. Counterbalanced by template priority: prefer
+    rooms with crates, elite enemies, or the staircase for the reading.
+
+SYNERGIES
+---------
+  - Marcus (Fence, from earlier design doc): if Marcus reveals faction distribution
+    and Ezra reveals a room with faction enemies, the two pieces of information
+    combine into targeted prep.
+  - Bestiary: players who have seen faction enemies in the bestiary will decode
+    Ezra's "dangerous loyalty" line immediately. New players will not.
+
+VERDICT: Interesting flavor. Not truly weird enough. The "cryptic information" hook
+is clever but the mechanical payoff (compass marker) is thin. Better as a flavor
+NPC than a service NPC. Rank: C.
+
+================================================================================
+OPTION 2 — THE BODY MODIFICATION ARTIST: NEEDLE
+================================================================================
+
+CONCEPT SUMMARY
+---------------
+Needle is a gaunt man with stretched piercings, a garage-tattooist aesthetic, and
+no license. He offers the player a single permanent body mod that is purely
+defensive — but the mod comes from a menu of five options that each protect against
+a SPECIFIC DAMAGE TYPE or CONDITION, not raw defense points. This fills the
+armor/DR design space without being a straight "+10 defense" handout.
+
+The options are:
+  - Subdermal Plates: small pieces of metal sewn under the skin. Gives flat +20
+    permanent defense. Simple, reliable, a real upgrade. (The "boring" pick.)
+  - Bone Bracing: resin injected around key bones. Reduces all incoming PHYSICAL
+    melee damage by a flat 2 per hit, permanently. Stacks with defense. Good for
+    the Meth Lab's melee-heavy enemies.
+  - Nerve Deadening: localized anesthetic injections. Status effects that deal
+    per-turn tick damage (bleed, venom, poison) deal 1 fewer damage per tick,
+    permanently. Cannot go below 1.
+  - Hollow Knuckles: metal rings driven through the knuckles. Permanently adds
+    +1 to melee damage AND +5% crit chance. Offensive body mod in a defensive slot.
+  - Scar Tissue: deliberate scarring over vital points. First hit taken each combat
+    (i.e., each time the player enters combat from a non-combat state) is reduced
+    by 50%, rounded down. One proc per distinct combat encounter.
+
+The player picks one. All are permanent. All are meaningful at different build points.
+
+CHAR / COLOR
+------------
+char = 'N'  (Needle)
+color = (180, 80, 80)   — dark red, blood and metal aesthetic
+
+INTERACTION FLOW
+----------------
+On first bump:
+
+  Needle: "I do permanent work. Nothing decorative. Pick one."
+
+  Menu titled "NEEDLE — BODY MODIFICATION (ONE-TIME, PERMANENT)":
+    a) SUBDERMAL PLATES    Defense +20 (permanent)
+    b) BONE BRACING        Incoming melee damage -2 per hit (permanent)
+    c) NERVE DEADENING     DOT effect tick damage -1 per tick (permanent, min 1)
+    d) HOLLOW KNUCKLES     Melee damage +1, Crit chance +5% (permanent)
+    e) SCAR TISSUE         First hit each combat encounter -50% (permanent)
+
+  Descriptions are one line each, exactly as shown. Player presses a-e.
+  No confirmation prompt — the MENU is the commitment. Needle works fast.
+
+  Immediately after choice:
+    Message: "Needle: Done. Try not to get it infected."
+    Apply the chosen modification.
+
+  On second bump: "Needle: I don't do two. Go."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.needle_used: bool = False
+  - (a) Subdermal Plates: player_stats.permanent_defense_bonus += 20.
+    New field on PlayerStats. Applied in combat.py defense calculation alongside
+    swagger_defence and equipment defense_bonus.
+  - (b) Bone Bracing: player_stats.melee_damage_reduction += 2. New field.
+    Applied in combat.py: player takes incoming_damage - melee_damage_reduction
+    (min 0 before armor) only when damage source is melee (not gun, not effect tick).
+  - (c) Nerve Deadening: player_stats.dot_tick_reduction: int = 1. New field.
+    Applied in effects.py in all tick() methods that call add_toxicity / deal damage
+    to player: subtract player_stats.dot_tick_reduction from tick_damage (min 1).
+    Relevant effects: BleedEffect, VenomEffect, any toxic DOT.
+  - (d) Hollow Knuckles: player_stats.melee_damage_bonus += 1 (existing field),
+    player_stats.crit_chance_bonus += 5 (new field, added to the crit_chance calc
+    in combat.py alongside street_smarts * 3%).
+  - (e) Scar Tissue: player_stats.scar_tissue_active: bool = True. New field.
+    Tracking: engine.scar_tissue_combat_used: bool flag, reset to False whenever
+    the player goes N consecutive turns without taking damage (N = 3, equivalent
+    to "left combat"). On next hit while flag is False: multiply incoming damage
+    by 0.5 (rounded down, min 1), set flag True.
+
+BALANCE CONSIDERATIONS
+----------------------
+  Subdermal Plates (+20 def) is the floor. At Meth Lab floor 1, enemies deal
+  ~8-15 damage; +20 defense reduces this by roughly 20% on weaker hits. Decent.
+
+  Bone Bracing (-2 melee per hit) is stronger against melee-heavy enemy packs
+  (Purger, faction melee enemies) — roughly equivalent to +2-4 effective defense
+  depending on how many hits per encounter.
+
+  Nerve Deadening is niche: very powerful if tox DOTs are stacking (Chemical
+  Warfare enemies), negligible if the player manages tox well. Highest skill-
+  expression option — players who know the Meth Lab enemy roster know this is
+  strong.
+
+  Hollow Knuckles is the offensive pick. +1 melee damage and +5% crit are small
+  in isolation but permanent. Melee builds that have Stabbing/Beating high already
+  may prefer this to a defensive option.
+
+  Scar Tissue is the most situationally swingy: trivially ignored in single-hit
+  encounters (works once anyway), extremely strong in rooms where the first hit
+  of an ambush is a heavy one. Best in the Meth Lab where some enemies have
+  high single-hit damage.
+
+SYNERGIES
+---------
+  - Soloman (Enchanter): if boots are enchanted (+20 speed), Scar Tissue pairs
+    well because faster movement lets the player reset combat state more often —
+    less time in sustained combat, more first-hit procs.
+  - Mutation (Adaptive DR perk): stacks with Bone Bracing for multiple layers of
+    flat damage reduction.
+  - Stabbing/Crit builds: Hollow Knuckles + Stabbing L3 crit perk + street_smarts
+    investment can push crit chance toward 30-40%, which is genuinely impactful.
+
+VERDICT: Solid design. Fills armor/DR cleanly. The five distinct options create
+skill expression without randomness. Hollow Knuckles being offensive in a defensive
+slot is the "weird" element that makes the menu interesting. Not as strange as the
+user requested but mechanically tight. Rank: B.
+
+================================================================================
+OPTION 3 — THE DREAM BROKER: SANDMAN
+================================================================================
+
+CONCEPT SUMMARY
+---------------
+Sandman is a thin man who barely moves and speaks in a low monotone. He sells
+sleep — specifically, he puts the player to sleep right here and now (a voluntary
+skip of several turns that heals and cleanses in unusual ways), but charges a price
+in permanent ability charges. The player decides how deep to sleep: a light nap
+(short, cheap), or full black-out sleep (long, powerful, expensive). The cost is
+not cash. The cost is ABILITY CHARGES — Sandman takes a permanent reduction in
+charges from one of the player's existing abilities as payment for the restorative
+sleep.
+
+This design hits: temp HP (sleep generates temp HP), cleanse (sleep removes
+certain status effects), and abilities (costs charges) all at once. The "weird"
+angle is that sleeping is the mechanic — it is dangerous in a roguelike (you lose
+turns), but here it is a safe zone, so the risk is removed and only the reward
+remains... at a price you cannot see until you already chose it.
+
+CHAR / COLOR
+------------
+char = '%'   (dreamlike, fractured — not a letter, feels abstract)
+color = (100, 100, 200)   — dusky blue, sleep/night aesthetic
+
+INTERACTION FLOW
+----------------
+On first bump:
+
+  Sandman: "You look tired. I can fix that. How long you got?"
+
+  STEP 1 — CHOOSE SLEEP DEPTH
+  Menu titled "SANDMAN — THE SLEEP (CHOOSE DEPTH)":
+
+    a) LIGHT NAP     "10 minutes. Light cleanse and a cushion."
+       - Removes one random active negative status effect.
+       - Grants 20 temp HP (floor duration).
+       - Cost preview: "Will cost: 1 charge from one random ability."
+
+    b) HEAVY SLEEP   "Two hours. Full restoration."
+       - Removes ALL current negative status effects.
+       - Grants 40 temp HP (floor duration).
+       - Heals 30 HP (immediate, non-capped at max HP — capped at max HP).
+       - Cost preview: "Will cost: ALL charges from one random ability."
+
+  Note: if the player has no abilities at all, Sandman says "You ain't got nothing
+  for me to work with. Come back when you learned something." Flag NOT set.
+
+  STEP 2 — CONFIRM
+  After picking light or heavy:
+    "Sandman will take charge(s) from one of your abilities. You won't know which
+    until after you wake up."
+    [Y] Sleep    [N] Stay awake
+
+  On confirm:
+    - A short sleep animation text plays ("You close your eyes. The world goes quiet.")
+    - The chosen restorative effects are applied immediately.
+    - One of the player's abilities is selected at random. For Light Nap: that
+      ability loses 1 charge (minimum 0 — cannot go negative). For Heavy Sleep:
+      that ability's remaining charges are set to 0 for the rest of the floor
+      (floor_duration depletion, resets next floor per normal rules if PER_FLOOR).
+      ONCE/TOTAL abilities: permanently lose the charges (they are gone for the run).
+    - THEN the message reveals which ability was affected:
+      "Sandman: You traded [Smoke Screen] charges for that sleep."
+      The player learns the cost AFTER they've accepted.
+
+  engine flag: engine.sandman_used = True.
+  On second bump: "Sandman: You've already had your sleep. Move on."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.sandman_used: bool = False
+  - Ability pool: all keys in engine.abilities where the ability has at least 1
+    remaining charge (for Light Nap: >= 1; for Heavy Sleep: >= 1, since draining
+    0 is pointless).
+  - If player has abilities but all have 0 charges remaining: Sandman says "You
+    got nothing left to give. Not worth my time." Flag sets to True (he tried).
+  - Light Nap — cleanse: randomly select one active effect on engine.player where
+    effect.category == "debuff". Remove it (call effect.expire() + remove from
+    entity.effects). If no debuffs active: cleanse step does nothing (still happens;
+    the nap still gives temp HP and costs an ability charge).
+  - Heavy Sleep — cleanse all: iterate engine.player.effects, collect all with
+    category == "debuff", call expire() + remove for each.
+  - Temp HP grant: engine.player.temp_hp += amount (20 or 40). Temp HP decays
+    per normal rules (capped at entity.max_hp + temp_hp in the display).
+  - Heal (Heavy Sleep only): engine.player.hp = min(engine.player.hp + 30,
+    engine.player.max_hp). Does not exceed max.
+  - Charge drain — Light Nap: chosen_ability.charges = max(0, chosen_ability.charges - 1).
+  - Charge drain — Heavy Sleep:
+    - If ability is PER_FLOOR: set engine.player's ability instance charges to 0.
+      On next floor, it recharges normally (PER_FLOOR semantics preserved).
+    - If ability is TOTAL or ONCE: set charges to 0 permanently (run-wide loss).
+    - If ability is INFINITE: no cost is taken. Select a different ability. If all
+      abilities are INFINITE: Sandman says "You're not what I thought. Nothing to
+      take." No cost, no sleep — flag NOT set.
+  - Reveal message fires AFTER effects are applied. The reveal is genuine flavor
+    (the player literally wakes up and realizes which one is gone), not a trick.
+    The player accepted the deal knowingly; they just didn't know the target.
+
+BALANCE CONSIDERATIONS
+----------------------
+  The key design tension: the player cannot choose which ability is drained.
+  A player with one highly valuable TOTAL-charge ability (like a rare one-use
+  ultimate from a unique item) risks losing it entirely on Heavy Sleep.
+  A player with several PER_FLOOR abilities and a couple of TOTAL-charge abilities
+  gambles on which one Sandman takes.
+
+  Light Nap is safer but thinner: 20 temp HP and one debuff cleanse is modest.
+  Heavy Sleep is the interesting decision: all debuffs gone + 30 HP + 40 temp HP
+  is genuinely powerful (comparable to a full heal + cleanse), but the cost of
+  losing ALL charges from a random ability for a floor (or forever if TOTAL) is
+  real.
+
+  Players with only INFINITE abilities are immune to cost — Sandman rejects them.
+  This creates an interesting edge case: if a player has stacked only rechargeable
+  spells with no cooldown, Sandman can't help them at all (not just won't — cannot).
+  This is lore-appropriate (Sandman takes something irreplaceable) and mechanically
+  clean.
+
+  Timing matters: taking Heavy Sleep early in the penthouse visit, before deciding
+  whether to use an ability-granting item from the Gun Dealer etc., could be
+  suboptimal if you get a great ability afterward that you would have preferred
+  undrained.
+
+SYNERGIES
+---------
+  - Dr. Pill (if implemented): Pill gives a random ability. If the player takes
+    Dr. Pill's ability BEFORE Sandman, Sandman might drain the new ability — a
+    sequence dependency.
+  - Soloman (Enchanter): Enchanting an ability-granting ring (whose ability is
+    INFINITE) before visiting Sandman means Sandman can't touch that ability.
+    Clever sequencing.
+  - Meth Lab debuffs: Heavy Sleep is strongest if the player somehow entered the
+    Penthouse with lingering debuffs (status effects that persist between floors
+    via floor_duration=True). A clean slate entering the Meth Lab is valuable.
+  - Meth-Head skill (ability charge management): Meth-Head perks that restore
+    ability charges would partially recover what Sandman drained — but only on
+    the next floor, and only for PER_FLOOR abilities.
+
+VERDICT: This is the strongest weird concept. The blind cost (reveal after commit)
+is genuinely unusual for a roguelike NPC. The word "sleep" maps onto the mechanics
+in an emotionally resonant way (you feel like you're giving something up to rest).
+The split between Light/Heavy sleep creates a real decision. The "no INFINITE
+abilities" edge case is elegant. Rank: A.
+
+================================================================================
+OPTION 4 — THE SPRINT COACH: LOLA
+================================================================================
+
+CONCEPT SUMMARY
+---------------
+Lola is a former track athlete who now runs footwork clinics out of the Penthouse.
+She offers a one-time physical conditioning session focused entirely on MOVEMENT.
+Instead of giving stat points or items, she teaches the player one of three
+permanent movement techniques — each of which changes HOW the player moves, not
+just how fast.
+
+The three techniques:
+  a) BURST STEP: Once per floor, the player can move 2 tiles instead of 1 on a
+     single movement action (no energy extra cost — it is a free double-step).
+     Activates automatically on the FIRST move action each floor. Engine clears
+     the flag at each floor transition.
+
+  b) SHADOW STEP: The player's movement no longer triggers idle enemies in adjacent
+     tiles to enter CHASING state. Enemies in IDLE state that the player walks next
+     to remain IDLE for 1 extra tick before transitioning. Essentially: the player
+     is 1 tick quieter when sneaking past stationary enemies.
+
+  c) IRON STRIDE: The player is immune to all movement-slowing effects permanently.
+     Grease tiles, SlowedEffect from abilities, tox-induced energy reduction on the
+     player specifically — none of these affect the player's movement energy cost.
+     The player always moves at full speed regardless of terrain or effects.
+
+CHAR / COLOR
+------------
+char = 'O'  (track oval — abstract but distinctive)
+color = (255, 180, 60)   — athletic gold
+
+INTERACTION FLOW
+----------------
+On first bump:
+
+  Lola: "You move like you never had to run from anything. Let me fix that."
+
+  Menu titled "LOLA'S CONDITIONING — ONE TECHNIQUE (PERMANENT)":
+    a) BURST STEP    Move 2 tiles for free on your first step each floor
+    b) SHADOW STEP   Idle enemies don't notice you one tick longer
+    c) IRON STRIDE   Immune to all movement slowing effects permanently
+
+  Player presses a-c.
+  Message: "Lola: Run it in. Keep running it in."
+  engine flag: engine.lola_used = True.
+  On second bump: "Lola: You got what you need. Keep moving."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.lola_used: bool = False
+  - (a) Burst Step: player_stats.burst_step_active: bool = False (new field).
+    Set True by Lola. Each floor entry: engine.burst_step_available = True.
+    In engine.handle_move(): if burst_step_available and this is a movement action,
+    move the player 2 tiles in the chosen direction if both are valid (first tile
+    then second tile must both be unblocked and in-bounds). Set
+    burst_step_available = False. On floor transition: reset to True.
+    If the second tile is blocked: only move 1 tile (partial burst is OK).
+  - (b) Shadow Step: player_stats.shadow_step_active: bool = False (new field).
+    In ai.py, when an IDLE enemy transitions to CHASING due to player adjacency:
+    check if player_stats.shadow_step_active. If True, delay transition by 1 tick
+    (set a per-enemy counter "noticed_player_tick_delay" = 1; on next tick if
+    still adjacent, transition normally). This is a 1-tick grace window.
+  - (c) Iron Stride: player_stats.iron_stride_active: bool = False (new field).
+    In effects.py modify_movement() for SlowedEffect / any effect that returns a
+    movement cost multiplier > 1: check if iron_stride_active; if so, return 1.0
+    (no slow). In dungeon.py movement cost for grease tiles: check iron_stride_active;
+    if True, treat grease as normal floor. In combat.py tox energy reduction hook:
+    if iron_stride_active, skip the tox-based energy penalty for the player.
+
+BALANCE CONSIDERATIONS
+----------------------
+  Burst Step is the most universally useful: free double-move at the start of each
+  floor means the player can immediately close or escape any situation on entering a
+  new floor. Particularly strong for melee builds that need to close distance quickly.
+
+  Shadow Step is the most build-specific: its value is essentially zero for players
+  who are already in CHASING combat with all enemies, and high for players trying to
+  navigate the Meth Lab's faction-heavy floors without triggering every enemy in a
+  room. Pairs with stealth/STS builds.
+
+  Iron Stride is the most underrated: the Meth Lab has grease tiles, tox enemies
+  with slow effects, and Chemical Warfare terrain hazards. Being immune to ALL of
+  these permanently is quietly powerful. Players entering on their second run who
+  know what slows down movement in the Meth Lab will pick this immediately.
+
+SYNERGIES
+---------
+  - Jaywalking skill tree: the Jaywalking skill's entire design is about movement
+    and diagonal traversal. Iron Stride and Shadow Step both compound with
+    Jaywalking perks for elite movement builds.
+  - Mutation "Hyperactive" (if such exists): speed bonuses from mutations plus
+    Iron Stride means the player is never slowed, period.
+  - Sneaky builds (STS heavy): Shadow Step is the only NPC option that rewards
+    stealth-adjacent play. Precious can boost STS (+1), and Shadow Step makes
+    that STS investment more effective in practice.
+
+VERDICT: Movement tech is an underused design space in roguelikes and a completely
+different feel from all 9 existing NPCs. None of the existing 9 touch HOW you move,
+only what you can do in combat. Lola is the most genuinely orthogonal design here.
+But the "3 passive technique choices" structure feels a little similar to Big Jerome
+(if Jerome exists). The specific picks are all strong and distinct. Rank: B+.
+
+================================================================================
+OPTION 5 — THE MEMORY MAN: DARNELL
+================================================================================
+
+CONCEPT SUMMARY
+---------------
+Darnell is a man who knows things he shouldn't. Specifically: he knows what you
+have DONE this run. His service is a mirror — he reflects your run's history back
+at you as a mechanical benefit. The more of a specific activity you have done
+during the Crack Den (floors 1-4), the more powerful his reward is.
+
+Mechanics: Darnell tallies one of three "run activities" (player's choice which
+tally to cash in), then converts the accumulated count into a permanent bonus.
+The tallies reset after Darnell cashes them — you trade your run history for
+a present benefit.
+
+The three activities:
+  A) KILLS: Every enemy killed in the Crack Den. Each 5 kills = +1 max HP
+     permanently. Cap: 20 kills = +4 max HP. Above 20, every additional 5 kills
+     = +1 extra ability charge on a random ability (once, cumulative, up to 3
+     bonus charges total for 35 kills). Formula: floor(kills / 5) max HP, cap at
+     4 HP; then floor((kills - 20) / 5) ability charges, cap at 3.
+     Flavor: "Darnell: You been putting in work. That kind of work hardens you."
+
+  B) ITEMS USED: Every consumable item used (smoked, eaten, drunk, activated).
+     Each 3 items = +1 to one randomly selected stat (permanent, no choice of which
+     stat). Cap: 12 items = +4 stat points distributed. The stat is random each
+     time (3 items = +1 random stat, 6 items = another +1 random stat, etc.).
+     Flavor: "Darnell: You been putting things in your body. It adapted."
+
+  C) CASH SPENT: Every dollar spent in the Crack Den (on Tyrone's shop, at
+     vending machines, on any paid service). Each $10 spent = +1 permanent defense.
+     Cap: $100 spent = +10 defense. No additional bonus beyond $100.
+     Flavor: "Darnell: Money flows through you. Some of it stuck."
+
+The player picks ONE tally to cash in. The other two tallies are gone (Darnell
+clears the ledger). You pick which history matters.
+
+CHAR / COLOR
+------------
+char = 'D'  (but note: 'D' may conflict with Deja if both are in the penthouse —
+              use '#' instead, implying a ledger/tally mark)
+color = (160, 200, 160)   — muted green, accountant aesthetic
+
+INTERACTION FLOW
+----------------
+On first bump:
+
+  Darnell: "I been watchin'. Let me show you what I got."
+
+  Menu titled "DARNELL'S LEDGER — CASH IN ONE RECORD":
+
+    a) KILL COUNT       [XX kills]   → +Y max HP (+Z ability charges if > 20 kills)
+    b) ITEMS CONSUMED   [XX items]   → +Y random stat (across Y separate rolls)
+    c) CASH SPENT       [$XXX]       → +Y defense
+
+  The actual counts are shown live — Darnell's menu reveals how well the player
+  did in each category before they commit. The player can see exactly what they
+  would get from each option and pick the best one.
+
+  Player presses a-c to select. No confirmation — picking is cashing in.
+  Both un-chosen tallies are zeroed. The chosen tally's benefit is applied.
+
+  Message: "Darnell: Your record speaks for itself."
+  engine flag: engine.darnell_used = True.
+
+  On second bump: "Darnell: Ledger's clean. Nothing left to count."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.darnell_used: bool = False
+  - Three tally counters, tracked from run start:
+    engine.darnell_kill_count: int = 0   (incremented in combat.py on player kill)
+    engine.darnell_item_used_count: int = 0  (incremented in item_effects.py on any
+      consumable use — smoke, eat, drink, activate)
+    engine.darnell_cash_spent: int = 0   (incremented in shop/vending logic whenever
+      engine.player.cash is decremented by a purchase)
+  - Kill payout: max_hp_bonus = min(kill_count // 5, 4). Apply as player.max_hp +=
+    max_hp_bonus (also heal the same amount so player starts at new max).
+    Ability charge bonus: if kill_count > 20, charge_bonus = min((kill_count - 20) // 5, 3).
+    Pick random ability from engine.abilities. ability.charges += charge_bonus.
+    (For INFINITE abilities: no charge grant — pick another.)
+  - Item payout: stat_bonus_count = min(item_used_count // 3, 4). For each bonus:
+    random.choice(["constitution", "strength", "street_smarts", "book_smarts",
+    "tolerance", "swagger"]) — apply +1 to that stat permanently (player_stats._base
+    adjust). If stat is already at 12: reroll until a sub-cap stat is found (max 10
+    rerolls, then skip that bonus). Recalculate HP if CON chosen.
+  - Cash payout: defense_bonus = min(darnell_cash_spent // 10, 10).
+    player_stats.permanent_defense_bonus += defense_bonus (same field proposed in
+    Needle's design).
+  - Zero all three counters after cashing in (even the unchosen ones).
+  - Serialization: all three counters serialize as engine fields in save_system.py.
+
+BALANCE CONSIDERATIONS
+----------------------
+  Kill count: a typical aggressive player kills 25-40 enemies in floors 1-4.
+  25 kills = +5 max HP + 1 ability charge. 40 kills = +8 max HP cap (4 HP) +
+  4 ability charges (capped at 3 extra). The HP cap is low enough to not be
+  game-breaking; the ability charges on a good ability can be more impactful.
+
+  Item use: casual players use maybe 6-10 items total (some smokes, a few foods).
+  6 items = 2 random stats. 12 items = 4 random stats. The randomness of stat
+  assignment means this can be great (CON, STR) or mediocre (BKS when you needed
+  CON). Players who smoked heavily (Smoking skill build) will have high item counts.
+
+  Cash spent: Tyrone's shop items cost $40-$200. A player who bought two shop items
+  spent $80-$200 on those alone plus vending machines. $100+ = +10 defense is a
+  real reward. Players who saved all their cash (penny-pinching) will find cash
+  spent is their worst option. This retroactively rewards spending.
+
+SYNERGIES
+---------
+  - Smoking skill builds: the Smoking skill earns XP through smoking, meaning
+    heavy smokers have high item_used counts. Darnell rewards Smoking build players
+    with extra stat boosts for their consumption behavior.
+  - Stabbing/melee combat builds: kill counts are highest for aggressive melee
+    builds. Darnell rewards them with max HP and ability charges.
+  - Shoppers (players who use Tyrone's store extensively): cash spent tally rewards
+    heavy buyers with permanent defense. Penny-pinching builds get nothing from C.
+  - Precious (Tattoo Artist): the random stat bonus from Darnell's item tally can
+    be hedged by Precious — if Darnell gives a bad stat (e.g., SWG when you hate
+    SWG), Precious's +1/-1 can help partially rebalance.
+
+VERDICT: Darnell is the most original design in this batch. He is a run-history
+mirror: the better you played in the Crack Den at specific activities, the more
+powerful the reward. This creates meaningful meta-decisions RETROACTIVELY (players
+on their second run will deliberately grind kills or items to maximize Darnell).
+The "pick one tally, lose the others" structure is genuinely tense. No cash cost,
+no tradeoff in the present — the cost was already paid over the run. Rank: A+.
+
+================================================================================
+OPTION 6 — THE CONTRACTOR: BIG PETE
+================================================================================
+
+CONCEPT SUMMARY
+---------------
+Big Pete is a large man with a clipboard. He is a fixer of a very specific type:
+he offers to put a BOUNTY on one enemy type of the player's choosing. For the rest
+of the run, every kill of that specific enemy type earns the player a permanent
+mechanical reward — but only for the first N kills. Big Pete defines the contract
+terms upfront (which rewards, how many kills required), and the player decides
+whether to accept the contract.
+
+This design hits multiple spaces simultaneously: it touches HP (one reward option),
+temp HP (another option), abilities (another), defense, and movement — because the
+REWARD TYPE is chosen by Big Pete, not the player. Pete offers a random reward type
+from the list above. The player chooses which ENEMY to hunt. The reward type is
+fate; the target is choice.
+
+Example interaction:
+  Big Pete: "I got a contract for you. Terms: kill 5 Crackheads, get +15 temp HP
+  (floor-start) for the rest of the run. That means every new floor, you begin with
+  a 15-point cushion. Do you take the contract?"
+
+Contract template:
+  - Enemy type: player picks from a list of Meth Lab enemies (those they know from
+    the bestiary or have seen).
+  - Kill requirement: 3 to 7 kills (randomly rolled per run by Pete).
+  - Reward: randomly selected from:
+      (i)   +10 max HP permanently
+      (ii)  +15 temp HP at the start of every new floor (run duration, stored as
+            player_stats.floor_start_temp_hp: int, applied at each floor transition)
+      (iii) +1 charge added to a random ability permanently
+      (iv)  +15 permanent defense
+      (v)   +20 permanent speed
+
+  The player sees the FULL CONTRACT before accepting (enemy, kill count, reward).
+  Either they accept or they don't. If they decline, Pete offers a different contract
+  (one re-roll allowed — same random pool, new enemy + new reward). If they decline
+  the re-roll too, Pete says "Fine. Don't need the work."
+
+CHAR / COLOR
+------------
+char = '!'  (clipboard / exclamation — urgency of a contract)
+color = (220, 200, 120)   — khaki, construction-adjacent
+
+INTERACTION FLOW
+----------------
+On first bump:
+
+  Big Pete: "[reading clipboard] Got something for you. Listen up."
+
+  Display contract:
+    "TARGET:  [Purger]   REQUIRED: Kill 5    REWARD: +10 max HP"
+    "[A] Accept contract    [B] Re-roll (once)    [C] Decline"
+
+  If A: contract is accepted. engine.pete_contract = {enemy_type, kills_required,
+  reward_type, kills_done=0}. As the player kills enemies in the Meth Lab,
+  engine.pete_contract["kills_done"] increments on matching enemy_type kills.
+  When kills_done >= kills_required: contract completes, reward fires, contract
+  cleared, success message displayed.
+
+  If B (re-roll, once only): generate new enemy + new reward. Display again.
+  If declined again: "Pete: Your loss." engine.pete_used = True (no contract set).
+
+  engine.pete_used: bool = False; set True on first bump regardless of acceptance.
+  (Pete only offers once; the re-roll is within that same interaction.)
+
+  On second bump: "Pete: We talked already. You either got a contract or you don't."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.pete_used: bool = False
+  - engine.pete_contract: dict | None = None
+    Structure: {"enemy_type": str, "kills_required": int, "kills_done": int,
+                "reward_type": str, "fulfilled": bool}
+  - Enemy pool: all Meth Lab enemy types that exist in MONSTER_REGISTRY and have
+    spawn tables in meth_lab zone. At least: purger, covid_26, toxic_slug,
+    sludge_amalgam, chemist, and faction enemies. Shown by display_name.
+  - Kill tracking: in combat.py / engine death handling, when an enemy is killed,
+    check if engine.pete_contract is active and not fulfilled. If killed enemy's
+    enemy_type matches, increment kills_done.
+  - Reward fulfillment (on kills_done >= kills_required):
+    "max_hp"    → player.max_hp += 10; player.hp = min(player.hp + 10, player.max_hp)
+    "temp_hp"   → player_stats.floor_start_temp_hp += 15 (new field). On each floor
+                  transition, player.temp_hp = max(player.temp_hp,
+                  player_stats.floor_start_temp_hp) — floor-start cushion.
+    "charge"    → random ability in engine.abilities (non-INFINITE), charges += 1
+    "defense"   → player_stats.permanent_defense_bonus += 15 (shared field with Needle)
+    "speed"     → player.speed += 20 (permanent speed increase)
+  - Serialization: engine.pete_contract serializes as a dict in save_system.py.
+  - Re-roll limit: engine.pete_reroll_used: bool = False; set True when B is used.
+    If True: option B is grayed out/hidden on the re-roll display.
+
+BALANCE CONSIDERATIONS
+----------------------
+  The contract is a deferred reward — the player must EARN it in the Meth Lab.
+  If they never encounter the contract enemy type (unlucky spawns), the contract
+  goes unfulfilled with no benefit. This is a meaningful risk for a penalty-free
+  mechanic (acceptance costs nothing directly).
+
+  Kill requirements of 3-7 are calibrated to typical Meth Lab floor density.
+  Most enemy types appear 2-4 times per floor on average. So a contract requiring
+  5 kills might take 1-2 floors to fulfill, or might require specifically seeking
+  out that enemy type.
+
+  The temp_hp floor-start reward is the most interesting long-term: +15 temp HP
+  at the start of every floor compounds over a multi-floor Meth Lab run. By floor 3,
+  it has contributed 45 total temp HP (3 floors × 15). This is very good value if
+  the contract is fulfilled early.
+
+  Speed +20 is the most niche reward — valuable in any build but the weakest of the
+  five in isolation.
+
+SYNERGIES
+---------
+  - Bestiary knowledge: players who have already studied the Meth Lab enemy types
+    (via bestiary or prior runs) can cherry-pick the easiest enemy to hunt. A player
+    who knows toxic_slug is extremely common on floor 1 will target that for a fast
+    contract completion.
+  - Deja's Cocktails (if implemented): Venom Sling cocktail + a tox-focused enemy
+    hunt contract makes both mechanics reinforce each other.
+  - Needle's Nerve Deadening: if the player has Nerve Deadening and takes a contract
+    on a DOT-heavy enemy like toxic_slug, they are simultaneously more resistant to
+    what that enemy does while farming it for the contract reward.
+
+VERDICT: Big Pete is clever but the deferred/conditional reward structure makes
+implementation heavier than the others. The "contract" concept is thematically right
+for a penthouse fixer, but the mechanical footprint (kill tracking, contract dict,
+floor-start temp HP logic) is extensive. The re-roll system adds one more state
+variable. Strong design, high complexity. Rank: B+.
+
+================================================================================
+FINAL RANKING AND RECOMMENDATION
+================================================================================
+
+RANKED ORDER (strongest to weakest for "weird + interesting + fillable gap"):
+
+1. DARNELL (The Memory Man)  [OPTION 5] — A+
+   Most original. Run-history mirror converts past behavior into present reward.
+   Genuinely unusual mechanic with no analog in any existing NPC. The "pick one
+   tally, lose the others" is real tension. Three distinct reward paths. Multiple
+   retroactive synergies with existing playstyles. Implementation complexity: medium
+   (three trackers + payout math). Fills: HP, abilities, defense. Weird factor: high
+   (it knows what you did; it never tells you which tally is best until you see the
+   numbers).
+
+2. SANDMAN (The Dream Broker)  [OPTION 3] — A
+   Weird angle: voluntary blind cost (ability charges drained from unknown ability,
+   revealed after sleeping). The "sleep is power but power costs something you can't
+   see" is emotionally resonant and mechanically clean. Fills: temp HP, cleanse,
+   abilities. Two-tier choice (light/heavy) is well-scoped. Edge case with INFINITE
+   abilities is elegant. Implementation complexity: medium.
+
+3. LOLA (The Sprint Coach)  [OPTION 4] — B+
+   Three distinct movement tech perks. Genuinely orthogonal to all 9 existing NPCs.
+   Iron Stride is the most underrated pick in the set (tox-slow immunity in the Meth
+   Lab is quiet but strong). Shadow Step rewards stealth-adjacent builds that no other
+   NPC addresses. Fills: movement/speed design space exclusively. Weird factor:
+   moderate (movement tech is unusual for an NPC but the "three passive techniques"
+   structure echoes Big Jerome's structure). Implementation complexity: medium-low.
+
+4. NEEDLE (The Body Mod Artist)  [OPTION 2] — B
+   Cleanest mechanical design. Fills armor/DR and one offensive option cleanly.
+   The variety of the five options (one offensive, one DOT-specific, one first-hit
+   proc) is good. Hollow Knuckles being an offensive pick in a "body armor" menu is
+   the interesting subversion. Weird factor: low (Needle is essentially just a clean
+   stat menu). But it fills the armor/DR gap precisely. Implementation complexity: low.
+
+5. BIG PETE (The Contractor)  [OPTION 6] — B+
+   Thematically strong (bounty contract in a penthouse kingpin setting fits). The
+   deferred reward structure is unique. But: implementation is the heaviest here
+   (kill tracking by type, contract state persistence, floor-start temp HP regen).
+   Good design held back by complexity cost. Fills: temp HP, speed, defense, abilities.
+   Weird factor: moderate.
+
+6. MAMA EZRA (The Medium)  [OPTION 1] — C
+   Interesting flavor but thin mechanical payoff. A compass marker toward a pre-
+   revealed room is not enough return for a permanent NPC slot. Best as ambient
+   flavor text attached to a different service NPC. Fills: information space that
+   is already covered by Marcus (if Marcus is implemented). Implementation: moderate.
+
+RECOMMENDATION
+--------------
+DARNELL is the strongest pick for the 10th slot. He is mechanically novel in a way
+that none of the other options — and none of the existing 9 NPCs — approach. He
+forces the player to look backwards at their own run rather than forward at their
+build, which is a completely different cognitive mode. The three tallies (kills,
+items, cash) naturally map onto the three dominant playstyles in the Crack Den
+(combat, smoker/consumer, shopper), and the "pick one, lose the others" structure
+creates the kind of decision that players will think about for 15 seconds.
+
+SANDMAN is the strongest if the team wants to specifically fill the ability-charges
+space and/or temp HP in a single NPC with high weirdness factor.
+
+LOLA is the most practical pick if the priority is low-implementation-complexity
+and a clean, memorable ability that touches no other NPC's design space.
+
+================================================================================
+ENGINE STATE SUMMARY (PER OPTION)
+================================================================================
+
+DARNELL (recommended):
+  engine.darnell_used: bool = False
+  engine.darnell_kill_count: int = 0        (tracked from run start, via combat.py)
+  engine.darnell_item_used_count: int = 0   (tracked from run start, via item_effects.py)
+  engine.darnell_cash_spent: int = 0        (tracked from run start, via shop/vending)
+  player_stats.permanent_defense_bonus: int = 0   (new shared field)
+
+SANDMAN:
+  engine.sandman_used: bool = False
+  player_stats fields: none new (uses existing temp_hp on entity)
+
+LOLA:
+  engine.lola_used: bool = False
+  player_stats.burst_step_active: bool = False
+  player_stats.shadow_step_active: bool = False
+  player_stats.iron_stride_active: bool = False
+  engine.burst_step_available: bool (per-floor reset)
+
+NEEDLE:
+  engine.needle_used: bool = False
+  player_stats.permanent_defense_bonus: int = 0   (shared with Darnell's cash option)
+  player_stats.melee_damage_reduction: int = 0    (new)
+  player_stats.dot_tick_reduction: int = 0        (new; applies in effects.py ticks)
+  player_stats.crit_chance_bonus: int = 0         (new; added in combat.py)
+  engine.scar_tissue_combat_used: bool (per-combat reset)
+
+BIG PETE:
+  engine.pete_used: bool = False
+  engine.pete_reroll_used: bool = False
+  engine.pete_contract: dict | None = None
+  player_stats.floor_start_temp_hp: int = 0       (new; applied at floor transition)
+  player_stats.permanent_defense_bonus: int = 0   (shared)
+
+================================================================================

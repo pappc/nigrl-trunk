@@ -136,6 +136,7 @@ class SDLOverlay:
     def __init__(self, context):
         self._renderer = context.sdl_renderer
         self._console_render = tcod.render.SDLConsoleRender(context.sdl_atlas)
+        self._cached_console_tex = None
         self._digit_textures: dict[str, tcod.sdl.render.Texture] = {}
         self._floating_texts: list[_FloatingText] = []
         self._cursed_tiles: list[tuple[int, int]] = []  # (dungeon_x, dungeon_y)
@@ -144,6 +145,7 @@ class SDLOverlay:
         self._embers: list[_Ember] = []
         self._fire_tiles: list[tuple[int, int]] = []  # (dungeon_x, dungeon_y) of visible fire hazards
         self._frozen_tiles: list[tuple[int, int]] = []  # (dungeon_x, dungeon_y) of visible frozen monsters
+        self._rad_bomb_tiles: list[tuple[int, int, int]] = []  # (dungeon_x, dungeon_y, turns_left) of visible rad bomb crystals
         self._gradient_tiles: list[tuple] = []  # (dungeon_x, dungeon_y, item_id) for gradient items
         self._gradient_textures: dict = {}  # item_id -> SDL texture (lazily built)
         self._status_icon_data: list[tuple[int, int, list[tuple[str, tuple[int,int,int]]]]] = []
@@ -298,7 +300,8 @@ class SDLOverlay:
         return (len(self._floating_texts) > 0
                 or self._title_card is not None
                 or len(self._tile_flashes) > 0
-                or len(self._embers) > 0)
+                or len(self._embers) > 0
+                or len(self._rad_bomb_tiles) > 0)
 
     # Keep individual methods as thin wrappers for backward compat (called from nigrl.py)
     def update_fire_tiles(self, engine):
@@ -334,7 +337,6 @@ class SDLOverlay:
         "whirlwind_axe": ("battle_axe_16.png", [(220, 60, 60), (140, 140, 140)], False, 0),
         "titans_blood_ring": ("ring_16.png", [(30, 10, 10), (200, 30, 30), (30, 10, 10)], False, 0),
         "flagellants_mask": ("hat_16.png", [(180, 50, 50), (80, 20, 20)], False, 0),
-        "thinking_cap": ("hat_16.png", [(30, 40, 160), (220, 230, 255)], False, 0),
         "thunder_gun": ("gun_medium_16.png", [(255, 255, 80), (80, 120, 255)], False, 0),
         "ring_of_sustenance": ("ring_16.png", [(240, 130, 30), (255, 240, 80)], False, 0),
     }
@@ -349,6 +351,7 @@ class SDLOverlay:
             self._fire_tiles = []
             self._embers.clear()
             self._frozen_tiles = []
+            self._rad_bomb_tiles = []
             self._gradient_tiles = []
             self._status_icon_data = []
             self._cursed_tiles = []
@@ -357,6 +360,7 @@ class SDLOverlay:
         fire = []
         cursed = []
         frozen = []
+        rad_bombs = []
         gradient = []
         status_icons = []
 
@@ -371,6 +375,9 @@ class SDLOverlay:
                 ht = getattr(entity, 'hazard_type', None)
                 if ht == 'fire':
                     fire.append((entity.x, entity.y))
+                elif ht == 'rad_bomb_crystal':
+                    turns_left = getattr(entity, 'hazard_duration', 0)
+                    rad_bombs.append((entity.x, entity.y, turns_left))
 
             elif etype == "item":
                 item_id = getattr(entity, 'item_id', None)
@@ -400,6 +407,8 @@ class SDLOverlay:
                         icons.append(('_shock', (180, 80, 255)))
                     elif eff_id == 'fear':
                         icons.append(('F', (180, 80, 255)))
+                    elif eff_id == 'empty_pockets':
+                        icons.append(('$', (200, 180, 60)))
                     elif eff_id == 'snipers_mark':
                         icons.append(('M', (255, 60, 60)))
                     elif eff_id == 'slipped':
@@ -427,6 +436,7 @@ class SDLOverlay:
         self._fire_tiles = fire
         self._cursed_tiles = cursed
         self._frozen_tiles = frozen
+        self._rad_bomb_tiles = rad_bombs
         self._gradient_tiles = gradient
         self._status_icon_data = status_icons
 
@@ -480,13 +490,22 @@ class SDLOverlay:
         """Remove all floating texts."""
         self._floating_texts.clear()
 
-    def present(self, console):
-        """Render console + overlays in a single present. Replaces context.present()."""
-        # Step 1: Render console to texture (no present)
-        console_tex = self._console_render.render(console)
+    def present(self, console, skip_console_render=False):
+        """Render console + overlays in a single present. Replaces context.present().
+
+        Args:
+            skip_console_render: If True, reuse the cached console texture from
+                the last full render instead of re-rendering the console. Use this
+                for animation-only frames where the game state hasn't changed.
+        """
+        # Step 1: Render console to texture (or reuse cached)
+        if not skip_console_render:
+            self._cached_console_tex = self._console_render.render(console)
+        if self._cached_console_tex is None:
+            self._cached_console_tex = self._console_render.render(console)
 
         # Step 2: Copy console texture to renderer (scaled to fill window)
-        self._renderer.copy(console_tex)
+        self._renderer.copy(self._cached_console_tex)
 
         # Step 3: Spawn ember particles (only if fire tiles visible)
         self._spawn_embers()
@@ -494,7 +513,8 @@ class SDLOverlay:
         # Step 4: Draw overlays on top (only if there's something to draw)
         if (self._floating_texts or self._tile_flashes
                 or self._title_card or self._embers
-                or self._frozen_tiles or self._gradient_tiles
+                or self._frozen_tiles or self._rad_bomb_tiles
+                or self._gradient_tiles
                 or self._status_icon_data or self._targeting_line):
             console_px_w = console.width * TILE_PX
             console_px_h = console.height * TILE_PX
@@ -503,6 +523,8 @@ class SDLOverlay:
                 self._render_embers()
             if self._frozen_tiles:
                 self._render_frozen_tiles()
+            if self._rad_bomb_tiles:
+                self._render_rad_bomb_pulse()
             if self._gradient_tiles:
                 self._render_gradient_tiles()
             if self._targeting_line:
@@ -793,6 +815,38 @@ class SDLOverlay:
             for cx, cy in ice_pixels:
                 self._renderer.draw_color = (200, 240, 255, crystal_alpha)
                 self._renderer.fill_rect((px + cx, py + cy, 2, 2))
+
+        self._renderer.draw_blend_mode = old_blend
+
+    def _render_rad_bomb_pulse(self):
+        """Draw a pulsing green ring around rad bomb crystals. Pulse speeds up as countdown decreases."""
+        if not self._rad_bomb_tiles:
+            return
+        old_blend = self._renderer.draw_blend_mode
+        self._renderer.draw_blend_mode = tcod.sdl.render.BlendMode.BLEND
+
+        t = time.time()
+
+        for dx, dy, turns_left in self._rad_bomb_tiles:
+            px = (dx + MAP_OFFSET_X) * TILE_PX
+            py = (dy + HEADER_HEIGHT) * TILE_PX
+
+            # Pulse faster as countdown decreases: 2.0 → 4.0 → 8.0 Hz
+            speed = 2.0 + (3 - min(turns_left, 3)) * 3.0
+            pulse = (math.sin(t * speed) + 1.0) / 2.0  # 0.0-1.0
+
+            # Green overlay with pulsing alpha
+            base_alpha = int(40 + 80 * pulse)
+            self._renderer.draw_color = (80, 255, 80, base_alpha)
+            self._renderer.fill_rect((px, py, TILE_PX, TILE_PX))
+
+            # Bright green border ring (1px)
+            ring_alpha = int(100 + 120 * pulse)
+            self._renderer.draw_color = (120, 255, 80, ring_alpha)
+            self._renderer.fill_rect((px, py, TILE_PX, 1))              # top
+            self._renderer.fill_rect((px, py + TILE_PX - 1, TILE_PX, 1))  # bottom
+            self._renderer.fill_rect((px, py, 1, TILE_PX))              # left
+            self._renderer.fill_rect((px + TILE_PX - 1, py, 1, TILE_PX))  # right
 
         self._renderer.draw_blend_mode = old_blend
 

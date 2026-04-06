@@ -1,0 +1,759 @@
+DECONTAMINATION SKILL — LEVEL 4 AURA OPTIONS
+NIGRL Design Document
+Generated: 2026-04-02
+======================================================================
+
+DOCUMENT PURPOSE
+----------------
+Design 5-6 bold, creative perk options for Decontamination Level 4. Every even-numbered
+Decontamination perk is a toggleable aura (L2 = Gamma Aura, L4 = this). The chosen perk
+replaces the current _PLACEHOLDER at index 3 in SKILL_PERKS["Decontamination"].
+
+TREE STATE AS OF THIS DOCUMENT
+-------------------------------
+  L1 — Radiant: +30% rad resist, +2 TOL, +2 STR
+  L2 — Gamma Aura: +3 STR. Toggle aura: enemies within 2 tiles gain +5 rad/turn. 2x Decon XP
+       from resisted rad. Nearby enemy dying with 50+ rad removes 25 of your rad.
+  L3 — Consecrate: 2/floor, 30t CD. Lay a 5x3 rad zone (20t). Enemies: +10 rad/turn, true dmg.
+       Standing in zone: +1 Swagger/turn (cap 5). Low rad = chance to preserve charge. +15% rad
+       resist.
+  L4 — THIS DOCUMENT
+  L5 — Consecrate upgrade (already planned; not designed here)
+
+AURA RULES (established pattern from Gamma Aura and L2 design)
+--------------------------------------------------------------
+  - Toggle is free (no charge cost). One Decon aura active at a time. Toggling on a new aura
+    while a different one is active swaps them out.
+  - Implemented as a floor_duration Effect with a tick() method. Toggle logic in the ability's
+    execute function checks for existing aura effect and either expires it (OFF) or applies
+    the new one (ON).
+  - The toggle ability should be ChargeType.INFINITE, TargetType.SELF.
+  - Swap detection: in the execute function, before applying the new aura, check for any active
+    Decon aura effect (gamma_aura or whatever the L4 id is) and expire it first.
+  - Always-on passive component: exists regardless of toggle state (small bonus that comes with
+    unlocking the perk, distinct from the aura itself).
+
+DESIGN BRIEF
+-----------
+L4 must feel like a DIFFERENT choice from Gamma Aura. Gamma Aura is OFFENSIVE — it builds
+radiation on nearby enemies, which the irradiated DOT (rad//50 dmg/tick) then kills. The L4
+aura should open a different design space: defensive, utility, vision-based, terrain-warping,
+or something entirely novel. The key design question: why would a player SWAP to this aura
+instead of Gamma? The answer defines the option's build identity.
+
+
+======================================================================
+OPTION 1 — "SACRED GROUND AURA" (terrain conversion)
+High concept: your FOV itself is the consecration. The ground you walk on becomes irradiated
+simply by you being near it.
+======================================================================
+
+NAME: Sacred Ground Aura
+ONE-LINE: Toggle aura — every rad tile in your FOV gains +2 turns of duration per turn you
+stand near it. You consecrate by presence, not by ability use.
+
+AURA EFFECT (while ON):
+  - Each tick the aura is active: iterate dungeon.rad_tiles. For every tile that is currently
+    visible (dungeon.visible[y][x] == True) AND within 5 tiles of the player (Chebyshev):
+    increment its remaining duration by 2 (capped at 30 turns max per tile).
+  - Additionally: any NEW floor tile the player steps onto while this aura is active has a 15%
+    chance to spontaneously become a rad tile with 8 turns duration (rad_tiles[(x,y)] = 8).
+    This is checked in engine.handle_move after the player moves. If the destination is already
+    a rad tile, no check occurs.
+  - The effect: Consecrate's limited zones become PERMANENT while this aura is on. You stop
+    worrying about the 20-turn clock on your rad tiles. You can kite enemies back into old
+    Consecrate zones that are still alive because you sustained them. And you scatter faint
+    radiation across the floor just by exploring it.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: free. No per-tick cost to the player.
+  - Toggle OFF: free.
+  - The "cost" is opportunity cost: while this aura is ON, Gamma Aura is OFF, so you stop
+    irradiating enemies within 2 tiles. You get zone persistence instead of direct enemy rad.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Holy Footprint": After unlocking L4, when the player walks off a Consecrate rad tile, it
+    gains +4 turns duration instead of just decrementing normally. You literally leave blessed
+    ground behind — your departure refreshes the tile rather than just aging it.
+  - Implementation: in engine.handle_move, after player moves, check old position in
+    dungeon.rad_tiles. If present and player has Decon L4+: dungeon.rad_tiles[old_pos] =
+    min(30, dungeon.rad_tiles[old_pos] + 4).
+
+WHY THIS AURA vs GAMMA AURA?
+  - Gamma Aura: you want to irradiate enemies RIGHT NOW. Fast rooms with clustered enemies.
+  - Sacred Ground: you have already placed Consecrate zones, or you're in a long dungeon run
+    where kiting is your strategy. You want the tiles to last. You want the room to become
+    a permanent hazard rather than generating burst rad.
+  - Ideal swap moment: after placing Consecrate early in a floor, toggle off Gamma and activate
+    Sacred Ground so you get the full run of that zone while you kite.
+
+SYNERGY NOTES:
+  - Consecrate (L3): This is THE synergy perk. Sacred Ground makes Consecrate's zones
+    persistent instead of expiring. A 20-turn zone that gets +2 turns/tick while you're in
+    range is effectively indefinite during combat.
+  - Gamma Aura (L2): Swap back after you've "primed" a room with Sacred Ground tiles. Use
+    Sacred Ground to build your zone network, then swap to Gamma to accelerate enemy irradiation
+    into those tiles.
+  - Radiant Wake (proposed L6): if Radiant Wake is also taken, Sacred Ground sustains those
+    6-turn wake tiles into 10+ turn tiles. The entire floor becomes irradiated over the course
+    of a run.
+  - Force Sensitive: standing on your own rad tile while the aura is active lets you choose
+    when to absorb and purge, since the tile keeps running. More controlled cycle timing.
+
+IMPLEMENTATION NOTES:
+  - New effect: SacredGroundAuraEffect (id="sacred_ground_aura", floor_duration=True)
+    tick(): for (x,y), remaining in dungeon.rad_tiles.items(): if visible and dist <= 5:
+    dungeon.rad_tiles[(x,y)] = min(30, remaining + 2).
+  - handle_move hook: if Decon L4+ and sacred_ground_aura active: check step-onto tile for
+    15% spontaneous rad tile creation. Check old tile for +4 duration holy footprint.
+  - Toggle execute: standard pattern (check for active Decon aura effect, expire it, apply new).
+  - Save/load: no new engine state fields needed (dungeon.rad_tiles already serialized).
+
+BALANCE CONSIDERATIONS:
+  - The aura makes Consecrate's zones free to sustain. Without the zone ability, the aura
+    creates only scattered 8-turn tiles at 15% chance — not enough to be dominant on its own.
+    The perk is intentionally synergy-dependent on L3. A player who took a different L3 gets
+    much less from it.
+  - The 15% spontaneous tile chance generates roughly 1 free tile every 7 tiles walked. In a
+    typical floor that's maybe 5-8 free rad tiles. Modest without Consecrate, strong with it.
+
+PERK TEXT (for skills.py):
+  "Toggle aura (one Decon aura at a time): rad tiles in your FOV within 5 tiles gain +2 turns
+  per tick (cap 30t). Each tile you walk onto has a 15% chance to become a rad tile (8t).
+  Passive: when you step off a rad tile, it gains +4 turns duration."
+
+
+======================================================================
+OPTION 2 — "DIVINE SIGHT AURA" (the FOV angle, taken to the extreme)
+High concept: your FOV becomes a weapon. Enemies that are visible to you — that your righteous
+gaze falls upon — accumulate a slowly building Condemned debuff. The moment they leave your
+sight, it converts.
+======================================================================
+
+NAME: Divine Sight Aura
+ONE-LINE: Toggle aura — every enemy you can SEE accumulates "Condemned" stacks each tick. When
+a Condemned enemy leaves your FOV, the stacks burst as radiation damage on that enemy.
+
+AURA EFFECT (while ON):
+  - Each tick the aura is active: every living enemy in dungeon.visible (visible[e.y][e.x] ==
+    True) gains 1 Condemned stack (stored on the entity as entity.condemned_stacks: int = 0,
+    or as a lightweight CondemnedEffect with a stack counter).
+  - Stacks cap at 20 per enemy. No damage while they are visible — you are building a charge.
+  - When an enemy leaves FOV (visible[e.y][e.x] becomes False) AND they have >= 1 Condemned
+    stack: immediately trigger the burst. Deal condemned_stacks * 3 as true radiation damage
+    to that enemy (bypasses defense). Reset condemned_stacks to 0.
+  - "Leaving FOV" is detected in the engine's FOV recompute step: before recomputing, record
+    which enemies were visible. After recomputing, compare. Enemies that dropped out of
+    visibility fire their burst if condemned_stacks > 0.
+  - Important: the burst is true radiation DAMAGE (not radiation gain). It is not add_radiation.
+    It deals direct HP damage. Flavor: your gaze was the only thing keeping them alive; the
+    moment they try to flee your light, your judgment descends.
+  - Enemy dies before leaving FOV? Condemned stacks are lost. This is intentional — killing
+    them in sight is Gamma Aura's job. Divine Sight punishes enemies that flee or break line
+    of sight.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: free. No per-tick cost.
+  - Toggle OFF: free. All accumulated Condemned stacks on enemies are LOST (not triggered —
+    toggling off is mercy). This is a meaningful toggle penalty.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Righteous Gaze": While the player has Decontamination L4+, any enemy that has 5+ Condemned
+    stacks is visually marked in the message log: "[Enemy] is marked by your gaze." Also: the
+    player gains +1 rad resistance for each distinct enemy in FOV with 5+ stacks (cap +3 extra
+    resist). This turns your accumulated pressure into a defensive payoff.
+  - Implementation: check in the FOV-visible monster list. If enemy.condemned_stacks >= 5 and
+    Decon L4+ unlocked: player_stats temporary rad_resistance += 1 (up to 3 stacks total;
+    recalculate each turn as (count of visible enemies with 5+ stacks) capped at 3, set as
+    a temporary_stat_bonus or a dedicated engine field reset each tick).
+
+WHY THIS AURA vs GAMMA AURA?
+  - Gamma Aura: melee fighters who stay close to enemies and want continuous irradiation within
+    2 tiles. Front-line, aggressive play.
+  - Divine Sight: ranged-to-mid players who use FOV angles. You position to maximize the number
+    of enemies you can see. You want enemies to feel forced to flee — and punish them when they
+    do. Great against enemies with hit-and-run AI (they'll constantly pop in and out of sight,
+    each time eating a burst). Great against fast-moving enemies with room_guard AI that patrol.
+  - Swap moment: when you've kited an enemy down a corridor and know they're about to turn a
+    corner. Toggle to Divine Sight as they flee — the burst fires the moment they round the
+    corner and drop out of FOV.
+
+SYNERGY NOTES:
+  - Consecrate (L3): place a Consecrate zone at a chokepoint. Enemies must cross it to reach
+    you, gaining rad stacks while in sight. When they retreat through the zone, they're still
+    in your FOV and still building Condemned. When they finally escape, they get hit with both
+    the rad tile's ongoing effect AND a Condemned burst. Double punishment for fleeing.
+  - Gamma Aura (L2): use Gamma in open-room engagements, swap to Divine Sight in corridor fights
+    where enemies break LoS. This is the cleanest "when to swap" decision in any option here.
+  - Radiant (L1): your +30% rad resist plus the +3 bonus from Righteous Gaze means your resist
+    can reach +33% with 3 marked enemies — capping you near the top of the resist range while
+    actively fighting.
+
+IMPLEMENTATION NOTES:
+  - New entity field: entity.condemned_stacks: int = 0. Must be serialized in save_system.py.
+  - New effect or per-tick engine logic: in _run_energy_loop (or a dedicated step before FOV),
+    check visible enemies and add 1 condemned_stack each tick when aura is active.
+  - FOV comparison: in engine.handle_move or the FOV recompute step, before calling
+    compute_fov(): store prev_visible = {(e.x,e.y) for e in monsters if visible[e.y][e.x]}.
+    After compute_fov(): for each monster not in the new visible set — if condemned_stacks > 0:
+    deal condemned_stacks * 3 true damage, message, reset stacks to 0.
+  - Alternatively: track per-enemy "was_visible_last_tick" as a simpler flag. More robust
+    against edge cases (teleport, door, etc.).
+  - Toggle off cleanup: in DivineSightAuraEffect.expire(): for each monster in entities, reset
+    entity.condemned_stacks = 0. Message: "Your gaze releases them."
+  - The Righteous Gaze passive bonus to rad resist: recalculate in a before_turn hook on the
+    effect, or as an inline check in the stat calculation path.
+  - New effect class: DivineSightAuraEffect (id="divine_sight_aura", floor_duration=True)
+    tick(): add 1 condemned_stack to all visible enemies (cap 20).
+    expire(): clear all condemned_stacks.
+
+BALANCE CONSIDERATIONS:
+  - Maximum burst: 20 stacks * 3 = 60 true damage on one enemy. That takes 20 ticks to build,
+    which is roughly 7-8 player turns. Not achievable every fight, but meaningful vs tough
+    enemies you can kite.
+  - Average burst: enemy spends 6-8 ticks in sight = 18-24 stacks = 54-72 damage. Against
+    floor 3-4 enemies with 50-100 HP, this is a significant delayed nuke that fires for "free"
+    when they retreat.
+  - The "no damage while visible" constraint is intentional: it prevents the aura from just
+    being a damage-over-time that rivals Gamma Aura. It rewards tactical positioning and
+    punishes AI behaviors that break sight.
+
+PERK TEXT (for skills.py):
+  "Toggle aura (one Decon aura at a time): enemies in your FOV gain 1 Condemned stack/tick
+  (cap 20). When an enemy leaves your sight: burst for stacks * 3 true damage and reset.
+  Passive: each visible enemy with 5+ stacks grants +1 rad resist (cap +3)."
+
+
+======================================================================
+OPTION 3 — "CORONA OF JUDGMENT" (the most BOLD option — FOV as a reverse shield)
+High concept: your presence is blinding. Enemies looking at you are dazzled by your radiance.
+While the aura is ON, every enemy in your FOV that ATTACKS you takes radiant backlash. The
+paladin fantasy of being untouchable, righteous, wreathed in light that burns those who dare
+strike you.
+======================================================================
+
+NAME: Corona of Judgment
+ONE-LINE: Toggle aura — enemies that successfully hit you while in your FOV receive a radiant
+backlash: they take true damage AND you gain radiation fuel for Force Sensitive.
+
+AURA EFFECT (while ON):
+  - Reactive rather than proactive. No per-tick effect.
+  - Whenever the player is hit by a melee or gun attack: if the attacking entity is in the
+    player's FOV (dungeon.visible[attacker.y][attacker.x] == True):
+      1. Deal (10 + player.radiation // 20) true damage to the attacker. No defense bypass
+         needed — this is player's raw power, not combat system damage. Direct entity.hp
+         reduction with death check.
+      2. The player gains 8 radiation (NOT blocked by rad resistance — this is the aura
+         feeding your rad resource). Flavor: their blow glances off your radiance and you
+         ABSORB the force as pure radiation energy.
+      3. Generate Decontamination XP: 8 * bksmt_modifier (same formula as add_radiation's
+         XP grant). You're earning Decon XP FOR BEING HIT.
+  - The backlash does NOT trigger on out-of-FOV attacks (enemies behind doors, grenades from
+    unseen enemies, etc.). You must see the enemy coming.
+  - No per-tick energy drain. The cost is that you MUST take hits to get value. Switching to
+    this aura means leaning into taking damage, not avoiding it.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: costs 15 radiation (paid immediately from your current rad pool). You must have
+    at least 15 rad to activate — flavor: you must already be "charged" to radiate judgment.
+  - Toggle OFF: free. Refunds nothing.
+  - Decision logic: worth toggling on mid-combat when you know you're about to eat several hits.
+    Worth toggling off in hit-and-run situations where enemies won't be in your FOV.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Radiant Constitution": unlocking L4 adds a new persistent mechanic: while the player's
+    radiation is between 50-200, all incoming damage is reduced by 1 (flat reduction, not %).
+    Below 50 or above 200: no reduction (high rad is dangerous even for the paladin).
+    This sweet spot "mid-rad" DR creates a strong reason to actively maintain radiation levels
+    rather than always purging immediately. It rewards the Decontamination playstyle identity
+    of "I want to carry medium rad as a resource."
+  - Implementation: in combat.py's player_take_damage or the existing damage reduction path,
+    check player.radiation >= 50 and <= 200 and Decon L4+. If so, damage -= 1 (min 1 total).
+
+WHY THIS AURA vs GAMMA AURA?
+  - Gamma Aura: you're the aggressor. You want to irradiate enemies faster than they can react.
+    Best when you have high movement/damage and can close quickly.
+  - Corona of Judgment: you're the immovable object. You stand in the corridor, let enemies
+    come to you, and punish every hit. Best against enemies with high attack frequency (multiple
+    hits per turn = multiple backlash procs). Best when you're low on damage but expecting a
+    prolonged fight.
+  - Swap moment: when you're about to tank a boss room or a cluster of aggressive enemies.
+    Toggle to Corona before they reach you, then soak hits while generating rad and dealing
+    backlash. When they're softened up, swap back to Gamma to finish them with the irradiation.
+
+SYNERGY NOTES:
+  - Force Sensitive: EVERY HIT you take while this aura is on gives you 8 rad. If you take
+    5 hits, that's 40 rad gained. After a tough fight you emerge with a full Force Sensitive
+    cycle ready to fire — smoke Skywalker OG, purge the absorbed rad, convert it to temp STR.
+    The aura LOADS your resource cycle from combat itself.
+  - Radiant Constitution (passive): keeping rad between 50-200 for the -1 DR means you don't
+    want to purge all your rad immediately. This creates exactly the right tension with Force
+    Sensitive: purge or hold? Corona rewards holding; Force Sensitive rewards purging.
+  - Consecrate (L3): place a zone, let enemies walk into it, stand in it yourself. While they
+    attack you in your own zone, Corona fires backlash AND the zone is irradiating them. You
+    take hits but deal true damage, absorb rad, get Decon XP, AND the zone stacks their rad.
+  - Gamma Aura (L2): Corona generates rad (from being hit) that you can then spend activating
+    Gamma Aura (Gamma costs nothing to toggle, but you want rad for Force Sensitive). The two
+    auras are a natural sequence: Corona loads you up, Gamma spends your advantage.
+
+IMPLEMENTATION NOTES:
+  - New effect class: CoronaOfJudgmentEffect (id="corona_of_judgment", floor_duration=True)
+    No tick() needed.
+    Hook needed: on_player_take_damage(attacker, damage, engine) — this lifecycle hook does
+    NOT currently exist on the Effect base class. It would need to be added.
+    ALTERNATIVE (avoid new lifecycle hook): add an inline check in combat.py player_take_damage:
+    check if player has "corona_of_judgment" effect active and attacker is in FOV. If so:
+      deal backlash damage to attacker, add 8 rad to player, generate XP.
+    The inline approach is simpler and doesn't require adding a new lifecycle hook.
+  - Radiant Constitution passive: inline check in combat.py player_take_damage. No effect object
+    needed. Check: Decon level >= 4 and 50 <= player.radiation <= 200: damage = max(1, damage-1).
+  - New AbilityDef "corona_of_judgment": ChargeType.INFINITE, TargetType.SELF. Execute function:
+    standard toggle pattern. Check for existing Decon aura, expire it. Then check player.radiation
+    >= 15 (cost check). If insufficient: message + return False. Else: remove 15 rad (via
+    remove_radiation, which fires Force Sensitive if appropriate), apply effect.
+  - Save/load: no new engine state. Effect serializes via existing system.
+
+BALANCE CONSIDERATIONS:
+  - Backlash damage formula: 10 + rad//20. At 0 rad: 10 flat. At 100 rad: 15. At 200 rad: 20.
+    At MAX 500 rad: 35. This scales with maintaining medium rad, which Radiant Constitution also
+    incentivizes. The curve is modest — never exceeds 35 at maximum rad. Backlash is not the
+    kill vector; it's chip damage that compounds over many hits.
+  - The real payoff is the 8 rad gain per hit. In a fight with 10 incoming hits: 80 rad gained
+    = 3 Force Sensitive threshold crossings = +6 temp STR after smoking. That is the true value.
+  - 15 rad toggle cost is cheap — roughly 2 ticks of Gamma Aura's self-drain in the L2 options.
+    It's a signal cost, not a real gate.
+  - Risk: against enemies with very low attack frequency (1 hit total), Corona gives minimal
+    value. It's best against swarms or boss-type enemies with multi-attack patterns.
+
+PERK TEXT (for skills.py):
+  "Toggle aura (costs 15 rad to activate): when a visible enemy hits you, deal (10+rad//20)
+  true damage to them and gain 8 rad. Passive: while your radiation is 50-200, take 1 less
+  damage from all sources."
+
+
+======================================================================
+OPTION 4 — "PENITENT AURA" (the risk/reward gambler option)
+High concept: the holier you are, the more you've suffered. This aura INVERTS your current HP
+— the lower your HP, the stronger your radiation field. The paladin walking with one foot in
+death, blazing brightest at the edge.
+======================================================================
+
+NAME: Penitent Aura
+ONE-LINE: Toggle aura — your radiation field strength scales inversely with your HP. The more
+wounded you are, the more radiation you emit to nearby enemies per tick.
+
+AURA EFFECT (while ON):
+  - Per-tick: calculate your "penitent ratio" = (max_hp - current_hp) / max_hp (range 0.0-1.0).
+    Apply radiation to all enemies within 3 tiles equal to:
+    base_rad = 3 (minimum emission even at full HP)
+    bonus_rad = int(penitent_ratio * 17)  # up to +17 at 1 HP
+    total_per_tick = base_rad + bonus_rad  # range 3 to 20 per tick
+  - At full HP: emits 3 rad/tick (less than Gamma Aura's 5/tick) — weaker than Gamma while
+    you're healthy. The player gets NOTHING extra for being healthy. This is intentional.
+  - At 50% HP: emits 3 + 8 = 11 rad/tick — significantly more than Gamma Aura.
+  - At 25% HP: emits 3 + 12 = 15 rad/tick.
+  - At 10% HP: emits 3 + 16 = 19 rad/tick, nearly 4x Gamma Aura's rate.
+  - Radius: 3 tiles (slightly larger than Gamma Aura's 2 — at max risk you're also a wider beacon).
+  - No self-drain cost. The cost is being wounded.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: free.
+  - Toggle OFF: free.
+  - Decision logic: swap from Gamma to Penitent when you're already hurt and can't avoid taking
+    more damage. Turn your near-death state into an offensive amplifier instead of a panic state.
+    Swap BACK to Gamma after healing to get the reliable 5/tick instead of the floor-3 minimum.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Martyrdom": the first time you would die on each floor (hit points would go to 0), instead
+    survive at 1 HP and become briefly Irradiated yourself (gain 50 rad immediately). This does
+    NOT prevent death from subsequent hits — it is a single-use death-prevention per floor.
+  - The 50 rad gain from Martyrdom: if Penitent Aura is active, you're now at 1 HP = maximum
+    penitent output = 20 rad/tick to nearby enemies while also carrying 50 rad for Force
+    Sensitive. The perk turns a near-death moment into a final blaze-of-glory combat window.
+  - Martyrdom uses a floor-scoped flag: engine.martyrdom_used_this_floor (bool, reset on floor
+    transition). Check in the player death path before applying death state.
+  - This passive is GENUINELY EXCITING in a roguelike context: it turns the scariest moments
+    into opportunities.
+
+WHY THIS AURA vs GAMMA AURA?
+  - Gamma Aura: steady, reliable 5/tick irradiation. Best when you're healthy and want
+    consistent enemy rad buildup.
+  - Penitent Aura: situational peak power. When wounded, dramatically outperforms Gamma.
+    When healthy, underperforms Gamma. The skill expression is knowing when to swap.
+  - Natural swap rhythm: start floor with Gamma Aura. Take significant damage mid-fight.
+    Swap to Penitent. At low HP, you're now irradiating enemies at 3-4x normal rate. Finish
+    the fight. Heal up (Skywalker OG / food). Swap back to Gamma.
+
+SYNERGY NOTES:
+  - Force Sensitive + Martyrdom: survive to 1 HP → gain 50 rad via Martyrdom → Penitent Aura
+    at full power (19/tick) → enemies in range take 19 rad/tick → smoke Skywalker OG → purge
+    rad for Force Sensitive STR stacks. The worst possible moment becomes a power spike.
+  - Consecrate (L3): standing on your own rad zone at low HP. You're taking +5 rad/turn from
+    the tile (minor), but Penitent is blasting enemies for 19/tick. The zone keeps enemies in
+    range for the full duration.
+  - Constitution stat: CON affects max HP (30 + CON*10). High CON means a bigger HP gap to
+    fall into, which means slightly more Penitent scaling headroom. Low CON builds get smaller
+    penitent bonus at the same absolute HP count, but also have less HP to lose.
+  - STR from Radiant (L1) and Consecrate: the combined STR bonuses help you deal more damage
+    on the aggressive swing after Martyrdom fires, letting you convert the near-death window
+    into kills while Penitent is at max power.
+
+IMPLEMENTATION NOTES:
+  - New effect class: PenitentAuraEffect (id="penitent_aura", floor_duration=True)
+    tick(): compute max_hp = engine.player_stats.max_hp (or engine.player.max_hp — whichever
+    field tracks current max HP in the system). current_hp = engine.player.hp. If max_hp <= 0:
+    return. ratio = (max_hp - current_hp) / max_hp (clamp 0.0-1.0). per_tick = 3 + int(ratio*17).
+    For each monster within Chebyshev 3 of player: add_radiation(engine, monster, per_tick,
+    from_player=True). XP per monster: gain_potential_exp("Decontamination", per_tick, bksmt).
+  - Martyrdom passive: add to combat.py's player_take_damage, in the death check section:
+    if player.hp <= 0 and not engine.martyrdom_used_this_floor and skills.get("Decontamination").
+    level >= 4: player.hp = 1; engine.martyrdom_used_this_floor = True; add_radiation(engine,
+    player, 50, pierce_resistance=True); engine.messages.append("Martyrdom! You survive on 1 HP!
+    +50 rad"); return (don't apply death).
+  - engine.martyrdom_used_this_floor: bool = False. Reset in floor transition logic.
+  - Save/load: martyrdom_used_this_floor to engine state serialization.
+  - max_hp: verify this field exists on player entity or player_stats. If it lives in
+    player_stats as 30 + CON*10, use that calculation inline.
+
+BALANCE CONSIDERATIONS:
+  - Martyrdom is extremely powerful — death prevention is rare. Balanced by:
+    1. One use per floor only.
+    2. You survive at 1 HP (next hit kills you unless you heal first).
+    3. The 50 rad gained is both a resource and a liability in other build contexts.
+  - Penitent Aura at full power (19/tick, radius 3) exceeds Gamma Aura (5/tick, radius 2) by
+    roughly 14 rad/tick per enemy. Over a 15-tick fight at low HP with 2 enemies in range:
+    +420 rad total vs Gamma's +150 rad total. That is a large gap. But you must be near-dead
+    to achieve it, which means Martyrdom has already fired (one use), and the 1 HP vulnerability
+    is live. High ceiling, high risk.
+  - At full HP, Penitent (3/tick) is strictly worse than Gamma (5/tick). A healthy player gets
+    more from Gamma. Penitent is only worth having if you expect to take significant damage.
+    In easier content, Gamma wins. In desperate fights, Penitent is the better choice.
+
+PERK TEXT (for skills.py):
+  "Toggle aura (one Decon aura at a time): emit (3 + (1-HP%)*17) rad/tick to enemies within
+  3 tiles — the more wounded you are, the more powerful the field. Passive: once per floor,
+  surviving a lethal hit leaves you at 1 HP and grants 50 rad (Martyrdom)."
+
+
+======================================================================
+OPTION 5 — "ABSOLUTION AURA" (the healer-paladin option, wildly different feel)
+High concept: your radiation field can CLEANSE. While this aura is on, enemy radiation that
+exceeds a threshold burns away, but instead of killing them slowly, it explodes off them all
+at once as direct damage — AND heals you. You're not the source of radiation. You're the
+purifier. You pull their contamination out of them.
+======================================================================
+
+NAME: Absolution Aura
+ONE-LINE: Toggle aura — enemies within 3 tiles that exceed 100 rad are "cleansed": they lose
+half their radiation instantly, which deals that radiation as true damage AND heals you.
+
+AURA EFFECT (while ON):
+  - Per-tick check: for each living enemy within 3 tiles of the player, if enemy.radiation >= 100:
+      - stripped = enemy.radiation // 2
+      - enemy.radiation -= stripped
+      - Deal stripped // 4 (rounded) true damage to that enemy (NOT radiation damage — this is
+        instant direct damage from the purge). Example: enemy at 200 rad = strip 100 = 25 damage.
+      - Heal player for stripped // 8 HP (cap: cannot exceed normal max HP).
+        Example: 100 stripped = 12 HP. Not enormous — this is healing earned by purging.
+      - Generate Decontamination XP: stripped * 2 (same rate as removing radiation from self,
+        since you are doing the decontaminating).
+      - Message: "[Enemy] is cleansed! (25 dmg, +12 HP)"
+  - This check fires ONCE per enemy per tick, not continuously. After cleansing, the enemy drops
+    below 100 rad, so it won't cleanse again until they re-accumulate.
+  - No per-tick cost to the player.
+  - The flavor: you are not irradiating them further. You are burning their contamination OUT.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: free. No per-tick cost.
+  - Toggle OFF: free.
+  - Decision logic: ONLY useful against already-irradiated enemies. Against non-irradiated
+    targets, this aura does nothing at all. It is the ultimate "all-in on the irradiation build"
+    choice: you need Emission/Gamma Aura to irradiate enemies first, then Absolution to harvest.
+    Swap TO Absolution when you've maxed enemy rad via Gamma Aura or Consecrate.
+    Swap BACK to Gamma if enemies enter the room fresh (not yet irradiated).
+
+SMALL PASSIVE BONUS (always-on):
+  - "Decontamination Mastery": Decontamination XP gains are increased by 25% permanently.
+    Specifically: in combat.py's remove_radiation function, the XP grant line currently reads
+    gain_potential_exp("Decontamination", removed * 2, bksmt). At L4+ with this passive: change
+    to removed * 2.5 (multiply by 1.25 factor). This accelerates skill progression to L5/L6/L7
+    significantly, rewarding deep investment.
+  - Additionally: the Decontamination skill's XP-to-level thresholds are static. The 25% bonus
+    means players investing in the full tree can reach L6/L7 faster — making L5's Consecrate
+    upgrade feel more accessible.
+
+WHY THIS AURA vs GAMMA AURA?
+  - Gamma Aura: you're building radiation pressure. Good for sustained fights. Enemies are your
+    radiation storage tanks; you want them full.
+  - Absolution Aura: you're cashing in radiation pressure. Enemies as your battery that you
+    drain for HP and burst damage. Classic "swing the pendulum" design — fill with Gamma, drain
+    with Absolution, fill with Gamma again.
+  - Optimal macro pattern: Enter room. Toggle Gamma. Build enemy rad to 100+. Swap to Absolution.
+    Cleanse enemies for burst damage + healing. Swap back to Gamma to refill. This gives the
+    player a satisfying toggle loop with meaningful timing decisions each fight.
+
+SYNERGY NOTES:
+  - Emission (from old L2 design context): Emission set all enemy rad to yours in one shot. If
+    you entered a room at 200 rad and Emission'd, every enemy immediately hits 200 — immediately
+    triggering Absolution cleanse on the same turn if active. One-shot combo potential.
+  - Gamma Aura (L2): the active setup for Absolution. Fill enemies with rad using Gamma, then
+    swap to Absolution and harvest. The toggle swap IS the combo.
+  - Consecrate (L3): rad tiles fill enemies to 100+ even if you've swapped off Gamma Aura.
+    Having a Consecrate zone running means Absolution can fire even mid-swap, since the zone
+    is doing the irradiation work independently. Strong tri-part combo.
+  - Force Sensitive: Absolution's healing component doesn't trigger Force Sensitive (which
+    tracks rad REMOVED from the player, not healed HP). But the Decontamination XP bonus (25%)
+    means you level this skill faster and reach Sponge (L5) quicker, which DOES have rad-cycling
+    synergy with Force Sensitive.
+
+IMPLEMENTATION NOTES:
+  - New effect class: AbsolutionAuraEffect (id="absolution_aura", floor_duration=True)
+    tick(): for each monster within Chebyshev 3 of player, if monster.radiation >= 100:
+      stripped = monster.radiation // 2; monster.radiation -= stripped;
+      direct_dmg = stripped // 4; deal_damage(engine, monster, direct_dmg, bypass_armor=True);
+      heal_amount = stripped // 8; engine.player.hp = min(engine.player.max_hp, engine.player.hp
+      + heal_amount); gain_potential_exp("Decontamination", stripped*2, bksmt); message.
+  - The HP healing is direct player.hp modification — NOT through a heal ability (to avoid
+    triggering weird heal-blocking effects). Simple min(max_hp, hp + amount) clamp.
+  - Decontamination Mastery XP bonus: add a multiplier check in the XP gain calls within
+    add_radiation and remove_radiation in combat.py. If Decon >= L4 and passive is this one:
+    multiply by 1.25. Cleanest if stored as engine.decon_xp_mult float (default 1.0; set to
+    1.25 on unlock). This field would persist through floor transitions.
+  - NOTE: engine.decon_xp_mult should be initialized in engine.__init__ and serialized.
+  - The heal check "cannot exceed max_hp" uses player.max_hp. Verify this field is set correctly
+    (should be 30 + CON*10 based on config.py and stats notes).
+
+BALANCE CONSIDERATIONS:
+  - Healing from Absolution: stripped // 8 means 200-rad enemy = 100 stripped = 12 HP healed.
+    Against 3 enemies all at 200 rad: 36 HP healed in one tick. That is significant but requires
+    extreme setup (Gamma Aura running for many turns first). In practice, enemies rarely sustain
+    200 rad for long before dying from the irradiated DOT (rad//50/tick).
+  - Direct damage from Absolution: 200 rad enemy = 100 stripped = 25 damage. This is meaningful
+    burst damage but not instant kill. Combined with the irradiated DOT already ticking, the
+    cleanse accelerates kills without replacing the core DOT mechanic.
+  - The "nothing against non-irradiated enemies" limitation is a real constraint. Players must
+    build the irradiation pipeline first. This keeps Absolution from being the go-to starting
+    aura on every floor.
+
+PERK TEXT (for skills.py):
+  "Toggle aura (one Decon aura at a time): enemies within 3 tiles at 100+ rad are cleansed:
+  lose half their rad, taking that//4 as true damage; you heal for that//8 HP. Passive: +25%
+  Decontamination XP from all sources."
+
+
+======================================================================
+OPTION 6 — "IRONSOUL AURA" (the tank-paladin option, pure defensive novelty)
+High concept: your FOV is your armor. Enemies you can see cannot surprise you. More precisely:
+this aura channels your FOV into a damage reduction field — the more enemies in your sight,
+the stronger your protection. Overwhelm you with numbers and you grow HARDER.
+======================================================================
+
+NAME: Ironsoul Aura
+ONE-LINE: Toggle aura — for each enemy in your FOV, gain 1 flat damage reduction (cap 5).
+When you take a hit from a VISIBLE enemy, gain 10 rad as feedback.
+
+AURA EFFECT (while ON):
+  - Per-tick (or recalculated before each player turn via before_turn hook):
+    count = number of living enemies currently in dungeon.visible (player's FOV).
+    dr_bonus = min(5, count)  # 1 DR per enemy, hard cap at 5
+    Store this as a temporary effect field: self.current_dr_bonus.
+    Apply it as a modification to player_stats.DR or as a modify_incoming_damage hook:
+    reduce incoming damage by self.current_dr_bonus (additive with other DR, not multiplicative).
+  - Additionally: whenever the player is hit by an attack from a VISIBLE enemy while the aura
+    is ON: gain 10 rad (add_radiation, pierce_resistance=False so Radiant's 30% resist applies).
+    This creates the feedback loop: you're being hit, you absorb radiation, you fuel Force
+    Sensitive and the Consecrate/Penitent loops.
+  - At 5+ enemies visible: 5 flat DR. At 1 enemy: 1 DR. At 0 enemies visible: 0 DR (aura
+    does nothing in empty rooms but costs nothing either).
+  - The DR is checked in combat.py's damage calculation. Modify the defense calculation or add
+    to engine.player_stats.DR (which already exists as a field).
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: free.
+  - Toggle OFF: free. DR bonus immediately drops to 0.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Line of Sight Awareness": while Decontamination L4 is unlocked, the player's FOV radius
+    is increased by 1 (from 8 to 9). This is implemented as a permanent +1 to
+    player_stats.sight_radius (or the dungeon's FOV computation parameter). It is not large, but
+    it is UNIQUE — no other perk in the game extends FOV radius. It rewards the Decontamination
+    player's interest in vision mechanics. A larger FOV means more enemies visible = more DR
+    from the aura.
+  - Additionally: the player receives a brief message whenever a new enemy enters their FOV for
+    the first time each floor: "[enemy type] spotted." This is a QoL/information perk that no
+    other skill provides. Implemented by tracking first_seen_entity_ids: set, reset each floor.
+    When engine FOV updates, check for new entities entering visibility not in the set.
+
+WHY THIS AURA vs GAMMA AURA?
+  - Gamma Aura: offensive, wants enemies close (2 tile radius) to irradiate them.
+  - Ironsoul: defensive, wants enemies visible but possibly at range. Best in open rooms with
+    multiple enemies where DR-5 meaningfully reduces cumulative incoming damage.
+  - Swap moment: when entering a large room with many enemies. Toggle to Ironsoul to get DR-5,
+    absorb the incoming volley with DR and rad feedback, then swap to Gamma when you've closed
+    in and want to melt them with irradiation.
+
+SYNERGY NOTES:
+  - Radiant (L1): +30% rad resist means the 10 rad feedback from Ironsoul is actually 7 rad
+    after resist. Over 15 hits from visible enemies: 105 rad gained (at 30% resist). Nearly
+    enough for 4 Force Sensitive threshold crossings.
+  - Swagger (base stat): the existing Swagger defence = int((SWG-8)/2) stacks additively with
+    Ironsoul's DR. At SWG 12: base +2 defence. With Ironsoul at 5 enemies: +7 effective DR
+    total. This approaches tanking territory without being a tank build — it's still dependent
+    on having enemies visible and the aura active.
+  - Consecrate (L3): place a zone, enemies step into it. They're all visible (in your FOV) and
+    nearby. Ironsoul gives you DR-5, Consecrate irradiates them, and each hit gives 10 rad back.
+    The zone becomes a brawl arena where you get tougher the more enemies are in it with you.
+  - Penitent Aura (Option 4) cross-reference: these two auras serve similar "I'm taking hits,
+    reward me" niches but from different angles. Ironsoul is the DR-defensive version;
+    Penitent is the offense-amplified version. They would be meaningful choices against each
+    other.
+
+IMPLEMENTATION NOTES:
+  - New effect class: IronsoulAuraEffect (id="ironsoul_aura", floor_duration=True)
+    Fields: current_dr_bonus: int = 0
+    before_turn() hook OR tick(): count visible enemies in dungeon.entities. Set self.
+    current_dr_bonus = min(5, count). Store in a way that combat.py can read it.
+  - Combat integration: in combat.py player_take_damage, after swagger_defence calculation:
+    if any effect on player has id == "ironsoul_aura": extra_dr = effect.current_dr_bonus;
+    damage = max(1, damage - extra_dr). Also: if attacker is visible, add_radiation(engine,
+    player, 10, pierce_resistance=False).
+  - FOV radius passive: in stats.py or dungeon.py's compute_fov call, add a check:
+    if engine.skills.get("Decontamination").level >= 4: fov_radius += 1. Or add a
+    player_stats.sight_radius_bonus field (already proposed in previous design batches).
+  - "Enemy spotted" notification: in engine's FOV update step, compare new visible set against
+    engine.first_seen_entity_ids (set, reset per floor). New entries fire a quick message.
+    Add engine.first_seen_entity_ids: set = set() to engine state. Reset on floor transition.
+
+BALANCE CONSIDERATIONS:
+  - DR-5 is meaningful but not game-breaking. Against a 10-damage attack: DR-5 reduces to 5.
+    Against a 4-damage attack (floor 1-2 range): DR-5 reduces to max(1, 4-5) = 1 (min 1
+    enforced). So against weak enemies the cap is min 1. Against strong Meth Lab enemies
+    dealing 15-20 damage: DR-5 reduces each hit by 5, which is a 25-33% reduction. Very solid.
+  - Requires 5 visible enemies for max DR. In many floors that's achievable in large rooms but
+    not in narrow corridors. The aura has natural ebb/flow: strong in rooms, weak in hallways.
+  - The 10 rad per visible-attacker feedback generates moderate rad over a full fight. It does
+    not snowball out of control since each hit only gives 10 rad (and 30% is resisted by Radiant,
+    so net 7 rad per hit). Less rad gen than Corona of Judgment (Option 3's 8 rad per hit with
+    pierce_resistance=True).
+  - FOV +1 is tiny but has cascading effects: more room covered, more enemies visible for DR,
+    more tiles for Consecrate zones to be detected. Low impact individually, thematically clean.
+
+PERK TEXT (for skills.py):
+  "Toggle aura (one Decon aura at a time): gain 1 flat DR per enemy in your FOV (max 5 DR).
+  Each hit from a visible enemy grants 10 rad. Passive: FOV radius +1; new enemies entering
+  sight are announced."
+
+
+======================================================================
+COMPARISON TABLE — WHEN TO PICK WHICH
+======================================================================
+
+  OPTION 1 — Sacred Ground: "I want my Consecrate zones to last forever."
+    Best for: zone-control players, kiting builds, slow deliberate exploration.
+    Requires: L3 Consecrate for full value. Nearly useless without it.
+    Vibe: Patient paladin who blesses the entire dungeon.
+
+  OPTION 2 — Divine Sight: "I want to punish enemies that try to flee."
+    Best for: corridor fighters, players who kite around corners intentionally.
+    Requires: enemies that break LoS (hit-and-run AI, room_guard patrollers).
+    Vibe: Righteous judge whose gaze condemns the guilty.
+
+  OPTION 3 — Corona of Judgment: "I want to get hit and come out stronger."
+    Best for: high-CON tanks who want to convert enemy aggression into Force Sensitive fuel.
+    Requires: willingness to take hits, medium rad maintenance.
+    Vibe: Immovable paladin who absorbs punishment and returns judgment.
+
+  OPTION 4 — Penitent Aura: "I like high-risk high-reward. I want death to mean something."
+    Best for: aggressive players who live dangerously. Martyrdom is the most exciting perk.
+    Requires: accepting that near-death windows are power spikes, not emergencies.
+    Vibe: The wounded warrior who blazes brightest at the brink of death.
+
+  OPTION 5 — Absolution Aura: "I want to cash in my enemy irradiation as burst + healing."
+    Best for: builds that already run Gamma Aura heavily. The "completion" of the irradiation
+    loop — fill enemies with Gamma, drain them with Absolution.
+    Requires: enemy rad to already be built up (needs Gamma or Consecrate active first).
+    Vibe: The healer-purifier who cleanses contamination at great force.
+
+  OPTION 6 — Ironsoul Aura: "I want to tank hits and have vision be my defense."
+    Best for: players in large rooms fighting multiple enemies simultaneously. FOV synergy.
+    Requires: open rooms; weak in corridors.
+    Vibe: The unshakeable sentinel whose awareness of danger is itself a shield.
+
+
+======================================================================
+RECOMMENDED PICK — AUTHOR'S CHOICE
+======================================================================
+
+CORONA OF JUDGMENT (Option 3) is the boldest and freshest. Reasons:
+  1. It introduces a completely new lifecycle hook (or combat.py path): player-is-hit triggers
+     a counter-effect on the attacker. Nothing in the game does this in the "aura" paradigm.
+  2. The Radiant Constitution passive (DR at 50-200 rad) creates a brilliant tension with Force
+     Sensitive: purge rad = lose the DR. Hold rad = keep the DR. This is the first mechanic
+     that creates a COST to purging, which is the core Decontamination loop.
+  3. Martyrdom (Option 4 passive) is actually more exciting — but Corona's overall synergy with
+     Force Sensitive is tighter and more universally useful.
+
+DIVINE SIGHT (Option 2) is the most UNIQUE to NIGRL specifically. FOV is a system that no
+other skill interacts with. Condemned stacks that burst on leaving sight creates tactical play
+around corridor angles, doorways, and hit-and-run AI that is completely emergent and specific
+to how NIGRL's dungeon geometry works.
+
+IF THE USER IS MOST EXCITED BY: the paladin fantasy of "my presence changes how the fight
+works" → Ironsoul (Option 6) or Sacred Ground (Option 1).
+
+IF THE USER IS MOST EXCITED BY: punishment mechanics, risk/reward, near-death power spikes →
+Penitent (Option 4), specifically Martyrdom.
+
+IF THE USER IS MOST EXCITED BY: completing a satisfying gameplay loop → Absolution (Option 5),
+as the closer of the Gamma → Absolution → Gamma cycle.
+
+IF THE USER IS MOST EXCITED BY: novel mechanics not seen anywhere else in the game → Divine
+Sight (Option 2), which uses the FOV system in a completely unprecedented way.
+
+
+======================================================================
+IMPLEMENTATION NOTES — FILES TO MODIFY (whichever option is chosen)
+======================================================================
+
+abilities.py:
+  - Add AbilityDef entry for the chosen aura (id, name, description, char, color,
+    TargetType.SELF, ChargeType.INFINITE, tags={"radiation","aura","toggle"}, execute=fn).
+  - Implement _execute_[aura_name](engine) with standard toggle pattern:
+    check for existing Decon aura (gamma_aura or this new one), expire it if found, else apply.
+
+effects.py:
+  - New Effect subclass for the chosen aura. floor_duration=True.
+  - tick() and/or before_turn() hook as described in each option.
+  - expire() cleans up any entity fields modified by the effect (condemned_stacks, etc.).
+  - Register with @register decorator.
+  - Add display_name property for the effects bar.
+  - Add to STATUS_EFFECT_TOOLTIPS dict at top of effects.py.
+
+combat.py (for options that hook into the hit path):
+  - Corona: in player_take_damage path, check for "corona_of_judgment" effect + visible attacker.
+  - Ironsoul: in player_take_damage path, check for "ironsoul_aura" effect, subtract DR, add rad.
+  - Penitent (Martyrdom): in player death check (before game_over = True), check Decon L4+ and
+    martyrdom_used_this_floor flag.
+
+entity.py (for Option 2 — Divine Sight):
+  - Add entity.condemned_stacks: int = 0 field.
+  - Add to save_system.py entity serialization.
+
+engine.py (all options):
+  - Option 4: engine.martyrdom_used_this_floor bool, reset on floor transition.
+  - Option 2: prev_visible tracking in FOV recompute; condemned burst logic.
+  - Option 6: engine.first_seen_entity_ids: set, reset on floor transition.
+  - Option 1: handle_move hook for spontaneous rad tile creation and holy footprint.
+  - Option 6: FOV radius +1 check in compute_fov call (or via player_stats field).
+
+save_system.py:
+  - New engine state fields (martyrdom_used_this_floor, first_seen_entity_ids, etc.)
+    must be serialized/deserialized.
+  - entity.condemned_stacks must be included in entity serialization.
+
+skills.py:
+  - Replace index 3 _PLACEHOLDER in SKILL_PERKS["Decontamination"] with the chosen perk.
+  - Perk structure:
+    {"name": "[Aura Name]", "perk_type": "activated", "effect": {"ability": "[aura_id]",
+    [optional stat bonus key]: value}, "desc": "[PERK TEXT from chosen option]"}
+

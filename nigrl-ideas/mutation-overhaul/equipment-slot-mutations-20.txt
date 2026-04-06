@@ -1,0 +1,649 @@
+EQUIPMENT SLOT MUTATIONS — 20 NEW MUTATIONS
+==============================================
+NIGRL Roguelike — Mutation Overhaul Appendix #2
+Purpose: 20 mutation candidates that REPLACE, BLOCK, or TRANSFORM equipment slots.
+Every mutation in this doc interacts with at least one equipment slot.
+
+Slot reference:
+  weapon   — melee weapon (main hand)
+  sidearm  — gun slot
+  hat      — head slot
+  neck     — necklace/amulet slot
+  feet     — boots slot
+  rings    — 5 ring slots (Right Pinky/Ring/Middle/Index/Thumb)
+  outfit   — NEW SLOT (shirt + pants + gloves combo, e.g. "McDonald's Uniform")
+
+Design distinction from existing slot-blocking mutations:
+  Existing mutations simply BLOCK a slot ("Cannot equip hat"). These new mutations
+  REPLACE the slot with a biological alternative that grows, evolves, and has its
+  own mechanics. The mutation IS your equipment for that slot. You don't lose a
+  slot — you gain a mutant organ that fills it permanently.
+
+Numbering: These extend from the previous expansion. Categories get entries 26-30.
+
+
+================================================================
+WEAK GOOD MUTATIONS (26-30)
+================================================================
+
+26. BONE BLADE — "A sharpened ridge of bone erupted from your forearm."
+    Slot interaction: REPLACES weapon slot. You cannot equip any weapon — a bone
+    blade permanently occupies the slot. The blade has base 6 power (comparable
+    to early-game weapons). It cannot be removed, dropped, or degraded.
+    The bone blade's weapon_type is "slashing" and it benefits from the Slashing
+    skill tree. Unlike normal weapons, it scales with your mutation count:
+    +1 power per 3 total mutations you have (any tier, any polarity).
+    Upgrade:
+      L1: 6 base power, slashing type, scales +1 per 3 mutations. Weapon slot locked.
+      L2: 8 base power. Scale improves to +1 per 2 mutations. Additionally, the
+          blade has a 15% on-hit chance to apply "lacerated" (2 stacks bleed, 4 turns)
+          — the bone edge is ragged and tears flesh.
+      L3: 10 base power. +1 per 2 mutations. Bleed chance 25%, 3 stacks. Additionally,
+          the blade ignores 2 points of enemy defense (bone tip penetrates armor).
+          This defense ignore stacks with any other armor penetration effects. Cap.
+    Note: The bone blade is implemented as a virtual weapon entity that exists only
+    in the engine state — it has power, weapon_type, and on_hit fields but no
+    physical item representation. It cannot be enchanted, upgraded by items, or
+    interacted with via inventory. It IS you.
+    At 10 mutations: L3 gives 10 + 5 = 15 power (very competitive mid-game weapon).
+    At 20 mutations: 10 + 10 = 20 power (endgame competitive). High-mutation builds
+    never need to find a weapon.
+    Reversal: Remove bone_blade; restore weapon slot to empty.
+    System hooks: combat.py player power calculation (check bone_blade_active, apply
+    scaling from mutation_count), engine.py equip validation (block weapon slot).
+
+27. SUCTION CUPS — "Your fingertips are different now. Things don't slip."
+    Slot interaction: ENHANCES ring slots. All equipped rings gain +1 to their
+    primary stat bonus (a ring that gives +2 STR now gives +3 STR). Additionally,
+    you cannot accidentally drop rings (immune to ring-removal effects from
+    enemies or bad mutation procs like Vestigial Limb weapon dropping — if that
+    ever extended to rings).
+    Upgrade:
+      L1: All rings: +1 to primary stat bonus; rings cannot be forcibly removed.
+      L2: +2 to primary stat bonus per ring. Additionally, you can equip a 6th ring
+          (extra finger growth — RING_SLOTS effectively becomes 6 for you).
+          The 6th slot is labeled "Left Thumb."
+      L3: +3 to primary stat bonus per ring. 6th ring slot. Additionally, once per
+          floor, when a ring's passive effect would normally expire or be suppressed
+          (e.g., by Permeable Skull or future debuffs that disable gear), the suction
+          cups keep the ring's effect active for 3 extra turns. Cap.
+    Note: Ring bonus enhancement is applied at the stats.effective_* calculation
+    layer — add suction_cup_ring_bonus per equipped ring. The 6th slot requires
+    extending RING_SLOTS conditionally in engine.py.
+    Reversal: Remove suction_cups_active; remove 6th ring slot (unequip 6th ring
+    if one is equipped — drops to floor); remove ring bonus enhancement.
+    System hooks: player_stats.suction_cups_active, stats.py ring bonus calculation
+    (add per-ring bonus), engine.py ring slot count (conditionally +1).
+
+28. PADDED SOLES — "Your feet grew their own shoes. They're surprisingly comfortable."
+    Slot interaction: REPLACES feet slot. Your feet have mutated into thick, padded
+    hooves/pads. You cannot equip boots — the mutation IS your footwear. Provides:
+    grease tiles deal 0 damage to you (padded grip). Movement through corridors
+    makes no sound (enemies in corridors are not alerted by your approach if they
+    are in IDLE state — you must enter their LOS before they react).
+    Upgrade:
+      L1: Grease immunity; silent corridor movement; feet slot locked.
+      L2: Fire tiles deal 50% less damage (heat-resistant pads). Silent movement
+          extends to ALL tiles, not just corridors — you never alert IDLE enemies
+          by proximity, only by entering their direct LOS or attacking.
+      L3: Fire 75% less damage. Full silent movement. Additionally, your movement
+          speed on grease tiles is INCREASED by 20% instead of penalized (you grip
+          and push off — the pads have traction). Also, kicking attacks (if future
+          content adds them) deal +3 damage. For now: your melee attacks against
+          enemies standing on grease tiles deal +2 bonus damage (stable footing
+          advantage). Cap.
+    Note: Silent movement modifies ai.py detection — normally IDLE enemies within
+    a certain range switch to WANDERING when the player moves nearby. With padded
+    soles, this proximity-detection is suppressed. LOS detection still works.
+    Reversal: Remove padded_soles_active; restore feet slot to empty.
+    System hooks: player_stats.padded_soles_active, engine.py tile damage (grease/fire
+    immunity/reduction), ai.py proximity detection suppression, combat.py (L3
+    grease-tile melee bonus).
+
+29. PREHENSILE TAIL — "It's got a mind of its own. And a grip."
+    Slot interaction: ADDS a virtual sidearm "slot extension." The tail can hold
+    a small item — specifically, it can hold ONE consumable item (food, drug, drink)
+    in reserve. When your HP drops below 30%, the tail automatically uses the held
+    consumable on you (instant use, no turn cost). The tail slot is separate from
+    your inventory and sidearm. Think of it as a biological auto-injector.
+    Upgrade:
+      L1: Hold 1 consumable in tail; auto-use at <30% HP; no turn cost.
+      L2: Auto-use threshold increases to <40% HP. Additionally, the tail can hold
+          any small item (not just consumables — ammo clips, throwables, materials).
+          Non-consumables in the tail slot instead drop at your feet when triggered
+          (emergency jettison to lighten your load).
+      L3: Threshold <50% HP. Hold any small item. Additionally, the tail can perform
+          a free melee attack once per turn on an enemy directly behind you (the
+          opposite direction from where you're facing). The tail attack deals 3
+          damage and applies 1 stack of the "disoriented" debuff (1 turn stun).
+          This rear attack fires automatically — no input needed. Cap.
+    Note: "Held in tail" is a new single-item slot: engine.tail_slot: Entity | None.
+    The auto-use logic fires in the combat.py incoming damage path, after HP
+    reduction, checking threshold. Items must be manually placed in the tail slot
+    via inventory menu (new action: "Hold in Tail").
+    Reversal: Remove prehensile_tail_active; drop tail_slot item to floor; remove slot.
+    System hooks: engine.tail_slot (new field), inventory_mgr.py (tail slot
+    management), combat.py (auto-use on HP threshold), engine.py (L3 rear attack
+    in per-turn processing).
+
+30. IRON CROWN — "A ridge of hardened bone encircles your skull."
+    Slot interaction: REPLACES hat slot. A bony crown has grown around your head.
+    You cannot equip hats — the crown IS your hat. Provides: +2 permanent DR
+    (head protection), and immunity to the "confused" status effect (the crown
+    stabilizes your brain's electromagnetic field).
+    Upgrade:
+      L1: +2 DR; confused immunity; hat slot locked.
+      L2: +4 DR. Confused immunity stays. Additionally, when an enemy lands a
+          critical hit on you, the crown absorbs 3 of the bonus crit damage
+          (flat reduction applied specifically to the crit damage portion).
+      L3: +6 DR. Crit absorption increases to 5. Additionally, the crown emits
+          a low-frequency hum — enemies within 2 tiles have a 10% chance per turn
+          to become briefly confused for 1 turn (the hum disrupts their cognition).
+          You are obviously still immune to your own hum. Cap.
+    Note: This is a "trade your hat for a mutation-hat" design. It's strictly better
+    than no hat and competitive with mid-tier hats, but worse than endgame hats.
+    The confused immunity is the main draw — it's a reliable defensive passive.
+    Reversal: Remove iron_crown_active; remove DR; restore hat slot to empty.
+    System hooks: player_stats.iron_crown_active, stats.py permanent_dr,
+    effects.py apply() confuse immunity check, combat.py crit resolution
+    (L2 absorption), engine.py per-turn (L3 enemy confuse aura).
+
+
+================================================================
+WEAK BAD MUTATIONS (26-30)
+================================================================
+
+26. FUSED TRIGGER FINGER — "Your index finger locked up. Permanently."
+    Slot interaction: CRIPPLES sidearm slot. Your mutated hand can still hold a gun,
+    but your trigger finger is stiff and unresponsive. All gun fire actions cost
+    +1 turn of delay (you squeeze the trigger and nothing happens for a beat, then
+    it fires). Additionally, reloading takes +1 turn. You can still USE the sidearm
+    slot — it's not blocked — but guns are significantly worse.
+    Upgrade (gets worse):
+      L1: Gun fire: +1 turn delay; reload: +1 turn extra.
+      L2: Fire delay +2 turns; reload +2 turns. Additionally, your gun's base
+          accuracy is reduced by 15% (the stiff finger pulls your aim off-center).
+      L3: Fire delay +3 turns; reload +3 turns; accuracy -25%. Additionally, there
+          is a 10% chance per shot that the gun "jams" — the shot doesn't fire, the
+          ammo is consumed, and you waste the turn. Unjamming costs 1 additional
+          turn. Cap.
+    Note: Fire delay means: you press fire, nothing happens for N turns, THEN the
+    shot goes off. During the delay you're locked in the firing animation and
+    cannot take other actions. This is distinct from Twitchy Nerves (miss chance)
+    — Fused Trigger Finger doesn't make you miss, it makes you SLOW.
+    Reversal: Remove fused_trigger_finger_active flag; remove all gun penalties.
+    System hooks: player_stats.fused_trigger_finger_active, gun_system.py fire
+    (add turn delay), gun_system.py reload (add turn cost), gun_system.py
+    accuracy (L2 penalty), gun_system.py (L3 jam chance).
+
+27. SWOLLEN KNUCKLES — "Your rings don't fit right anymore."
+    Slot interaction: DEGRADES ring slots. Your fingers have swollen — rings are
+    painful to wear. Each equipped ring now inflicts 1 damage per 10 turns (the
+    ring cuts into your swollen flesh). The more rings you wear, the more damage
+    you take. At 5 rings: 5 damage per 10 turns (0.5 DPS). Not lethal (minimum
+    1 HP), but a constant tax on ring-heavy builds.
+    Upgrade (gets worse):
+      L1: 1 damage per ring per 10 turns.
+      L2: 1 damage per ring per 7 turns. Additionally, the stat bonuses from rings
+          are reduced by 1 each (a +3 STR ring gives +2 STR). Rings at +1 bonus
+          give +0 (no benefit but still hurt you).
+      L3: 2 damage per ring per 7 turns. Ring stat bonuses -2 each. Additionally,
+          equipping a new ring takes 3 turns (forcing it onto swollen fingers).
+          Removing a ring also takes 2 turns (yanking it off painfully, dealing
+          3 damage). Cap.
+    Note: This creates real decisions about ring management. Do you keep wearing
+    5 rings for reduced bonuses and constant pain, or strip down to 1-2 rings?
+    Every ring slot becomes a risk/reward calculation.
+    Reversal: Remove swollen_knuckles_active; remove all ring penalties.
+    System hooks: player_stats.swollen_knuckles_active, engine.py per-turn
+    (ring damage counter), stats.py ring_bonuses (reduce by level), inventory_mgr.py
+    equip/unequip (L3 turn cost and damage).
+
+28. EXPOSED VERTEBRAE — "Your spine is showing. Through the shirt."
+    Slot interaction: CRIPPLES outfit slot. Your spine has mutated outward, jutting
+    through any clothing on your back. Outfit items equipped in the outfit slot
+    provide 0 defense bonus (the holes in the back negate any protective value).
+    Outfits still provide their other effects (if any) but armor/DR from the
+    outfit slot is zeroed. Additionally, attacks from behind (enemy not in your
+    FOV at time of hit) deal +2 bonus damage (exposed spine is a weak point).
+    Upgrade (gets worse):
+      L1: Outfit DR = 0; behind-attacks deal +2 damage.
+      L2: Outfit provides 0 DR and 0 stat bonuses (all outfit benefits negated
+          except cosmetic). Behind-attack bonus increases to +4.
+      L3: Outfit completely unusable (slot locked — cannot equip outfits at all,
+          your spine shreds anything you put on). Behind-attack +6. Additionally,
+          enemies have a 15% chance to specifically target your back when attacking
+          (they aim for the visible spine), which counts as a "behind attack" even
+          if they're in your FOV. Cap.
+    Note: At L1-L2 you can still WEAR outfits for non-stat effects (if outfits
+    have special abilities or tags). At L3 the slot is completely locked. This
+    creates a progression from "outfits are weaker" to "outfits are impossible."
+    Reversal: Remove exposed_vertebrae_active; restore outfit slot functionality.
+    System hooks: player_stats.exposed_vertebrae_active, stats.py outfit bonus
+    calculation (zero DR, L2 zero all bonuses), combat.py behind-attack resolution
+    (bonus damage), engine.py equip validation (L3 block outfit slot).
+
+29. CORRODED CROWN — "Your skull is dissolving from the outside in."
+    Slot interaction: BLOCKS hat slot AND damages you when hit on the head. Your
+    skull's outer layer is porous and brittle. Cannot equip hats (nothing sits
+    right on the uneven surface). Any melee hit has a 20% chance to be a "head hit"
+    — these deal +3 bonus damage (the corroded skull provides no protection).
+    Upgrade (gets worse):
+      L1: Hat slot blocked; 20% head hit chance (+3 bonus damage per head hit).
+      L2: 30% head hit chance; +5 bonus damage. Additionally, head hits have a
+          15% chance to also apply 1 turn of stun (your brain rattles inside the
+          weakened skull).
+      L3: 40% head hit chance; +7 bonus damage; 25% stun chance on head hit.
+          Additionally, the corroded skull leaks fluid — you lose 1 book_smarts
+          permanently on acquisition at L3 (cerebrospinal fluid loss, permanent
+          cognitive decline). Cap.
+    Note: "Head hit" is a sub-roll after a successful melee hit lands. The 20-40%
+    chance is checked after damage is dealt, and the bonus is ADDED to the
+    already-dealt damage (it's extra, not replacement).
+    Distinct from Permeable Skull (CC duration extension). Corroded Crown is about
+    PHYSICAL head vulnerability, not mental/CC vulnerability.
+    Reversal: Remove corroded_crown_active; restore hat slot. L3 book_smarts loss
+    is NOT reversed (permanent brain damage).
+    System hooks: player_stats.corroded_crown_active, combat.py incoming melee
+    (head hit sub-roll, bonus damage, L2 stun), engine.py equip validation (block hat).
+
+30. BRITTLE SOLES — "Every step is a negotiation with pain."
+    Slot interaction: REPLACES feet slot with a WORSE biological alternative. Your
+    feet have mutated into hard but brittle bone plates. Cannot equip boots. The
+    bone plates provide 0 defense (they crack, they don't cushion). Moving more
+    than 15 tiles in a single floor without stopping (consecutive moves without
+    attacking or using items) causes a "stress fracture" — you take 3 damage and
+    are slowed by 15 for 5 turns. The fracture counter resets when you stop moving
+    (attack, use item, wait).
+    Upgrade (gets worse):
+      L1: Feet slot locked; 0 defense; stress fracture at 15 consecutive moves
+          (3 damage, -15 speed, 5 turns).
+      L2: Fracture threshold drops to 10 consecutive moves; 5 damage; -20 speed.
+          Additionally, stepping on any hazard tile (fire, grease) deals +3 extra
+          damage to you (the brittle plates shatter on impact with hazards).
+      L3: Fracture threshold 7 moves; 7 damage; -25 speed, 7 turns. Hazard +5 extra.
+          Additionally, each stress fracture also reduces your dodge chance by 5%
+          for the rest of the floor (cumulative — the fractures don't heal). A player
+          who keeps running could lose 20-30% dodge over a floor. Cap.
+    Note: The consecutive move counter is tracked as engine.brittle_soles_move_streak: int.
+    Resets to 0 on any non-move action. This punishes long sprints through corridors
+    and encourages deliberate, stop-and-go movement patterns.
+    Reversal: Remove brittle_soles_active; restore feet slot. Dodge penalties from
+    fractures on the current floor remain until next floor.
+    System hooks: player_stats.brittle_soles_active, engine.py movement (streak
+    counter, fracture check), combat.py (hazard damage bonus), stats.py dodge
+    (cumulative fracture penalty).
+
+
+================================================================
+STRONG GOOD MUTATIONS (26-30)
+================================================================
+
+26. ORGANIC HOLSTER — "Your hip grew a socket. It loads itself."
+    Slot interaction: ENHANCES sidearm slot. A biological holster has grown into
+    your hip — it interfaces directly with whatever gun is equipped. Benefits:
+    reloading is instant (0 turn cost instead of 1). Swapping between weapon and
+    sidearm is instant (0 turn cost). The holster also stores 1 extra magazine
+    worth of ammo internally (organic_ammo_reserve: int = mag_size of equipped gun).
+    When your gun empties, it auto-reloads from the reserve before you need to
+    manually reload. After the reserve is used, you reload normally.
+    Equipment constraint: Cannot equip outfit slot (the holster growth covers your
+    entire hip/torso left side — clothing doesn't fit over it).
+    Upgrade:
+      L1: Instant reload, instant swap, 1 reserve magazine, auto-reload from
+          reserve when empty. Outfit slot blocked.
+      L2: Reserve increases to 2 magazines. Additionally, the holster's bio-interface
+          gives you +10% gun accuracy (the gun is literally part of your body now —
+          it moves with your muscle memory).
+      L3: Reserve 3 magazines. +15% accuracy. Additionally, the first shot after
+          switching to your sidearm deals +50% damage (quick-draw bonus — the
+          holster ejects the gun at speed, and the first shot carries that
+          momentum). Quick-draw bonus refreshes each time you switch away from
+          and back to the sidearm. Cap.
+    Note: Reserve ammo is tracked as engine.organic_reserve: int. It fills from
+    inventory ammo when you enter a new floor (auto-load). The auto-reload from
+    reserve happens transparently — when current_ammo hits 0, set current_ammo =
+    min(mag_size, organic_reserve) and subtract from reserve.
+    Reversal: Remove organic_holster_active; outfit slot restored; reserve cleared.
+    System hooks: player_stats.organic_holster_active, gun_system.py reload
+    (instant), gun_system.py swap (instant), gun_system.py fire (auto-reload
+    from reserve, L3 quick-draw), engine.py equip validation (block outfit).
+
+27. LIVING ARMOR — "Your skin hardened into plates. It's still alive. It still grows."
+    Slot interaction: REPLACES outfit slot. Your torso is encased in a living
+    chitinous shell that functions as permanent body armor. Cannot equip outfits.
+    Provides: +3 DR that GROWS over the course of a floor. Every 5 enemies killed
+    on the current floor, the Living Armor gains +1 DR (capped at +5 bonus DR per
+    floor, resets each floor). Flavor: the armor feeds on combat and thickens.
+    Equipment constraint: Outfit slot locked.
+    Upgrade:
+      L1: +3 base DR; +1 DR per 5 kills (max +5 bonus/floor); outfit locked.
+      L2: +5 base DR; +1 DR per 4 kills (max +7 bonus/floor). Additionally, the
+          armor has a passive thorns effect: enemies that hit you in melee take 1
+          damage (the plates have small ridges). This is separate from and stacks
+          with Spiked Extrusion or Second Skin of Thorns.
+      L3: +7 base DR; +1 DR per 3 kills (max +10 bonus/floor). Thorns 2 damage.
+          Additionally, at the start of each floor, the Living Armor sheds and
+          regrows — you gain 5 temp HP (the fresh growth is extra padding). This
+          temp HP does not stack with other temp HP sources (take the higher). Cap.
+    Note: At full L3 stacks on a combat-heavy floor: 7 + 10 = 17 DR. This is
+    extremely high and competes with endgame equipment. Balanced by outfit slot
+    loss (no outfit stat bonuses or special effects) and requiring kills to ramp.
+    On a low-combat floor, you only have 7 DR.
+    Reversal: Remove living_armor_active; remove base DR; restore outfit slot.
+    System hooks: player_stats.living_armor_active, engine.py kill counter per floor
+    (armor growth), combat.py (thorns at L2+), engine.py floor_start (L3 temp HP,
+    reset kill counter).
+
+28. PHANTOM LIMB — "You lost the arm. It came back. But not... physically."
+    Slot interaction: ADDS a ghost weapon slot. The Phantom Limb is an invisible
+    spectral arm that attacks independently. It functions as a second weapon that
+    you don't need to equip — it swings at whatever you're attacking. Every melee
+    attack you make is accompanied by a phantom strike that deals 4 damage (flat,
+    armor-piercing — the phantom fist passes through armor). The phantom strike
+    cannot miss. It's a guaranteed bonus hit on every melee action.
+    Equipment constraint: Cannot equip rings on ONE hand (lose 2 ring slots — your
+    phantom arm's living hand is gone, so those finger slots vanish). RING_SLOTS
+    effectively drops from 5 to 3 for you.
+    Upgrade:
+      L1: +4 bonus armor-piercing melee damage per attack; lose 2 ring slots.
+      L2: +6 bonus damage. Additionally, the phantom limb attacks enemies ADJACENT
+          to your target as well — if you melee an enemy and another enemy is
+          adjacent to your target (not you), the phantom limb strikes the second
+          enemy for half damage (3). One bonus target max.
+      L3: +8 bonus damage. Adjacent bonus target takes full damage (8). Additionally,
+          once per floor, the phantom limb can perform a special "Phantom Reach"
+          attack — target any enemy within 3 tiles (not just adjacent). This is an
+          automatic activation: the first time you would melee an enemy but can't
+          because they're 2-3 tiles away, the phantom arm extends and strikes. Cap.
+    Note: The phantom damage is added as a separate damage instance after your
+    normal melee attack resolves. It bypasses defense because it's spectral. This
+    makes it especially good against high-armor enemies.
+    Ring slot loss: engine.py rings list shrinks from 5 to 3. If rings are already
+    equipped in slots 4-5, they drop to the floor.
+    Reversal: Remove phantom_limb_active; restore 2 ring slots (empty).
+    System hooks: player_stats.phantom_limb_active, combat.py melee (add phantom
+    strike after normal hit), engine.py ring slot count (reduce by 2),
+    combat.py (L2 adjacent splash), engine.py (L3 phantom reach trigger).
+
+29. GRAFTED MASK — "It grew over your face. You can't remove it. It has expressions."
+    Slot interaction: REPLACES hat slot with a living face-mask. The mask is a
+    biological growth that covers your face entirely. It has its own musculature
+    and can make expressions independently of your will. Benefits: the mask's
+    expressions intimidate enemies. All enemies that enter your LOS for the first
+    time on each floor must make a "fear check" — 30% chance they are feared for
+    3 turns (flee from you). This only triggers once per enemy per floor.
+    Equipment constraint: Hat slot locked.
+    Upgrade:
+      L1: Hat locked; 30% fear on first LOS contact per enemy per floor (3 turns).
+      L2: 40% fear chance; 4 turns. Additionally, the mask can "roar" — grants
+          the Graft Roar ability (2 charges/floor, SELF target): all enemies within
+          4 tiles are feared for 3 turns. No cooldown between charges.
+      L3: 50% fear chance; 5 turns. Graft Roar: 3 charges/floor, 5-tile radius,
+          4-turn fear. Additionally, enemies that are feared by the mask and recover
+          from fear have their attack power permanently reduced by 1 for the rest
+          of the floor (traumatized — they've seen the face and it shook them). Cap.
+    Note: Fear check is tracked per-enemy per floor: engine.grafted_mask_feared: set
+    of entity IDs (reset per floor). The fear effect uses the standard FearEffect.
+    Synergy anti: Redundant Brain (enemy CC immunity blocks YOUR fear on THEM? No —
+    Redundant Brain blocks CC on YOU. This fears ENEMIES. No conflict.)
+    Reversal: Revoke "graft_roar" ability; remove fear-on-LOS; restore hat slot.
+    System hooks: player_stats.grafted_mask_active, ai.py (fear check on player
+    entering enemy LOS), ABILITY_REGISTRY "graft_roar", effects.py FearEffect,
+    combat.py (L3 permanent power reduction on fear recovery).
+
+30. NEURAL JACK — "A bony port grew behind your ear. It interfaces with... everything."
+    Slot interaction: ENHANCES neck slot. Whatever neck item you have equipped
+    gains +50% to its stat bonuses (a +2 CON amulet becomes +3 CON). Additionally,
+    the neural jack grants you perfect information about the enemy you last
+    attacked — after your first melee hit on any enemy, you can see their exact
+    HP, power, defense, speed, and active status effects in the message log
+    (as if you had an "examine" ability that fires automatically post-hit).
+    Equipment constraint: None — enhances rather than blocks.
+    Upgrade:
+      L1: Neck item bonuses +50%; auto-examine enemies on melee hit.
+      L2: Neck bonuses +75%. Auto-examine extends to gun hits as well. Additionally,
+          examined enemies take +1 damage from all your subsequent attacks (you
+          know where to hit — exploiting weaknesses).
+      L3: Neck bonuses +100% (doubled). Auto-examine on all hits. Vulnerability
+          bonus increases to +2. Additionally, once per floor, when you examine
+          an enemy via the neural jack and that enemy has a status effect, you can
+          "download" that effect — it is removed from the enemy and NOT applied to
+          you (stolen debuff removal). Fires automatically on first examine of an
+          enemy with a debuff. Cap.
+    Note: The +50/75/100% bonus is applied multiplicatively to the neck item's
+    stat fields. A neck item with power_bonus=3 becomes 4/5/6 at L1/L2/L3.
+    The auto-examine outputs to the message log like:
+    "[Neural Jack] Crackhead: 45/60 HP, 8 PWR, 3 DEF, 100 SPD [Venom x2, Bleed x1]"
+    Reversal: Remove neural_jack_active; remove neck bonus enhancement; remove
+    auto-examine and vulnerability bonus.
+    System hooks: player_stats.neural_jack_active, stats.py neck_bonuses (multiply
+    by level factor), combat.py melee/gun hit (auto-examine, L2 vulnerability bonus),
+    engine.py (L3 debuff download on first examine).
+
+
+================================================================
+STRONG BAD MUTATIONS (26-30)
+================================================================
+
+26. ATROPHIED ARMS — "Your arms are withering. Your body found other priorities."
+    Slot interaction: CRIPPLES weapon AND sidearm slots progressively. Your arms
+    are shrinking and weakening. Weapon power is reduced by 3 (applied as a flat
+    penalty to whatever weapon is equipped). Sidearm accuracy is reduced by 20%.
+    Additionally, two-handed weapons (large guns, battle axes, mauls) cannot be
+    equipped at all — your arms can't support the weight.
+    Equipment constraint: Weapon power -3; sidearm accuracy -20%; large items blocked.
+    Upgrade (gets worse):
+      L1: Weapon power -3; gun accuracy -20%; large items blocked.
+      L2: Weapon power -5; gun accuracy -35%. Additionally, equipping or swapping
+          ANY weapon takes +2 turns (fumbling with weak arms). This applies to
+          both weapon and sidearm swaps.
+      L3: Weapon power -7; gun accuracy -50%. Equip time +3 turns. Additionally,
+          there is a 10% chance per melee attack that you cannot complete the swing —
+          the attack deals 0 damage (your arms gave out mid-swing). The swing still
+          costs energy. Cap.
+    Note: This is the "your arms are vestigial" mutation taken to its logical
+    extreme. It devastates melee AND ranged builds equally. The only combat style
+    not affected is ability-based combat (no arm involvement for psychic/mutation
+    abilities). This pushes players toward ability-heavy builds.
+    Anti-synergy: Bone Blade (mutation-generated weapon) is still penalized by the
+    power reduction — the blade is attached to the atrophied arm.
+    Reversal: Remove atrophied_arms_active; remove all weapon/gun penalties.
+    System hooks: player_stats.atrophied_arms_active, combat.py player power
+    (flat penalty), gun_system.py accuracy (penalty), engine.py equip validation
+    (block large items, L2 equip time), combat.py (L3 failed swing chance).
+
+27. PARASITIC CAUL — "Something is wearing you as a hat."
+    Slot interaction: BLOCKS hat slot with a parasitic organism. A fleshy caul
+    has grown over your head — it's alive, it feeds on you, and you can't remove
+    it. Every 15 turns, the caul feeds: you lose 2 HP (non-preventable, bypasses
+    armor). In exchange, the caul occasionally rewards you with random garbage —
+    every 3rd feeding, a random low-value item materializes at your feet (the caul
+    regurgitates something it absorbed from the environment). The items are always
+    low-tier: a single unit of ammo, 1-5 gold, a common food item.
+    Equipment constraint: Hat slot permanently locked.
+    Upgrade (gets worse):
+      L1: Hat locked; -2 HP every 15 turns; random trash item every 3rd feed.
+      L2: -3 HP every 12 turns; trash item every 4th feed (less reward). Additionally,
+          the caul obscures your vision periodically — every 20 turns, your FOV is
+          reduced by 2 for 3 turns (the caul shifts over your eyes).
+      L3: -4 HP every 10 turns; trash item every 5th feed. FOV reduction every 15
+          turns for 4 turns. Additionally, the caul has developed its own hunger —
+          when you eat food, 30% of the HP healed goes to the caul instead of you
+          (the caul intercepts the nutrition). Cap.
+    Note: The trash items are generated from a simplified loot table:
+    [(ammo_light, 1), (ammo_medium, 1), (gold, 1d5), (food_random, 1)]. Weighted
+    randomly. The items are real and usable, just individually low-value.
+    This is distinct from Extra Mouth (which devours YOUR items). Parasitic Caul
+    drains your HP but sometimes gives you garbage in return.
+    Reversal: Remove parasitic_caul_active; restore hat slot.
+    System hooks: player_stats.parasitic_caul_active, engine.py per-turn (feed counter,
+    HP drain, trash item spawn, L2 FOV timer), item_effects.py (L3 food heal
+    interception).
+
+28. OVERGROWN DIGITS — "Your fingers are thick as sausages. Nothing fits."
+    Slot interaction: CRIPPLES all ring slots AND sidearm. Your fingers have
+    swollen to twice their normal size. Ring slots are all blocked — you cannot
+    equip any rings (0 of 5 ring slots usable). Additionally, your fat fingers
+    make gun use clumsy — gun reload time +2 turns, and you cannot toggle fire
+    modes (stuck in whatever mode the gun defaults to — usually "accurate").
+    Equipment constraint: All ring slots blocked; gun reload +2; no fire mode toggle.
+    Upgrade (gets worse):
+      L1: 0 ring slots; gun reload +2 turns; no fire mode toggle.
+      L2: Same slot locks. Additionally, your bloated hands reduce melee attack
+          speed — every melee attack costs +25 energy (you swing slower). However,
+          each melee hit deals +2 bonus damage (the sheer mass of your fists adds
+          weight). This is the one "silver lining" — slow but heavy hits.
+      L3: Same locks. Melee +50 energy cost; +4 bonus damage. Additionally, using
+          items from inventory (eat food, use drugs) takes +1 turn per use (fumbling
+          with thick fingers to open packaging). Cap.
+    Note: L2-L3 melee energy cost increase means you attack less frequently but
+    harder. A player at 100 speed normally attacks every energy cycle; with +50
+    energy cost, each melee attack effectively takes 1.5 cycles. Combined with
+    the damage bonus, DPS is roughly similar but burst patterns are worse.
+    The ring slot loss is the real pain — losing 5 rings worth of stat bonuses.
+    Reversal: Remove overgrown_digits_active; restore all 5 ring slots (empty);
+    remove gun and melee penalties.
+    System hooks: player_stats.overgrown_digits_active, engine.py ring validation
+    (block all slots, unequip existing rings on acquisition), gun_system.py (reload
+    penalty, block toggle), combat.py (L2/L3 melee energy cost + damage bonus),
+    item_effects.py (L3 use time penalty).
+
+29. EXOSKELETAL LOCK — "Your joints fused. Movement is a suggestion now."
+    Slot interaction: REPLACES outfit AND feet slots with a rigid exoskeletal
+    growth. Your torso and legs are encased in a bone-like exoskeleton that
+    provides substantial DR (+5) but at the cost of nearly all flexibility.
+    Cannot equip outfits or boots. Your movement is limited to 4 cardinal
+    directions only — diagonal movement is impossible (your joints don't bend
+    that way). Additionally, your base speed is permanently reduced by 20.
+    Equipment constraint: Outfit slot locked; feet slot locked.
+    Upgrade (gets worse):
+      L1: +5 DR; outfit + feet locked; no diagonal movement; -20 speed.
+      L2: +5 DR (no DR increase — the exoskeleton doesn't grow stronger, just
+          more restrictive). Speed penalty increases to -30. Additionally, you
+          cannot move and attack in the same turn — if you moved this turn, you
+          cannot melee attack, and vice versa. Abilities are still usable after
+          movement.
+      L3: +5 DR still. Speed -40. No move+attack same turn. Additionally, changing
+          direction costs double energy — if you were moving north and want to move
+          east, the first eastward step costs 200 energy instead of 100 (turning
+          your rigid body). Subsequent moves in the same direction are normal cost.
+          Cap.
+    Note: The DR is a consolation prize. The movement restrictions are brutal:
+    no diagonals means you take longer paths around obstacles and can't kite
+    effectively. No move+attack means you must close distance one turn, then
+    attack the next. L3 direction-change cost makes you deeply predictable.
+    This pushes builds toward gun-focused (stand still and shoot) or ability-
+    focused (don't need to close distance) playstyles. Melee is nearly unplayable
+    at L3.
+    Reversal: Remove exoskeletal_lock_active; remove DR; restore outfit + feet
+    slots; restore diagonal movement and speed.
+    System hooks: player_stats.exoskeletal_lock_active, engine.py movement
+    (block diagonals, L2 block attack-after-move, L3 direction-change cost),
+    stats.py permanent_dr, engine.py equip validation (block outfit + feet).
+
+30. NECROTIC HOLSTER — "Your hip socket is rotting. Whatever you put there rots too."
+    Slot interaction: CORRUPTS sidearm slot. Your sidearm slot works, but any gun
+    equipped in it slowly degrades. Every 15 turns with a gun equipped in the
+    sidearm, the gun permanently loses 1 damage (tracked as gun.necrotic_damage_lost).
+    When a gun reaches 0 damage, it crumbles to nothing (removed from inventory).
+    The necrosis also spreads to ammo — every reload, 1 round of ammo is "spoiled"
+    (consumed but not loaded into the gun).
+    Equipment constraint: Sidearm slot functional but items degrade.
+    Upgrade (gets worse):
+      L1: Gun loses 1 damage per 15 turns equipped; 1 ammo spoiled per reload.
+      L2: Gun loses 1 damage per 10 turns; 2 ammo spoiled per reload. Additionally,
+          the necrotic field extends to your weapon slot — melee weapons lose 1
+          power per 20 turns equipped.
+      L3: Gun -1 damage per 7 turns; 3 ammo spoiled per reload. Melee weapon -1
+          power per 15 turns. Additionally, any item you pick up while the necrosis
+          is active has a 5% chance to immediately lose 1 point of its primary
+          stat (the necrotic field corrupts on contact). Cap.
+    Note: Very similar in concept to Entropic Aura (strong bad from the CDDA
+    expansion) but specifically targets gun/sidearm rather than all equipment.
+    If BOTH are in the game, make Entropic Aura affect weapon/rings/neck and
+    Necrotic Holster affect sidearm/ammo specifically. They should not overlap.
+    If only one is used, Necrotic Holster is the gun-focused version.
+    Reversal: Remove necrotic_holster_active. Damage already lost on items is NOT
+    reversed (the rot has happened).
+    System hooks: player_stats.necrotic_holster_active, engine.py per-turn (gun
+    degradation counter), gun_system.py reload (ammo spoilage), combat.py (L2
+    melee weapon degradation), inventory_mgr.py (L3 pickup corruption).
+
+
+================================================================
+SLOT COVERAGE SUMMARY
+================================================================
+
+This document covers ALL 7 equipment slots:
+
+  WEAPON:
+    Bone Blade (Weak Good 26) — replaces with scaling bone weapon
+    Atrophied Arms (Strong Bad 26) — cripples weapon power
+    Necrotic Holster L2 (Strong Bad 30) — degrades melee weapon
+
+  SIDEARM:
+    Fused Trigger Finger (Weak Bad 26) — cripples gun timing
+    Organic Holster (Strong Good 26) — enhances with bio-holster
+    Necrotic Holster (Strong Bad 30) — degrades gun damage
+    Atrophied Arms (Strong Bad 26) — cripples gun accuracy
+    Overgrown Digits (Strong Bad 28) — blocks fire mode toggle
+
+  HAT:
+    Iron Crown (Weak Good 30) — replaces with DR + confuse immunity
+    Corroded Crown (Weak Bad 29) — blocks, adds head vulnerability
+    Grafted Mask (Strong Good 29) — replaces with fear aura
+    Parasitic Caul (Strong Bad 27) — blocks, parasite feeds on you
+
+  NECK:
+    Neural Jack (Strong Good 30) — enhances neck item bonuses
+
+  RINGS:
+    Suction Cups (Weak Good 27) — enhances all rings, adds 6th slot
+    Swollen Knuckles (Weak Bad 27) — damages you per ring, reduces bonuses
+    Phantom Limb (Strong Good 28) — costs 2 ring slots for ghost weapon
+    Overgrown Digits (Strong Bad 28) — blocks all 5 ring slots
+
+  FEET/BOOTS:
+    Padded Soles (Weak Good 28) — replaces with silent movement + grip
+    Brittle Soles (Weak Bad 30) — replaces with fragile bone plates
+    Exoskeletal Lock (Strong Bad 29) — locks feet + outfit, rigid body
+
+  OUTFIT (new slot):
+    Exposed Vertebrae (Weak Bad 28) — cripples → blocks outfit
+    Organic Holster (Strong Good 26) — blocks outfit for bio-holster
+    Living Armor (Strong Good 27) — replaces with scaling DR plates
+    Exoskeletal Lock (Strong Bad 29) — locks outfit + feet, rigid body
+
+
+================================================================
+DESIGN NOTES
+================================================================
+
+REPLACEMENT vs BLOCKING vs CRIPPLING:
+  These mutations use three distinct patterns:
+
+  REPLACEMENT: The mutation IS the equipment. It provides a biological version
+  of the slot's function, often with unique scaling or mechanics. Examples:
+  Bone Blade (weapon), Padded Soles (feet), Living Armor (outfit), Iron Crown (hat).
+  Players lose the slot but gain something permanent that doesn't need looting.
+
+  BLOCKING: The mutation simply locks the slot. Nothing can go there. The mutation
+  provides some other benefit or penalty unrelated to the slot's usual function.
+  Examples: Corroded Crown (hat), Parasitic Caul (hat). The slot loss is a cost.
+
+  CRIPPLING: The slot still works, but poorly. Items can be equipped but they're
+  penalized, degraded, or dangerous. Examples: Fused Trigger Finger (sidearm works
+  but slowly), Swollen Knuckles (rings work but hurt), Necrotic Holster (sidearm
+  degrades). Players face a choice: use the crippled slot or leave it empty.
+
+SLOT ECONOMY:
+  With 7 equipment slots and these 20 mutations, a maximally mutated player could
+  lose access to most of their equipment. This is intentional — high-mutation builds
+  trade gear for biological alternatives. The mutation system IS the endgame gear
+  for mutation-focused characters.
+
+  A player with Bone Blade + Living Armor + Iron Crown + Padded Soles has replaced
+  4 slots with biological versions. They never need to find a weapon, outfit, hat,
+  or boots. Their "gear" grows with their mutation count and floor kills. This is
+  the "mutant build" fantasy: you don't loot, you BECOME the loot.

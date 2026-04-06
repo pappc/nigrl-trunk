@@ -268,6 +268,28 @@ def render_all(console, engine):
         render_mutations_menu(console, engine)
     elif engine.menu_state == MenuState.STATUS_EFFECTS:
         render_status_effects_menu(console, engine)
+    elif engine.menu_state == MenuState.GUN_DEALER:
+        render_gun_dealer_menu(console, engine)
+    elif engine.menu_state in (MenuState.CHEF_SELECT_A, MenuState.CHEF_SELECT_B):
+        render_chef_menu(console, engine)
+    elif engine.menu_state == MenuState.PLUG:
+        render_plug_menu(console, engine)
+    elif engine.menu_state == MenuState.SKILL_TRADER:
+        render_skill_trader_menu(console, engine)
+    elif engine.menu_state == MenuState.TATTOO_ARTIST:
+        render_tattoo_artist_menu(console, engine)
+    elif engine.menu_state == MenuState.PAWN_MAN:
+        render_pawn_man_menu(console, engine)
+    elif engine.menu_state == MenuState.ENCHANTER:
+        render_enchanter_menu(console, engine)
+    elif engine.menu_state == MenuState.MIXOLOGIST:
+        render_mixologist_menu(console, engine)
+    elif engine.menu_state == MenuState.CRAPS_ANTE:
+        render_craps_ante_menu(console, engine)
+    elif engine.menu_state == MenuState.CRAPS_GAME:
+        render_craps_game_menu(console, engine)
+    elif engine.menu_state == MenuState.EZRA:
+        render_ezra_menu(console, engine)
 
 def _wall_noise(x, y):
     """Return two deterministic offsets for a wall tile — subtle grime variation."""
@@ -293,6 +315,7 @@ def render_dungeon(console, dungeon):
 
     spray_paint = dungeon.spray_paint
     grease_tiles = dungeon.grease_tiles
+    rad_tiles = dungeon.rad_tiles
 
     for y in range(dungeon.height):
         for x in range(dungeon.width):
@@ -312,6 +335,8 @@ def render_dungeon(console, dungeon):
                 elif tile == TILE_FLOOR:
                     if (x, y) in grease_tiles:
                         console.print(cx, cy, "~", fg=(190, 170, 50), bg=(40, 35, 15))
+                    elif (x, y) in rad_tiles:
+                        console.print(cx, cy, "+", fg=(160, 255, 80), bg=(25, 40, 10))
                     elif (sp := spray_paint.get((x, y))) is not None:
                         if sp == "red":
                             console.print(cx, cy, " ", bg=(140, 15, 15))
@@ -335,6 +360,8 @@ def render_dungeon(console, dungeon):
                 elif tile == TILE_FLOOR:
                     if (x, y) in grease_tiles:
                         console.print(cx, cy, "~", fg=(95, 85, 25), bg=(20, 18, 8))
+                    elif (x, y) in rad_tiles:
+                        console.print(cx, cy, "+", fg=(80, 130, 40), bg=(12, 20, 5))
                     elif (sp := spray_paint.get((x, y))) is not None:
                         if sp == "red":
                             console.print(cx, cy, " ", bg=(70, 8, 8))
@@ -887,13 +914,56 @@ def render_stats_panel(console, engine):
 
     # ── Toxicity / Radiation (Meth Lab only) ──────────────────────────
     if "meth_lab" in engine.zones_visited:
+        from combat import _player_toxicity_multiplier
+        from mutations import RAD_THRESHOLDS, BASE_CHANCE_PER_50
         C_TOX = (0, 255, 100)
         C_RAD = (100, 255, 50)
+        C_DIM = (140, 140, 140)
         tox_y = cash_section_y
-        tox_str = f"Tox: {engine.player.toxicity}"
-        rad_str = f"Rad: {engine.player.radiation}"
+        max_w = pw - lx - 1
+
+        # Toxicity line + damage multiplier
+        tox = engine.player.toxicity
+        tox_mult = _player_toxicity_multiplier(tox)
+        tox_str = f"Tox: {tox}"
+        mult_str = f" ({tox_mult:.1f}x)"
         console.print(lx, tox_y, tox_str, fg=C_TOX, bg=BG)
+        console.print(lx + len(tox_str), tox_y, mult_str[:max_w - len(tox_str)], fg=C_DIM, bg=BG)
+
+        # Radiation line + mutation chance + highest tier
+        # Account for Nuclear Research passive block and Yellowcake buff
+        rad = engine.player.radiation
+        nr_level = engine.skills.get("Nuclear Research").level
+        has_yellowcake = any(getattr(e, 'id', '') == 'yellowcake_buff'
+                            for e in engine.player.status_effects)
+        # Effective mutation chance (mirrors check_mutation logic)
+        blocked = False
+        if nr_level >= 6 and rad < 400:
+            blocked = True
+        elif nr_level >= 4 and rad < 250:
+            blocked = True
+        elif nr_level >= 2 and rad < 150:
+            blocked = True
+        elif rad < min(RAD_THRESHOLDS.values()):
+            blocked = True
+        if blocked:
+            chance = 0
+        else:
+            chance = (rad // 50) * BASE_CHANCE_PER_50 * 100
+            if has_yellowcake:
+                chance *= 10
+        # Highest eligible tier (Yellowcake blocks weak)
+        tier = "—"
+        for t in ("huge", "strong", "weak"):
+            if rad >= RAD_THRESHOLDS[t]:
+                if has_yellowcake and t == "weak":
+                    continue
+                tier = t[0].upper()  # H / S / W
+                break
+        rad_str = f"Rad: {rad}"
+        detail_str = f" ({chance:.1f}% {tier})"
         console.print(lx, tox_y + 1, rad_str, fg=C_RAD, bg=BG)
+        console.print(lx + len(rad_str), tox_y + 1, detail_str[:max_w - len(rad_str)], fg=C_DIM, bg=BG)
         cash_section_y += 2
 
     # ── Cash ─────────────────────────────────────────────────────────
@@ -1248,20 +1318,28 @@ def render_equipment_screen(console, engine):
         if defn and defn.get("defense_bonus"):
             bonus_parts.append(f"+{defn['defense_bonus']}def")
         bonus = f" ({','.join(bonus_parts)})" if bonus_parts else ""
+        enchant_tag = " (Enchanted)" if getattr(item, "enchanted_locked", False) else ""
         col_start = panel_x + 4 + label_width + 2
-        max_name = panel_w - 2 - (col_start - panel_x) - len(bonus)
+        max_name = panel_w - 2 - (col_start - panel_x) - len(bonus) - len(enchant_tag)
         name_gradient = defn.get("name_gradient") if defn else None
         name_alternating = defn.get("name_alternating") if defn else None
+        trimmed_name = item.name[:max_name]
+        end_col = col_start + len(trimmed_name)
         if name_alternating:
-            _print_alternating_text(console, col_start, row, item.name[:max_name], name_alternating, bg)
+            _print_alternating_text(console, col_start, row, trimmed_name, name_alternating, bg)
             if bonus:
-                console.print(col_start + len(item.name[:max_name]), row, bonus, fg=C_ITEM, bg=bg)
+                console.print(end_col, row, bonus, fg=C_ITEM, bg=bg)
+                end_col += len(bonus)
         elif name_gradient:
-            _print_gradient_text(console, col_start, row, item.name[:max_name], name_gradient, bg)
+            _print_gradient_text(console, col_start, row, trimmed_name, name_gradient, bg)
             if bonus:
-                console.print(col_start + len(item.name[:max_name]), row, bonus, fg=C_ITEM, bg=bg)
+                console.print(end_col, row, bonus, fg=C_ITEM, bg=bg)
+                end_col += len(bonus)
         else:
-            console.print(col_start, row, f"{item.name[:max_name]}{bonus}", fg=C_ITEM, bg=bg)
+            console.print(col_start, row, f"{trimmed_name}{bonus}", fg=C_ITEM, bg=bg)
+            end_col += len(bonus)
+        if enchant_tag:
+            console.print(end_col, row, enchant_tag, fg=(255, 215, 80), bg=bg)
 
     if n == 0:
         msg = "Nothing equipped"
@@ -1852,6 +1930,18 @@ def render_examine(console, engine):
 
     item = engine.player.inventory[engine.selected_item_index]
     exam_lines = generate_examine_lines(item.item_id, engine)
+
+    # Sandwich fusion: inject second food's examine info
+    sandwich_food_id = getattr(item, "sandwich_food_id", None)
+    if sandwich_food_id:
+        second_lines = generate_examine_lines(sandwich_food_id, engine)
+        food_def_a = FOOD_DEFS.get(item.item_id, {})
+        food_def_b = FOOD_DEFS.get(sandwich_food_id, {})
+        name_a = food_def_a.get("name", item.item_id)
+        name_b = food_def_b.get("name", sandwich_food_id)
+        exam_lines.insert(0, [("Ingredients: ", (180, 180, 220)), (f"{name_a} + {name_b}", (255, 220, 130))])
+        exam_lines.append([("--- Second ingredient ---", (180, 180, 180))])
+        exam_lines.extend(second_lines)
 
     # Build title
     qty = getattr(item, "quantity", 1)
@@ -3717,6 +3807,589 @@ def render_shop_item_popup(console, engine):
 
     # Hint
     hint = "[Enter] Buy  [Esc] Cancel"
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_gun_dealer_menu(console, engine):
+    """Render the Gun Dealer NPC popup — pick one of 3 guns."""
+    from items import get_item_def
+
+    BG       = (18, 22, 28)
+    C_ITEM   = (220, 220, 220)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+
+    npc = getattr(engine, "npc_entity", None)
+    stock = getattr(npc, "gun_stock", []) if npc else []
+    cursor = getattr(engine, "npc_cursor", 0)
+    n = len(stock)
+
+    popup_w = 40
+    popup_h = n + 6
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ RICHARD — GUN DEALER ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=(200, 60, 60), bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2, "Pick a gun — it's on the house.",
+                  fg=C_DIM, bg=BG)
+
+    for i, gun_id in enumerate(stock):
+        defn = get_item_def(gun_id) or {}
+        name = defn.get("name", gun_id)
+        color = defn.get("color", C_ITEM)
+        row_y = popup_y + 4 + i
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, name[:popup_w - 4], fg=color, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Take  [Esc] Cancel"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_plug_menu(console, engine):
+    """Render the Plug NPC popup — pick one of 5 strains."""
+    from items import get_strain_color
+
+    BG       = (18, 22, 28)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+
+    npc = getattr(engine, "npc_entity", None)
+    stock = getattr(npc, "strain_stock", []) if npc else []
+    cursor = getattr(engine, "npc_cursor", 0)
+    n = len(stock)
+
+    popup_w = 36
+    popup_h = n + 6
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ PEANUT — THE PLUG ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=(100, 255, 100), bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2, "Pick a strain — 5 joints free.",
+                  fg=C_DIM, bg=BG)
+
+    for i, strain in enumerate(stock):
+        color = get_strain_color(strain)
+        row_y = popup_y + 4 + i
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, strain[:popup_w - 4], fg=color, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Take  [Esc] Cancel"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_chef_menu(console, engine):
+    """Render the Chef NPC popup — select foods from inventory."""
+    BG       = (18, 22, 28)
+    C_ITEM   = (220, 220, 220)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (255, 200, 100)
+
+    cursor = getattr(engine, "npc_cursor", 0)
+    first_pick = getattr(engine, "chef_first_pick", None)
+    is_step_b = engine.menu_state == MenuState.CHEF_SELECT_B
+
+    # Get food indices, filtering out first pick in step B
+    food_indices = engine._get_food_indices()
+    if is_step_b and first_pick is not None:
+        food_indices = [i for i in food_indices if i != first_pick]
+
+    n = len(food_indices)
+
+    popup_w = 40
+    popup_h = min(n, 10) + 7
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ BIG SPOON — CHEF ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    step_text = "Select second food:" if is_step_b else "Select first food:"
+    console.print(popup_x + 2, popup_y + 2, step_text, fg=C_DIM, bg=BG)
+
+    # Show first pick name in step B
+    if is_step_b and first_pick is not None and first_pick < len(engine.player.inventory):
+        first_item = engine.player.inventory[first_pick]
+        first_name = getattr(first_item, "name", "?")
+        console.print(popup_x + 2, popup_y + 3, f"First: {first_name}", fg=C_TITLE, bg=BG)
+
+    list_y_start = popup_y + 4 if is_step_b else popup_y + 3
+    visible = min(n, 10)
+    scroll = max(0, cursor - visible + 1)
+    for row in range(visible):
+        idx = scroll + row
+        if idx >= n:
+            break
+        inv_idx = food_indices[idx]
+        item = engine.player.inventory[inv_idx]
+        name = getattr(item, "name", "?")
+        color = getattr(item, "color", C_ITEM)
+        qty = getattr(item, "quantity", 1)
+        display = f"{qty} {name}" if qty > 1 else name
+
+        row_y = list_y_start + row
+        row_bg = C_CURSOR if idx == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, display[:popup_w - 4], fg=color, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Pick  [Esc] Back"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_skill_trader_menu(console, engine):
+    """Render La'Quisha's skill trade offer — accept or decline."""
+    from skills import get_perk
+
+    BG       = (18, 22, 28)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (100, 160, 255)
+    C_DRAIN  = (255, 100, 100)
+    C_BOOST  = (100, 255, 100)
+
+    npc = getattr(engine, "npc_entity", None)
+    if not npc:
+        return
+
+    drain_name = getattr(npc, "trade_drain_skill", "?")
+    boost_name = getattr(npc, "trade_boost_skill", "?")
+    drain_skill = engine.skills.get(drain_name)
+    boost_skill = engine.skills.get(boost_name)
+    drain_level = drain_skill.level if drain_skill else 0
+    drain_perk = get_perk(drain_name, drain_level)
+    drain_perk_name = drain_perk["name"] if drain_perk else "?"
+    boost_perk_1 = get_perk(boost_name, 1)
+    boost_perk_2 = get_perk(boost_name, 2)
+    boost_perk_1_name = boost_perk_1["name"] if boost_perk_1 else "?"
+    boost_perk_2_name = boost_perk_2["name"] if boost_perk_2 else "?"
+
+    popup_w = 46
+    popup_h = 12
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ LA'QUISHA — SKILL TRADER ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 3, "LOSE:", fg=C_DRAIN, bg=BG)
+    console.print(popup_x + 8, popup_y + 3,
+                  f"{drain_name} L{drain_level} -> L{drain_level - 1}",
+                  fg=C_DRAIN, bg=BG)
+    console.print(popup_x + 4, popup_y + 4,
+                  f"Perk lost: {drain_perk_name}"[:popup_w - 6],
+                  fg=C_DIM, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 6, "GAIN:", fg=C_BOOST, bg=BG)
+    console.print(popup_x + 8, popup_y + 6,
+                  f"{boost_name} L0 -> L2",
+                  fg=C_BOOST, bg=BG)
+    console.print(popup_x + 4, popup_y + 7,
+                  f"L1: {boost_perk_1_name}"[:popup_w - 6],
+                  fg=C_DIM, bg=BG)
+    console.print(popup_x + 4, popup_y + 8,
+                  f"L2: {boost_perk_2_name}"[:popup_w - 6],
+                  fg=C_DIM, bg=BG)
+
+    hint = "[Enter] Accept  [Esc] Decline"
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_tattoo_artist_menu(console, engine):
+    """Render Precious's stat picker — choose a stat for +5 (another random stat gets -5)."""
+    BG       = (18, 22, 28)
+    C_ITEM   = (220, 220, 220)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (255, 80, 200)
+
+    stat_names = ["constitution", "strength", "book_smarts", "street_smarts", "tolerance"]
+    stat_labels = ["Constitution", "Strength", "Book Smarts", "Street Smarts", "Tolerance"]
+    cursor = getattr(engine, "npc_cursor", 0)
+
+    popup_w = 40
+    popup_h = len(stat_names) + 7
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ PRECIOUS — TATTOO ARTIST ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2,
+                  "Pick a stat for +5. Another loses -5.",
+                  fg=C_DIM, bg=BG)
+
+    for i, label in enumerate(stat_labels):
+        current = getattr(engine.player_stats, stat_names[i], 0)
+        row_y = popup_y + 4 + i
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, f"{label} ({current})", fg=C_ITEM, bg=row_bg)
+        console.print(popup_x + popup_w - 5, row_y, "+5", fg=(100, 255, 100), bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Tattoo  [Esc] Cancel"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_pawn_man_menu(console, engine):
+    """Render Rico's inventory trade list — pick an item to swap."""
+    BG       = (18, 22, 28)
+    C_ITEM   = (220, 220, 220)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (200, 180, 60)
+
+    indices = engine._get_pawn_inventory_indices()
+    cursor = getattr(engine, "npc_cursor", 0)
+    n = len(indices)
+
+    popup_w = 40
+    popup_h = min(n, 12) + 6
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ RICO — PAWN MAN ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2,
+                  "Trade for a random Meth Lab item.",
+                  fg=C_DIM, bg=BG)
+
+    # Scrollable window
+    visible = min(n, 12)
+    scroll_offset = max(0, min(cursor - visible // 2, n - visible))
+    for i in range(visible):
+        list_i = scroll_offset + i
+        idx = indices[list_i]
+        item = engine.player.inventory[idx]
+        row_y = popup_y + 4 + i
+        row_bg = C_CURSOR if list_i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, "►" if list_i == cursor else " ", fg=C_TITLE, bg=row_bg)
+        name_str = item.name[:popup_w - 6]
+        console.print(popup_x + 4, row_y, name_str, fg=item.color, bg=row_bg)
+        qty = getattr(item, "quantity", 1)
+        if qty > 1:
+            console.print(popup_x + 4 + len(name_str) + 1, row_y,
+                          f"x{qty}", fg=C_DIM, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Trade  [Esc] Cancel"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_enchanter_menu(console, engine):
+    """Render Soloman's enchantment menu — pick an equipped item to enchant."""
+    BG       = (18, 22, 28)
+    C_ITEM   = (220, 220, 220)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (255, 215, 80)
+    C_EFFECT = (100, 255, 180)
+    C_LOCK   = (255, 100, 100)
+    C_ENCHANTED = (255, 215, 80)
+
+    equipped = engine._get_equipped_slots()
+    cursor = getattr(engine, "npc_cursor", 0)
+    n = len(equipped)
+
+    popup_w = 50
+    popup_h = n * 2 + 7
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ SOLOMAN — ENCHANTER ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2,
+                  "Pick one item. It gets stronger, but locks on.",
+                  fg=C_DIM, bg=BG)
+
+    for i, (slot_key, item) in enumerate(equipped):
+        if isinstance(slot_key, tuple):
+            slot_label = f"Ring {slot_key[1] + 1}"
+        else:
+            slot_label = slot_key.title()
+        row_y = popup_y + 4 + i * 2
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, f"[{slot_label}]", fg=C_DIM, bg=row_bg)
+        name_str = item.name[:popup_w - 16]
+        if getattr(item, "enchanted_locked", False):
+            console.print(popup_x + 12, row_y, name_str, fg=C_ENCHANTED, bg=row_bg)
+            console.print(popup_x + 12 + len(name_str) + 1, row_y, "(Enchanted)", fg=C_ENCHANTED, bg=row_bg)
+        else:
+            console.print(popup_x + 12, row_y, name_str, fg=item.color, bg=row_bg)
+
+        # Show enchantment preview on the line below
+        effect_y = row_y + 1
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, effect_y, " ", bg=BG)
+        if getattr(item, "enchanted_locked", False):
+            console.print(popup_x + 12, effect_y, "Already enchanted", fg=C_DIM, bg=BG)
+        else:
+            eff_label, eff_detail = engine._enchant_preview(slot_key, item)
+            preview = f"{eff_label}: {eff_detail}"
+            console.print(popup_x + 12, effect_y, preview[:popup_w - 14], fg=C_EFFECT, bg=BG)
+
+    hint = "[Up/Down] Select  [Enter] Enchant  [Esc] Cancel"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_mixologist_menu(console, engine):
+    """Render Sage's mixologist menu — pick a drink to put on the rocks."""
+    BG       = (18, 22, 28)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (180, 120, 220)
+    C_ICE    = (180, 220, 255)
+
+    drink_indices = engine._get_alcohol_indices()
+    cursor = getattr(engine, "npc_cursor", 0)
+    n = len(drink_indices)
+
+    popup_w = 44
+    popup_h = n + 6
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ SAGE — ON THE ROCKS ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2,
+                  "Pick a drink. 3 sips, no hangover.",
+                  fg=C_DIM, bg=BG)
+
+    for i, idx in enumerate(drink_indices):
+        item = engine.player.inventory[idx]
+        row_y = popup_y + 4 + i
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, "►" if i == cursor else " ", fg=C_ICE, bg=row_bg)
+        name_str = item.name[:popup_w - 6]
+        console.print(popup_x + 4, row_y, name_str, fg=item.color, bg=row_bg)
+        qty = getattr(item, "quantity", 1)
+        if qty > 1:
+            console.print(popup_x + 4 + len(name_str) + 1, row_y,
+                          f"x{qty}", fg=C_DIM, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Mix  [Esc] Cancel"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_craps_ante_menu(console, engine):
+    """Render Dice's craps ante selection menu."""
+    BG       = (18, 22, 28)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (255, 50, 50)
+    C_GOLD   = (255, 215, 0)
+    C_CANT   = (255, 80, 80)
+
+    antes = [5, 10, 25]
+    cursor = getattr(engine, "npc_cursor", 0)
+
+    popup_w = 38
+    popup_h = 10
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ DESHAWN — GHETTO CRAPS ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2,
+                  "Pick your ante.", fg=C_DIM, bg=BG)
+
+    cash_str = f"Cash: ${engine.cash}"
+    console.print(popup_x + popup_w - len(cash_str) - 2, popup_y + 2,
+                  cash_str, fg=C_GOLD, bg=BG)
+
+    for i, ante in enumerate(antes):
+        row_y = popup_y + 4 + i
+        can_afford = engine.cash >= ante
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, "►" if i == cursor else " ",
+                      fg=C_GOLD if can_afford else C_CANT, bg=row_bg)
+        label = f"${ante} ante  (Pot: ${ante * 2})"
+        fg = C_GOLD if can_afford else C_CANT
+        console.print(popup_x + 4, row_y, label, fg=fg, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Play  [Esc] Leave"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_craps_game_menu(console, engine):
+    """Render the craps game in progress — log-based display."""
+    BG       = (18, 22, 28)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (255, 50, 50)
+    C_GOLD   = (255, 215, 0)
+    C_GREEN  = (100, 255, 100)
+    C_RED    = (255, 100, 100)
+    C_DIV    = (80, 80, 120)
+
+    cs = engine.craps_state
+    if not cs:
+        return
+
+    popup_w = 46
+    popup_h = 22
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    # Title
+    title = "[ GHETTO CRAPS ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    # Pot
+    pot_str = f"Pot: ${cs['pot']}"
+    console.print(popup_x + 2, popup_y + 2, pot_str, fg=C_GOLD, bg=BG)
+
+    # Scores
+    p_pts = cs["player_points"]
+    n_pts = cs["npc_points"]
+    score_str_l = f"You: {p_pts} pt{'s' if p_pts != 1 else ''}"
+    score_str_r = f"{cs['npc_name']}: {n_pts} pt{'s' if n_pts != 1 else ''}"
+    console.print(popup_x + popup_w - len(score_str_r) - 2, popup_y + 2,
+                  score_str_r, fg=C_RED, bg=BG)
+    # Put player score between pot and NPC score
+    mid_x = popup_x + 2 + len(pot_str) + 3
+    console.print(mid_x, popup_y + 2, score_str_l, fg=C_GREEN, bg=BG)
+
+    # Divider
+    for px in range(1, popup_w - 1):
+        console.print(popup_x + px, popup_y + 3, "─", fg=C_DIV, bg=BG)
+
+    # Log area — show last N lines
+    log = cs.get("log", [])
+    log_height = popup_h - 6  # rows available for log
+    start = max(0, len(log) - log_height)
+    for i in range(log_height):
+        row_y = popup_y + 4 + i
+        log_i = start + i
+        if log_i < len(log):
+            text, color = log[log_i]
+            console.print(popup_x + 2, row_y, text[:popup_w - 4], fg=color, bg=BG)
+
+    # Hint
+    if cs["phase"] == "done":
+        hint = "[Enter] Close  [Esc] Close"
+    else:
+        hint = "[Enter] Roll  [Esc] Forfeit"
+    hint = hint[:popup_w - 2]
+    console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
+                  hint, fg=C_HINT, bg=BG)
+
+
+def render_ezra_menu(console, engine):
+    """Render Mama Ezra's loot multiplier selection menu."""
+    BG       = (18, 22, 28)
+    C_CURSOR = (30, 40, 50)
+    C_HINT   = (70, 70, 90)
+    C_DIM    = (100, 100, 100)
+    C_TITLE  = (160, 80, 200)
+
+    choices = engine._EZRA_CHOICES
+    cursor = getattr(engine, "npc_cursor", 0)
+
+    popup_w = 42
+    popup_h = len(choices) + 7
+    popup_x = (SCREEN_WIDTH - popup_w) // 2
+    popup_y = HEADER_HEIGHT + (SCREEN_HEIGHT - HEADER_HEIGHT - UI_HEIGHT - popup_h) // 2
+
+    _draw_panel(console, popup_x, popup_y, popup_w, popup_h, BG)
+
+    title = "[ MAMA EZRA ]"
+    console.print(popup_x + (popup_w - len(title)) // 2, popup_y + 1,
+                  title, fg=C_TITLE, bg=BG)
+
+    console.print(popup_x + 2, popup_y + 2,
+                  "What do you see in your future, child?",
+                  fg=C_DIM, bg=BG)
+
+    for i, (key, label, color) in enumerate(choices):
+        row_y = popup_y + 4 + i
+        row_bg = C_CURSOR if i == cursor else BG
+        for px in range(1, popup_w - 1):
+            console.print(popup_x + px, row_y, " ", bg=row_bg)
+        console.print(popup_x + 2, row_y, "►" if i == cursor else " ",
+                      fg=color, bg=row_bg)
+        console.print(popup_x + 4, row_y, label, fg=color, bg=row_bg)
+        console.print(popup_x + 4 + len(label) + 2, row_y,
+                      "(2x drop rate in Meth Lab)", fg=C_DIM, bg=row_bg)
+
+    hint = "[Up/Down] Select  [Enter] Choose  [Esc] Leave"
+    hint = hint[:popup_w - 2]
     console.print(popup_x + (popup_w - len(hint)) // 2, popup_y + popup_h - 2,
                   hint, fg=C_HINT, bg=BG)
 

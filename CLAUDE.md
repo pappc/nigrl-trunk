@@ -233,7 +233,7 @@ All strains use a 1-100 roll table. Higher rolls = better effects. Bad rolls (ty
 ## Design Documents
 
 - `nigrl-ideas/` contains game design documents (enemy concepts, skill trees, item ideas, etc.).
-- **NEVER use Edit on files in `nigrl-ideas/`** — regenerate via agent instead.
+- Edit is allowed on files in `nigrl-ideas/` for updates like the perk reference table. Use the agent to generate new design docs from scratch.
 - When adding new design docs, also add a summary to `nigrl-ideas/summaries/`.
 - `nigrl-ideas/finished-reading/` contains docs that have been implemented.
 - `version_history_and_features.txt` tracks feature history by version.

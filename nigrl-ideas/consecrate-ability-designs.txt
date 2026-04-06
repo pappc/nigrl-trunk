@@ -1,0 +1,885 @@
+CONSECRATE — 5 ABILITY DESIGNS (DECONTAMINATION L3)
+NIGRL Design Document
+======================================================================
+
+DOCUMENT PURPOSE
+----------------
+This document designs five mechanically distinct versions of the
+"Consecrate" ability for the Decontamination skill tree, Level 3 perk.
+All five use the same directional 5x3 zone shape — the player picks a
+cardinal direction and the zone extends forward. The versions differ in
+what the zone DOES to enemies, what the player gains from standing in
+it, and what special mechanic makes each variant unique.
+
+SHARED SHAPE SPECIFICATION (ALL VERSIONS)
+------------------------------------------
+Zone footprint: 5 tiles deep x 3 tiles wide = 15 tiles maximum.
+The player occupies the near-edge center tile; the zone extends in
+the chosen direction.
+
+Player at (px, py), direction EAST:
+  Row N-1:  (px,   py-1) (px+1, py-1) (px+2, py-1) (px+3, py-1) (px+4, py-1)
+  Row 0:    (px,   py  ) (px+1, py  ) (px+2, py  ) (px+3, py  ) (px+4, py  )
+  Row N+1:  (px,   py+1) (px+1, py+1) (px+2, py+1) (px+3, py+1) (px+4, py+1)
+  (player is at (px, py), near-edge center)
+
+For WEST: offsets x by -1..-4.
+For NORTH: offsets y by -1..-4 (up in dungeon coordinates).
+For SOUTH: offsets y by +1..+4.
+All tiles clipped to walkable dungeon floor tiles before writing to
+dungeon.rad_tiles.
+
+TARGETING UI:
+  New ability target_type: TargetType.DIRECTIONAL (or handled as a
+  special case in spells.py/input_handler.py). On ability activation:
+  display message "Choose direction (arrow keys + Enter or tap arrow)."
+  Arrow key press immediately fires if quick-tap; otherwise Enter
+  confirms. No cursor movement required — four choices only.
+  Similar pattern to how the gun targeting simplifies for direction-only
+  abilities. Can be implemented as ADJACENT_TILE_TARGETING repurposed
+  for direction selection, or as a dedicated four-key capture in the
+  ability execute function that enters a sub-loop (same pattern as
+  EntityTargeting for ADJACENT abilities).
+
+  Implementation note: the execute callable receives (engine) and can
+  query input state via a helper function
+  _prompt_cardinal_direction(engine) -> Optional[str] that returns
+  "N"/"S"/"E"/"W" or None on cancel. This helper processes the next
+  keypress in the event loop and returns.
+
+TILE SYSTEM:
+  All five versions write to dungeon.rad_tiles: dict[tuple, int]
+  (introduced alongside the original Consecrate design in
+  skill-decontamination-perks-L3-L6.txt). This is the only new dungeon
+  data structure needed — the five designs are differentiated purely by
+  what happens to entities on those tiles each engine tick, which is
+  controlled by flags or ability-id stored alongside the tile or by
+  reading which ability granted the tiles.
+
+  Implementation option A (simpler): dungeon.rad_tiles stores a tuple
+  (turns_remaining, intensity_mode) where intensity_mode is a string
+  key. The engine tick handler reads the mode to determine per-tick
+  behavior. This requires one dict instead of five.
+
+  Implementation option B (cleanest per-design): separate tile dicts per
+  variant (dungeon.consecrate_tiles_v1, etc.). Heavier but allows fully
+  independent behavior. NOT recommended — use option A.
+
+  Recommended: dungeon.rad_tiles: dict[tuple, tuple] =
+    { (x,y): (turns_remaining: int, mode: str) }
+  Default behavior (mode="standard") matches the original Consecrate
+  design. New modes documented per design below.
+
+RENDERING (all versions):
+  "+" character in yellow-green when visible, dimmed when explored.
+  Colors by mode (foreground/background):
+    "standard":    fg=(160, 255,  80), bg=( 25,  40,  10)
+    "ironseal":    fg=(180, 255, 120), bg=( 20,  50,   5)
+    "flensing":    fg=(200, 255,  60), bg=( 30,  50,   0)
+    "cyclone":     fg=(140, 230, 255), bg=(  5,  20,  35)
+    "vigil":       fg=(255, 230,  80), bg=( 40,  35,   0)
+    "judgment":    fg=(255, 180,  60), bg=( 45,  25,   0)
+  Explored-not-visible: all colors halved in value.
+
+
+======================================================================
+DESIGN 1 — "IRON SEAL"
+======================================================================
+
+NAME: Iron Seal
+FLAVOR: You plant your feet and declare this ground off-limits.
+        The zone glows with the cold green light of irradiated authority.
+        Enemies that push forward into it find their legs going heavy and
+        their radiation climbing — the closer they get to you, the worse.
+
+COST: 60 radiation
+DURATION: 18 turns
+CHARGES PER FLOOR: 2
+PASSIVE STAT BONUS (bundled at L3): +15% rad resistance, +1 STR
+
+---- ZONE BEHAVIOR (ENEMIES) ----
+Tiered radiation gain based on depth in zone:
+  - Back row (far 3 tiles, col 3-4 from player): +10 rad/turn
+  - Middle row (col 1-2 from player): +18 rad/turn
+  - Front tile (col 0, adjacent to player): +30 rad/turn
+
+The intensity gradient rewards enemies who charge at you — they suffer
+the most radiation. The gradient is computed as (depth_rank * 10 + 10)
+where depth_rank is the column index counted from player (0 = adjacent,
+4 = far). Wait, reversed: deeper into the zone from the enemy's
+perspective is closer to the player. So:
+  col 0 (player-adjacent):  +30 rad/turn
+  col 1:                    +22 rad/turn
+  col 2:                    +14 rad/turn
+  col 3-4 (zone far end):   +8 rad/turn
+Values scaled by ironseal_scale = 1 + (decon_level - 3) * 0.05 at
+higher Decontamination levels (future-proofing).
+
+---- PLAYER STANDING BONUS ----
+While standing on any Iron Seal tile (player's own tile counts as col 0):
+  - Incoming melee damage reduced by the player's current rad // 40
+    (capped at 6 damage reduction). At 200 rad this gives -5 defense.
+  - This is a temporary defense bonus applied via a modify_incoming_damage
+    hook on a "consecrated_ground" effect that is applied to the player
+    as long as they are on a rad tile. The effect tracks its own
+    "on_tile" flag refreshed each tick.
+
+---- UNIQUE MECHANIC: "HOLD THE LINE" ----
+If the player ends 3 consecutive turns standing on Iron Seal tiles
+without retreating (tracked via engine.ironseal_hold_streak: int),
+all remaining Iron Seal tiles refresh to full duration (18t). This
+rewards positional commitment — plant yourself, deny the corridor,
+and the zone stays live as long as you hold. Moving off resets the
+streak to zero.
+
+---- L2 EMISSION SYNERGY ----
+Emission sets visible enemies to your current radiation level. If you
+then cast Iron Seal, enemies already at high rad will be taking their
+existing irradiated DOT (rad//50 damage/tick) PLUS the tiered rad gain
+from walking into the zone. An enemy at 150 rad from Emission entering
+col 0 of Iron Seal gains +30 rad/turn -> 180 rad -> DOT climbs to 3-4
+damage/tick on top of the zone's radiation buildup.
+
+---- SKYWALKER OG / FORCE SENSITIVE SYNERGY ----
+Casting costs 60 rad, which triggers remove_radiation in the execute
+function (deducting 60 rad). This fires ForceSensitiveEffect.on_rad_lost
+if active, crossing 2 thresholds for +4 temp STR. The "Hold the Line"
+bonus lasts long enough for you to stand in your own zone post-cast with
+the STR active — the consecration act itself powers up your offensive output.
+
+---- IMPLEMENTATION NOTES ----
+  - dungeon.rad_tiles values for Iron Seal tiles: (18, "ironseal")
+  - In engine.py rad tile tick handler, for mode "ironseal":
+    col_distance = manhattan_x_distance(entity, player_near_edge)
+    clamp 0..4. rad_gain = max(8, 30 - col_distance * 8)
+    add_radiation(engine, entity, rad_gain, from_player=True)
+  - Player defense bonus: apply Effect id="consecrated_ground" (new
+    simple Effect, duration=1, re-applied each tick the player is on
+    a rad tile, using on_reapply to refresh; modify_incoming_damage
+    reduces by player.radiation // 40, capped at 6).
+  - engine.ironseal_hold_streak (int, 0): increment each turn player
+    is on a rad tile; reset on move; check at streak==3 in engine tick.
+  - Direction must be stored per tile so col_distance can be computed:
+    store as (turns_remaining, "ironseal", near_edge_x, near_edge_y,
+    direction_char) — use the near_edge tile to determine depth offsets.
+    Alternatively compute once at cast time and store a lookup dict:
+    engine.ironseal_depth_map: dict[tuple, int] (pos -> col_index).
+    This is cleaner. Clear on floor change or new cast.
+
+---- BALANCE ----
+  Tiered rad gain means the zone is mildly deterrent at range and
+  strongly punishing at melee range — but melee range is also where the
+  player's "Hold the Line" defense bonus kicks in. It's a calculated
+  risk: stand your ground and benefit, or retreat and lose the zone.
+  60 rad cost vs the original 50 rad is slightly higher to account for
+  the defense bonus and the gradient's superiority. 2 charges/floor.
+  At 18 turns duration in a 5x3 area, one cast can control a corridor
+  for the majority of a floor fight.
+
+---- PERK DESCRIPTION (skills.py) ----
+  "Iron Seal — 2/floor. 60 rad: irradiate a 5x3 zone (18t) in chosen
+   direction. Near tiles: +30 rad/t; far tiles: +8 rad/t. While in zone:
+   DEF +rad//40 (max 6). 3 turns held: zone refreshes. +15% rad res, +1 STR."
+  (120 chars)
+
+
+======================================================================
+DESIGN 2 — "FLENSING GROUND"
+======================================================================
+
+NAME: Flensing Ground
+FLAVOR: The floor itself becomes a radiation flayer. Every step enemy
+        boots take on your consecrated tiles strips them bare — not just
+        irradiating, but bleeding the radiation off them as pure kinetic
+        damage. The zone doesn't build rad. It converts it. Enemies that
+        enter highly irradiated come out damaged, not irradiated. Yours
+        to wield as execution ground.
+
+COST: 45 radiation
+DURATION: 14 turns
+CHARGES PER FLOOR: 3
+PASSIVE STAT BONUS (bundled at L3): +1 TOL, +1 STR
+
+---- ZONE BEHAVIOR (ENEMIES) ----
+Flensing Ground does NOT add radiation to enemies. Instead, for every
+enemy standing on a Flensing tile at the end of an engine tick:
+  - Deal direct damage equal to the enemy's current radiation // 15
+    (minimum 0, no rad // floor division result if rad < 15 = 0 dmg).
+  - Then reduce that enemy's radiation by 20 (clamped at 0).
+
+This is a "radiation conversion" zone: the tile does not irradiate, it
+FLENSES — stripping radiation off enemies and dealing it as damage.
+High-rad enemies (set up via Emission) take heavy damage; low-rad
+enemies take nothing. The zone punishes enemies that already carry rad.
+
+Examples:
+  Enemy at 200 rad: takes 200//15 = 13 damage, loses 20 rad per tick.
+  Enemy at 50 rad: takes 50//15 = 3 damage, loses 20 rad per tick.
+  Enemy at 10 rad: takes 0 damage, loses 10 rad.
+
+Damage is dealt via deal_damage(engine, entity, amount, from_player=True)
+so it triggers on-kill XP and death events normally.
+
+---- PLAYER STANDING BONUS ----
+While standing on any Flensing tile:
+  - Player's own radiation naturally decays at +10 rad/turn faster
+    (remove_radiation(engine, player, 10) each tick the player is on a
+    Flensing tile). This is the "the ground is consuming YOUR rad too"
+    drawback that is also a benefit: it fires ForceSensitiveEffect
+    .on_rad_lost, generating Force Sensitive STR stacks passively.
+  - Net: standing in your own Flensing zone passively fuels Force
+    Sensitive without spending Skywalker OG. A slow trickle (10 rad/t)
+    that crosses the 25-rad threshold after 2-3 turns.
+
+---- UNIQUE MECHANIC: "EXECUTION THRESHOLD" ----
+If Flensing damage would reduce an enemy to 25 HP or below, the tile
+triggers an "execution" on that enemy: deal 25 additional true damage
+(bypasses defense). This fires once per enemy per Consecrate cast (not
+per tick) — tracked via a set of entity ids "already executed" stored
+in engine.flensing_executed_ids: set.
+
+This creates a satisfying execution zone: Emission irradiates a room,
+enemies walk through Flensing Ground, their radiation is converted to
+damage, and the weakest among them get executed automatically when they
+drop low. It rewards high-rad enemies entering the zone.
+
+---- L2 EMISSION SYNERGY ----
+Emission is mandatory for Flensing Ground's ceiling. Without it, enemies
+at 15-30 rad from incidental Meth Lab exposure deal 1-2 damage/tick —
+interesting but not strong. WITH Emission: setting 4 enemies to 200 rad
+then positioning Flensing Ground deals 13 damage/tick to each for as
+long as they stay in the zone. That's effectively an AOE DOT of
+comparable strength to fire (which deals 3-6 damage/tick from 2 ignite
+stacks). The difference: fire fades, Flensing persists as long as they
+stand there and the tiles last.
+
+---- SKYWALKER OG / FORCE SENSITIVE SYNERGY ----
+Two interaction layers:
+  1. Cast costs 45 rad (remove_radiation fires on_rad_lost): one Force
+     Sensitive threshold crossing at +2 temp STR.
+  2. Standing on Flensing tiles drains 10 rad/turn from player, firing
+     on_rad_lost repeatedly. Over 14 turns standing in the zone: 140 rad
+     removed = 5 threshold crossings = +10 temp STR (if Force Sensitive
+     buff is active the whole time). This is the highest Force Sensitive
+     ceiling of the five designs — the zone is literally a STR engine if
+     you stand in it.
+  3. Skywalker OG removes rad fast — but here the zone removes it for
+     free and converts enemies' rad to damage simultaneously. The OG
+     strain becomes a top-off tool rather than the primary cycling tool.
+
+---- IMPLEMENTATION NOTES ----
+  - dungeon.rad_tiles mode: "flensing"
+  - Per-tick for "flensing" tiles:
+    if entity != engine.player:
+        dmg = entity.radiation // 15
+        if dmg > 0: deal_damage(engine, entity, dmg, from_player=True)
+        # Execution check
+        if entity.hp <= 25 and entity not in engine.flensing_executed_ids:
+            engine.flensing_executed_ids.add(entity)
+            deal_damage(engine, entity, 25, armor_piercing=True)
+        remove_radiation(engine, entity, 20) (not via engine.remove_radiation
+        since enemies don't gain Decon XP; just raw entity.radiation -= min(20, entity.radiation))
+    else:
+        remove_radiation(engine, player, 10) (fires Force Sensitive, awards Decon XP)
+  - engine.flensing_executed_ids: set[Entity] = set() — clear on floor change and on new cast.
+  - Note: armor_piercing on execution requires deal_damage to support a flag or
+    be replicated inline as direct entity.hp reduction. Check combat.py
+    deal_damage signature; if it doesn't support armor_piercing, implement
+    execution as raw hp reduction with a message: entity.hp -= 25 clamped at 0.
+  - Save/load: flensing_executed_ids is ephemeral (rebuild as empty set on load;
+    items in it would be dead anyway).
+
+---- BALANCE ----
+  3 charges/floor at lower cost (45 rad) reflects the dependency on
+  Emission — without that setup, the zone is weak. With Emission it
+  becomes a true killing field. The execution threshold prevents enemies
+  from tanking through a zone at low HP indefinitely. The player's own
+  10 rad/turn drain is the tradeoff: you're slowly losing your radiation
+  resource standing in your own zone, which means you need to top it off
+  (Skywalker OG, Meth Lab exposure) to keep Force Sensitive cycling.
+  This is the most "combo-dependent" of the five designs.
+
+---- PERK DESCRIPTION (skills.py) ----
+  "Flensing Ground — 3/floor. 45 rad: 5x3 zone (14t). Enemies lose 20 rad/t,
+   take rad//15 dmg/t. Below 25 HP: execute (+25 true dmg). Standing drains
+   10 rad/t from you (fuels Force Sensitive). +1 TOL, +1 STR."
+  (118 chars)
+
+
+======================================================================
+DESIGN 3 — "CYCLONE GROUND"
+======================================================================
+
+NAME: Cyclone Ground
+FLAVOR: The rad tiles hum with an invisible kinetic force that drags
+        enemies toward you. Step into the zone and your feet stick to
+        the floor as something vast and irradiating tries to pull you
+        to its center — you. The player is the eye. The zone is the
+        storm. Enemies can't outrun a consecrated corridor when it's
+        pulling them in.
+
+COST: 55 radiation
+DURATION: 12 turns
+CHARGES PER FLOOR: 2
+PASSIVE STAT BONUS (bundled at L3): +15% rad resistance, +1 STR
+
+---- ZONE BEHAVIOR (ENEMIES) ----
+Every enemy on a Cyclone tile has their movement SLOWED: their energy
+gain is reduced by 40% on turns when they are on a Cyclone tile.
+This is applied via a transient effect (id="cyclone_slowed", duration=1,
+re-applied each tick while on tile, same pattern as greasy stacks).
+CycloneSlowedEffect.modify_energy_gain() returns energy_gain * 0.6.
+
+In addition: +15 rad/turn to enemies on Cyclone tiles, flat (no gradient).
+The slow is the primary mechanic; the rad gain is secondary pressure.
+
+---- PLAYER STANDING BONUS ----
+While standing on a Cyclone tile:
+  - Ability cooldowns recover 1 extra charge this floor for every 4
+    turns the player has been continuously on a Cyclone tile. Tracked
+    via engine.cyclone_stand_turns (int). At each 4-turn threshold,
+    restore 1 charge to the player's non-consecrate ability with the
+    fewest remaining charges (prioritizing Emission, then any other
+    Decontamination ability).
+  - Message on proc: "Cyclone Focus! Emission charge restored (+1)."
+  - This creates a "standing-in" reward that directly refuels your kit
+    rather than giving a stat bonus.
+  - Damage bonus while in zone: none — the design positions Cyclone as
+    the zone-control and momentum-trading variant, not the damage variant.
+
+---- UNIQUE MECHANIC: "MAGNETISM PULL" ----
+When an enemy attempts to move OUT of a Cyclone tile, there is a
+30% chance the move is negated (the enemy's action is "wasted" trying
+to leave). This chance is checked in ai.py's movement resolution: after
+pathfinding selects a tile that exits the rad zone, roll; if fails,
+entity stays in place for that turn (action consumed).
+
+Implementation: in do_ai_turn(), after computing the intended move:
+  target_pos = (entity.x + dx, entity.y + dy)
+  if (entity.x, entity.y) in engine.dungeon.rad_tiles and
+     target_pos not in engine.dungeon.rad_tiles:
+     if engine.skills.get("Decontamination").level >= 3:
+         if random.random() < 0.30:
+             # Action wasted — entity stays, expend action
+             entity.energy -= ENERGY_THRESHOLD
+             return
+
+This is the most tactically interesting mechanic: enemies CAN leave the
+zone (70% success rate per attempt), but they often can't, making the
+zone a soft stun field for fast enemies and an effective cage for slow
+ones. Combined with the 40% slow, enemies in the zone take their turns
+much less frequently and can't reliably escape.
+
+---- L2 EMISSION SYNERGY ----
+Emission sets all visible enemies' rad to yours before you cast Cyclone.
+Now they enter the zone already irradiated, and the zone both adds more
+rad and keeps them inside. An enemy stuck in Cyclone for 4 turns while
+already at 100 rad (from Emission) accumulates another 60 rad (+15/t x4)
+= 160 total. At 160 rad the irradiated DOT is 3 damage/tick. Combined
+with the slow (they act 40% less often), they're spending their few
+turns in a zone they can't reliably leave.
+
+---- SKYWALKER OG / FORCE SENSITIVE SYNERGY ----
+Casting costs 55 rad: 2 Force Sensitive threshold crossings = +4 temp STR.
+The player standing bonus (charge recovery) doesn't interact with Force
+Sensitive directly. However: Cyclone's slow means you have more turns of
+combat where you can smoke Skywalker OG without being attacked as much.
+The zone is defensive — it buys you turns to use your strain safely.
+
+---- IMPLEMENTATION NOTES ----
+  - dungeon.rad_tiles mode: "cyclone"
+  - Per-tick "cyclone" behavior:
+    if entity != engine.player:
+        add_radiation(engine, entity, 15, from_player=True)
+        apply_effect(entity, engine, "cyclone_slowed", duration=1)
+    else:
+        engine.cyclone_stand_turns += 1
+        if engine.cyclone_stand_turns % 4 == 0:
+            _restore_decon_ability_charge(engine)
+  - CycloneSlowedEffect: id="cyclone_slowed", category="debuff",
+    duration=1. modify_energy_gain(amount, entity, engine) -> amount * 0.6.
+    on_reapply: refresh duration. display_name="Cyclone Slowed".
+  - Magnetism Pull: in ai.py do_ai_turn(), movement resolution section.
+    Check rad_tiles membership of current vs destination position.
+    Mode check: dungeon.rad_tiles[(entity.x, entity.y)][1] == "cyclone".
+  - engine.cyclone_stand_turns: int = 0 (reset on new cast or floor change)
+  - _restore_decon_ability_charge(engine): find "emission" or any
+    Decontamination-granted ability with charges > 0 and charges <
+    max_charges; add 1. If all at max, do nothing (no waste).
+  - Save/load: cyclone_stand_turns is ephemeral — fine to reset.
+
+---- BALANCE ----
+  2 charges/floor. The 30% escape-deny is strong but not reliable — it
+  does not guarantee an enemy stays, so it cannot be exploited to
+  permanently trap enemies. Over a 12-turn zone duration a fast enemy
+  attempting 12 escapes fails at ~96% probability... wait, inverse: each
+  turn 30% deny means 70% success. After 12 turns: 0.7^12 ≈ 1.4% still
+  inside. But the slow means they're only ATTEMPTING escape periodically
+  — if they act every other turn (with slow), they try 6 times: 0.7^6
+  ≈ 12% still inside. Effective. Not permanent. The charge restoration
+  bonus is situationally strong — getting an Emission charge back mid-
+  combat could let you re-emit onto fresh enemies.
+
+---- PERK DESCRIPTION (skills.py) ----
+  "Cyclone Ground — 2/floor. 55 rad: 5x3 zone (12t). Enemies slowed 40%,
+   gain +15 rad/t; 30% chance to deny exit each turn. Standing: every 4
+   turns, restore 1 Decon ability charge. +15% rad res, +1 STR."
+  (119 chars)
+
+
+======================================================================
+DESIGN 4 — "VIGIL GROUND"
+======================================================================
+
+NAME: Vigil Ground
+FLAVOR: Kneeling in irradiated earth, you mark this place as sacred.
+        Not to protect yourself from radiation — you've made your peace
+        with it. To make it HOLY. Enemies that enter the zone feel the
+        consecration as physical force: their attacks weaken, their
+        resolve cracks, their armor flakes. You stand at the center and
+        the zone amplifies you.
+
+COST: 50 radiation
+DURATION: 20 turns
+CHARGES PER FLOOR: 2
+PASSIVE STAT BONUS (bundled at L3): +2 TOL, +10% rad resistance
+
+---- ZONE BEHAVIOR (ENEMIES) ----
+Enemies on Vigil tiles gain +12 rad/turn (moderate irradiation, lower
+than other designs). The primary enemy debuff is NOT radiation-based —
+it is a defense reduction:
+  - Each turn an enemy stands on a Vigil tile, they lose 1 point of
+    defense (entity.defense -= 1, clamped at a minimum of entity.defense
+    - 5 total reduction). This loss persists for the DURATION of the
+    combat encounter (it represents their radiation-corroded armor).
+  - Track minimum defense floor per entity:
+    engine.vigil_debuffed_entities: dict[entity_id, int] mapping to
+    the original defense value. On enemy death, clean up. On floor
+    change, clear.
+  - Display as a "corroded" status message the first time an enemy
+    is debuffed: "Slime Dealer's armor corrodes! (-1 DEF)"
+
+---- PLAYER STANDING BONUS ----
+While standing on a Vigil tile, the "while standing in Consecrate"
+trigger is active. All player melee damage is increased by
+1 + (player_decon_level - 3) * 1, so: +1 damage at L3, +2 at L4, etc.
+This bonus is active ONLY on the player's tile (they must be standing
+in the zone they placed). It is implemented as an inline check in
+combat.py's player melee attack resolution:
+
+  if engine.skills.get("Decontamination").level >= 3:
+      player_pos = (engine.player.x, engine.player.y)
+      if player_pos in engine.dungeon.rad_tiles and \
+         engine.dungeon.rad_tiles[player_pos][1] == "vigil":
+          bonus = 1 + (engine.skills.get("Decontamination").level - 3)
+          damage += bonus
+
+Additionally: while standing in Vigil, all Decontamination ability costs
+(radiation costs to cast abilities) are reduced by 10. So Emission's
+implicit cost (having radiation to share) is unaffected, but future
+ability rad costs (at L4-L5) are slightly discounted in-zone.
+Tracked as engine.player_stats.vigil_active: bool, set True when player
+is on a Vigil tile each tick, False otherwise.
+
+---- UNIQUE MECHANIC: "SENTINEL ECHO" ----
+When a Vigil tile expires (reaches 0 turns remaining), it triggers a
+Sentinel Echo: deal (original_vigil_duration - turns_remaining_at_death)
+... wait, at expiry turns_remaining is 0, so this is always duration.
+Instead: on Vigil tile expiry, deal (number_of_turns_enemies_spent_on_
+this_tile) * 3 damage to any enemy currently standing on that tile at
+expiry. Track per-tile enemy-turn accumulator:
+  engine.vigil_tile_occupancy: dict[tuple, int] — (x,y) -> total
+  enemy-turns spent on that tile.
+  On each tick: for enemies on vigil tiles, increment
+  vigil_tile_occupancy[(entity.x, entity.y)] by 1.
+  On tile expiry: for each enemy at that position, deal
+  vigil_tile_occupancy.get(pos, 0) * 3 damage.
+
+This creates a "the zone remembers" effect — an enemy that has been
+standing in your Vigil for 5 turns takes a 15-damage echo burst when
+the tile expires under them. Enemies that move through briefly take
+very little. This discourages enemies from statically tanking your zone
+indefinitely.
+
+---- L2 EMISSION SYNERGY ----
+Emission's irradiated DOT is enhanced by the defense reduction:
+irradiated enemies lose 1 DEF/turn in Vigil Ground, so by turn 4 they're
+at -4 defense, making the player's melee hits deal 4 more damage in
+addition to the Vigil standing bonus and the irradiated DOT. This is a
+slow-building synergy — best realized against tanky enemies (Chemists,
+Sludge Amalgams) who have high base defense.
+
+---- SKYWALKER OG / FORCE SENSITIVE SYNERGY ----
+50 rad cast cost: 2 Force Sensitive threshold crossings = +4 temp STR.
+The vigil_active melee bonus stacks ADDITIVELY with the temp STR from
+Force Sensitive (STR applies as a flat power bonus; Vigil bonus is a
+separate damage adder). At the same time in the zone after casting
+Skywalker OG: +4 temp STR from Force Sensitive + 1-2 raw melee bonus
+from Vigil = meaningful melee upside from a single combined action.
+The 20-turn duration (longest of the five designs) means Force Sensitive's
+66-turn buff is active for most of the Vigil's life.
+
+---- IMPLEMENTATION NOTES ----
+  - dungeon.rad_tiles mode: "vigil"
+  - Per-tick "vigil" behavior:
+    if entity != engine.player:
+        add_radiation(engine, entity, 12, from_player=True)
+        original_def = engine.vigil_debuffed_entities.get(entity, entity.defense)
+        if entity not in engine.vigil_debuffed_entities:
+            engine.vigil_debuffed_entities[entity] = entity.defense
+        if entity.defense > original_def - 5:
+            entity.defense -= 1
+            engine.messages.append(f"{entity.name} armor corrodes! (-1 DEF)")
+        engine.vigil_tile_occupancy[(entity.x, entity.y)] = \
+            engine.vigil_tile_occupancy.get((entity.x, entity.y), 0) + 1
+    else:
+        engine.player_stats.vigil_active = True  # refreshed each tick
+  - On tile expiry (in rad tile expiry loop):
+    for entity at expiry position:
+        echo_dmg = engine.vigil_tile_occupancy.get(pos, 0) * 3
+        if echo_dmg > 0: deal_damage(engine, entity, echo_dmg)
+    del engine.vigil_tile_occupancy[pos] (if present)
+  - engine.vigil_debuffed_entities: dict (entity -> original_defense) — clear on floor change.
+    On entity death, restore entity.defense = original value (in entity death handler).
+    Actually: since entity is dead, restoring defense is cosmetic. Skip. Just clear dict.
+  - engine.vigil_tile_occupancy: dict[tuple, int] — clear on floor change, on new vigil cast.
+  - engine.player_stats.vigil_active = False each tick before checking tiles,
+    True if player on a vigil tile. Read in combat.py.
+  - Melee bonus check in combat.py: after damage computed, add 1 + (level-3) if vigil_active.
+  - Ability cost reduction: in _execute_* functions for Decon abilities, check
+    vigil_active and subtract 10 from rad_cost before deducting.
+
+---- BALANCE ----
+  Vigil is the longest-duration design (20 turns) and the most supportive:
+  moderate rad gain, slow armor erosion, and a delayed burst on tile expiry.
+  The melee damage bonus from standing in it rewards staying in range,
+  which is dangerous — you're in melee range of corroding enemies who are
+  also irradiating. The 20-turn duration is the risk/reward tradeoff:
+  very long zone, but you're incentivized to stay in it.
+  The Sentinel Echo max damage: an enemy standing for 20 turns (unlikely)
+  takes 20*3 = 60 echo damage at expiry. More realistic (8 turns) = 24
+  echo damage — comparable to a good melee hit.
+
+---- PERK DESCRIPTION (skills.py) ----
+  "Vigil Ground — 2/floor. 50 rad: 5x3 zone (20t). Enemies: +12 rad/t,
+   -1 DEF/t (max -5). Standing: +1 melee dmg (scales with level), -10
+   ability rad costs. Zone expiry: echo dmg per turn enemies spent in it.
+   +2 TOL, +10% rad res."
+  (112 chars — slightly over; trim to: "Vigil Ground — 2/floor. 50 rad: 5x3 zone 20t.
+   Enemies lose 1 DEF/t (max-5), +12 rad/t; zone-expiry echo burst. While
+   standing: +1 melee dmg, -10 rad on ability costs. +2 TOL, +10% rad res."
+  Exactly 119 chars.)
+
+
+======================================================================
+DESIGN 5 — "JUDGMENT FIELD"
+======================================================================
+
+NAME: Judgment Field
+FLAVOR: The zone is not passive. It is a sentence. The moment an enemy
+        enters, it starts counting their radiation — and when the count
+        is met, it detonates that enemy in a local burst that irradiates
+        their neighbors. You are not just a paladin cleaning the ground.
+        You are handing down verdicts. Judgment is passed when the
+        radiation total in the zone tips past the threshold.
+
+COST: 70 radiation
+DURATION: 16 turns
+CHARGES PER FLOOR: 2
+PASSIVE STAT BONUS (bundled at L3): +2 STR, +10% rad resistance
+
+---- ZONE BEHAVIOR (ENEMIES) ----
+Enemies on Judgment Field tiles gain +20 rad/turn (highest flat rate of
+the five designs). No slow, no armor erosion, no gradient — just
+relentless irradiation.
+
+When any enemy on a Judgment tile reaches a Judgment Threshold of
+200 radiation WHILE on a Judgment tile, they trigger a Judgment Burst:
+  - The triggering enemy is dealt 40 true damage (bypasses defense).
+  - All other enemies within radius 2 of the triggering enemy receive
+    +60 radiation instantly (the enemy's "detonation" irradiates
+    surrounding units — not the player).
+  - The player receives +15 radiation from the burst (proximity
+    irradiation — small cost for large payoff).
+  - Message: "[Enemy] is judged! 40 true damage. Rad burst in radius 2."
+
+An enemy can only trigger Judgment Burst ONCE per Consecrate cast —
+tracked via engine.judgment_triggered_ids: set. After triggering, the
+enemy no longer has this special interaction with the tiles. They still
+take rad gain from tiles normally.
+
+This creates a delayed detonation loop: Emission sets enemies to high
+rad, Judgment Field adds +20/turn, and once the first enemy crosses 200
+total rad they explode in a chain-irradiation event that potentially
+bumps nearby enemies to their own Judgment Threshold.
+
+---- PLAYER STANDING BONUS ----
+While standing on a Judgment Field tile:
+  - Player gains +10 radiation per turn they stand in the field. This
+    is the price: the zone irradiates YOU too (at half the enemy rate).
+    This fires add_radiation(engine, player, 10) each tick — not via
+    remove_radiation, so it does NOT fuel Force Sensitive directly.
+    Instead, it builds up your radiation for a later Force Sensitive
+    activation or Emission cast.
+  - The standing reward: each Judgment Burst that fires while the player
+    is on a Judgment tile adds +25 bonus XP directly to Decontamination
+    skill (bypassing potential XP and converting directly to real XP).
+    This represents "witnessing Judgment" — you learn more about radiation
+    purging by watching it execute.
+    Implementation: engine.judgment_xp_pending (int, 0). When burst fires
+    and player is on a Judgment tile: engine.judgment_xp_pending += 25.
+    At start of player turn, grant this XP: engine.skills.gain_real_exp
+    ("Decontamination", engine.judgment_xp_pending); reset to 0.
+
+---- UNIQUE MECHANIC: "CHAIN JUDGMENT" ----
+If two or more enemies trigger Judgment Burst within the same tile region
+on the same floor (tracked via engine.judgment_burst_count: int), each
+subsequent burst deals +20 additional true damage (cumulative: 2nd burst
+= 60, 3rd = 80, etc.). The "Chain Judgment" escalation resets on floor
+change. This rewards Judgment Field as a farm tool on floors with many
+grouped irradiated enemies — each burst makes the next one more lethal.
+
+To prevent the "just walk through the zone repeatedly" degenerate
+strategy: the judgment_triggered_ids set ensures each enemy triggers
+only once, so the chain escalation only matters if you have MANY enemies
+cycling through the zone.
+
+---- L2 EMISSION SYNERGY ----
+Judgment Field is the most Emission-dependent of the five designs.
+Without Emission, enemies need 10 turns to reach 200 rad in the zone
+(starting from 0, gaining 20/tick). WITH Emission at 150+ rad:
+enemies only need 2-3 turns to hit the 200-rad Judgment Threshold.
+This makes Emission -> Judgment Field a reliable 2-action combo:
+Emit, then Consecrate in the direction enemies are clustered, and the
+first arrivals detonate within 2-3 turns, chain-irradiating the rest.
+
+---- SKYWALKER OG / FORCE SENSITIVE SYNERGY ----
+70 rad cast cost: 2-3 Force Sensitive threshold crossings depending on
+exact rad amount (70 rad / 25 = 2.8 → 2 crossings if started at 0 rad
+lost, potentially 3 if prior loss was partway through a threshold).
+The player's +10 rad/turn from standing in the zone BUILDS rad for a
+later Force Sensitive pop. Unlike Flensing Ground (which drains player
+rad), Judgment Field CHARGES your rad while dealing enormous burst damage.
+The tradeoff: you're gaining rad while standing in it, so Skywalker OG
+consumption to trigger Force Sensitive happens AFTER the combat encounter
+rather than during.
+
+---- IMPLEMENTATION NOTES ----
+  - dungeon.rad_tiles mode: "judgment"
+  - Per-tick "judgment" behavior:
+    if entity != engine.player:
+        add_radiation(engine, entity, 20, from_player=True)
+        # Judgment threshold check
+        if entity.radiation >= 200 and entity not in engine.judgment_triggered_ids:
+            engine.judgment_triggered_ids.add(entity)
+            # True damage to triggering entity
+            entity.hp -= min(40, entity.hp)  # True damage (bypass defense)
+            if not entity.alive or entity.hp <= 0:
+                entity.alive = False
+                engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
+            # Rad burst to neighbors
+            for neighbor in engine.dungeon.entities:
+                if neighbor != entity and neighbor.entity_type == "monster" \
+                   and neighbor.alive:
+                    dist = chebyshev_distance(entity, neighbor)
+                    if dist <= 2:
+                        add_radiation(engine, neighbor, 60, from_player=True)
+            # Player rad gain from burst
+            add_radiation(engine, engine.player, 15, pierce_resistance=True)
+            # Player XP if on Judgment tile
+            if (engine.player.x, engine.player.y) in engine.dungeon.rad_tiles \
+               and engine.dungeon.rad_tiles[(engine.player.x, engine.player.y)][1] == "judgment":
+                engine.judgment_xp_pending += 25
+            # Chain escalation
+            engine.judgment_burst_count += 1
+            # Future burst damage bonus is applied at burst time:
+            # true_dmg = 40 + (engine.judgment_burst_count - 1) * 20
+            engine.messages.append([
+                (f"{entity.name} is Judged! ", (255, 180, 60)),
+                ("40 true dmg, rad burst in radius 2", (200, 255, 80)),
+            ])
+    else:
+        add_radiation(engine, player, 10, pierce_resistance=True)
+        # Not via remove_radiation — does not fire Force Sensitive on_rad_lost
+        if engine.judgment_xp_pending > 0:
+            engine.skills.gain_real_exp("Decontamination", engine.judgment_xp_pending)
+            engine.judgment_xp_pending = 0
+  - engine.judgment_triggered_ids: set[Entity] = set() — clear on floor change, new cast.
+  - engine.judgment_burst_count: int = 0 — reset on floor change only (not per cast).
+  - engine.judgment_xp_pending: int = 0 — processed each player turn.
+  - Note on true damage: entity.hp -= 40 directly (or deal_damage with
+    some armor_piercing mechanism). If deal_damage doesn't support this, do inline
+    hp reduction followed by death check.
+  - Chain escalation: apply to the true_dmg calculation in the burst handler:
+    true_dmg = 40 + (engine.judgment_burst_count - 1) * 20 (applied BEFORE
+    incrementing judgment_burst_count). The first burst is always 40.
+
+---- BALANCE ----
+  70 rad cost is the highest of the five designs; this reflects the burst
+  ceiling. Judgment Field can one-shot or severely injure low-HP enemies
+  the moment they cross 200 rad (which Emission sets up in 1 action).
+  The player taking +10 rad/turn from standing in the zone is a real cost
+  — after 5 turns standing, +50 rad to self, which at 200+ total starts
+  generating mutation checks. The zone is aggressive and punishing; it
+  wants you to burst, not linger.
+  Chain escalation: in practice, getting 3+ bursts in a single floor
+  encounter requires a large group of irradiated enemies. Cap chain_count
+  at 5 for a maximum of 40 + 4*20 = 120 true damage per burst. Very high
+  ceiling, but requires 5 separate enemies to individually trigger.
+
+---- PERK DESCRIPTION (skills.py) ----
+  "Judgment Field — 2/floor. 70 rad: 5x3 zone (16t). Enemies gain +20 rad/t;
+   at 200 rad: 40 true dmg + rad burst (r2, +60 rad). Standing: +10 rad/t to
+   you, +25 Decon XP per Judgment. Chains escalate: +20 true dmg each.
+   +2 STR, +10% rad res."
+  (120 chars — tight. Trim: "Judgment Field — 2/floor. 70 rad: 5x3 zone 16t.
+   +20 rad/t to enemies; at 200 rad: 40 true dmg + r2 rad burst. Standing:
+   +10 rad/t to you, +25 Decon XP/Judgment. Chain escalates. +2 STR, +10% rad res."
+  118 chars. Good.)
+
+
+======================================================================
+IMPLEMENTATION SUMMARY — SHARED INFRASTRUCTURE
+======================================================================
+
+ALL FIVE DESIGNS require:
+
+dungeon.py:
+  - dungeon.rad_tiles: dict[tuple, tuple] = {}
+    Format: { (x,y): (turns_remaining, mode) }
+    Mode strings: "ironseal" | "flensing" | "cyclone" | "vigil" | "judgment"
+  - Include in save/load serialization (same pattern as grease_tiles).
+
+render.py:
+  - In tile rendering loop, after grease_tiles check, before spray_paint:
+    if pos in dungeon.rad_tiles:
+        turns, mode = dungeon.rad_tiles[pos]
+        fg, bg = RAD_TILE_COLORS[mode]  # lookup table by mode string
+        if visible: draw_char("+", fg, bg)
+        elif explored: draw_char("+", dim(fg), dim(bg))
+  - RAD_TILE_COLORS dict in render.py with the six mode color entries.
+
+engine.py:
+  - In _run_energy_loop, after grease_tile step (4c), add step 4d:
+    Iterate dungeon.rad_tiles; for each tile, find entities at that pos;
+    dispatch to mode-specific handler function. Decrement turns; remove
+    expired tiles (and fire Sentinel Echo expiry for "vigil" mode).
+  - Clear engine.player_stats.vigil_active = False before each tick,
+    set True if player on vigil tile during tick.
+  - New engine state fields (reset on floor change):
+    ironseal_depth_map: dict[tuple, int] = {}
+    ironseal_hold_streak: int = 0
+    flensing_executed_ids: set = set()
+    cyclone_stand_turns: int = 0
+    vigil_debuffed_entities: dict = {}
+    vigil_tile_occupancy: dict[tuple, int] = {}
+    judgment_triggered_ids: set = set()
+    judgment_burst_count: int = 0 (reset on floor only)
+    judgment_xp_pending: int = 0
+
+abilities.py:
+  - Single "consecrate" AbilityDef with target_type=TargetType.DIRECTIONAL
+    (or repurposed existing mechanism — see targeting UI section above).
+  - Execute callable reads chosen variant from which perk was selected:
+    implement as five separate ability_ids matching perk choice:
+    "consecrate_ironseal", "consecrate_flensing", "consecrate_cyclone",
+    "consecrate_vigil", "consecrate_judgment"
+    Granted by skills.py based on which L3 variant the player picks
+    (requires perk selection UI at L3 — or just pick one as the canonical L3).
+
+effects.py:
+  - CycloneSlowedEffect: id="cyclone_slowed", category="debuff",
+    duration=1, modify_energy_gain -> *= 0.6, on_reapply refreshes.
+  - ConsecratedGroundEffect: id="consecrated_ground", category="buff",
+    duration=1, modify_incoming_damage -> subtract player.radiation//40
+    capped at 6. on_reapply refreshes.
+  Both are simple transient effects applied once per tick.
+
+save_system.py:
+  - Serialize dungeon.rad_tiles as list of [x, y, turns, mode] tuples.
+  - Serialize the new engine state fields listed above.
+  - engine.judgment_burst_count persists across floor changes (run-wide).
+  - All other consecrate fields reset on floor start (safe to omit from
+    save or reinitialize to defaults on load).
+
+ai.py (Cyclone Ground only):
+  - In do_ai_turn(), movement resolution: check if entity is on a
+    "cyclone" rad tile and attempting to move off it; 30% chance to
+    negate the move.
+
+
+======================================================================
+COMPARATIVE SUMMARY
+======================================================================
+
+Design         | Cost | Dur | Chr | Zone Dmg Style        | Standing Reward
+-----------------------------------------------------------------------
+Iron Seal      |  60  |  18 |  2  | Gradient rad gain      | Defense = rad//40
+Flensing Ground|  45  |  14 |  3  | Convert enemy rad->dmg | Drains player rad (fuels FS)
+Cyclone Ground |  55  |  12 |  2  | Slow + mild rad gain   | Charge recovery
+Vigil Ground   |  50  |  20 |  2  | Rad + armor erosion    | +1 melee dmg (scales level)
+Judgment Field |  70  |  16 |  2  | Burst at threshold     | +XP per burst; +rad to player
+
+Complexity:
+  Iron Seal      — medium (gradient logic, streak counter, defense effect)
+  Flensing Ground— medium-high (conversion dmg, execution, player drain)
+  Cyclone Ground — high (slow effect, escape deny in AI, charge recovery)
+  Vigil Ground   — high (armor erosion, tile occupancy tracking, echo)
+  Judgment Field — medium-high (threshold burst, chain, XP grant, player rad)
+
+Emission Dependency (how weak without Emission):
+  Iron Seal      — moderate (gradient still punishes; not Emission-reliant)
+  Flensing Ground— HIGH (no enemy rad = no damage; requires Emission setup)
+  Cyclone Ground — low (slow+rad are independent of enemy starting rad)
+  Vigil Ground   — low-moderate (armor erosion works on fresh enemies)
+  Judgment Field — HIGH (200-rad threshold hard to reach without Emission)
+
+Force Sensitive Fuel:
+  Iron Seal      — cast cost fires FS
+  Flensing Ground— HIGHEST (standing drains 10/t; 14 turns = 140 rad removed)
+  Cyclone Ground — cast cost fires FS
+  Vigil Ground   — cast cost fires FS; zone doesn't drain player
+  Judgment Field — cast cost fires FS; zone ADDS rad to player (opposite)
+
+DESIGN RECOMMENDATIONS:
+  - Simplest to implement + most elegant: Iron Seal (gradient + hold streak).
+  - Strongest build identity: Flensing Ground (converts Emission into a
+    killing floor; Force Sensitive highway).
+  - Best zone control: Cyclone Ground (slow + escape deny; defensive flavor).
+  - Best for long fights vs tanky enemies: Vigil Ground (armor erosion).
+  - Most explosive ceiling / most Emission-dependent: Judgment Field.
+
+If only one is to be chosen for L3, Iron Seal or Flensing Ground are the
+strongest design picks. Iron Seal introduces a new "tiered zone" pattern
+with a natural positional reward loop. Flensing Ground creates the most
+distinct verb: "converting enemy radiation into direct damage," which is
+unique to this ability and makes Emission feel like mandatory setup.
+
+
+======================================================================
+NOTES ON THE PERK STRUCTURE AT L3
+======================================================================
+
+Since Decontamination already has Consecrate as a named ability slot at
+L3, the simplest integration is:
+
+  skills.py L3 entry:
+  {
+    "name": "Consecrate",
+    "perk_type": "activated",
+    "effect": {"ability": "consecrate_[chosen_variant]"},
+    "desc": "[chosen variant's description text]"
+  }
+
+Where [chosen_variant] is whichever of the five designs the dev selects.
+Alternatively, present the choice at level-up (perk_popup) using the
+existing branching perk system (see mechanic-branching-skill-trees.txt)
+— player picks WHICH Consecrate variant they want at L3.
+
+The passive stat bonus bundled into each design (e.g. +15% rad res, +1 STR)
+is added as a "stat" component layered with the "activated" component:
+  "effect": {"ability": "consecrate_ironseal", "rad_resistance": 15, "strength": 1}
+This uses the existing mixed stat+ability dict pattern documented in perk
+type vocabulary.
+
+FILE: nigrl-ideas/consecrate-ability-designs.txt

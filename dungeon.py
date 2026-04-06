@@ -355,6 +355,7 @@ class Dungeon:
         self.room_tile_map: dict[tuple, int] = {}  # (x, y) -> room_index
         self.spray_paint: dict[tuple, str] = {}    # (x, y) -> spray type ("red", etc.)
         self.grease_tiles: dict[tuple, int] = {}   # (x, y) -> turns_remaining
+        self.rad_tiles: dict[tuple, int] = {}     # (x, y) -> turns_remaining
 
         from zone_generators import ZONE_GENERATORS
         # Use event-specific generator if available

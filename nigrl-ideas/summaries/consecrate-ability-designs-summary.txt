@@ -1,0 +1,73 @@
+SUMMARY: consecrate-ability-designs.txt
+----------------------------------------------------------------------
+Five mechanically distinct Consecrate variants for Decontamination L3.
+All use a 5x3 directional zone (player at near-edge center, extends 5
+tiles deep x 3 tiles wide in chosen N/S/E/W direction). New targeting
+UI: pick cardinal direction (arrow key tap or arrow+Enter), no cursor.
+
+SHARED INFRASTRUCTURE:
+  - dungeon.rad_tiles: dict[tuple, tuple] = { (x,y): (turns, mode) }
+    mode strings: "ironseal" | "flensing" | "cyclone" | "vigil" | "judgment"
+  - Render: "+" in mode-specific yellow-green colors; dimmed when explored
+  - CycloneSlowedEffect (dur=1, modify_energy_gain *=0.6) in effects.py
+  - ConsecratedGroundEffect (dur=1, modify_incoming_damage -= rad//40 cap 6) in effects.py
+  - New engine state per-design (all cleared on floor change)
+
+THE FIVE DESIGNS:
+
+1. Iron Seal (60 rad, 18t, 2/floor, +15% rad res +1 STR)
+   Zone: tiered rad gain — col 0 (adjacent) +30/t, col 4 (far) +8/t.
+   Standing bonus: DEF += player_rad//40 (max 6) via ConsecratedGroundEffect.
+   Unique: hold zone 3 consecutive turns -> all tiles refresh to full duration.
+   Engine: ironseal_depth_map, ironseal_hold_streak; gradient read at tick.
+
+2. Flensing Ground (45 rad, 14t, 3/floor, +1 TOL +1 STR)
+   Zone: enemies lose 20 rad/t and take (enemy_rad//15) direct dmg/t. No
+   radiation added — converts existing rad to damage. Below 25 HP: execute
+   (+25 true damage, once per enemy per cast).
+   Standing bonus: player loses 10 rad/t (fuels Force Sensitive — highest FS
+   ceiling of all five: 14t x 10 = 140 rad removed = 5 FS threshold crossings).
+   Engine: flensing_executed_ids: set; most Emission-dependent design.
+
+3. Cyclone Ground (55 rad, 12t, 2/floor, +15% rad res +1 STR)
+   Zone: +15 rad/t to enemies; CycloneSlowedEffect (40% energy reduction) on
+   each enemy per tick; 30% chance to deny exit per move attempt (in ai.py).
+   Standing bonus: every 4 turns held, restore 1 charge to a Decon ability.
+   Engine: cyclone_stand_turns; escape-deny check in do_ai_turn() for "cyclone" tiles.
+
+4. Vigil Ground (50 rad, 20t, 2/floor, +2 TOL +10% rad res)
+   Zone: +12 rad/t; -1 DEF/t to enemies (cap -5 from base). Armor erosion
+   persists through combat. On tile expiry: Sentinel Echo — deal
+   (enemy-turns-spent-on-tile * 3) damage to any enemy at that position.
+   Standing bonus: +1 melee dmg (scales: +1 per decon level above 3); -10 rad
+   on Decon ability costs while on tile. player_stats.vigil_active bool.
+   Engine: vigil_debuffed_entities dict, vigil_tile_occupancy dict[tuple, int].
+
+5. Judgment Field (70 rad, 16t, 2/floor, +2 STR +10% rad res)
+   Zone: +20 rad/t (highest flat rate). At 200 rad threshold: Judgment Burst
+   — 40 true dmg to triggering enemy + 60 rad to all enemies within r2 + 15
+   rad to player. Each burst escalates chain by +20 true dmg (run-wide counter
+   judgment_burst_count, cap 5 -> max 120 true dmg).
+   Standing bonus: +10 rad/t to player (BUILDS rad, not removes — opposite of
+   others); +25 real Decon XP per Judgment witnessed.
+   Engine: judgment_triggered_ids set, judgment_burst_count (run-wide),
+   judgment_xp_pending int.
+
+COMPARISON TABLE:
+  Design         | Cost| Dur | Chr | Emission Need | FS Fuel | Complexity
+  Iron Seal      |  60 |  18 |  2  | moderate      | cast    | medium
+  Flensing Ground|  45 |  14 |  3  | HIGH          | HIGH    | medium-high
+  Cyclone Ground |  55 |  12 |  2  | low           | cast    | high (AI hook)
+  Vigil Ground   |  50 |  20 |  2  | low-moderate  | cast    | high (tracking)
+  Judgment Field |  70 |  16 |  2  | HIGH          | reverse | medium-high
+
+RECOMMENDED PICKS:
+  Best standalone:  Iron Seal (gradient + hold streak; works without Emission)
+  Best with Emission: Flensing Ground (converts enemy rad to damage instantly)
+  Best zone control: Cyclone Ground (slow + escape deny; most tactical)
+
+PERK STRUCTURE: stat+ability mixed dict pattern. L3 in skills.py grants
+  "consecrate_[variant]" ability + bundled stat bonuses. If branching
+  perk system used, player picks variant at level-up.
+
+FILE: nigrl-ideas/consecrate-ability-designs.txt

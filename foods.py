@@ -32,7 +32,7 @@ All foods follow a declarative structure with flexible effect support.
 #       amount      : energy gained per tick
 #       duration    : number of turns
 #
-#   "hot_cheetos"   : fiery buff (grants +2 all stats, 50% melee ignite, ignites on expire, +10 Firebolt charges)
+#   "hot_cheetos"   : fiery buff (grants +2 all stats, 50% melee ignite, ignites on expire, +5-10 Firebolt charges)
 #       duration    : number of turns
 #
 #   "radiation"     : adds radiation to the player (goes through rad resistance)
@@ -301,6 +301,7 @@ FOOD_DEFS = {
         "skill": "Munching",
 
         "effects": [
+            {"type": "heal", "amount": 50},
             {"type": "hard_boiled_egg"},
         ],
     },
@@ -356,6 +357,7 @@ FOOD_PREFIX_DEFS = {
     "spicy":      {"charges": 2, "display_adjective": "Spicy",     "effects": []},
     "fried":      {"charges": 2, "display_adjective": "Fried",     "effects": []},
     "deep_fried": {"charges": 2, "display_adjective": "Deep-Fried","effects": []},
+    "sandwich":   {"charges": 5, "display_adjective": "Sandwich",  "effects": []},
 }
 
 

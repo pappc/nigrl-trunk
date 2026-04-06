@@ -965,6 +965,12 @@ def _purple_halt_force_mutation(engine, spend_rad: bool) -> None:
         "reversal": reversal,
     })
 
+    # Triple Helix (Mutation L5): 30% chance for a bonus mutation, same tier
+    from mutations import _apply_and_log_mutation
+    if engine.skills.get("Mutation").level >= 5 and random.random() < 0.30:
+        engine.messages.append([(f"  [Triple Helix] Bonus mutation!", (200, 150, 255))])
+        _apply_and_log_mutation(engine, tier)
+
 
 def _apply_blue_lobster_effect(engine, entity, roll, is_player):
     """Apply Blue Lobster strain effect based on roll (1-100).

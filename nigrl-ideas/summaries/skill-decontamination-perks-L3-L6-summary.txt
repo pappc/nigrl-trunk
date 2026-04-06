@@ -1,0 +1,40 @@
+SUMMARY: skill-decontamination-perks-L3-L6.txt
+----------------------------------------------------------------------
+Six perk options for Decontamination L3-L6, replacing "Fallout" placeholder.
+
+RECOMMENDED ARC:
+  L3 — Consecrate (activated, 2/floor): spend 50 rad to place 3x3 irradiated
+       ground zone (20t). Enemies on tiles gain +20 rad/turn. New dungeon system:
+       dungeon.rad_tiles dict (mirrors grease_tiles). Rendered as "+" yellow-green.
+       Alt: Purge Surge (passive): every 50 rad lost -> next melee hit +N dmg (cap 30);
+       above 100 rad: melee hits apply 10 rad to target.
+  L4 — Half-Life Aura (activated, 3/floor, 15t): enemies within 2 tiles gain +15
+       rad/turn; you self-drain 3 rad/turn (fires Force Sensitive). Implemented as
+       HalfLifeAuraEffect subclass.
+  L5 — Sponge (activated, 2/floor, radius 3 AOE): absorb 50% of each irradiated
+       enemy's rad, gain half yourself. If total pushes you above 150 rad: Rad Pulse
+       (rad//10 dmg, radius 2). Requires enemies be irradiated first.
+  L6 — Radiant Wake (passive): while above 75 rad, every tile left behind becomes
+       rad tile (6t, +10 rad/turn). +2 STR, +10% rad resist.
+
+CORE LOOP (full build):
+  Build rad -> Emission (share to enemies) -> Half-Life Aura (grow their rad,
+  drain yours) -> Consecrate (place zones, fires Force Sensitive) -> Sponge
+  (harvest enemy rad, Rad Pulse) -> Skywalker OG (purge for Force Sensitive STR)
+  -> Walk -> Radiant Wake trails irradiate pursuers.
+
+IDENTITY: mobile zone-denial skirmisher; rad is a resource to cycle in/out, not
+just build or spend. Distinct from White Power (tank), Nuclear Research (placed
+explosives), Chemical Warfare (tox scaling burst).
+
+NEW SYSTEMS:
+  - dungeon.rad_tiles: dict[tuple, int] — (x,y) -> turns_remaining
+  - Render: "+" in yellow-green (160,255,80)/(25,40,10) visible; dimmed when explored
+  - HalfLifeAuraEffect(Effect) in effects.py
+  - Engine state: purge_surge_accumulated, purge_surge_pending_dmg (if Purge Surge)
+  - handle_move: 4-line Radiant Wake check (skill level >= 6, rad >= 75)
+
+KEY SYNERGIES: Force Sensitive (remove_radiation fires on_rad_lost), Emission
+(sets up Sponge), Skywalker OG (primary rad cycling tool).
+
+FILE: nigrl-ideas/skill-decontamination-perks-L3-L6.txt

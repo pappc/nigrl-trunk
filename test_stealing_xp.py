@@ -98,12 +98,12 @@ def test_different_item_instances_grant_separate_xp():
 
 def test_stealing_xp_scales_by_item():
     """Test that different items grant different XP amounts based on value."""
-    # Check XP values follow expected scaling (Stealing = 50% of item value)
-    weed_nug_xp = get_skill_xp("weed_nug", "Stealing")    # value=15 * 0.5 = 7
-    grinder_xp = get_skill_xp("grinder", "Stealing")      # value=75 * 0.5 = 37
+    # Check XP values follow expected scaling (Stealing = sqrt(value) * 1.5)
+    weed_nug_xp = get_skill_xp("weed_nug", "Stealing")    # sqrt(15) * 1.5 ≈ 6
+    grinder_xp = get_skill_xp("grinder", "Stealing")      # sqrt(75) * 1.5 ≈ 13
 
     assert grinder_xp > weed_nug_xp, "Grinder should grant more XP than weed_nug"
-    assert weed_nug_xp == 8, f"Weed nug XP should be 8, got {weed_nug_xp}"
+    assert weed_nug_xp == 6, f"Weed nug XP should be 6, got {weed_nug_xp}"
     print(f"[OK] XP scales by item value: weed_nug={weed_nug_xp}, grinder={grinder_xp}")
 
 

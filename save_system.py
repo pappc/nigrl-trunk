@@ -6,6 +6,7 @@ Serializes full game state to JSON for portable save files.
 
 import json
 import os
+import tempfile
 import base64
 import numpy as np
 
@@ -273,6 +274,7 @@ def _serialize_dungeon(dungeon):
         "room_tile_map": {f"{x},{y}": idx for (x, y), idx in dungeon.room_tile_map.items()},
         "spray_paint": {f"{x},{y}": stype for (x, y), stype in dungeon.spray_paint.items()},
         "grease_tiles": {f"{x},{y}": turns for (x, y), turns in dungeon.grease_tiles.items()},
+        "rad_tiles": {f"{x},{y}": turns for (x, y), turns in dungeon.rad_tiles.items()},
     }
     return d
 
@@ -307,6 +309,10 @@ def _deserialize_dungeon(data, entity_index):
     d.grease_tiles = {
         tuple(int(c) for c in k.split(",")): v
         for k, v in data.get("grease_tiles", {}).items()
+    }
+    d.rad_tiles = {
+        tuple(int(c) for c in k.split(",")): v
+        for k, v in data.get("rad_tiles", {}).items()
     }
     return d
 
@@ -514,8 +520,24 @@ def save_game(engine, path=None):
     }
     data["current_floor"] = engine.current_floor
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, separators=(",", ":"))
+    # Atomic write: serialize to temp file first, then rename over the real one.
+    # This prevents truncated/corrupt saves if the process is killed mid-write.
+    dir_name = os.path.dirname(path)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp", prefix="save_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, separators=(",", ":"))
+            f.flush()
+            os.fsync(f.fileno())
+        # On Windows, os.replace is atomic (replaces dest if it exists)
+        os.replace(tmp_path, path)
+    except BaseException:
+        # Clean up temp file on any failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
     return path
 
@@ -572,7 +594,18 @@ def load_game(path=None):
         path = SAVE_PATH
 
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError as e:
+            # Save file is corrupt/truncated — delete it so the player
+            # gets a clean "New Game" instead of crashing every launch.
+            print(f"Save file is corrupt ({e}). Deleting it.")
+            f.close()
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            return None
 
     from engine import GameEngine
     from entity import Entity
@@ -594,6 +627,7 @@ def load_game(path=None):
     engine._register_events()
     Entity._on_damage_callback = engine._on_entity_damaged
     Entity._on_heal_callback = engine._on_entity_healed
+    Entity._engine_ref = engine
 
     # Restore engine scalar fields
     edata = data["engine"]
@@ -771,6 +805,10 @@ def load_game(path=None):
     # Ensure total_floors is current
     from config import get_total_floors
     engine.total_floors = get_total_floors()
+
+    # Restore Ezra Multiplier module-level state
+    import loot as _loot
+    _loot.ezra_multiplier_category = getattr(engine, "ezra_multiplier", None)
 
     return engine
 

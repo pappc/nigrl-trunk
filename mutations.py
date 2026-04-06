@@ -191,9 +191,6 @@ def _build_strong_bad():
     for stat in STAT_NAMES:
         desc = f"-3 {_STAT_DISPLAY[stat]}"
         entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, -3)))
-    for skill in SKILL_NAMES:
-        desc = f"-1 {skill} level"
-        entries.append((desc, lambda e, sk=skill: _mut_skill_level(e, sk, -1)))
     entries.append(("-200 skill points", lambda e: _mut_skill_points(e, -200)))
     return entries
 
@@ -204,9 +201,6 @@ def _build_strong_good():
     for stat in STAT_NAMES:
         desc = f"+3 {_STAT_DISPLAY[stat]}"
         entries.append((desc, lambda e, s=stat: _mut_single_stat(e, s, 3)))
-    for skill in SKILL_NAMES:
-        desc = f"+1 {skill} level"
-        entries.append((desc, lambda e, sk=skill: _mut_skill_level(e, sk, 1)))
     entries.append(("+200 skill points", lambda e: _mut_skill_points(e, 200)))
     entries.append(("+5% briskness", lambda e: _mut_briskness(e, 5)))
     entries.append(("+3 DR", lambda e: _mut_dr(e, 3)))
@@ -215,7 +209,6 @@ def _build_strong_good():
 
 def _build_huge_bad():
     entries = []
-    entries.append(("-1 level to 5 random skills", lambda e: _mut_lose_5_skills(e)))
     entries.append(("-2 to all stats", lambda e: _mut_all_stats(e, -2)))
     for stat in STAT_NAMES:
         desc = f"-5 {_STAT_DISPLAY[stat]}"
@@ -228,9 +221,6 @@ def _build_huge_bad():
 
 def _build_huge_good():
     entries = []
-    for skill in SKILL_NAMES:
-        desc = f"+5 {skill} levels"
-        entries.append((desc, lambda e, sk=skill: _mut_skill_level(e, sk, 5)))
     entries.append(("+2 to all stats", lambda e: _mut_all_stats(e, 2)))
     for stat in STAT_NAMES:
         desc = f"+5 {_STAT_DISPLAY[stat]}"
@@ -251,6 +241,39 @@ MUTATION_TABLES = {
 }
 
 
+# --- Core mutation helpers ---
+
+def _apply_and_log_mutation(engine, tier):
+    """Roll polarity, pick and apply a mutation, log it. Used by check_mutation and force_mutation."""
+    base_good = 1.0 - BAD_CHANCE
+    base_good += engine.player_stats.good_mutation_base_bonus
+    good_chance = min(1.0, base_good * (1.0 + engine.player_stats.good_mutation_multiplier))
+    polarity = "good" if random.random() < good_chance else "bad"
+
+    table = MUTATION_TABLES[(tier, polarity)]
+    desc, apply_fn = random.choice(table)
+    suffix, reversal = apply_fn(engine)
+
+    _MUTATION_XP = {"weak": 100, "strong": 250, "huge": 500}
+    bksmt = engine.player_stats.effective_book_smarts
+    engine.skills.gain_potential_exp("Mutation", _MUTATION_XP[tier], bksmt)
+
+    color = _COLOR_GOOD if polarity == "good" else _COLOR_BAD
+    full_desc = f"You mutate! [{tier.capitalize()}] {desc}{suffix}"
+    engine.messages.append([(full_desc, color)])
+
+    if polarity == "bad":
+        apply_scarred_tissue(engine)
+
+    engine.mutation_log.append({
+        "tier": tier,
+        "polarity": polarity,
+        "description": desc,
+        "suffix": suffix,
+        "reversal": reversal,
+    })
+
+
 # --- Core mutation check ---
 
 def check_mutation(engine):
@@ -258,8 +281,13 @@ def check_mutation(engine):
     rad = engine.player.radiation
     if rad < min(RAD_THRESHOLDS.values()):
         return
-    # Nuclear Research L2 "Rad Bomb": passive mutations blocked below 150 rad
-    if engine.skills.get("Nuclear Research").level >= 2 and rad < 150:
+    # Nuclear Research: passive mutation block threshold scales with skill level
+    nr_level = engine.skills.get("Nuclear Research").level
+    if nr_level >= 6 and rad < 400:
+        return
+    elif nr_level >= 4 and rad < 250:
+        return
+    elif nr_level >= 2 and rad < 150:
         return
 
     chance = (rad // 50) * BASE_CHANCE_PER_50
@@ -283,46 +311,16 @@ def check_mutation(engine):
             return  # not enough rad for strong/huge — no mutation
     tier = random.choice(eligible_tiers)
 
-    # Pick polarity — modified by good_mutation_base_bonus and good_mutation_multiplier
-    base_good = 1.0 - BAD_CHANCE  # 0.33
-    base_good += engine.player_stats.good_mutation_base_bonus
-    good_chance = min(1.0, base_good * (1.0 + engine.player_stats.good_mutation_multiplier))
-    polarity = "good" if random.random() < good_chance else "bad"
-
-    # Pick mutation from table
-    table = MUTATION_TABLES[(tier, polarity)]
-    desc, apply_fn = random.choice(table)
-
     # Deduct rad
     engine.player.radiation = max(0, rad - RAD_COSTS[tier])
 
-    # Apply mutation
-    suffix, reversal = apply_fn(engine)
+    # Apply one mutation (and possibly a second via Triple Helix)
+    _apply_and_log_mutation(engine, tier)
 
-    # Mutation skill XP: weak=100, strong=250, huge=500
-    _MUTATION_XP = {"weak": 100, "strong": 250, "huge": 500}
-    bksmt = engine.player_stats.effective_book_smarts
-    engine.skills.gain_potential_exp("Mutation", _MUTATION_XP[tier], bksmt)
-
-    # Build message
-    color = _COLOR_GOOD if polarity == "good" else _COLOR_BAD
-    tier_label = tier.capitalize()
-    full_desc = f"You mutate! [{tier_label}] {desc}{suffix}"
-
-    engine.messages.append([(full_desc, color)])
-
-    # Scarred Tissue: bad mutations grant +1 random stat
-    if polarity == "bad":
-        apply_scarred_tissue(engine)
-
-    # Log to mutation_log
-    engine.mutation_log.append({
-        "tier": tier,
-        "polarity": polarity,
-        "description": desc,
-        "suffix": suffix,
-        "reversal": reversal,
-    })
+    # Triple Helix (Mutation L5): 30% chance for a bonus mutation, same tier
+    if engine.skills.get("Mutation").level >= 5 and random.random() < 0.30:
+        engine.messages.append([(f"  [Triple Helix] Bonus mutation!", (200, 150, 255))])
+        _apply_and_log_mutation(engine, tier)
 
 
 # --- Mutation reversal (Shed ability) ---
@@ -578,33 +576,9 @@ def force_mutation(engine):
     ]
     tier = random.choice(eligible_tiers) if eligible_tiers else "weak"
 
-    base_good = 1.0 - BAD_CHANCE
-    base_good += engine.player_stats.good_mutation_base_bonus
-    good_chance = min(1.0, base_good * (1.0 + engine.player_stats.good_mutation_multiplier))
-    polarity = "good" if random.random() < good_chance else "bad"
+    _apply_and_log_mutation(engine, tier)
 
-    table = MUTATION_TABLES[(tier, polarity)]
-    desc, apply_fn = random.choice(table)
-
-    suffix, reversal = apply_fn(engine)
-
-    bksmt = engine.player_stats.effective_book_smarts
-    engine.skills.gain_potential_exp("Mutation", {"weak": 100, "strong": 250, "huge": 500}[tier], bksmt)
-
-    color = _COLOR_GOOD if polarity == "good" else _COLOR_BAD
-    tier_label = tier.capitalize()
-    full_desc = f"You mutate! [{tier_label}] {desc}{suffix}"
-    engine.messages.append([(full_desc, color)])
-
-    # Scarred Tissue: bad mutations grant +1 random stat
-    if polarity == "bad":
-        apply_scarred_tissue(engine)
-
-    # Log to mutation_log
-    engine.mutation_log.append({
-        "tier": tier,
-        "polarity": polarity,
-        "description": desc,
-        "suffix": suffix,
-        "reversal": reversal,
-    })
+    # Triple Helix (Mutation L5): 30% chance for a bonus mutation, same tier
+    if engine.skills.get("Mutation").level >= 5 and random.random() < 0.30:
+        engine.messages.append([(f"  [Triple Helix] Bonus mutation!", (200, 150, 255))])
+        _apply_and_log_mutation(engine, tier)

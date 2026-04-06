@@ -1,0 +1,209 @@
+SUMMARY: mutation-overhaul-plan.txt (EXPANDED — 80 Mutations + Upgrade System)
+==============================================================================
+
+CONCEPT: Overhaul player radiation mutations from stat buffs/debuffs to
+mechanically unique identities. Every mutation changes HOW you play. Inspired
+by Caves of Qud. Urban, gritty, dark-humor flavor throughout.
+
+VERSION 2 CHANGES FROM ORIGINAL:
+  - Expanded from 36 to 80 mutations (20 per category × 4 categories)
+  - Added full upgrade system: re-rolling a mutation you already have upgrades it
+  - Light Sensitivity (Strong Bad) removed; replaced by new Strong Bad mutations
+  - 10 new touch spell mutations (Touch of Frost/Fire/Shock + 7 more)
+  - Tox/Rad interaction mutations (Irradiated Blood, Toxic Veins, Fission Heart, etc.)
+  - More proc-based effects, fewer passive auras
+  - All original 36 mutations carried forward with upgrade paths added
+
+TIER CHANGE: Remove "huge" tier. Two tiers only:
+  Weak  — threshold 75+ rad, costs 50 rad
+  Strong — threshold 150+ rad (bumped from 125), costs 125 rad
+
+POLARITY: 67% bad / 33% good base rate. Favorable Odds + Five Loco still push ~50%.
+
+MUTATION COUNT: 20 weak good, 20 weak bad, 20 strong good, 20 strong bad = 80 total.
+
+UPGRADE SYSTEM:
+  engine.mutation_levels: dict[str, int] — tracks level per mutation (1=base).
+  Re-rolling a mutation you have: upgrades to next level instead of duplicate.
+  Good mutations get stronger. Bad mutations get worse.
+  Upgrades are mechanically interesting when possible; stat-up fallback for simple ones.
+  Typical cap: L3 for most. Necrotic Fists and Accelerated Aging self-escalate.
+  Shedding a mutation removes it and resets its level to 0.
+  Triple Helix can cascade: two same-mutation rolls in one event = jump 2 levels.
+  Scarred Tissue fires on bad mutation upgrades too (counts as bad-mutation event).
+
+--- WEAK GOOD (20) ---
+Original 10:
+1.  Hardened Dermis — +2/4/6 DR + first-hit buffer (1/3/5 dmg absorbed)
+2.  Adrenaline Glands — HP < 40/50/50% → surge (+speed/dmg, 1 or 2/floor)
+3.  Tapeworm Symbiote — +3/6/9 food heal; L2 strain HP; L3 strain re-roll
+4.  Compound Eyes — +3/5/7 FOV; L2 ignore own clouds; L3 directional alert
+5.  Acid Spit — ADJACENT ability; 8→10→12 dmg; L3 extends to SINGLE_LOS + corroded
+6.  Extra Joints — +20/30/40 speed; free step on stunned kill → any stunned hit
+7.  Subdermal Toolkit — max crate loot; L2 vending + max gold; L3 jackpot crate (2 items)
+8.  Redundant Organs — HoT ×2/3/4 ticks; +10/20% heal; death saves 1→1→2 (run-wide)
+9.  Neural Static — enemy crit -10/-15/-20 in 3/5/5 tiles; L3 neural feedback stun
+10. Venom Nodes — 1/2/3 venom stacks on melee hit; L3 venom = 2 dmg/stack/tick
+
+New 10:
+11. Touch of Frost — ADJACENT ability, 3→2→1t cooldown; 4/6/8 dmg + 2/3/4 chill; L2 shatter on kill; L3 crack bonus
+12. Touch of Fire — ADJACENT ability, 3→2→1t cooldown; 5/7/9 dmg + 2/3/4 ignite; L2 splash; L3 fire spread
+13. Touch of Shock — ADJACENT ability, 4→3→2t cooldown; 3/5/7 dmg + 2/3/4 shocked; L2 resonance; L3 discharge
+14. Iron Gut — No strain self-damage; +3/6/10 temp HP on drug; L2 ×2 Munching XP; L3 neutral bad rolls
+15. Scar Tissue Buildup — 10/20/30% bleed/venom resist; 20/30/40% on-hit bleed chance (1/2/2 stacks)
+16. Pheromone Gland — Enemy priority targeting; -2/-4/-6 enemy power at ≤2 tiles; L2 miss chance; L3 skip chance
+17. Rad Absorption — 10/20/30% rad gain → melee bonus (cap +10/15/20); L3 irradiate target on hit
+18. Chitinous Hide — +1/2/3 DR; Hardening stacks at 3/2/1-hit threshold; max 5/7/10 stacks (HardeningEffect)
+19. Leeching Strike — 2/3/4 HP leech on hitting 3+/2+/1+ debuffed targets; L3 kill leech ×2
+20. Burst Capillaries — 40/60/80% per bleed tick → spray 1/2/3 bleed stacks; L2 range 2t; L3 +1 direct dmg
+
+--- WEAK BAD (20) ---
+Original 10:
+1.  Rotten Teeth — +1/2/3 eat turns; -3/5/7 food heal; L2 noise alert (5/8t radius)
+2.  Photosensitivity — -2/4/6 FOV; edge flicker extends; L2 fire proximity dmg 1/t
+3.  Reactive Skin — Grease 3/5/7 dmg; fire +50/100/150%; L2 +1/2 enemy venom; L3 wet causes dmg
+4.  Vestigial Limb — -1/2/3 melee power; L2 10/20% weapon drop per turn
+5.  Leaking Eyes — -1/2/3 STS; no crit bonus extends; L3 20% crit miss
+6.  Twitchy Nerves — 15/20/25% miss melee; -10/20/30 gun accuracy; L2 +1t cooldowns; L3 stumble on miss
+7.  Hollow Bones — +15 speed (flat); +2/4/6 incoming melee; L2 knockback +1 tile; L3 +2 tiles
+8.  Chemical Sensitivity — +50/100/150% tox gain; L2 self-tox from own abilities; L3 worse formula
+9.  Territorial Marking — 5/7/9 tile enemy detection; L2 +1 first-hit bonus; L3 EnragedEffect on nearby
+10. Myopia — -3/5/7 FOV; -3/5/7 gun range; L2 ambush +1 dmg; L3 +3 dmg + free enemy attack
+
+New 10:
+11. Porous Membrane — +5/10/15 tox per corpse tile step; L2 grease also +3/5 tox; L3 tox removal -30% effective
+12. Hyperactive Bladder — Every 15/12/10t: self +5/8/12 rad + nearby +3/5/8 rad (2/3/4 tiles); L3 alert enemies
+13. Spinal Spur — Corridor move costs 2/3/4 energy; -1/2/3 dodge; L2 no corridor item pickup
+14. Suppurating Wounds — Bleed duration +3/5/7; bleed dmg +1/2/3 per stack per tick; L3 30% DR bypass on bleed
+15. Phantom Hunger — -4/-6/-10 HP every 30/25/20 turns (neurological, not food-related); L3 confuse chance 20%
+16. Excessive Perspiration — Effective DR -1/2/3; L2 grease trail every 5/3 tiles; L3 alert radius
+17. Lopsided Growth — 20/30/40% stumble on melee; wall damage 1/3/5; L3 item drop chance on stumble
+18. Slow Blink — No items/abilities/guns for 1/2/3 turns on combat start; L3 enemy gets free pre-combat attack
+19. Involuntary Bioluminescence — All enemies always know position (through walls); L2 confuse/fear immune on enemies; L3 +1 enemy attack
+20. Degenerating Nervous System — All ability cooldowns +1 per mutation acquired (UNCAPPED self-escalation); no upgrade via re-roll
+
+--- STRONG GOOD (20) ---
+Original 8:
+1.  Carapace — HAT BLOCKED; +5/8/12 DR; behind-hit 50/75/90% DR; knockback immune; L2 spikes; L3 floor temp HP
+2.  Psychic Broadcast — 2+/3+/4+ count//5 psi dmg to all ≤5/5/6 tile enemies; L2 psychic death scream; L3 extends scream
+3.  Bone Spurs — 30/45/60% bleed; 3/5/7 dmg kill spray (4→8 dirs at L2); L3 bleed lasts +1 turn
+4.  Telekinetic Lash — 3/4/5/floor; pull range 6/8/unlimited; 4+/6+/8+ count//2 impact; L2 stun; L3 object pull
+5.  Redundant Brain — Immune confuse/fear/distracted; reflex attack on block; L2 extends to slowed/stun; L3 all CC + shocked on attacker
+6.  Turtle Neck — NECK BLOCKED; 50/75/90% DR retract 1/1/2-floor; +15/25/40% tox/rad resist; L2/L3 stun attacker
+7.  Wall Crawler — Pass walls, 1/2/3-turn limit; L2 confuse on exit; L3 confuse larger radius + wall HP restore
+8.  Eyeless — HAT BLOCKED; FOV 4/5/6; sonar (+HP at L2, +HP+state at L3); gun miss 25/35/40%
+
+New 12:
+9.  Irradiated Blood — Melee hit taken → 8+/12+/16+ count rad splash (2/3/4 tiles); L2 bonus dmg to irradiated enemies; L3 death explosion
+10. Toxic Veins — Melee hit taken → 3/5/8 tox to 1/2/2-tile adjacent; L3 also triggers on misses against you
+11. Scavenger Metabolism — Kill → absorb 5/8/12 tox → heal 2/4/6 HP; L2 absorb enemy tox 50/75%; L3 temp BKS boost
+12. Vestigial Wings — Grease 0 dmg; fire 50/75/90% reduction; knockback -1/-2 tiles; L3 one-tile glide through wall
+13. Hemorrhagic Aura — 35/50/65% on-attack: 2/3/4 self-dmg; 1/2/3 bleed to target; L2 self-dmg bypasses DR; L3 bleed +3 turns
+14. Muscle Memory Override — 30/40/50% counterattack on being hit; L2 on-hit effects apply; L3 counterattacks never miss
+15. Spiked Extrusion — 2/3/4 thorns on hit; spiked debuff at 3/2/1 hits (−1 power/stack, max 5/8/12); L3 attacker bleeds at 5+ stacks
+16. Psionic Echo — Ability use → 3+/5+/7+ count//4 psi dmg to 1/2/3 random visible enemies (6 tiles); L3 synergy with Psychic Broadcast
+17. Leathery Hide — Bleed/venom/corroded ticks 30/50/60% less; L2 ignite also 30/50%; L3 shocked stacks -1 on application
+18. Feral Instincts — Melee kill → Feral Rush (+25/35/45 speed, +2/4/6 power, 8/10/12t); L2 mega-crit during rush; L3 post-expiry burst
+19. Hollow Echo Resonance — 20/30/40% of incoming melee → next melee bonus (cap +15/20/25); L3 bonus-at-cap → stun
+20. Second Stomach — NECK BLOCKED; consumable effects ×2/2.5/3 intensity, ÷2 duration; L2 MetabolizedEffect on consume; L3 neutral bad rolls
+
+--- STRONG BAD (20) ---
+NOTE: Original Light Sensitivity is REMOVED (its mechanics redistributed into Photosensitivity and Reactive Skin upgrades).
+
+Original 7 (no Light Sensitivity):
+1.  Second Skin of Thorns — NECK BLOCKED; 3/5/7 thorns reflect; 1/2/3 self-dmg on attack; L2 self-bleed on attack; L3 escalating self-dmg
+2.  Hollow Stomach — Food heal ×0.5/0.3/0.1; L2 buff duration ÷2; L3 extends to drinks/strains
+3.  Paranoid System — 1/2/3 HP every 10t; HoT at 50/25/25% frequency; L2 all healing -1; L3 all healing -2 + CC +2 turns
+4.  Extra Mouth — HAT BLOCKED; 20/35/50% devour on pickup; L2 10/20% combat consume per turn; L3 noise alert
+5.  Necrotic Fists — -1 melee power now; -1 per mutation acquired; cap -6 (self-escalates; no re-roll upgrade)
+6.  Freak Magnet — Threshold 3+/2+/1+ mutations → +1/2/3 extra enemies per floor; faction 30%/always hostile/+2 attack
+7.  Dissociative Episodes — 25/20/15t timer; 40/55/70% episode chance; 4/5/6 turns; L3 item throw during episode
+
+New 13:
+8.  Glandular Overload — +10/20/30 tox per drug/drink; L2 also +5/10 tox per food
+9.  Parasitic Relationship — Every 20/15/10t: consume random food→drink→any item or lose 5/8/12 HP
+10. Inverted Digestion — 10/5/3 tox → 1 HP loss; over-heal → 5/10/15 tox; L3 tox removal -50% effective
+11. Radiation Sponge — +50/100/150% rad gain; L2 mutation chance ×2; L3 forced mutation at 200+ rad (1/floor)
+12. Hemorrhaging Constitution — NECK BLOCKED; 1/2/3 self-dmg per melee attack thrown; L2 ExhaustedEffect after 3 enemies; L3 gun also triggers
+13. Sensory Overload — 15/25/35% skip-turn on non-safe-direction moves (safe direction random per floor); L3 enemies free attack on skip
+14. Accelerated Aging — -1 max HP per mutation acquired; cap at 25% of base max HP (self-escalates; no re-roll upgrade)
+15. Degenerating Marrow — -1 power on acquisition; -1/2 per zone change; -10 speed per zone at L2/L3; L3 10% marrow flare per floor
+16. Leaky Mind — Ability use → all enemies within 8/12/floor tiles switch to CHASING; L2 +2 rage attack; L3 fleeing enemies return
+17. Bone Brittleness — 15/12/10 dmg threshold; 40/55/70% fracture; +3/5/7 bypass dmg; SlowEffect +20/25/30 speed reduction
+18. Gravity Sensitivity — Move costs 125/150/175 energy; pickup costs 1/5/10 energy; L2 knockback +2; L3 knockback +3
+19. Permeable Skull — CC immunity bypass; CC effects +2/4/6 turns; L2 stun panic dmg 1/3 per turn; L3 phantom fear on expiry
+20. Fission Heart — Combat turn (L1/L2) or every turn (L3): self +20/30/40 rad; enemies ≤3/4/5 tiles +5/10/15 rad
+
+--- REVERSAL (SHED) ---
+Shedding resets mutation_levels[id] to 0 (full removal).
+Reversal logic must account for current level (e.g., Hardened Dermis at L3 reverses 6 DR).
+New reversal types: "grant_ability", "flag", "speed", "fov_bonus", "power_penalty",
+"slot_block", "compound", "ability_and_flag", "stat_and_flag".
+Triple Helix can cascade upgrades; Shed must fully unwind all levels at once.
+
+--- UPGRADE SYSTEM FIELDS ---
+Engine: mutation_levels: dict[str, int] — RUN-WIDE; key=mutation_id, value=level.
+  Serialized as JSON object in save_system.py.
+Self-escalating mutations (Necrotic Fists, Accelerated Aging, Degenerating Nervous):
+  Not updated via re-roll; only one level (L1); escalate through their own counter logic.
+
+--- NEW EFFECTS ---
+AdrenalineSurgeEffect, TurtleRetractEffect, DissociativeEpisodeEffect (original),
+HardeningEffect (chitinous hide stacks), FeralRushEffect (feral instincts),
+CorrodedEffect (-1 def/stack), SpikedEffect (-1 melee/stack), ExhaustedEffect (-10 speed/stack),
+EnragedEffect (floor_duration, +2 dmg +15 speed, confuse/fear immune),
+MetabolizedEffect (+1 CON-equiv/stack, 8t).
+
+--- NEW ABILITIES ---
+touch_of_frost: ADJACENT, INFINITE, cooldown 3→1t (level-dep)
+touch_of_fire: ADJACENT, INFINITE, cooldown 3→1t (level-dep)
+touch_of_shock: ADJACENT, INFINITE, cooldown 4→2t (level-dep)
+acid_spit: ADJACENT→SINGLE_LOS at L3, INFINITE (upgraded)
+telekinetic_lash: SINGLE_LOS, 3-5/floor (upgraded)
+
+--- NEW ENGINE STATE ---
+mutation_levels: dict (run-wide), degen_nervous_cooldown_bonus: int (run-wide),
+chitin_hit_streak, rad_absorb_bonus, slow_blink_combat_active, slow_blink_turns_remaining,
+phantom_hunger_counter, hyperactive_bladder_counter, parasitic_relationship_counter,
+sensory_safe_dir: str, hollow_echo_pending: int (all per-floor unless noted).
+
+--- NEW PlayerStats FLAGS (ADDED IN THIS REVISION) ---
+iron_gut_active, scar_tissue_buildup_active, pheromone_gland_active, rad_absorb_active,
+chitinous_hide_active, leeching_strike_active, burst_capillaries_active,
+porous_membrane_active, hyperactive_bladder_active, spinal_spur_active,
+suppurating_wounds_active, phantom_hunger_active, excessive_perspiration_active,
+lopsided_growth_active, slow_blink_active, bioluminescence_active, degen_nervous_active,
+irradiated_blood_active, toxic_veins_active, scavenger_metabolism_active,
+vestigial_wings_active, hemorrhagic_aura_active, muscle_memory_override_active,
+spiked_extrusion_active, psionic_echo_active, leathery_hide_active,
+feral_instincts_active, hollow_echo_active, second_stomach_active,
+glandular_overload_level (int), parasitic_relationship_active, inverted_digestion_active,
+radiation_sponge_level (int), hemorrhaging_constitution_active, sensory_overload_active,
+accelerated_aging_active, degenerating_marrow_level (int), leaky_mind_active,
+bone_brittleness_active, gravity_sensitivity_active, permeable_skull_active,
+fission_heart_active, max_hp_penalty: int.
+
+--- FILES MODIFIED ---
+mutations.py (80-entry tables, upgrade logic, self-escalating hooks, huge tier removal)
+stats.py (all new PlayerStats flags + int fields)
+effects.py (10 new effect classes)
+abilities.py (5 ability entries, level-dep behavior)
+combat.py (expanded melee/damage path checks, tox/rad hooks)
+engine.py (upgrade system, mutation_levels dict, per-turn hooks, floor-start hooks)
+ai.py (territorial marking, bioluminescence, pheromone, leaky mind, freak magnet)
+dungeon.py (corpse_tiles set, mut_fov_bonus in compute_fov)
+render.py (eyeless sonar at all levels, photosensitivity flicker, jackpot crate char)
+gun_system.py (twitchy nerves, range penalty, dissociation block, eyeless gun miss)
+inventory_mgr.py (extra mouth, subdermal toolkit, parasitic consume, gravity cost, spinal spur)
+item_effects.py (tapeworm, iron gut, hollow stomach, rotten teeth, paranoid, second stomach, etc.)
+zone_generators.py (freak magnet level-dep extra enemies)
+save_system.py (mutation_levels dict, all new flags, degen_nervous_cooldown_bonus)
+
+--- BALANCE NOTES ---
+Bioluminescence (Weak Bad) may punch above weak tier — monitor in playtesting.
+Second Stomach + speed strains: ×3 speed intensity could be overpowered — cap flag noted.
+Fission Heart (L3) creates self-mutation cascades — intentionally volatile high-risk.
+Degenerating Nervous System hard-counters ability-heavy builds (Nuclear Research, Blackkk Magic).
+Accelerated Aging caps at 25% base max HP to prevent truly unplayable scenarios.
+Sensory Overload (safe direction per floor) adds interesting movement puzzles in corridors.
+Muscle Memory Override L3 counterattacks cannot miss — specific synergy exception for Twitchy Nerves.

@@ -1,0 +1,661 @@
+CDDA-INSPIRED MUTATION EXPANSION — 20 NEW MUTATIONS
+=====================================================
+NIGRL Roguelike — Mutation Overhaul Appendix
+Inspired by: Cataclysm: Dark Days Ahead mutation system
+Purpose: 20 candidate mutations for selection and inclusion in the master plan
+
+Numbering: These extend the existing 80-mutation plan. Each category gets
+5 new entries (numbered 21-25 within their category).
+
+Design principles carried forward:
+  - Every mutation changes HOW you play, not just tunes stats
+  - No passive per-turn HP regen
+  - Bad mutations create interesting decisions, not just punishment
+  - Strong mutations are build-defining
+  - Upgrade paths change behavior, not just scale numbers
+  - All mutations must have valid reversal logic
+
+Themes explored (gaps in the existing 80):
+  - Terrain/environment creation (leaving trails, creating obstacles)
+  - Summoning/splitting (spawn decoys or temporary allies)
+  - Sound/noise mechanics (not explored in existing mutations)
+  - Item/equipment fusion (mutations that change how gear works)
+  - Temporary body morphing (grow extra reach, extend limbs)
+  - Enemy manipulation (charm, redirect, puppeteer)
+  - Conditional triggers (activate only under specific game states)
+  - Resource transformation (convert one resource to another)
+  - Probability manipulation (change how RNG treats you)
+  - Map awareness/memory (know things about the dungeon itself)
+
+
+================================================================
+WEAK GOOD MUTATIONS (21-25)
+================================================================
+
+21. SLIME TRAIL — "You leave something behind. It's useful, actually."
+    Effect: Every 4th tile you move, you leave a slime tile at your previous
+    position. Slime tiles function like grease tiles for ENEMIES only — they
+    slip and lose 1 turn if they step on one. You are immune to your own
+    slime. Slime tiles persist for 20 turns then evaporate.
+    Upgrade:
+      L1: Slime every 4 tiles; enemies slip (1 turn loss); 20t persist; you immune.
+      L2: Slime every 3 tiles; 30t persist. Enemies that slip on your slime also
+          take 2 tox (the slime is mildly corrosive). Your slime tiles are
+          visually distinct from normal grease (rendered as '~' in green).
+      L3: Slime every 2 tiles; 40t persist; slip tox increases to 5. Additionally,
+          if 3+ slime tiles are adjacent to each other, they form a "slime patch"
+          that also slows enemy movement through them by 50% even if they don't
+          slip (wading through goo). Cap.
+    Note: Slime tiles are stored in dungeon.slime_tiles: dict[(x,y), int] where
+    the int is the turn placed. Check expiry each tick. Different from grease_tiles.
+    Synergy: Pheromone Gland pulls enemies toward you — through your slime trail.
+    Reversal: Remove slime_trail_active flag; clear all slime tiles on the floor.
+    System hooks: player_stats.slime_trail_active, engine.py player movement
+    (slime placement counter), dungeon.slime_tiles (new dict), ai.py enemy
+    movement (slip check), combat.py (L2 tox on slip).
+
+22. ECHOLOCATION PULSE — "You click. The room answers."
+    Effect: Grants the Echolocation Pulse ability (INFINITE charges, SELF target,
+    8-turn cooldown). When activated: reveal ALL entities (enemies, items, hazards)
+    on the current floor for 1 turn, even through walls. They appear as '?' markers
+    on the map (similar to Eyeless sonar but temporary and much wider). After the
+    pulse, enemies that were revealed and are within 5 tiles become briefly
+    "disoriented" — they skip their next action (the sonic ping stuns them).
+    Upgrade:
+      L1: Reveal all entities for 1 turn; disorient enemies within 5 tiles (skip 1 action);
+          8t cooldown.
+      L2: Reveal lasts 2 turns; disorient range extends to 7 tiles; cooldown drops to 6t.
+          Disoriented enemies also have their AI state forced to WANDERING for 3 turns
+          (they lose track of you after the ping).
+      L3: Reveal lasts 3 turns; disorient range 9 tiles; cooldown 4t. Additionally,
+          the pulse itself deals 2 damage to all enemies within 3 tiles (sonic
+          concussion — the click is LOUD at close range). Enemies within 1 tile
+          take 4 damage instead. Cap.
+    Note: This is a sound-based mutation — distinct from FOV mutations because it
+    doesn't change your persistent vision. It's a snapshot pulse. The disorient
+    is a 1-action stun, lighter than a full stun effect.
+    Reversal: Revoke "echolocation_pulse" ability.
+    System hooks: ABILITY_REGISTRY "echolocation_pulse", render.py (temporary
+    entity reveal), ai.py (forced WANDERING on disorient), combat.py (L3 damage).
+
+23. STICKY FINGERS — "Things stick to you now. Literally."
+    Effect: When you kill an enemy with a melee attack, there is a 30% chance
+    the enemy drops an extra item from the floor's loot table (bonus loot from
+    the kill). This item materializes at the kill location. Additionally, picking
+    up gold piles grants +10% bonus gold (rounded down, minimum +1).
+    Upgrade:
+      L1: 30% bonus loot on melee kill; +10% gold pickup bonus.
+      L2: 40% bonus loot; +20% gold bonus. Additionally, when you pick up any item,
+          there is a 15% chance to find a second copy of the same item stuck to it
+          (duplication — only works on stackable items like ammo, food, materials).
+      L3: 50% bonus loot; +25% gold bonus; 20% item duplication on pickup.
+          Additionally, once per floor, a killed enemy drops a random ring or
+          neck item instead of its normal loot (the mutation's adhesive quality
+          pulls hidden treasures from corpses). Cap.
+    Note: "Bonus loot" uses loot.py generate_floor_loot() with current zone/floor.
+    The duplication only works on items where count > 0 (stackable). Unique items,
+    equipment, and non-stackable items cannot be duplicated.
+    Reversal: Remove sticky_fingers_active flag.
+    System hooks: player_stats.sticky_fingers_active, combat.py entity_died
+    (bonus loot roll), inventory_mgr.py pickup (gold bonus, L2 duplication),
+    loot.py (L3 ring/neck drop).
+
+24. CHAMELEON SKIN — "Hold still. They can't see you if you hold still."
+    Effect: If you do not move for 2 consecutive turns (attacking counts as not
+    moving — only tile changes break it), you become "camouflaged." While
+    camouflaged, enemies outside 3 tiles cannot detect you regardless of LOS.
+    Enemies within 3 tiles still see you normally. Camouflage breaks the instant
+    you move to a different tile. Your first melee attack from camouflage deals
+    +50% damage (ambush strike).
+    Upgrade:
+      L1: 2-turn stillness → camouflage; 3-tile detection radius; +50% ambush strike.
+      L2: 1-turn stillness → camouflage (activates immediately after any non-move action).
+          Detection radius shrinks to 2 tiles. Ambush strike deals +75% damage.
+          Additionally, while camouflaged, enemy ranged attacks that target your tile
+          have a 30% miss chance (they can't quite pin you down).
+      L3: 1-turn activation; detection radius 1 tile (essentially melee range only).
+          Ambush strike +100% damage. Ranged miss 50%. Additionally, the ambush strike
+          also applies 2 turns of stun to the target (they didn't see it coming). Cap.
+    Note: Camouflage is tracked as engine.chameleon_active: bool, with
+    engine.chameleon_still_turns: int counting consecutive non-move turns.
+    Attacking does NOT break camouflage (only movement does). This creates a
+    "stand your ground" playstyle where staying put is rewarded.
+    Anti-synergy: Lopsided Growth (stumble after attacks forces movement, breaking camo).
+    Synergy: Extra Joints free step doesn't trigger since you need to stand still.
+    Reversal: Remove chameleon_skin_active flag; clear camouflage state.
+    System hooks: player_stats.chameleon_skin_active, engine.py movement/action
+    (track stillness), ai.py detection (check camouflage), combat.py melee
+    (ambush bonus), gun_system.py (L2 ranged miss chance).
+
+25. PROBABILITY FLUX — "Luck bends around you. Not always favorably."
+    Effect: All percentage-based rolls in your favor (crit chance, dodge chance,
+    on-hit effect procs, loot drop rolls) gain +5% bonus. However, all percentage
+    rolls AGAINST you (enemy crit, enemy on-hit procs, trap trigger chance) also
+    gain +5% bonus. Everything is more likely to happen near you — good and bad.
+    The universe is chaotic in your presence.
+    Upgrade:
+      L1: +5% to ALL percentage rolls (yours and enemy's).
+      L2: +10% to all rolls. Additionally, critical hits you land deal +2 bonus
+          damage (the probability flux amplifies lucky strikes).
+      L3: +15% to all rolls. Crit bonus +4 damage. Additionally, once per floor,
+          when you would die (HP reaches 0), there is a 25% chance the flux
+          intervenes — you survive with 1 HP and the attacking enemy takes the
+          killing blow's damage reflected back at them (probability reversal).
+          This is NOT a death save — it's a 25% chance, and it can fail. Cap.
+    Note: The +X% is additive to existing percentages, not multiplicative. A 10%
+    crit chance becomes 15%/20%/25% at L1/L2/L3. Enemy procs are equally boosted.
+    This is the only mutation that directly modifies probability across the board.
+    Reversal: Remove probability_flux_active flag and level.
+    System hooks: player_stats.probability_flux_level: int, combat.py (all roll
+    modifiers — crit, dodge, on-hit procs), loot.py (drop rolls), engine.py
+    (L3 death-prevention roll).
+
+
+================================================================
+WEAK BAD MUTATIONS (21-25)
+================================================================
+
+21. VOLATILE ANATOMY — "Your insides rearrange themselves. Mid-fight."
+    Effect: At the start of each floor, one of your 6 stats (randomly chosen)
+    is reduced by 2 and a DIFFERENT random stat is increased by 1. The swap
+    persists for the entire floor. On next floor transition, the swap reverts
+    and a new random swap occurs. You never know which stat will be drained.
+    Upgrade (gets worse):
+      L1: -2 to one stat, +1 to another (random each floor).
+      L2: -3 to one stat, +1 to another. Additionally, the stat chosen is
+          weighted — it has a 40% chance to hit your HIGHEST current stat
+          (the mutation targets what you rely on most).
+      L3: -4 to one stat, +1 to another. Highest-stat targeting at 60%.
+          Additionally, mid-floor there is a 20% chance every 50 turns for a
+          "re-shuffle" — the stat swap changes again within the same floor
+          (your anatomy keeps shifting). Cap.
+    Note: The swap is tracked in engine.volatile_anatomy_current: dict with
+    keys "drained_stat" and "boosted_stat" and their respective amounts.
+    Reverted on floor change, then re-rolled.
+    Reversal: Remove volatile_anatomy_active flag; revert any current swap.
+    System hooks: player_stats.volatile_anatomy_active, engine.py floor_transition
+    (roll swap), engine.py per-turn (L3 re-shuffle timer),
+    player_stats.modify_base_stat (apply/revert swap).
+
+22. RESONANT BONES — "Every hit you take echoes. The whole floor hears it."
+    Effect: When you take melee damage, a sound pulse emanates from your position.
+    All enemies within 6 tiles that are NOT currently in CHASING state switch to
+    CHASING. Flavor: your mutated bone structure vibrates audibly on impact,
+    like a tuning fork. You're a walking alarm bell when hit.
+    Upgrade (gets worse):
+      L1: Melee hit taken → alert enemies within 6 tiles (non-CHASING → CHASING).
+      L2: Alert radius extends to 10 tiles. Additionally, alerted enemies gain
+          +10 speed for 5 turns (the resonance agitates them into a frenzy).
+      L3: Alert radius: entire floor. Speed bonus +20 for 8 turns. Additionally,
+          enemies that are alerted by the resonance and reach you within 3 turns
+          of being alerted deal +2 damage on their first attack (resonance-guided
+          strike — they home in on the vibrations). Cap.
+    Note: This is distinct from Territorial Marking (passive detection) and
+    Bioluminescence (constant position knowledge). Resonant Bones only triggers
+    ON BEING HIT — if you never get hit, it never fires.
+    Reversal: Remove resonant_bones_active flag.
+    System hooks: player_stats.resonant_bones_active, combat.py incoming melee
+    damage path (trigger alert pulse), ai.py (force CHASING state on alerted),
+    effects.py (L2 speed buff on alerted enemies).
+
+23. MAGNETIC BLOOD — "Metal sticks to you. Bullets find you interesting."
+    Effect: Incoming gun/ranged attacks against you gain +15% accuracy bonus
+    (your blood has a magnetic pull that guides projectiles toward you).
+    Additionally, metallic items in your inventory weigh more on your psyche —
+    for every 3 metallic items (weapons, ammo, rings) in your inventory, your
+    speed is reduced by 5 (maximum -25 speed from this effect).
+    Upgrade (gets worse):
+      L1: +15% enemy ranged accuracy vs you; -5 speed per 3 metal items (max -25).
+      L2: +25% ranged accuracy. Speed penalty: -5 per 2 metal items (max -35).
+          Additionally, when an enemy fires a gun at ANY target within 3 tiles of
+          you, there is a 20% chance the bullet is magnetically deflected toward
+          you instead (you intercept shots not even aimed at you).
+      L3: +35% ranged accuracy. Speed penalty: -5 per 1 metal item (max -50).
+          Bullet deflection chance 35%. Additionally, equipping or un-equipping
+          metallic items takes 2 turns instead of being instant (magnetic
+          resistance — the items don't want to let go). Cap.
+    Note: "Metallic items" are defined by a new tag on items: is_metallic: bool
+    (weapons, ammo, rings are metallic; food, drugs, organic items are not).
+    This creates inventory management pressure unique to this mutation.
+    Reversal: Remove magnetic_blood_active flag; clear speed penalty.
+    System hooks: player_stats.magnetic_blood_active, gun_system.py (enemy
+    accuracy bonus), engine.py (speed calculation from inventory metal count),
+    gun_system.py (L2 bullet deflection), inventory_mgr.py (L3 equip delay).
+
+24. NEURAL LEAKAGE — "Your thoughts broadcast. Enemies learn your patterns."
+    Effect: Every time you use the same ability twice in a row (consecutive uses
+    of the same ability_id without using a different ability in between), the
+    second use deals 25% less damage/effect intensity. A third consecutive use
+    of the same ability deals 50% less. Resets when you use a different ability
+    or make a melee attack. Flavor: your neural patterns become predictable
+    and enemies adapt to the broadcast.
+    Upgrade (gets worse):
+      L1: 2nd consecutive same-ability: -25% intensity; 3rd+: -50%.
+      L2: 2nd: -35%; 3rd+: -65%. Additionally, enemies within 3 tiles of you
+          can "read" your next ability and gain +2 dodge against it (they
+          anticipate the attack from your mental broadcast).
+      L3: 2nd: -50%; 3rd+: -75% (nearly useless on repetition). Dodge bonus +4.
+          Additionally, if you use the same ability 4 times in a row, it goes
+          on a forced 5-turn cooldown regardless of its normal cooldown
+          (neural overload — your brain can't broadcast the same signal). Cap.
+    Note: Tracked as engine.neural_leakage_last_ability: str (last ability_id used),
+    engine.neural_leakage_streak: int (consecutive same-ability count).
+    This mutation rewards ability variety and punishes spam. Players with multiple
+    touch spells (Frost/Fire/Shock) can rotate and avoid the penalty entirely.
+    Reversal: Remove neural_leakage_active flag; clear streak tracker.
+    System hooks: player_stats.neural_leakage_active, abilities.py execute()
+    (check streak, apply intensity reduction), ai.py (L2 dodge bonus).
+
+25. UNSTABLE MASS — "Your body's center of gravity has its own agenda."
+    Effect: When you take a hit that deals 10+ damage (after armor/DR), there is
+    a 30% chance your body involuntarily shifts — you are pushed 1 tile in a
+    random direction (not toward the attacker, just random). If the push moves
+    you onto a hazard tile (fire, grease, slime), you take the hazard damage.
+    If pushed into a wall, you take 2 impact damage instead of moving.
+    Upgrade (gets worse):
+      L1: 10+ damage hit → 30% chance push 1 tile randomly; wall impact 2 dmg.
+      L2: 8+ damage threshold; 40% push chance; push 1-2 tiles (random). Wall
+          impact 4 dmg. Additionally, being pushed breaks any channeled effects
+          (eating food mid-eat, abilities with charge-up — if any exist).
+      L3: 6+ damage threshold; 50% push chance; push 1-3 tiles. Wall impact 6 dmg.
+          Additionally, every time you are pushed, all enemies within 3 tiles of
+          your NEW position are alerted to CHASING (the violent displacement draws
+          attention). Cap.
+    Note: Push direction is fully random (8 directions). Push path checks each tile
+    for walls — if a wall is in the path, stop at the wall and take impact damage.
+    If pushed through open tiles, land at the destination.
+    Distinct from knockback (which is directional from attacker). This is random.
+    Reversal: Remove unstable_mass_active flag.
+    System hooks: player_stats.unstable_mass_active, combat.py incoming damage
+    path (threshold + push roll), engine.py (push resolution — tile checks,
+    hazard damage, wall impact), ai.py (L3 alert on push).
+
+
+================================================================
+STRONG GOOD MUTATIONS (21-25)
+================================================================
+
+21. FLESH PUPPETEER — "You reach into them and pull the strings."
+    Effect: Grants the Flesh Puppeteer ability (2 charges/floor, SINGLE_ENEMY_LOS
+    target, range 5). Target a visible enemy: for 4 turns, that enemy fights for
+    you. The puppeteered enemy attacks its former allies, using its normal AI but
+    treating you as friendly and all other enemies as hostile. After 4 turns, the
+    puppet is released and becomes hostile again — but at 50% current HP (the
+    puppeteering damages their body from the inside).
+    Equipment constraint: Cannot equip weapon slot (your hands are busy with
+    invisible psychic threads).
+    Upgrade:
+      L1: 2/floor, range 5, 4-turn puppet duration, 50% HP on release.
+      L2: 3/floor, range 7, 6-turn puppet, 40% HP on release. Additionally,
+          while a puppet is active, you can see through the puppet's FOV (you
+          gain vision of everything the puppet can see, even around corners).
+      L3: 4/floor, range 10, 8-turn puppet, 30% HP on release. Puppet FOV active.
+          Additionally, if the puppet kills an enemy while under your control,
+          you gain the kill XP (the puppet is an extension of your will). The
+          puppet also gains +3 power while controlled (your will surges through
+          their muscles). Cap.
+    Note: Puppeteered enemies use do_ai_turn() with their target overridden
+    to attack other monsters. They move and attack normally but with flipped
+    friend/foe. Does not work on bosses (immune to puppet).
+    Reversal: Revoke "flesh_puppeteer" ability; restore weapon slot.
+    System hooks: ABILITY_REGISTRY "flesh_puppeteer", ai.py (override target
+    selection for puppeted entity), engine.py (puppet timer, release logic,
+    HP reduction), combat.py entity_died (L3 XP attribution).
+
+22. MIMIC FLESH — "Your body remembers every hit. Then it becomes the hit."
+    Effect: When an enemy with a special_attack hits you (any special attack type:
+    venom, bleed, ignite, shock, chill, etc.), your body absorbs the attack pattern.
+    Your next 3 melee attacks apply that same status effect to enemies you hit
+    (at 1 stack per hit). You can only store ONE absorbed pattern at a time.
+    Absorbing a new pattern overwrites the old one. Flavor: your flesh literally
+    mimics the biological weapons used against you.
+    Equipment constraint: None.
+    Upgrade:
+      L1: Absorb enemy special_attack on being hit; next 3 melee attacks apply
+          1 stack of that effect. One stored pattern at a time.
+      L2: Next 5 melee attacks apply the absorbed effect. 2 stacks per hit
+          instead of 1. Additionally, you also absorb the effect from enemies
+          that MISS you in melee (your skin reads their intent from proximity).
+      L3: Next 8 melee attacks. 3 stacks per hit. Miss absorption active.
+          Additionally, you can store TWO patterns simultaneously — both apply
+          on every melee hit (double status application). The second absorption
+          doesn't overwrite the first; instead the older one is replaced when
+          a third is absorbed. Cap.
+    Note: Stored patterns tracked in engine.mimic_flesh_patterns: list of
+    {"effect_id": str, "stacks": int, "hits_remaining": int} dicts (max 1 at
+    L1-L2, max 2 at L3). On melee hit, decrement hits_remaining and apply effect.
+    Synergy with Leeching Strike: absorbing debuffs means you can create the
+    conditions for Leeching Strike's HP leech on your own hits.
+    Reversal: Remove mimic_flesh_active flag; clear stored patterns.
+    System hooks: player_stats.mimic_flesh_active, combat.py incoming melee
+    (absorb special_attack), combat.py outgoing melee (apply stored patterns),
+    effects.py (generic effect application from pattern).
+
+23. SPLIT CONSCIOUSNESS — "Two minds. One body. They take turns."
+    Effect: Once per floor, you can activate Split Consciousness (SELF target,
+    ONCE per floor). For 10 turns, you get TWO actions per turn instead of one.
+    Each turn, you perform your chosen action AND then a second automated action:
+    the second action is always a melee attack on the nearest adjacent enemy
+    (if any), or a free 1-tile move toward the nearest visible enemy (if no
+    adjacent enemy). You don't control the second action — the "other mind" does.
+    Equipment constraint: Cannot equip hat slot (the second consciousness needs
+    room — your skull is visibly distended).
+    Upgrade:
+      L1: 1/floor, 10 turns, second action: auto-melee adjacent OR auto-step
+          toward nearest enemy. Hat slot blocked.
+      L2: 1/floor, 15 turns. Second action now also fires any on-hit effects
+          from your weapon (venom, bleed, etc. — previously it was a "bare"
+          attack). Additionally, the auto-step toward enemies is 2 tiles instead
+          of 1 (the second mind is more aggressive).
+      L3: 2/floor (can activate twice per floor). 15 turns. Second action fires
+          on-hit effects. Additionally, if you use an ability as your primary
+          action, the second mind can still melee attack (they're independent).
+          The second mind's attacks also benefit from crit chance. Cap.
+    Note: The second action is computed in engine.py after the player's primary
+    action resolves. It does NOT cost energy — it's a free bonus action.
+    Reversal: Revoke "split_consciousness" ability; restore hat slot.
+    System hooks: ABILITY_REGISTRY "split_consciousness", engine.py (dual-action
+    processing loop), combat.py (auto-melee targeting), ai.py (auto-step pathfinding).
+
+24. WEB SPINNER — "Silk from your wrists. Not as cool as it sounds."
+    Effect: Grants the Web Spinner ability (INFINITE charges, ADJACENT_TILE target,
+    2-turn cooldown). Place a web tile on an adjacent empty floor tile. Web tiles
+    are invisible to enemies until they step on one. When an enemy steps on a web:
+    they are rooted for 2 turns (cannot move, can still attack if adjacent to a
+    target). You can have up to 6 web tiles active at once. Webs persist until
+    triggered or until you leave the floor.
+    Equipment constraint: None.
+    Upgrade:
+      L1: Place web (ADJACENT_TILE), 2t cooldown, max 6 webs, root 2 turns.
+      L2: Max 10 webs; root 3 turns; cooldown 1 turn. Additionally, enemies
+          rooted by your web take +2 damage from all sources while rooted
+          (they're entangled and vulnerable).
+      L3: Max 15 webs; root 4 turns; cooldown 0 (free action). Rooted enemies
+          take +4 damage from all sources. Additionally, when an enemy triggers
+          a web, all enemies within 2 tiles are slowed by 25% for 3 turns
+          (sympathetic web vibration — they sense danger and hesitate). Cap.
+    Note: Web tiles stored in dungeon.web_tiles: set[(x,y)]. Rendered as a
+    nearly-invisible char (period '.' in dim white — hard to distinguish from
+    floor). Use existing 0xE003 web tile graphic for triggered/visible webs.
+    This mutation creates a "trapper" playstyle: set up webs, lure enemies into
+    them, punish the entangled. Synergy with Pheromone Gland (attract enemies
+    into webs) and Chameleon Skin (stand still near webs, ambush rooted enemies).
+    Reversal: Revoke "web_spinner" ability; clear all web tiles.
+    System hooks: ABILITY_REGISTRY "web_spinner", dungeon.web_tiles (new set),
+    engine.py enemy movement (web trigger check), effects.py RootedEffect
+    (new: blocks movement, allows attacks), render.py (web tile display).
+
+25. ADAPTIVE METABOLISM — "Your body solves problems. Violent, chemical problems."
+    Effect: The first time each floor you are affected by a status effect
+    (any debuff: venom, bleed, ignite, chill, shock, confuse, fear, stun, slow),
+    you develop an "adaptation" to that specific effect for the rest of the floor.
+    Adaptation means: the SECOND time that same effect is applied to you on the
+    same floor, its duration is halved and its damage is reduced by 30%. The third
+    time: duration quartered, damage -60%. Fourth+: immune for that floor.
+    Equipment constraint: Cannot equip feet slot (your feet have mutated into
+    something that processes chemicals faster — they can't fit shoes).
+    Upgrade:
+      L1: First application: normal. Second: -50% duration, -30% damage. Third:
+          -75% duration, -60% damage. Fourth+: immune. Feet slot blocked. Resets
+          each floor.
+      L2: Adaptation kicks in faster — second application is already at -60% dmg,
+          third: immune. Additionally, when you become immune to an effect via
+          adaptation, you heal 3 HP (your body rejects the effect with vigor).
+      L3: Second application: -75% dmg, third: immune. Heal 5 HP on immunity.
+          Additionally, effects you've become immune to on the current floor also
+          cannot be applied to allies within 2 tiles of you (future NPC/summon
+          hook — for now, this means puppeted enemies via Flesh Puppeteer). Cap.
+    Note: Adaptation tracking: engine.adaptive_metabolism_counts: dict[str, int]
+    where key = effect_id, value = times applied this floor. Reset on floor change.
+    This mutation makes extended fights on a single floor increasingly favorable.
+    Early in a floor you're vulnerable; by mid-floor you've adapted to everything
+    the local enemies throw at you.
+    Reversal: Remove adaptive_metabolism_active; clear adaptation counts; restore feet slot.
+    System hooks: player_stats.adaptive_metabolism_active, effects.py apply()
+    (check adaptation count before applying, modify duration/damage),
+    engine.py floor_transition (reset counts).
+
+
+================================================================
+STRONG BAD MUTATIONS (21-25)
+================================================================
+
+21. ECHO CHAMBER SKULL — "Every sound you make reverberates. Inside your head."
+    Effect: Using any ability, firing any gun, or eating any item produces an
+    internal echo that deals 3 damage to you (psychic reverberation — bypasses
+    armor). This is a flat cost on every non-melee, non-movement action. Melee
+    attacks are silent enough to avoid the echo. This fundamentally taxes
+    ability-heavy and gun-heavy builds.
+    Equipment constraint: Cannot equip hat slot (your skull is hollow and resonant).
+    Upgrade (gets worse):
+      L1: 3 self-damage on ability/gun/item use; hat blocked.
+      L2: 5 self-damage. Additionally, the echo creates a noise pulse — enemies
+          within 4 tiles are alerted (switch to CHASING) on every ability/gun/item use.
+      L3: 7 self-damage. Alert radius 8 tiles. Additionally, if you use 3 or more
+          abilities within 10 turns, the accumulated echoes cause a "resonance
+          cascade" — you are stunned for 2 turns and take 10 damage (the echoes
+          compound into a feedback loop). The cascade counter resets after firing
+          or after 10 turns with fewer than 3 ability uses. Cap.
+    Note: The self-damage is applied AFTER the ability/gun/item resolves (you get
+    the benefit, then pay the cost). This is distinct from Hemorrhaging Constitution
+    (melee-only) and Second Skin of Thorns (melee hit self-damage).
+    Reversal: Remove echo_chamber_skull_active; restore hat slot.
+    System hooks: player_stats.echo_chamber_skull_active, abilities.py execute()
+    (self-damage post-fire), gun_system.py fire (self-damage), item_effects.py
+    use_item (self-damage), ai.py (L2 alert), engine.py (L3 cascade counter).
+
+22. SYMPATHETIC PAIN — "When they hurt, you hurt. When you hurt, they don't care."
+    Effect: Whenever you deal damage to an enemy (any source: melee, gun, ability,
+    effect), you take 15% of the damage dealt back as self-damage (rounded down,
+    minimum 1). This sympathetic link means every point of damage you output costs
+    you a fraction of your own HP. The self-damage bypasses armor (it's internal,
+    sympathetic nervous response).
+    Equipment constraint: Cannot equip neck slot (the sympathetic nerve cluster
+    grew along your cervical spine).
+    Upgrade (gets worse):
+      L1: 15% of dealt damage returns as self-damage (min 1, bypasses armor); neck blocked.
+      L2: 20% return. Additionally, DoT effects you've applied to enemies (venom,
+          bleed, ignite from your attacks) also trigger the sympathetic response —
+          each tick of YOUR DoTs on enemies deals 1 damage to you.
+      L3: 25% return. DoT sympathetic ticks increase to 2 damage. Additionally,
+          if you kill an enemy, the sympathetic backlash is doubled on the killing
+          blow (25% × 2 = 50% of the killing blow's damage returns to you). Cap.
+    Note: This is the anti-glass-cannon mutation. High-damage builds pay
+    proportionally more. Low-damage utility builds (debuff-focused) are less
+    affected. Creates real tension around burst damage.
+    Synergy (anti): Feral Instincts (high burst melee) + Sympathetic Pain = painful.
+    Synergy (pro): Web Spinner (root enemies, chip away) minimizes per-hit self-cost.
+    Reversal: Remove sympathetic_pain_active; restore neck slot.
+    System hooks: player_stats.sympathetic_pain_active, combat.py (all damage
+    dealt paths — melee, gun, ability, effect tick), effects.py (L2 DoT tick
+    self-damage check).
+
+23. ENTROPIC AURA — "Things fall apart around you. Faster than they should."
+    Effect: Your equipped weapon and sidearm degrade. Every 20 melee attacks with
+    a weapon, that weapon permanently loses 1 power (tracked per weapon as
+    weapon.degradation_count: int). Guns lose 1 accuracy per 10 shots fired.
+    These penalties are permanent on the item and persist even if unequipped and
+    re-equipped. The aura corrupts whatever you touch.
+    Equipment constraint: None (but effectively punishes all equipment).
+    Upgrade (gets worse):
+      L1: Melee weapon: -1 power per 20 attacks. Gun: -1 accuracy per 10 shots.
+      L2: Weapon: -1 power per 15 attacks. Gun: -1 accuracy per 7 shots.
+          Additionally, rings and neck items you have equipped lose 1 of their
+          stat bonus per floor (e.g., a +3 STR ring becomes +2 after 1 floor,
+          then +1, then +0 and becomes useless). Tracked per item.
+      L3: Weapon: -1 power per 10 attacks. Gun: -1 accuracy per 5 shots.
+          Ring/neck decay continues. Additionally, armor/DR items (if DR comes
+          from equipment) lose 1 DR per floor. Items at 0 in all bonuses
+          crumble to dust (removed from inventory). Cap.
+    Note: Degradation is stored on the Entity itself as degradation_power_lost: int,
+    degradation_accuracy_lost: int. Save/load must serialize these.
+    This mutation makes every weapon temporary and creates a constant search for
+    replacements. Crate-heavy and loot-heavy playstyles benefit. Synergy with
+    Subdermal Toolkit (more loot from crates to replace degraded gear).
+    Reversal: Remove entropic_aura_active flag. Degradation already applied to
+    items is NOT reversed (damage is done).
+    System hooks: player_stats.entropic_aura_active, combat.py melee attack
+    counter (check degradation threshold), gun_system.py fire counter,
+    engine.py floor_transition (L2/L3 accessory/armor decay).
+
+24. MIDAS CURSE — "Everything you touch turns to gold. Including things you need."
+    Effect: When you pick up any non-gold item, there is a 20% chance the item
+    is transmuted into a gold pile worth 50% of the item's "value" (a new field
+    on items: sell_value: int, default 10). The item is destroyed and replaced
+    with gold. This can hit ANY item: food, ammo, weapons, rings — anything
+    you pick up. Equipped items are safe (only triggers on pickup).
+    Upgrade (gets worse):
+      L1: 20% transmute chance on pickup; item → gold at 50% value.
+      L2: 30% transmute chance; gold at 40% value (less gold too). Additionally,
+          items picked up from crates have a 50% transmute chance instead of 30%
+          (the mutation is drawn to loot-source items).
+      L3: 40% transmute chance (50% from crates). Gold at 30% value. Additionally,
+          once per floor, a random item already in your inventory is transmuted
+          to gold spontaneously (the curse activates on stored items — checked at
+          the start of each floor, excludes equipped items). Cap.
+    Note: This creates constant tension around pickup priority — do you grab that
+    food item and risk losing it? The gold is real and can be spent at vending
+    machines, so it's not a total loss. But losing a critical ammo stack or a
+    ring is devastating.
+    Reversal: Remove midas_curse_active flag. Transmuted items are gone forever.
+    System hooks: player_stats.midas_curse_active, inventory_mgr.py pickup
+    (transmute roll), engine.py floor_start (L3 random inventory transmute).
+
+25. SPLIT IDENTITY — "There are two of you in there. One of them hates the other."
+    Effect: Every 30 turns, your "other self" takes over for 1 action. During that
+    action, you perform a random harmful action (chosen from: attack a random
+    adjacent entity including walls for 0 damage but triggering thorns/on-hit;
+    throw a random inventory item in a random direction; use a random ability on
+    a random target; move in a random direction). You cannot prevent this action.
+    The other self acts with YOUR stats, YOUR equipment, YOUR abilities.
+    Equipment constraint: None.
+    Upgrade (gets worse):
+      L1: Every 30 turns: 1 random harmful action.
+      L2: Every 25 turns: 1 random action. Additionally, the other self's actions
+          deal +50% damage if they happen to hit an enemy (the other self is
+          aggressive — this is NOT a benefit, because you don't control the target
+          and it might hit a faction-friendly NPC or waste an ability charge).
+      L3: Every 20 turns: 1 random action. +75% damage. Additionally, the other
+          self occasionally speaks — 25% chance per takeover to broadcast a
+          hostile message to all enemies on the floor ("COME AND GET ME"), alerting
+          every enemy to CHASING state. Cap.
+    Note: The random action selection: 25% melee random adjacent, 25% throw
+    random item, 25% use random ability (consuming a charge), 25% random move.
+    The "throw item" picks any item from inventory and drops it 3 tiles in a
+    random direction (item is retrievable from the floor but you have to go get it).
+    This is distinct from Dissociative Episodes (random MOVEMENT for multiple turns).
+    Split Identity is a single disruptive ACTION every N turns.
+    Reversal: Remove split_identity_active flag.
+    System hooks: player_stats.split_identity_active, engine.py per-turn
+    (identity counter, random action dispatch), combat.py (random melee target),
+    abilities.py (random ability fire), inventory_mgr.py (random item throw).
+
+
+================================================================
+DESIGN NOTES — SYNERGIES AND ANTI-SYNERGIES
+================================================================
+
+NEW SYNERGY HIGHLIGHTS:
+
+  Slime Trail + Pheromone Gland:
+    Pull enemies toward you → they walk through your slime → slip and get toxed.
+    Classic lure-and-trap combo.
+
+  Web Spinner + Chameleon Skin:
+    Place webs, stand still to activate camo, wait for enemies to walk into webs,
+    then ambush-strike the rooted target for +100% damage at L3. Patient assassin build.
+
+  Flesh Puppeteer + Split Consciousness:
+    Puppet an enemy while your second mind auto-attacks adjacent targets.
+    Multi-front combat with puppeted ally + dual-action player.
+
+  Mimic Flesh + Leeching Strike:
+    Absorb enemy special attacks, then apply those debuffs to enemies you hit,
+    which creates the debuff conditions for Leeching Strike's HP leech.
+
+  Adaptive Metabolism + Reactive Skin:
+    Reactive Skin makes hazards worse, but Adaptive Metabolism means repeated
+    exposure to the same debuff builds immunity. Extended fights get safer.
+
+  Echolocation Pulse + Eyeless:
+    Already have sonar from Eyeless; pulse adds temporary full-floor awareness
+    plus the disorient stun. Information overload in the best way.
+
+NEW ANTI-SYNERGY WARNINGS:
+
+  Chameleon Skin + Lopsided Growth:
+    Lopsided Growth forces movement after melee attacks (stumble), which breaks
+    camouflage. Ambush playstyle is constantly disrupted.
+
+  Sympathetic Pain + Feral Instincts:
+    Feral Rush grants massive melee damage, but every point dealt costs you 15-25%
+    back. Going berserk might kill you faster than the enemies.
+
+  Entropic Aura + any equipment-dependent build:
+    All your gear degrades. You're constantly replacing weapons. Builds that rely
+    on a single powerful weapon (like a high-power gun) are devastated.
+
+  Echo Chamber Skull + ability-spam builds:
+    Nuclear Research (rad-spell tree) or any multi-ability build takes 3-7
+    self-damage per ability use. Combined with Degenerating Nervous System's
+    cooldown penalty, ability builds face both higher cooldowns AND self-damage.
+
+  Midas Curse + Iron Gut:
+    Iron Gut benefits from consuming drugs. Midas Curse might transmute those
+    drugs into gold before you can use them. Direct resource conflict.
+
+
+================================================================
+BALANCE NOTES
+================================================================
+
+Weak Good power level check:
+  - Slime Trail: minor area control, doesn't deal damage directly. Weak-appropriate.
+  - Echolocation Pulse: information + light stun. Comparable to Neural Static in
+    impact. Weak-appropriate.
+  - Sticky Fingers: loot quality — no combat impact. Weak-appropriate.
+  - Chameleon Skin: powerful ambush but requires standing still (vulnerability).
+    The +50-100% damage is strong but conditional. At edge of weak/strong —
+    kept weak because it requires specific playstyle commitment to activate.
+  - Probability Flux: +5-15% to rolls is subtle. The L3 death prevention is
+    unreliable (25%). Weak-appropriate.
+
+Weak Bad pain level check:
+  - Volatile Anatomy: -2 to a random stat per floor is moderate. Comparable to
+    Vestigial Limb (-1 power) but random and temporary. Weak-appropriate.
+  - Resonant Bones: conditional on being hit. If you avoid damage, it never fires.
+    Weak-appropriate (only punishes mistakes).
+  - Magnetic Blood: gun accuracy boost against you is niche (gun enemies aren't
+    on every floor). Speed penalty from inventory is constant but manageable.
+    Weak-appropriate.
+  - Neural Leakage: only punishes ability spam. Players with one ability barely
+    notice. Weak-appropriate.
+  - Unstable Mass: conditional on 10+ damage hits. Early game, rare. Late game,
+    more common. Weak-appropriate (scales naturally with game difficulty).
+
+Strong Good power level check:
+  - Flesh Puppeteer: build-defining (blocks weapon slot). Very powerful control.
+    Comparable to Telekinetic Lash in impact. Strong-appropriate.
+  - Mimic Flesh: versatile combat mutation. Comparable to Bone Spurs in complexity.
+    Strong-appropriate.
+  - Split Consciousness: extra action per turn is EXTREMELY powerful. 10-15 turns
+    of dual-action per floor. Balanced by hat slot cost and uncontrollable second
+    action. Strong-appropriate (possibly best strong good — monitor).
+  - Web Spinner: battlefield control. 15 traps per floor at L3 is a lot. Balanced
+    by requiring setup time. Strong-appropriate.
+  - Adaptive Metabolism: defensive. Gets better over long fights. Blocks feet slot.
+    Comparable to Turtle Neck. Strong-appropriate.
+
+Strong Bad pain level check:
+  - Echo Chamber Skull: 3-7 self-damage per ability/gun/item is harsh for
+    ability-heavy builds. Pure melee builds barely care. Strong-appropriate
+    (build-warping).
+  - Sympathetic Pain: 15-25% damage return is severe. At 20 damage dealt, that's
+    3-5 HP back per attack. Over a floor of 50 attacks: 150-250 self-damage.
+    Strong-appropriate (run-altering).
+  - Entropic Aura: slow equipment degradation. Over multiple floors, weapons become
+    useless. Strong-appropriate (creates resource pressure).
+  - Midas Curse: 20-40% item loss on pickup is devastating for item-dependent
+    builds. Strong-appropriate.
+  - Split Identity: 1 random harmful action per 20-30 turns. Disruptive but not
+    lethal directly. Strong-appropriate (comparable to Dissociative Episodes).

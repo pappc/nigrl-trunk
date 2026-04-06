@@ -1,0 +1,37 @@
+BODY REPLACEMENT MUTATIONS — SUMMARY
+======================================
+20 mutations that grow biological body parts replacing equipment. Your body IS
+the gear. Inspired by Qud's slot-tradeoff mutations and CDDA's mutation chains.
+
+WEAK GOOD (31-35) — minor biological upgrades:
+  31. Barbed Knuckles — bone hooks replace weapon, 25-45% snare on hit
+  32. Calcified Shins — bone legs replace feet, +3-7 bonus kick on every melee
+  33. Membrane Cowl — bio-hood replaces hat, +15-35% tox resist + gun dmg reduction
+  34. Grasping Tendrils — palm tendrils replace 3 ring slots, +1 melee reach (2-tile line)
+  35. Spore Sac — shoulder growth replaces outfit, spore cloud on taking damage
+
+WEAK BAD (31-35) — body parts that betray you:
+  31. Fused Fingers — fingers merge, lose ring slots, clumsy grip, drop items
+  32. Dorsal Fin — useless spine fin blocks outfit, behind-attacks hurt more
+  33. Calcified Joints — rigid knees, no diagonal flee, progressive stiffness
+  34. Weeping Sores — oozing hands, weapon drops, ring penalty, self-damage on melee
+  35. Blistered Scalp — pressurized blisters reduce hat, pop on hit (self-dmg + tox splash)
+
+STRONG GOOD (31-35) — body parts that define builds:
+  31. Chitin Gauntlets — chitinous arms replace weapon + 2 rings, dual-strike 200%, +7 DR, execute
+  32. Tendril Spine — 6 tendrils replace outfit, auto-grapple adjacent enemies, constriction
+  33. Compound Legs — 4 legs replace feet, +45 speed, trample through enemies, Bounding Leap
+  34. Flesh Holster — torso cavity replaces outfit, free gun shot every turn, L3 = 2 guns
+  35. Crown of Thorns — bone spikes replace hat, +6 DR, thorns, crit negation, Skull Spike
+
+STRONG BAD (31-35) — body horror that ruins everything:
+  31. Tumorous Mass — living neck tumor feeds on you, grows over time, loses max HP per size
+  32. Parasitic Arm — hostile third arm blocks outfit, throws items, punches you, disarms you
+  33. Crystalline Bones — glass skeleton weakens ALL gear -25-50%, shatters equipped items on big hits
+  34. Symbiotic Skin — living skin blocks outfit+hat, disrupts rings, absorbs your healing
+  35. Bone Cage Ribs — external rib cage blocks outfit, -20-40% gun accuracy, -10-20% energy gain
+
+BODY COVERAGE: head(7), neck(2), torso(9), arms(9), legs(6), fingers(6), sidearm(5), spine(3), skeleton(1)
+
+FULL MUTANT FANTASY: Crown+Jack+Spine+Gauntlets+Holster+Legs+Cups = 13+ DR, 28+ melee,
+grapple everything, free gun shot, +45 speed, trample, thorns — never need equipment again.

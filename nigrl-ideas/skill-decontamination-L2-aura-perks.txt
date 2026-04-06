@@ -1,0 +1,637 @@
+DECONTAMINATION L2 — AURA PERK OPTIONS (replaces Emission)
+=============================================================
+NIGRL Design Document
+Generated: 2026-04-02
+
+PURPOSE
+-------
+Replace the current L2 perk "Emission" (set visible enemy rad to player rad, 1/floor) with a
+toggleable persistent aura perk. The aura must fit the Decontamination "paladin of purification"
+fantasy, interact with the radiation system in a meaningful way, and create interesting tactical
+decisions around when to keep it active. Each option includes a small always-on passive bonus
+that introduces a genuinely new mechanical interaction.
+
+REFERENCE POINTS
+----------------
+- L1 Radiant: +30% rad resist, +2 TOL, +2 STR (strong stat foundation)
+- L3 Consecrate: 2/floor zone ability, 30t CD, 5x3 rad tiles, +15% rad resist
+- L2 must sit between these in power. Not as passive-dominant as L1, not as situational as L3.
+- Bastion (WP L2) is the only existing toggle. Do NOT replicate its cost model (charge + tox cost
+  to toggle ON) or its effect type (flat damage taken/dealt multipliers).
+- Unstable (Mutation L2) already does on-hit irradiation. Do not replicate.
+- No passive HP regen (banned per design rules).
+- Enemy rad tick damage formula: rad // 50 damage/tick, decay 5 rad/tick.
+
+TARGET DESIGN FEEL
+------------------
+Aura: an ambient field around the player with a per-tick presence. Enemies feel the paladin
+approaching. Toggle decisions should involve reading the room — is the cost worth it right now?
+Passive bonus: a small mechanical "always-on" that rewards Decontamination playstyle even
+without the aura active.
+
+
+===========================================================================
+OPTION 1: "HALF-LIFE FIELD"
+Concept: Aura that accelerates enemy radiation decay — but channels that decay as bonus damage.
+===========================================================================
+
+NAME: Half-Life Field
+ONE-LINE: Toggle aura that doubles irradiated enemy rad decay, converting half the stripped rad
+into true damage.
+
+AURA EFFECT (while ON):
+  - Radius: 4 tiles (Chebyshev / square radius to match existing FOV patterns)
+  - Per-tick: Each living enemy within 4 tiles that has radiation > 0 loses an additional 5 rad
+    beyond normal decay (total 10 rad decay instead of 5). Half the additional 5 (i.e., 2-3 dmg
+    via round(additional_stripped / 2)) is applied as true damage (bypasses defense).
+  - Note: enemies at 0 rad are completely unaffected. Aura has zero cost against non-irradiated
+    rooms.
+  - True damage is NOT blocked by armor or swagger defence. It DOES respect enemy death checks.
+  - The player does NOT gain Decontamination XP from this forced decay (only from their own rad
+    removed/resisted). No XP gaming.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: free to activate, but drains 3 rad/tick from the player (pierce_resistance=True,
+    so no rad resist applies to your own cost). If player rad reaches 0 while the aura is ON, the
+    aura auto-shuts off with a message.
+  - Toggle OFF: free. Drain stops immediately.
+  - No floor charges. Can be toggled freely at any time.
+  - Decision logic: want the aura? You must carry rad on your body as fuel. The Skywalker OG
+    strain cycle (smoke → high rad → Force Sensitive → remove rad for STR) gets a natural third
+    axis: use the aura during the "high rad" phase before purging.
+
+SMALL PASSIVE BONUS (always-on, regardless of toggle state):
+  - "Rad Reading": When an enemy in your FOV hits 50, 100, 200 rad thresholds, a brief
+    message notification appears: "[Enemy] is critically irradiated!" This is a UI/information
+    benefit. It lets the Decontamination player track when enemies are about to die from rad ticks
+    without needing to examine each one. No damage component, purely informational. Implemented as
+    a flag check in the tick loop comparing before/after entity.radiation thresholds.
+  - Additionally: +5% to Decontamination XP gain rate (implemented via briskness-style multiplier
+    on gain_potential_exp calls for this skill only — a new engine.decon_xp_mult float field, or
+    inline the check in combat.py's gain_potential_exp calls).
+
+WHY THIS IS NOVEL:
+  - Introduces "rad decay acceleration" as a new damage vector — a per-tick AoE that scales with
+    how irradiated enemies already are, not with the player's stats. No current effect does this.
+  - Creates a "ride the rad wave" decision: let enemies absorb radiation (from any source), then
+    toggle on the field to accelerate their death while it costs you rad fuel.
+  - Passive threshold notifications are a pure QoL mechanic with zero equivalent in the game.
+
+SYNERGY NOTES:
+  - Radiant (L1): +30% rad resist means the 3 rad/tick self-cost is 2.1 after resistance. So L1
+    makes the aura cheaper to run — rewards investment.
+  - Consecrate (L3): Place a rad zone, enemies soak 10 rad/turn, then Half-Life Field strips it
+    faster. Strong combo — enemies die to rad faster while you stand in the zone's swagger bonus.
+  - Force Sensitive (Skywalker OG): Cycle rad up for STR, use aura during the "burning it down"
+    phase by letting enemies stand in rad while you have rad to spend as fuel.
+  - Emission (displaced): The displaced ability set all visible enemy rad to yours. Half-Life Field
+    no longer needs that because the aura itself feeds off accumulated enemy rad.
+
+IMPLEMENTATION NOTES:
+  - New effect class: HalfLifeFieldEffect (id="half_life_field", floor_duration=True)
+  - tick() method: iterate engine.dungeon.get_monsters(), check distance <= 4, check
+    entity.radiation > 0, call remove_radiation(engine, entity, 5) manually (NOT via the public
+    function since we don't want XP), then deal true damage via a direct entity.hp -= damage
+    check + death check. Then drain 3 from engine.player.radiation directly (not via
+    add/remove_radiation to avoid XP noise). Check if player.radiation <= 0: auto-expire.
+  - Toggle in ability execute: check for existing half_life_field effect → remove it (toggle OFF),
+    else apply_effect(player, engine, "half_life_field").
+  - AbilityDef: charge_type=ChargeType.INFINITE (no charge limit), target_type=TargetType.SELF,
+    tags={"radiation", "aura", "toggle", "active"}.
+  - Passive bonus XP boost: add a check in combat.py remove_radiation() for the Decontamination
+    XP gain line: multiply by 1.05 if player has Decon L2+.
+  - Threshold notification: in the monster tick loop in engine.py (after tick_all_effects for
+    monsters), compare monster.radiation before/after and fire a message if it crossed 50/100/200.
+
+PERK TEXT (for skills.py):
+  "Toggle aura (free ON/OFF, costs 3 rad/tick while active): enemies within 4 tiles lose double
+  the normal radiation each turn; each extra rad stripped deals 1 true damage. Auto-shuts off
+  if you hit 0 rad. +5% Decontamination XP gain."
+
+BALANCE:
+  - Against 1 enemy at 100 rad: 2-3 true dmg/tick extra. Modest.
+  - Against 3 enemies at 150 rad: 6-9 true dmg/tick. Noticeable but not dominant (they're
+    already taking rad//50 = 3 dmg/tick each from base rad).
+  - Player cost: 3 rad/tick. At 30% resist (Radiant), effective 2.1/tick. A player at 150 rad
+    can sustain ~50 turns of aura. That's roughly one combat encounter.
+  - The aura does NOTHING in rooms with zero rad enemies, keeping it zero-risk to toggle off.
+
+
+===========================================================================
+OPTION 2: "PURIFICATION CORONA"
+Concept: Aura that heals the player for rad resisted — but only while actively taking rad hits.
+===========================================================================
+
+NAME: Purification Corona
+ONE-LINE: Toggleable aura that converts radiation you resist into temporary dodge charges, plus
+a passive that lets you "bank" a small amount of rad resistance overhead as a damage shield.
+
+AURA EFFECT (while ON):
+  - Radius: self (affects only the player, not enemies)
+  - Mechanic: A new hook point is added: whenever the player would gain radiation and resists any
+    amount (i.e., resisted > 0 in add_radiation), the resisted amount is compared. Every 10 rad
+    resisted while the aura is ON generates 1 "purification charge" (stored on the effect, capped
+    at 5 stacks). On the next attack that would hit the player, 1 stack is consumed to auto-dodge
+    that hit entirely (dodge, message "[Corona] Purified!", charge removed).
+  - This is a purely defensive aura: it converts rad resistance into emergency dodge charges.
+  - Unlike flat dodge chance (which applies to all attacks), Corona dodge charges are spent
+    sequentially — you can bank up to 5 attacks to auto-dodge, but only if you've been soaking
+    rad hits to earn them.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: costs 15 tox (pierce_resistance=True). No per-tick cost.
+  - Toggle OFF: free.
+  - No floor charges. Toggle freely, but each activation costs 15 tox.
+  - Decision logic: in tox-heavy zones this is a real sacrifice. In Meth Lab where tox builds
+    naturally (Chemical Warfare, Swamp Gas strain), the cost is almost built-in. The player must
+    weigh: "am I in a rad-heavy area where I'll earn charges quickly? Or is the 15 tox cost too
+    steep for zero rad gain?"
+
+SMALL PASSIVE BONUS (always-on):
+  - "Radiation Bloom": When the player is hit by a melee attack while their radiation is >= 100,
+    there is a 25% chance the attacking enemy gains 10 rad. This is a passive contact irradiation
+    effect that triggers off being hit, not off the player attacking. It creates a minor "don't
+    touch me" aura even without the toggle active.
+  - Implementation: a hook in combat.py's player_take_damage or the existing
+    on_player_melee_hit framework — check player.radiation >= 100, roll 25%, call
+    add_radiation(engine, attacker, 10).
+  - NOTE: this is thematically distinct from Unstable (which procs on the player's own attack).
+    Bloom procs when the player IS attacked. Different trigger, different gameplay.
+
+WHY THIS IS NOVEL:
+  - "Banked dodge charges earned by absorbing radiation" is a completely new mechanic. Dodge
+    exists (flat % chance), but earning it through a resource loop does not.
+  - The Radiation Bloom passive is the inverse of Unstable: reactive contamination (you touch me,
+    you get rad), not proactive (I hit you, you get rad).
+  - Toggle cost (tox) creates cross-system tension with White Power / Chemical Warfare builds.
+
+SYNERGY NOTES:
+  - Radiant (L1): +30% rad resist means MORE rad is resisted per hit, meaning more charges
+    generated per rad attack. High rad resistance amplifies the aura's charge generation.
+  - Force Sensitive: keeping rad up to 100+ for Bloom to proc also fuels Force Sensitive STR
+    stacks. Twin incentives for rad-positive builds.
+  - White Power Bastion: Bastion already costs tox to toggle. Running both means tox expenditure
+    is significant — but both skills are on different characters by design. Low overlap.
+  - Consecrate (L3): Stand in your own rad zone → earn Corona charges from self-irradiation.
+    Each 10 rad you absorb from the zone = 1 dodge charge. Excellent L2/L3 synergy.
+
+IMPLEMENTATION NOTES:
+  - New effect class: PurificationCoronaEffect (id="purification_corona", floor_duration=True)
+    Fields: charges: int = 0 (capped at 5)
+  - Hook: modify_incoming_damage() can be used to intercept attacks. If charges > 0, consume 1,
+    return 0 (full dodge), append dodge message. This intercepts melee AND gun hits.
+  - Charge generation: add a check in combat.py add_radiation() — after computing resisted —
+    for the "purification_corona" effect on the player. If found and resisted > 0:
+    effect.charges = min(5, effect.charges + resisted // 10)
+  - Toggle ability execute: check existing corona effect → remove (OFF) vs apply + add 15 tox.
+  - Radiation Bloom: add check in the player-is-hit path in combat.py. Not in effect system —
+    it's a passive that's always-on when unlocked (check Decon level >= 2 inline).
+  - AbilityDef: charge_type=ChargeType.INFINITE, target_type=TargetType.SELF.
+  - Display name: "Purification Corona (X charges)" where X is current stack count.
+
+PERK TEXT:
+  "Toggle aura (costs 15 tox to activate, free to deactivate): every 10 rad you resist earns
+  1 dodge charge (max 5); charges are consumed to auto-dodge incoming hits. Passive: when hit
+  at 100+ rad, 25% chance to inflict 10 rad on the attacker."
+
+BALANCE:
+  - Dodge charge rate: at +30% rad resist (Radiant), a 30-rad attack gives 9 resisted = 0
+    charges; a 50-rad attack gives 15 resisted = 1 charge. So against moderate rad sources,
+    it takes 2-3 rad attacks to earn 1 dodge charge. Not trivially spammable.
+  - 5-charge cap prevents infinite banking. Each charge is one free hit avoidance.
+  - 15 tox cost: at Meth Lab tox pressures this is meaningful but manageable. Keeps toggle
+    non-trivial.
+
+
+===========================================================================
+OPTION 3: "SANCTIFIED GROUND"
+Concept: Aura that imprints low-level radiation onto tiles the player walks over, creating
+a persistent trail of consecrated earth. Standing enemies on these tiles take minor rad damage
+per turn and can't naturally decay rad while on them.
+===========================================================================
+
+NAME: Sanctified Ground
+ONE-LINE: Toggle aura that leaves consecrated rad tiles as you walk — enemies on your trail can't
+decay radiation and take extra rad damage per turn.
+
+AURA EFFECT (while ON):
+  - Each tile the player steps off of (i.e., each tile the player previously occupied) becomes a
+    "sanctified tile" for 8 turns. This uses the existing dungeon.rad_tiles dict
+    (dungeon.rad_tiles[(x,y)] = (8, "sanctified")).
+  - Sanctified tiles are rendered as '.' in a faint green-yellow (existing rad tile color), with
+    a distinct mode string separating them from Consecrate zones.
+  - Effect on enemies standing on a sanctified tile each turn: +3 rad (bypasses enemy rad
+    resistance — minor amount, consecrated punishment), and their rad CANNOT naturally decay
+    that turn (their 5 rad/tick normal decay is suppressed while on the tile).
+  - The trail extends naturally as the player moves, creating a geometric pattern based on the
+    player's path. Standing still doesn't create new tiles. Moving through a corridor creates a
+    glowing trail.
+  - Tiles expire after 8 turns, so the player can "kite" enemies through fresh trail.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: 5 rad/turn player drain (pierce_resistance=True). If player rad hits 0, aura
+    auto-shuts off.
+  - Toggle OFF: free. Existing tiles remain until they naturally expire (8t), but no new tiles
+    are placed.
+  - Decision logic: toggling ON only matters when you're moving. Standing still pays the 5 rad/t
+    cost for zero tile generation. Reward is tied to active movement — paladin on the march.
+    Also: you might want to toggle OFF when retreating so the enemy can't follow your trail and
+    de-rad themselves by stepping off.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Trail Sense": The player always knows how many sanctified tiles are currently active in the
+    dungeon (shown in a UI element or message on toggle). Additionally, the player takes 10%
+    less damage from any enemy currently standing on a rad tile (sanctified or Consecrate-made).
+    Mechanically: in combat.py player_take_damage, check if attacker is standing on a rad_tile —
+    if yes, reduce incoming by 10%. Thematically: irradiated enemies are weaker, their attacks
+    less focused.
+
+WHY THIS IS NOVEL:
+  - Trail-placement from movement is a completely new mechanic in NIGRL. No other skill creates
+    persistent environmental tiles based on player movement.
+  - The "can't decay" suppression on sanctified tiles is a new rad-manipulation mechanic — the
+    enemy's natural rad burn is paused, locking them into rad damage longer.
+  - Synergizes with kiting, corridors, and room chokepoints in a way no other effect does.
+  - Creates visible tactical maps: the player leaves a glowing trail that enemies hesitate to
+    pursue into (mechanically they still pursue, but they suffer for it).
+
+SYNERGY NOTES:
+  - Consecrate (L3): Consecrate lays large 5x3 zones. Sanctified Ground lays narrow trail tiles.
+    Combined, the player has both area denial (Consecrate) and path-based harassment (trail).
+    Crucially the tile types are DIFFERENT ("consecrate" vs "sanctified") so their rules are
+    independent. L2 trail doesn't overlap mechanically with L3 zone.
+  - Radiant (L1): +30% rad resist means the 5 rad/tick self-cost costs effectively 3.5/tick.
+    Sustained movement through corridors becomes viable with high resist.
+  - Force Sensitive: being at high rad (to fuel the aura) while also purging rad for STR creates
+    the classic Decon cycle. Trail tiles slow enemy rad decay, letting you purge your own rad
+    for STR while enemies are stuck in their rad.
+  - Skywalker OG: enemies irradiated by trail take longer to de-rad, giving more windows for the
+    player to smoke Skywalker and trigger Force Sensitive before enemies self-clean.
+
+IMPLEMENTATION NOTES:
+  - Toggle execute: apply/remove a SanctifiedAuraEffect (id="sanctified_aura", floor_duration=True)
+  - In SanctifiedAuraEffect.tick(entity, engine): check player.radiation <= 0 → auto-expire.
+    Drain 5 from player.radiation directly (not via remove_radiation to avoid XP/STR stacking).
+    No tile placement in tick — placement happens on movement.
+  - Tile placement: in engine.py handle_move() (or equivalent), AFTER the player moves but BEFORE
+    the energy loop, check if the sanctified_aura effect is active. If yes, add the OLD position
+    (x_prev, y_prev) to dungeon.rad_tiles[(x_prev, y_prev)] = (8, "sanctified") only if that
+    tile is a floor tile and not already in rad_tiles.
+  - Per-turn sanctified tile effect: in engine.py _run_energy_loop monster processing, for each
+    monster acting, check if its position is in dungeon.rad_tiles with mode "sanctified":
+      - add_radiation(engine, monster, 3, pierce_resistance=True)
+      - Suppress natural rad decay for that monster this tick (flag or inline skip).
+    Natural rad decay for monsters: currently happens in how? Check effects.py — it may be
+    in engine.py monster tick. The suppression would be: if (monster.x, monster.y) in
+    dungeon.rad_tiles, skip the 5 rad decay step for that monster. Needs a boolean check around
+    the existing decay.
+  - Passive "10% less dmg from rad-tile enemies": in combat.py, player_take_damage or
+    melee_attack function, check if engine.dungeon.rad_tiles.get((attacker.x, attacker.y))
+    and Decon level >= 2 → apply 10% reduction (max(1, int(damage * 0.90))).
+  - AbilityDef: charge_type=ChargeType.INFINITE, target_type=TargetType.SELF, tags={"aura","toggle","radiation","active"}.
+
+PERK TEXT:
+  "Toggle (free ON/OFF, costs 5 rad/tick): each tile you step off becomes sanctified (8 turns)
+  — enemies on sanctified tiles can't decay radiation and gain 3 rad/turn. Passive: take 10%
+  less damage from enemies standing on any rad tile."
+
+BALANCE:
+  - 3 rad/turn per tile is minor per enemy, but the no-decay rider is meaningful: an enemy at
+    100 rad normally burns off 5/tick (takes ~20 ticks to clear). Sanctified traps them at 100+
+    for those 8 turns, guaranteeing the rad//50 = 2 damage/tick fires consistently.
+  - Trail density depends on player movement patterns. In open rooms: sparse. In corridors: dense.
+    Rewards tactical routing.
+  - Passive 10% reduction is small but always relevant in Meth Lab rad-heavy encounters.
+
+
+===========================================================================
+OPTION 4: "RADIANT JUDGMENT"
+Concept: Aura that converts the player's excess rad resistance (beyond what they're actually
+using) into bonus outgoing melee damage. Decontamination as a strength-multiplier via purity.
+===========================================================================
+
+NAME: Radiant Judgment
+ONE-LINE: Toggle aura: your unused rad resistance converts to a damage bonus; enemies that die
+while you have the aura active cannot receive natural radiation decay on their corpse turn.
+
+AURA EFFECT (while ON):
+  - Each tick while active: bonus melee damage = floor(effective_rad_resistance / 10).
+    At 30% resist (Radiant): +3 melee damage.
+    At 45% resist (Radiant + items): +4-5 melee damage.
+    At 60% resist: +6 melee damage.
+    Implemented by setting player_stats.melee_damage_bonus += value each tick in apply() and
+    tracking the delta for clean removal in expire().
+  - Additionally: when an enemy dies while the aura is active, that enemy's corpse is "judged"
+    — it emits a one-time pulse of 15 rad to all enemies within 2 tiles of the death location.
+    This is a death-triggered aoe irradiation. No damage to the player.
+  - The death pulse is thematic: the judged fall and their corruption spreads.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: each tick the aura is active, the player gains 5 rad (pierce_resistance=True —
+    purity comes at a cost, you absorb the corruption you're redirecting). If player rad hits 500
+    (cap), the aura auto-shuts off with a message: "Overwhelmed! Radiant Judgment extinguished."
+  - Toggle OFF: free. The rad gain stops immediately. The melee bonus is removed.
+  - Decision logic: aura generates rad as a COST. This creates a ceiling: in long fights, the
+    player will be building toward the Skywalker OG purge window or approaching mutation territory.
+    Toggle it on in a fight, toggle it off before mutations trigger. Or don't and embrace chaos.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Stainless": Once per floor, when the player would take enough damage to bring them below
+    25% HP in a single hit, that hit is reduced to exactly leave them at 25% HP instead (minimum
+    1 HP above 25% floor). This is a death-prevention mercy mechanic that fires at most once.
+    Thematically: the paladin's purity shields them from a killing blow.
+    Implementation: engine.player_stats.judgment_stainless_used: bool (reset on floor change).
+    In combat.py player_take_damage: check if not stainless_used, if damage would drop HP below
+    25%, clamp damage to (player.hp - max(1, player.max_hp//4) - 1), set stainless_used = True.
+    Message: "Stainless! A blow that would have felled you was turned aside."
+
+WHY THIS IS NOVEL:
+  - "Rad resistance as a stat that converts to offense" is a new design axis. Currently rad
+    resistance is purely defensive. This perk makes stacking rad resistance actively good for
+    melee damage, creating an incentive to pursue rad-resistant gear/food that normally has no
+    offensive value.
+  - Death-pulse irradiation is distinct from Emission (player-initiated, all visible enemies)
+    and from Unstable (on-hit irradiation). Death-pulse is passive and spreads from the fallen.
+  - "Stainless" one-time death mitigation is new — no current perk or effect does this. It's
+    intentionally once-per-floor to avoid abusability (no permanent death avoidance loop).
+
+SYNERGY NOTES:
+  - Radiant (L1): +30% rad resist = +3 melee damage base from the aura. Investing in rad resist
+    items and food directly amplifies this perk's offense.
+  - Consecrate (L3): Enemies in Consecrate zones take 10 rad/turn. When they die (faster),
+    the death pulse fires to nearby enemies. Chain-irradiation through densely packed rooms.
+  - Force Sensitive / Skywalker OG: Aura charges your own rad (5/tick). Smoke Skywalker right
+    after a fight to cash in the accumulated rad for STR stacks. The timing window is clear.
+  - White Power Bastion: Bastion reduces damage dealt — Radiant Judgment increases melee damage.
+    They're thematically opposed and shouldn't be run simultaneously (WP and Decon share the
+    Meth Lab fantasy but are different build directions).
+
+IMPLEMENTATION NOTES:
+  - New effect class: RadiantJudgmentEffect (id="radiant_judgment", floor_duration=True)
+    Fields: active_melee_bonus: int = 0
+  - apply(): compute bonus = player_stats.total_rad_resistance // 10, set active_melee_bonus,
+    player_stats.melee_damage_bonus += active_melee_bonus
+  - tick(): re-compute bonus each turn (in case resist changes), adjust melee_damage_bonus by
+    the delta. Then add_radiation(engine, entity, 5, pierce_resistance=True). Check if
+    entity.radiation >= 500: set self.expired = True (auto-shutoff).
+  - expire(): player_stats.melee_damage_bonus -= active_melee_bonus. Clamp to 0 if needed.
+  - Death pulse: hook into the entity_died event OR check inside combat.py death handling.
+    When an enemy dies and player has radiant_judgment active: for each monster within 2 tiles
+    of dead entity's (x, y), add_radiation(engine, neighbor, 15).
+  - Stainless passive: new field engine.player_stats.judgment_stainless_used (bool). Reset in
+    engine floor transition. Check in combat.py melee/gun damage path.
+  - AbilityDef: charge_type=ChargeType.INFINITE, target_type=TargetType.SELF.
+
+PERK TEXT:
+  "Toggle (free ON/OFF, gains 5 rad/tick while active): your rad resistance becomes melee power
+  (+1 damage per 10% resist). Enemies that die while active pulse 15 rad to nearby foes.
+  Passive: once per floor, a hit that would drop you below 25% HP is reduced to spare you."
+
+BALANCE:
+  - At Radiant L1 (30% resist): +3 melee dmg. Solid for L2 but not overwhelming.
+  - At high resist (60%): +6 melee dmg. Meaningful in Meth Lab but still capped by the
+    rad accumulation cost — can't run this forever.
+  - 5 rad/tick cost: from 0 to 500 = 100 turns of aura max (without resist to reduce). At 30%
+    resist the player's own rad gain from combat is offset somewhat. Long fights are risky.
+  - Death pulse 15 rad to 2-tile radius: against small clusters, good chain irradiation.
+    Against scattered enemies, negligible. Situational power spike.
+
+
+===========================================================================
+OPTION 5: "IRONSOUL AURA"
+Concept: Aura that makes the player temporarily immune to SMALL rad hits by venting them as
+an outward pulse — but deliberately allows large rad hits through. Paladin as a filter.
+===========================================================================
+
+NAME: Ironsoul Aura
+ONE-LINE: Toggle aura that absorbs and vents small radiation hits (under 20 rad) as outward
+pulses to nearby enemies; large rad hits still pass through to the player normally.
+
+AURA EFFECT (while ON):
+  - Radius: 3 tiles from player
+  - When the player would receive 1-19 rad from any source: instead, absorb it (player gains 0
+    rad) and immediately vent it as a 3-tile radius pulse — each enemy in range gains half the
+    absorbed amount as rad (round down, minimum 1). This proc fires through the modify_incoming
+    RAD hook (a new "modify_incoming_rad" hook, or inline check in add_radiation()).
+  - When the player would receive 20+ rad: the full amount passes through normally. The aura
+    does NOT vent large hits. Paladin of purity, not of invulnerability.
+  - This creates a threshold split: small rad ticks (from fire, lingering zones, weak enemies)
+    get vented outward. Big hits (strains, special attacks, Consecrate) pass through.
+  - No per-tick cost. No rad drain. The cost is the absence of a stat bonus while active.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: no charge cost. No per-tick resource cost.
+  - BUT: while active, the player's Decontamination XP gain from "radiation resisted" is halved.
+    Mechanically: the aura "resists" small rad hits fully, but since it vents them, the game
+    doesn't count this as normal resistance for XP purposes. This is enforced by a flag check
+    in add_radiation() — if the vent fires, don't grant Decon XP for that resist.
+  - Toggle OFF: free.
+  - Decision logic: the cost is opportunity cost. Running Ironsoul sacrifices Decon XP farming
+    efficiency (small rad resist XP) in exchange for converting enemy actions into self-harm.
+    In XP-rich rad environments (Meth Lab), the trade matters. In low-rad areas, Ironsoul is
+    free value.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Contamination Sense": The player can see the radiation value of any enemy within FOV
+    as an added display element (e.g., when examining or when rad > 50, a glyph appears above
+    the enemy similar to the existing rad glyph in sdl_overlay.py). Mechanically: in render.py,
+    for each visible monster with radiation > 50, display the existing rad status glyph.
+    Currently the rad glyph only appears on the player. This extends it to enemies.
+    Additionally: enemies with radiation >= 100 have their name displayed in green in the
+    bestiary/look-at UI rather than their default color.
+  - This is a visibility/information perk. Zero mechanical power. Pure tactical awareness.
+
+WHY THIS IS NOVEL:
+  - "Absorb small rad hits and vent them outward" is a reflection/redirect mechanic. NIGRL has
+    no existing reflect or redirect on damage or debuffs.
+  - The threshold split (small vented, large passes) forces players to understand the rad values
+    of incoming sources — you want to be in positions where small ticks dominate (fire, zones)
+    rather than large spikes (strain bad rolls, special attacks).
+  - Contamination Sense extending the rad glyph to enemies is a QoL/tactical info improvement
+    that fits the Decon "scan and purify" fantasy perfectly.
+  - No resource cost for the toggle: the trade-off is opportunity cost (XP) rather than a
+    resource bar, a design pattern not used by any other toggle.
+
+SYNERGY NOTES:
+  - Consecrate (L3): Player places a rad zone, stands in it, absorbs 10 rad/turn. But 10 rad
+    exceeds the 20-rad threshold, so Ironsoul does NOT vent Consecrate zone ticks. This
+    prevents the aura from making L3 trivial. Intentional non-synergy.
+  - Radiant (L1): +30% rad resist already reduces how much rad gets through. Ironsoul handles
+    the "small residuals" that slip past resistance. Together they form a layered filter.
+  - Force Sensitive: Large rad hits (20+) still pass through, so smoking Skywalker for STR
+    stacking still works. The vent only absorbs the small chip-rad that wouldn't fuel Force
+    Sensitive meaningfully anyway.
+  - XP opportunity cost: players farming Decon XP intentionally may toggle Ironsoul OFF in
+    rad-rich areas to preserve XP from resistance. Interesting meta-decision.
+
+IMPLEMENTATION NOTES:
+  - New effect class: IronsoulEffect (id="ironsoul_aura", floor_duration=True)
+  - The core hook needs to intercept add_radiation() BEFORE the player gains rad. This requires
+    either: (a) a new "modify_incoming_rad" hook called inside add_radiation() before applying,
+    or (b) a check at the top of add_radiation() for the ironsoul_aura effect on the player.
+    Option (b) is simpler and already done for other special cases in add_radiation().
+    Implementation: at the top of add_radiation(), after computing `gain`, check if entity is
+    engine.player and has ironsoul_aura effect active and gain < 20:
+      - Vent: for each monster within 3 tiles, add_radiation(engine, monster, gain//2)
+      - Set gain = 0 (player gets nothing)
+      - Do NOT grant Decon resist XP for this amount
+      - Return early without modifying player.radiation
+  - Toggle execute: check for existing ironsoul_aura → remove vs apply_effect.
+  - Contamination Sense: in render.py render_map_entities() or wherever monster glyphs are drawn,
+    check if monster.radiation > 50 and player Decon level >= 2 → draw the rad status glyph.
+    The existing sdl_overlay rad glyph code (for player) can be extended with a loop over
+    visible monsters. Color shift for >= 100 rad enemies is in look_at/examine render.
+  - AbilityDef: charge_type=ChargeType.INFINITE, target_type=TargetType.SELF.
+
+PERK TEXT:
+  "Toggle (free ON/OFF, no cost): radiation hits under 20 are vented — you absorb 0, and
+  enemies within 3 tiles each gain half as rad. Hits of 20+ pass through normally. Passive:
+  enemies with 50+ rad display their radiation status visually in your FOV."
+
+BALANCE:
+  - Vent value: small rad ticks (3-10 rad/tick from zones, fire, weak enemies) become 1-5 rad
+    to each enemy in range. Low per-instance, but consistent over a fight.
+  - Free toggle cost means no resource management — the trade is XP rate vs. vent value.
+  - Against heavy rad sources (strains, special attacks, Consecrate): Ironsoul does nothing.
+    The perk is designed for sustained rad-drip environments, not spike resistance.
+  - Contamination Sense: zero power impact. Pure information.
+
+
+===========================================================================
+OPTION 6: "ABSCESS WARD"
+Concept: The darkest option — aura that accepts radiation into the body willingly to power a
+repulsion field. More rad the player carries, stronger the push. Pure offensive-defensive hybrid.
+===========================================================================
+
+NAME: Abscess Ward
+ONE-LINE: Toggle aura: your current radiation level creates a repulsion field — enemies that
+start their turn adjacent to you are pushed back 1 tile and take rad//25 damage. Costs tox/tick
+to sustain, representing the physical toll of weaponizing your own contamination.
+
+AURA EFFECT (while ON):
+  - At the START of each enemy's turn (before_turn hook — but since this is player-side, it fires
+    in the energy loop AFTER player acts but before monster actions): any monster within 1 tile
+    (Chebyshev, i.e., adjacent) is:
+      1. Dealt damage equal to player.radiation // 25 as true damage (no defense).
+         At 100 rad: 4 dmg. At 200 rad: 8 dmg. At 300 rad: 12 dmg. At 500: 20 dmg.
+      2. Pushed back 1 tile away from the player (using existing knockback logic — direction
+         vector from player to monster, push monster 1 tile that direction if tile is walkable).
+         If blocked (wall, other monster), they take the damage but aren't moved.
+  - This fires each tick of the energy loop, not just when an enemy acts. The aura "breathes"
+    every tick.
+
+TOGGLE COST / CONDITION:
+  - Toggle ON: costs 3 tox/tick (pierce_resistance=True) while active. Tox builds slowly but
+    steadily. If player tox hits 500 (cap), the aura auto-shuts off.
+  - Toggle OFF: free. Tox drain stops.
+  - Decision logic: the aura deals no damage when the player has low rad. High-rad players
+    deal meaningful chip damage. But sustaining costs tox, and tox increases incoming damage
+    (1 + (tox/100)^0.6 multiplier). Running this at high tox is risky — the incoming damage
+    amplifier grows, and if a big hit lands, you're punished doubly. Requires tox management
+    (TOL stat, tox removal items) to run sustainably.
+  - Thematically: you are sweating contamination, physically dangerous to be near, but the
+    toxins running through you to power it are killing you slowly.
+
+SMALL PASSIVE BONUS (always-on):
+  - "Biohazard Presence": While the player's radiation is >= 150, adjacent enemies (within 1
+    tile) have their dodge chance reduced to 0. No dodging through the field. Mechanically:
+    in combat.py before computing dodge: check if player.radiation >= 150 and Decon level >= 2
+    and distance to player == 1 → skip dodge roll entirely for that attack.
+  - At 150 rad the player is genuinely dangerous to approach (Force Sensitive should give good
+    STR by this point, Abscess Ward deals ~6 dmg/tick, and no adjacent dodge means melee hits
+    land clean). Rewards high-rad melee builds.
+
+WHY THIS IS NOVEL:
+  - Knockback on an aura is new — no other effect in the game pushes enemies based on proximity
+    each tick. Crowd control as ambient presence.
+  - The "aura damage scales with player's rad level" creates a direct tie between the
+    Decontamination cycling mechanic and moment-to-moment combat pressure. Peak-rad is now a
+    combat power window, not just a transition state before purging.
+  - Tox cost for a rad-based ability is a cross-system tension — punishes Chemical Warfare
+    characters who already carry high tox, rewards Decon characters who manage tox low.
+  - "Dodge suppression when adjacent at high rad" passive is mechanically unique. No existing
+    perk or effect does this.
+
+SYNERGY NOTES:
+  - Radiant (L1): +30% rad resist means you can carry higher rad longer without mutating,
+    sustaining the aura's damage longer. L1's STR bonus also amplifies the melee crits that
+    land after the dodge suppression removes evasion.
+  - Force Sensitive / Skywalker OG: Peak rad window = peak Abscess Ward damage. Smoke Skywalker
+    to purge rad FOR STR stacks, but also to exit Abscess Ward before tox overwhelms you.
+    The timing is: build rad → toggle aura → fight at high rad → smoke strain → purge rad for
+    STR → toggle aura off. A complete combat rotation loop.
+  - Consecrate (L3): Standing in your own Consecrate zone gives +1 Swagger/turn and deals rad
+    damage to enemies. Abscess Ward pushes enemies out of melee. Together: push enemies into
+    your zone, Consecrate irradiates them, you stand safe inside.
+  - White Power Bastion: Both cost tox to sustain if running simultaneously. Very high tox
+    generation. Different build directions — Abscess Ward is high-rad offense, Bastion is
+    defensive. Not intended to combo.
+  - Chemical Warfare (3 tox/tick from this + CW's own tox generation): massive tox liability
+    if running both. A cross-tree penalty that discourages mindless stacking.
+
+IMPLEMENTATION NOTES:
+  - New effect class: AbscessWardEffect (id="abscess_ward", floor_duration=True)
+  - tick(entity, engine): add_toxicity(engine, entity, 3, pierce_resistance=True). Check if
+    entity.toxicity >= 500: set self.expired = True (auto-shutoff + message).
+    Then: for each monster in engine.dungeon.get_monsters() where Chebyshev distance to player
+    == 1 and monster.alive:
+      - Compute dmg = engine.player.radiation // 25
+      - If dmg > 0: monster.hp -= dmg (true dmg, no defense). Check death.
+      - Attempt knockback: compute dx = monster.x - player.x, dy = monster.y - player.y
+        (normalize to -1/0/1). New pos = (monster.x + dx, monster.y + dy). If not blocked,
+        move monster. If monster dies from the dmg, skip knockback.
+  - Death check after tick damage: reuse engine's standard death-check path (or inline the
+    gold drop / event bus emit for entity_died). Be careful not to double-process.
+  - Knockback: exists in engine for on_hit_knockback items. Extract or replicate the logic for
+    monster repositioning. Can call engine._apply_knockback(monster, dx, dy) if that method
+    exists; otherwise inline with dungeon.is_blocked check.
+  - Dodge suppression passive: inline check in combat.py melee attack path. Check Decon >= 2,
+    player.radiation >= 150, Chebyshev distance from player to defender == 1 → skip dodge.
+  - Toggle ability execute: check existing abscess_ward → remove vs apply_effect + messages.
+  - AbilityDef: charge_type=ChargeType.INFINITE, target_type=TargetType.SELF.
+
+PERK TEXT:
+  "Toggle (free ON/OFF, costs 3 tox/tick): your radiation repels adjacent enemies — each takes
+  rad//25 true damage and is pushed back every turn. Passive: while at 150+ rad, adjacent
+  enemies cannot dodge your attacks."
+
+BALANCE:
+  - At 100 rad: 4 dmg/tick to each adjacent enemy. In a fight, this adds up but isn't dominant.
+  - At 300 rad: 12 dmg/tick to each adjacent enemy. Against melee swarms, this is powerful.
+  - At 500 rad (mutation territory): 20 dmg/tick. High risk (mutation chance), high reward.
+  - 3 tox/tick: ~333 turns to hit tox cap (500). Practical fights are 10-30 turns. Manageable.
+  - Tox incoming damage multiplier at 100 tox: 1 + (100/100)^0.6 = 1 + 1 = 2.0x incoming.
+    So running at moderate-high tox is punishing. The player must track both bars.
+  - Dodge suppression at 150+ rad: requires investment in the rad cycle. Not trivially active
+    at L2 — the player needs to deliberately build rad (from enemy attacks, strain misses, etc.).
+
+
+===========================================================================
+CROSS-OPTION SUMMARY TABLE
+===========================================================================
+
+Option | Toggle Cost       | Aura Effect           | Passive Bonus         | Decision Axis
+-------|-------------------|-----------------------|-----------------------|----------------------------
+1 Half-Life Field  | 3 rad/tick         | Double enemy rad decay → true dmg | Threshold notifications + +5% Decon XP | Carry rad as fuel vs. purge for STR
+2 Purification Corona | 15 tox on activate | Resist rad → banked dodge charges (max 5) | 25% chance to irradiate attackers when hit at 100+ rad | Activate in rad-heavy areas; tox cost in tox-heavy zones
+3 Sanctified Ground | 5 rad/tick + movement | Trail tiles: no enemy rad decay + 3 rad/turn | 10% less dmg from enemies on rad tiles | Active vs. passive play; corridor vs. open room
+4 Radiant Judgment | 5 rad/tick (builds rad) | Resist% → melee dmg; death pulse 15 rad | Once/floor: prevent sub-25% HP kill shot | Offensive rad accumulation vs. purge timing
+5 Ironsoul Aura | None (XP opportunity) | Vent small rad hits (<20) outward to enemies | Enemy rad glyph visible in FOV | XP farming vs. vent value; threshold skill
+6 Abscess Ward | 3 tox/tick | Adjacency: rad//25 true dmg + knockback | Dodge suppression adjacent at 150+ rad | High-rad melee offense vs. tox liability
+
+===========================================================================
+RECOMMENDED IMPLEMENTATION ORDER (if user picks, dev can start here)
+===========================================================================
+
+Easiest to implement:     Option 5 (Ironsoul Aura) — hook in add_radiation, no new systems
+Moderate complexity:      Option 1 (Half-Life Field) — uses existing rad_tiles + tick hooks
+                          Option 4 (Radiant Judgment) — uses existing melee_damage_bonus + event hook
+More complex:             Option 2 (Purification Corona) — new effect field + rad resist hook
+                          Option 6 (Abscess Ward) — knockback + tox management + dodge hook
+Most complex:             Option 3 (Sanctified Ground) — movement trail + rad_tiles integration
+                           + monster energy loop modification
+
+All options use charge_type=ChargeType.INFINITE and target_type=TargetType.SELF for the
+AbilityDef, consistent with Bastion's pattern. All use floor_duration=True on the effect.
+New ability IDs (replace "emission"): half_life_field / purification_corona / sanctified_aura
+/ radiant_judgment / ironsoul_aura / abscess_ward.

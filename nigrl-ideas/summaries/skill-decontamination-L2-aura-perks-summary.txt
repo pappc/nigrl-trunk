@@ -1,0 +1,53 @@
+SUMMARY: Decontamination L2 Aura Perk Options
+=============================================
+Source: nigrl-ideas/skill-decontamination-L2-aura-perks.txt
+Date: 2026-04-02
+
+PURPOSE: Replace Emission (L2 Decon) with a toggleable aura perk. 6 options presented.
+All use ChargeType.INFINITE, TargetType.SELF, floor_duration=True on the effect.
+All have a small always-on passive bonus (mechanically novel, not just +stats).
+
+OPTION 1 — Half-Life Field
+  Aura: accelerates enemy rad decay (double normal decay) → half the extra stripped rad = true dmg
+  Cost: 3 rad/tick from player (auto-off at 0 rad)
+  Passive: UI threshold notifications for enemy rad (50/100/200) + +5% Decon XP gain
+  New mechanic: rad decay acceleration as damage vector
+
+OPTION 2 — Purification Corona
+  Aura: every 10 rad resisted earns 1 dodge charge (max 5); charges auto-dodge incoming hits
+  Cost: 15 tox to activate (free to deactivate)
+  Passive: 25% chance to inflict 10 rad on attacker when hit at 100+ rad (reactive irradiation)
+  New mechanic: resource loop (resist rad → earn dodge)
+
+OPTION 3 — Sanctified Ground
+  Aura: each tile stepped off becomes a sanctified rad tile (8 turns); enemies on trail can't
+    decay rad + gain 3 rad/turn
+  Cost: 5 rad/tick (auto-off at 0 rad); only generates tiles while moving
+  Passive: 10% less dmg from enemies standing on any rad tile
+  New mechanic: movement-based environmental tile trail
+
+OPTION 4 — Radiant Judgment
+  Aura: rad_resistance // 10 = bonus melee damage; enemies killed while active pulse 15 rad
+    to enemies within 2 tiles
+  Cost: 5 rad/tick BUILD-UP (player gains 5 rad/tick; auto-off at 500 rad cap)
+  Passive: once/floor — a hit that would drop player below 25% HP is capped to spare them
+  New mechanic: rad resistance as offense stat; death-pulse chain irradiation; mercy mechanic
+
+OPTION 5 — Ironsoul Aura
+  Aura: absorb rad hits <20 → vent half as rad to enemies within 3 tiles (player gains 0)
+    Hits of 20+ pass through normally
+  Cost: none (opportunity cost: no Decon XP from vented resist)
+  Passive: enemy rad glyph visible in FOV for monsters with 50+ rad
+  New mechanic: reflect/redirect mechanic (threshold-split); XP tradeoff toggle
+
+OPTION 6 — Abscess Ward
+  Aura: each tick, adjacent (Chebyshev 1) enemies take rad//25 true dmg + knockback 1 tile
+  Cost: 3 tox/tick (auto-off at 500 tox)
+  Passive: at 150+ rad, adjacent enemies cannot dodge player's attacks
+  New mechanic: ambient adjacency knockback; dodge suppression via rad threshold
+
+COMPLEXITY ORDER (easiest → hardest):
+  5 (Ironsoul) → 1 (Half-Life) → 4 (Radiant Judgment) → 2 (Corona) → 6 (Abscess Ward) → 3 (Ground)
+
+KEY CONSTRAINT: None of these duplicate Bastion (damage mult toggle), Unstable (on-hit irradiate),
+Emission (displaced), passive HP regen (banned), or simple stat buffs alone.

@@ -1,0 +1,806 @@
+CAVES OF QUD MUTATION SYSTEM - COMPREHENSIVE REFERENCE
+=======================================================
+
+Source: Caves of Qud (Freehold Games), full release (1.0).
+Purpose: Inspiration for overhauling NIGRL's radiation mutation system from
+stat buff/debuff rolls toward unique, mechanically interesting mutations.
+
+Note: The wiki was unreachable via automated fetch (403). This reference is
+compiled from deep knowledge of the game through its 1.0 release. Mutation
+point costs, exact scaling formulas, and cooldown numbers are included where
+known with confidence. Some exact per-level numbers may have shifted in
+late patches -- the mechanical *design* of each mutation is accurate.
+
+
+TABLE OF CONTENTS
+-----------------
+I.   System Overview
+II.  Physical Mutations (24 mutations)
+III. Mental Mutations (24 mutations)
+IV.  Morphotypes / Physical Defects / Mental Defects
+V.   Key Design Patterns for NIGRL Adaptation
+VI.  Concrete NIGRL Recommendations
+
+
+========================================================================
+I. SYSTEM OVERVIEW
+========================================================================
+
+Character Creation:
+- Mutants start with mutation points (MP) to spend on mutations.
+- Each mutation has an MP cost (1-5). Defects give bonus MP.
+- Chimera morphotype: extra MP, can get 2 extra physical mutations, but
+  locked out of some mental ones. Esper: extra mental, locked out of some
+  physical.
+- Mutations have levels (1-10+). They level up via "rapid advancement"
+  (random chance each level-up) or by spending mutation points at certain
+  XP thresholds.
+
+Gaining Mutations Mid-Game:
+- Gamma moths, radioactive zones, certain items can trigger mutation gain.
+- "Unstable Genome" mutation: gain a random mutation every ~50 levels.
+- Cooking with certain ingredients can grant temporary mutation effects.
+- Some items grant mutation-like abilities without being true mutations.
+
+Mutation Levels:
+- Every mutation scales with level. Physical mutations often scale
+  linearly (e.g., +1 AV per level). Mental mutations often scale more
+  dramatically (cooldown reduction, radius increase, damage increase).
+- At character level-up, one random mutation gains a level. You also earn
+  mutation points periodically to spend on advancing chosen mutations.
+
+Key Design Principle:
+  EVERY mutation in Qud does something *mechanically unique*. There are
+  NO mutations that are just "+2 Strength" or "-1 Agility." Even the
+  simplest mutations create new gameplay verbs, alter terrain interaction,
+  or change fundamental rules about how your character operates.
+
+
+========================================================================
+II. PHYSICAL MUTATIONS (24 mutations)
+========================================================================
+
+--- OFFENSIVE ---
+
+1. FLAMING HANDS
+   Type: Activated ability
+   Cost: 3 MP
+   Mechanic: Fire a cone of flame in a direction. Deals fire damage and
+   sets tiles/creatures on fire. The cone has a fixed shape.
+   Scaling: Damage increases per level (~Level*d4). Range/cone size
+   increases at certain thresholds.
+   Cooldown: ~15 turns base, decreases with level.
+   Design Note: One of the most iconic Qud mutations. Creates fire on the
+   map that persists and spreads. Synergizes with "Flaming Ray" mental
+   mutation conceptually but they're separate abilities. Can destroy items
+   on the ground, burn down wooden walls, cook food.
+
+2. FREEZING HANDS
+   Type: Activated ability
+   Cost: 3 MP
+   Mechanic: Fire a cone of cold in a direction. Deals cold damage and
+   can freeze creatures/liquids solid. Frozen creatures are stunned and
+   brittle (take extra damage from physical attacks).
+   Scaling: Damage increases per level. Freeze duration increases.
+   Cooldown: ~15 turns base, decreases with level.
+   Design Note: Frozen water becomes walkable ice. Frozen enemies that
+   take enough damage shatter (instant kill). Environmental interaction
+   is key -- freeze a pool of acid to walk across it.
+
+3. CORROSIVE GAS GENERATION
+   Type: Activated ability
+   Cost: 3 MP
+   Mechanic: Release a cloud of corrosive gas centered on self. Gas
+   spreads, deals acid damage per turn, and corrodes equipment (reduces
+   AV permanently). Player is immune to own gas.
+   Scaling: Damage per turn increases. Gas volume/density increases.
+   Cooldown: ~40 turns base, decreases with level.
+   Design Note: Equipment corrosion is devastating -- both to enemies
+   (strips their armor) and accidentally to allies. Gas is physics-based,
+   drifts with wind, fills rooms. The "you're immune to your own" rule
+   is critical for usability.
+
+4. ELECTRICAL GENERATION
+   Type: Activated ability
+   Cost: 3 MP
+   Mechanic: Discharge electricity in an arc. Hits a primary target and
+   can chain to nearby targets in conductive contact (standing in water,
+   wearing metal armor). Deals electrical damage.
+   Scaling: Damage increases per level. Chain range/count increases.
+   Cooldown: ~20 turns base.
+   Design Note: Incredibly powerful in water. Standing in a pool and
+   discharging can hit everything in the water. Metal equipment on enemies
+   makes them more vulnerable. Has natural synergy with water-based
+   environments.
+
+5. QUILLS
+   Type: Passive + Activated
+   Cost: 3 MP
+   Mechanic: PASSIVE: When hit in melee, attacker takes quill damage
+   (reflection damage). ACTIVATED: Fire quills as a ranged attack in a
+   burst pattern.
+   Scaling: Passive reflection damage increases per level. Activated
+   burst damage and range increase.
+   Cooldown: Activated ~20 turns. Passive is always-on.
+   Design Note: Dual-mode mutation. The passive thorns effect is one of
+   the only ways in Qud to damage enemies just by being hit. The active
+   burst gives ranged option to what's otherwise a melee-focused mutation.
+
+6. STINGER (multiple variants)
+   Type: Passive (extra attack)
+   Cost: 3 MP
+   Mechanic: Grants a stinger natural weapon on a specific body part.
+   Stinger attacks happen as an extra attack each melee round. Injects
+   venom (poison damage over time). Different variants: tail stinger,
+   arm stinger, etc.
+   Scaling: Venom damage increases per level. Penetration value increases.
+   Design Note: This is Qud's "extra natural weapon" template. The
+   stinger occupies a body slot, preventing equipment there. This
+   equipment-slot tradeoff is a core Qud mutation pattern.
+
+7. HORNS
+   Type: Passive (charge attack modifier)
+   Cost: 3 MP
+   Mechanic: Grants a charge attack. When you move 3+ tiles in a straight
+   line and hit an enemy, deal bonus horn damage that bypasses some armor.
+   Can also be used to break walls/doors.
+   Scaling: Charge damage increases per level. Can eventually break
+   harder materials.
+   Design Note: Movement-as-damage mutation. Rewards open-space fighting
+   and corridor play. The wall-breaking utility is sometimes more valuable
+   than the combat damage.
+
+8. BURROWING CLAWS
+   Type: Passive (extra attack) + Activated (dig)
+   Cost: 3 MP
+   Mechanic: PASSIVE: Extra claw attack each melee round. ACTIVATED: Dig
+   through walls and terrain. Higher levels dig through harder materials
+   (dirt -> rock -> metal).
+   Scaling: Claw damage increases. Digging speed increases. Material
+   hardness threshold increases per level.
+   Cooldown: Digging is continuous (costs turns per tile dug).
+   Design Note: Fundamentally changes dungeon navigation. You can create
+   shortcuts, escape fights, access sealed areas. One of the strongest
+   utility mutations in the game.
+
+9. SPIT ACID / SLIME
+   Type: Activated ability
+   Cost: 2-3 MP
+   Mechanic: Spit a glob of acid/slime at range. Acid damages and
+   corrodes. Slime variant creates slippery terrain.
+   Scaling: Damage/range increases per level.
+   Cooldown: ~10 turns.
+
+--- DEFENSIVE ---
+
+10. CARAPACE (Turtle Shell)
+    Type: Passive + Activated
+    Cost: 4 MP
+    Mechanic: PASSIVE: Grants significant bonus AV (armor value), but
+    BLOCKS THE BODY EQUIPMENT SLOT. You cannot wear body armor.
+    ACTIVATED: "Hunker down" -- crouch into shell for massive additional
+    AV, but you cannot move or attack for the duration.
+    Scaling: Base AV bonus increases per level (+1 AV per ~2 levels).
+    Hunker AV bonus also scales.
+    Design Note: THE iconic Qud mutation tradeoff. Huge defensive power,
+    but permanently locks you out of the body armor slot (the single most
+    important equipment slot). Hunker is a panic button that makes you
+    nearly invincible but totally immobile. Teaches players about
+    meaningful tradeoffs.
+
+11. THICK FUR
+    Type: Passive
+    Cost: 2 MP
+    Mechanic: Grants cold resistance and a small AV bonus. Does NOT
+    block equipment slots.
+    Scaling: Cold resistance and AV increase per level.
+    Design Note: Simpler than Carapace but less powerful. No tradeoff
+    beyond the MP cost. Good example of a "minor passive" mutation.
+
+12. TWO-HEARTED
+    Type: Passive
+    Cost: 4 MP
+    Mechanic: Gain a second heart. +1 Toughness (permanent stat bonus).
+    Bleed effects have reduced duration/severity. Increased natural
+    healing rate.
+    Scaling: Toughness bonus increases at higher levels. Bleed resistance
+    improves.
+    Design Note: One of the few mutations that gives a direct stat bonus,
+    but it's wrapped in a thematic package (redundant organ) with specific
+    mechanical riders (bleed resistance, healing).
+
+13. ADRENAL CONTROL
+    Type: Activated
+    Cost: 3 MP
+    Mechanic: Activate to gain a burst of Quickness (extra actions per
+    turn) for several rounds. Essentially a speed boost / haste.
+    Scaling: Duration increases per level. Quickness bonus may increase.
+    Cooldown: ~100 turns base, decreases with level.
+    Design Note: Qud's version of "berserk speed." Very powerful for
+    either bursting down a tough enemy or fleeing. Long cooldown makes
+    it a strategic resource.
+
+14. REGENERATION
+    Type: Passive
+    Cost: 4 MP
+    Mechanic: Regenerate HP every turn. Also regenerate severed/damaged
+    limbs over time (Qud has a limb system). Higher levels regenerate
+    faster and can regrow limbs more quickly.
+    Scaling: HP/turn increases per level. Limb regrowth time decreases.
+    Design Note: In Qud this is incredibly powerful because limb loss is
+    permanent without it. The HP regen alone is strong, but the limb
+    regrowth is the real draw. For NIGRL: note that passive regen is
+    flagged as a design anti-pattern (players spam wait). Qud handles
+    this because enemies are also acting on those turns.
+
+15. DOUBLE-MUSCLED
+    Type: Passive
+    Cost: 3 MP
+    Mechanic: +2 Strength permanently. Increased carry capacity. Natural
+    melee attacks deal more damage.
+    Scaling: Strength bonus increases per level.
+    Design Note: The "simple but effective" physical mutation. Almost
+    pure stat bonus but framed as a body modification.
+
+16. TRIPLE-JOINTED
+    Type: Passive
+    Cost: 2 MP
+    Mechanic: +2 Agility permanently. Increased dodge (DV). Can fit
+    through smaller spaces.
+    Scaling: Agility/DV bonus increases per level.
+
+17. WINGS
+    Type: Activated
+    Cost: 4 MP
+    Mechanic: Fly. While flying, you can move over any terrain (pits,
+    lava, water) without penalty. Ground-based melee attacks against you
+    have a miss chance. You cannot fly while wearing heavy body armor.
+    Scaling: Flight duration increases per level. At high levels, flight
+    becomes nearly permanent.
+    Cooldown: Flight duration limited, then cooldown.
+    Design Note: One of the most mobility-altering mutations. Equipment
+    restriction (no heavy armor while flying) creates build tension.
+    Flying over hazards is massive utility.
+
+18. MULTIPLE LEGS
+    Type: Passive
+    Cost: 3 MP
+    Mechanic: Extra pairs of legs. Increased movement speed. Harder to
+    knock prone. Can equip extra boots (each pair of legs has a feet slot).
+    Scaling: More legs at higher levels = more speed + more boot slots.
+    Design Note: More equipment slots is unique to Qud because of its
+    body-part-based equipment system. The speed bonus alone is strong.
+
+19. MULTIPLE ARMS
+    Type: Passive
+    Cost: 4 MP
+    Mechanic: Extra pairs of arms. Each arm can hold a weapon or shield.
+    Extra attacks per round. Can equip more arm-slot equipment.
+    Scaling: More arms at higher levels.
+    Design Note: Outrageously powerful at high levels. Four arms with
+    four weapons is a damage multiplier. Balanced by being 4 MP and by
+    requiring good weapons to fill all slots.
+
+20. PHOTOSYNTHETIC SKIN
+    Type: Passive
+    Cost: 2 MP
+    Mechanic: Regenerate HP while in sunlight (outdoors, daytime). Gain
+    nutrition from sunlight (reduced food consumption). Skin turns green.
+    Scaling: Regen rate and nutrition gain increase per level.
+    Design Note: Zone-dependent mutation. Useless underground, strong
+    outdoors. Creates interesting decisions about when to explore where.
+
+21. HEIGHTENED HEARING
+    Type: Passive
+    Cost: 2 MP
+    Mechanic: Detect creatures through walls within a radius. Detected
+    creatures show as blips on the map even outside FOV. Increased
+    awareness prevents ambushes.
+    Scaling: Detection radius increases per level.
+    Design Note: Information mutation. You can "see" enemies before they
+    see you. Incredibly useful for planning. Works through walls, unlike
+    normal sight.
+
+22. HEIGHTENED QUICKNESS
+    Type: Passive
+    Cost: 5 MP
+    Mechanic: Permanent Quickness bonus (extra speed). More actions per
+    turn than normal creatures.
+    Scaling: +2-3 Quickness per level. At high levels, you act
+    significantly more often than enemies.
+    Design Note: Most expensive physical mutation at 5 MP. Pure power --
+    speed is king in roguelikes. In Qud's energy system (similar to
+    NIGRL's), this is a permanent +X% actions.
+
+23. NIGHT VISION
+    Type: Passive
+    Cost: 2 MP
+    Mechanic: See in the dark. Radius of night vision increases per level.
+    At high levels, darkness is essentially eliminated.
+    Scaling: Vision radius in dark increases per level.
+
+24. ELECTROMAGNETIC PULSE
+    Type: Activated
+    Cost: 3 MP
+    Mechanic: Release an EMP burst that disables robots and electronic
+    equipment in a radius. Disabled robots can't act for several turns.
+    Electronic equipment (force fields, turrets) shuts down.
+    Scaling: Radius and disable duration increase per level.
+    Cooldown: ~50 turns base.
+    Design Note: Niche but devastating against the right enemies. Qud
+    has a significant robot/tech faction, making this a faction-counter
+    mutation.
+
+
+========================================================================
+III. MENTAL MUTATIONS (24 mutations)
+========================================================================
+
+--- PSYCHIC OFFENSE ---
+
+1. CONFUSION
+   Type: Activated
+   Cost: 3 MP
+   Mechanic: Target a creature in LOS. That creature becomes Confused
+   for several turns -- it moves and attacks randomly, potentially hitting
+   allies or walking into hazards.
+   Scaling: Duration increases per level. At high levels, can confuse
+   multiple targets or confuse for very long durations.
+   Cooldown: ~30 turns base.
+   Design Note: Crowd control mutation. Confused enemies are dangerous
+   to their allies, creating emergent chaos.
+
+2. FORCE WALL
+   Type: Activated
+   Cost: 4 MP
+   Mechanic: Create a wall of force across tiles in a line. The wall
+   blocks movement and projectiles. Lasts for several turns then fades.
+   Scaling: Wall length and duration increase per level. Wall HP (can
+   be broken) increases.
+   Cooldown: ~50 turns base.
+   Design Note: Terrain creation mutation. Block corridors, split enemy
+   groups, create cover from ranged attacks. Extremely tactical in a
+   turn-based game. One of the strongest defensive mental mutations.
+
+3. FORCE BUBBLE
+   Type: Activated
+   Cost: 5 MP
+   Mechanic: Create a bubble of force around yourself. Nothing can enter
+   or leave the bubble (no attacks in or out, no movement). You're
+   invulnerable but also can't act offensively. Lasts several turns.
+   Scaling: Duration increases per level.
+   Cooldown: ~100 turns base.
+   Design Note: Panic button / time-out mutation. Use it when surrounded,
+   wait for allies, let enemies get bored and wander, or wait for another
+   cooldown to come up. High cost (5 MP) reflects its power.
+
+4. LIGHT MANIPULATION
+   Type: Activated
+   Cost: 3 MP
+   Mechanic: Fire a beam of focused light (laser) in a direction. Deals
+   damage to everything in the line. Can set flammable things on fire.
+   Passes through multiple enemies.
+   Scaling: Damage increases significantly per level. At high levels it's
+   one of the highest single-target damage abilities.
+   Cooldown: ~20 turns base.
+   Design Note: Line AOE -- hits everything in a line. High damage but
+   requires careful aiming to avoid allies. Unlike physical fire/cold,
+   this is a precision weapon.
+
+5. PYROKINESIS
+   Type: Activated
+   Cost: 4 MP
+   Mechanic: Set a creature on fire with your mind. Targeted at range,
+   no projectile (can't miss, can't be blocked). Deals fire damage over
+   time as they burn. Can spread to adjacent flammable things.
+   Scaling: Fire damage per turn and duration increase per level.
+   Cooldown: ~40 turns base.
+   Design Note: Reliable targeted DOT. Unlike Flaming Hands (cone, can
+   miss), this always hits. But it's single-target and DOT rather than
+   burst. The "no projectile" aspect makes it great against high-DV
+   enemies.
+
+6. CRYOKINESIS
+   Type: Activated
+   Cost: 4 MP
+   Mechanic: Freeze a creature with your mind. Targeted at range, deals
+   cold damage and applies frozen status (like Freezing Hands but
+   single-target and ranged with no projectile).
+   Scaling: Freeze duration and damage increase per level.
+   Cooldown: ~40 turns base.
+
+7. SUNDER MIND
+   Type: Activated
+   Cost: 4 MP
+   Mechanic: Psychic attack that deals damage directly to a creature's
+   mind, bypassing armor entirely. Target must be intelligent. Deals
+   damage and can apply Dazed (reduced accuracy/actions).
+   Scaling: Damage increases significantly per level. Daze duration
+   increases.
+   Cooldown: ~10 turns base.
+   Design Note: Armor-piercing psychic damage is incredibly valuable.
+   Short cooldown makes this a bread-and-butter attack for Esper builds.
+   Only works on creatures with minds (useless vs robots/plants).
+
+8. BURGEONING
+   Type: Activated
+   Cost: 5 MP
+   Mechanic: Cause plants to rapidly grow in an area around you. The
+   plants are hostile to all non-plant creatures and attack enemies that
+   enter. Creates difficult terrain. Plants persist until killed.
+   Scaling: Number and strength of plants increase per level. At high
+   levels, creates a small army of plant allies.
+   Cooldown: ~100 turns base.
+   Design Note: Summoning mutation. The plants are permanent (until
+   killed) and hostile to everyone. You need to be careful not to get
+   trapped in your own jungle. Powerful zone denial.
+
+9. DISINTEGRATION
+   Type: Activated
+   Cost: 5 MP
+   Mechanic: Begin disintegrating a target. Takes several turns of
+   concentration (channeled). If completed, deals massive damage that
+   ignores all armor and resistance. Can destroy walls and objects.
+   Scaling: Damage increases dramatically per level. Channel time may
+   decrease.
+   Cooldown: ~100 turns base.
+   Design Note: The "nuclear option." Channel time makes it risky --
+   getting hit interrupts the channel. But the damage is astronomical.
+   Creates intense tactical moments: can I safely channel for 3 turns?
+
+10. SPACE-TIME VORTEX
+    Type: Activated
+    Cost: 5 MP
+    Mechanic: Create a vortex at a location. The vortex sucks in nearby
+    creatures and teleports them to a random location on a random map
+    zone (essentially removing them from the fight). Can affect the player
+    too if standing nearby.
+    Scaling: Vortex size and suction strength increase per level.
+    Cooldown: ~200 turns base.
+    Design Note: The most chaotic mutation. Removes enemies from existence
+    (for the current fight) but doesn't kill them -- they're just
+    somewhere else in the world now. Can accidentally teleport yourself
+    or important NPCs. High risk, high reward.
+
+11. TEMPORAL FUGUE
+    Type: Activated
+    Cost: 5 MP
+    Mechanic: Create 2-3 temporal copies of yourself. Copies have all
+    your equipment and abilities. They act independently (AI-controlled)
+    and fight alongside you. When they die or the duration expires, all
+    items they picked up or used are lost.
+    Scaling: Number of copies and duration increase per level.
+    Cooldown: ~200 turns base.
+    Design Note: One of the most powerful mutations in the game. Multiple
+    copies of a fully-equipped character is devastating. But copies can
+    use your consumables, waste your ammo, and pick up loot that vanishes.
+    Creates hilarious emergent situations.
+
+--- PSYCHIC UTILITY / DEFENSE ---
+
+12. TELEPATHY
+    Type: Passive
+    Cost: 3 MP
+    Mechanic: Sense the locations of all creatures with minds within a
+    large radius. See through their eyes (reveals map around each
+    detected creature). At higher levels, can identify creature types
+    and see their inventory.
+    Scaling: Detection radius increases per level.
+    Design Note: The premier information-gathering mutation. You always
+    know where intelligent enemies are, even through walls. Combined
+    with "Sense Psychic" (detects other psychics specifically), gives
+    massive tactical advantage. Does NOT work on robots, plants, or
+    mindless creatures.
+
+13. DOMINATION
+    Type: Activated
+    Cost: 5 MP
+    Mechanic: Take direct control of a creature's body. You control the
+    target as if it were your character (full inventory, ability, and
+    movement access). Your real body goes dormant and vulnerable. If the
+    dominated creature dies, you snap back to your body. If your body
+    dies while you're dominating, YOU die.
+    Scaling: Range and duration increase per level.
+    Cooldown: ~200 turns base.
+    Design Note: One of the most unique abilities in any roguelike. You
+    literally play as another creature. Use their abilities, equipment,
+    everything. Can dominate a powerful enemy and use them against their
+    allies. Risk: your body is defenseless.
+
+14. PRECOGNITION
+    Type: Activated
+    Cost: 5 MP
+    Mechanic: See into the future. When activated, the game takes a
+    SNAPSHOT of the current state. You then play forward normally. At
+    any point, you can REVERT to the snapshot, undoing everything that
+    happened. Essentially a controlled save-scum built into a mutation.
+    Scaling: Duration of the "future sight" window increases per level.
+    Cooldown: ~200 turns base.
+    Design Note: Probably the single most powerful mutation in Qud. It
+    lets you scout dangerous situations risk-free, try risky actions and
+    revert if they fail, and essentially eliminates permadeath for one
+    sequence of actions. Astronomically powerful. 5 MP and huge cooldown
+    are necessary.
+
+15. CLAIRVOYANCE
+    Type: Activated
+    Cost: 3 MP
+    Mechanic: Reveal the full map of your current zone for a limited
+    duration. See all creatures, items, and terrain as if the entire
+    level were in FOV.
+    Scaling: Duration increases per level.
+    Cooldown: ~100 turns base.
+    Design Note: Map reveal -- the classic scrying ability. Less combat
+    power than other mentals but incredible utility for navigation and
+    avoiding danger.
+
+16. TELEPORTATION
+    Type: Activated
+    Cost: 4 MP
+    Mechanic: Teleport to a random location within a radius. The
+    destination is random within your chosen direction/area. Higher
+    levels give more control over destination.
+    Scaling: Range increases per level. Scatter radius decreases
+    (more precise targeting at high levels).
+    Cooldown: ~100 turns base.
+    Design Note: Escape mutation. Not as controllable as you'd like at
+    low levels (random destination can put you in worse danger). At high
+    levels with small scatter, becomes a reliable tactical repositioning
+    tool.
+
+17. TELEPORT OTHER
+    Type: Activated
+    Cost: 3 MP
+    Mechanic: Teleport a targeted creature to a random location within
+    the current zone. Can be used offensively (teleport enemy away) or
+    supportively (rescue an ally).
+    Scaling: Range to target increases per level.
+    Cooldown: ~50 turns base.
+    Design Note: Unlike Space-Time Vortex, this keeps the creature on
+    the same map, just repositioned. Safer and more controllable but
+    less powerful.
+
+18. MASS MIND
+    Type: Passive
+    Cost: 3 MP
+    Mechanic: Link your mind with all intelligent creatures in a radius.
+    Gain a bonus to mental mutations' strength proportional to the number
+    of linked minds nearby. More creatures = stronger psychic powers.
+    Scaling: Link radius and bonus per linked mind increase per level.
+    Design Note: Scaling mutation that gets stronger in crowds. Normally
+    being surrounded is bad, but Mass Mind turns it into a power source.
+    Interesting risk-reward: you want enemies nearby to be strong enough
+    to kill them.
+
+19. EGO PROJECTION
+    Type: Activated
+    Cost: 3 MP
+    Mechanic: Project your force of will at a target. Target is
+    intimidated (may flee) or awed (may become friendly temporarily).
+    Effect depends on your Ego vs their MA (Mental Armor).
+    Scaling: Effectiveness increases per level.
+    Cooldown: ~30 turns.
+
+20. SENSE PSYCHIC
+    Type: Passive
+    Cost: 1 MP
+    Mechanic: Detect the presence and location of psychic creatures
+    (those with mental mutations) in a radius. Highlighted on map.
+    Scaling: Range increases per level.
+    Design Note: Cheap, niche detection. Very useful in specific
+    situations (avoiding Esper hunters).
+
+21. MENTAL MIRROR
+    Type: Passive
+    Cost: 4 MP
+    Mechanic: Chance to reflect mental attacks back at the attacker.
+    When an enemy uses a mental mutation against you, it can bounce back
+    and affect them instead.
+    Scaling: Reflection chance increases per level. At high levels, ~50%+
+    reflection rate.
+    Design Note: The "thorns" of mental defense. Punishes enemies for
+    using psychic powers against you. Very meta -- only useful against
+    psychic enemies, but devastating against them.
+
+22. PHOTOSYNTHESIS (Mental variant if distinct from Physical)
+    Note: In some versions this is physical-only. Including for
+    completeness -- see Physical #20 for details.
+
+23. KINETIC DAMPENER / FORCE FIELD
+    Type: Passive
+    Cost: 3 MP
+    Mechanic: Passively reduce incoming physical damage by a flat amount.
+    Functions as a mental-powered damage shield.
+    Scaling: Damage reduction amount increases per level.
+
+24. PSYCHOMETRY
+    Type: Activated
+    Cost: 2 MP
+    Mechanic: Touch an item to learn its full properties (identify it).
+    At higher levels, can learn the history of items, identify artifacts,
+    and gain bonus XP from identifying rare items.
+    Scaling: Information revealed increases per level. XP bonus for rare
+    IDs.
+    Cooldown: No cooldown (but requires touching the item).
+    Design Note: Utility mutation that replaces scrolls of identification.
+    In Qud's complex item system with many unknown artifacts, this is
+    very valuable.
+
+
+========================================================================
+IV. MORPHOTYPES, PHYSICAL DEFECTS, AND MENTAL DEFECTS
+========================================================================
+
+MORPHOTYPES (modify mutation access and body plan):
+
+- CHIMERA: +1 MP per physical mutation chosen. Gain random physical
+  mutations more often. Extra body parts possible. Locked out of some
+  mental mutations. Body can become increasingly monstrous.
+
+- ESPER: +1 MP per mental mutation chosen. Mental mutations cost less.
+  Gain "Glimmer" -- a danger meter that attracts Esper hunters (psychic
+  assassins) as your mental power grows. More mental mutations = more
+  Glimmer = more danger.
+
+  Design Note: Glimmer is a BRILLIANT design. Your mental mutations
+  make you stronger but also paint a target on your back. It's a
+  scaling difficulty modifier tied to your own power choices.
+
+PHYSICAL DEFECTS (grant bonus MP at character creation):
+
+- Albino: Vulnerable to light-based damage. -1 MP (gives you 1 extra MP).
+- Brittle Bones: Reduced HP. Falls deal extra damage.
+- Myopic: Reduced sight radius.
+- Hemophilia: Bleed effects are more severe and last longer.
+- Hooks for Feet: Movement speed penalty on certain terrain.
+- Beak: Replaces face slot, cannot wear face equipment, but grants a
+  peck attack.
+- Spontaneous Combustion: Randomly catch fire. Very dangerous but gives
+  significant bonus MP.
+
+MENTAL DEFECTS (grant bonus MP):
+
+- Amnesia: Periodically forget map exploration (fog of war returns).
+- Evil Twin: A hostile copy of you spawns somewhere in the world and
+  hunts you. Has all your stats and equipment.
+- Narcolepsy: Randomly fall asleep during combat. Waking deals are
+  possible but risky.
+- Blunted Senses: Reduced sight/hearing/detection radius.
+- Social Anxiety: Penalties when near multiple NPCs. Trading is harder.
+- Unstable Genome: Gain random mutations over time -- sounds good but
+  they're random (could be bad).
+
+
+========================================================================
+V. KEY DESIGN PATTERNS FOR NIGRL ADAPTATION
+========================================================================
+
+PATTERN 1: "EQUIPMENT SLOT TRADEOFFS"
+  Qud mutations: Carapace (blocks body armor), Stinger (occupies limb
+  slot), Beak (replaces face), Multiple Arms (adds arm slots).
+
+  NIGRL parallel: NIGRL has weapon, sidearm, rings (5), neck, feet, hat.
+  Mutations could block or replace these slots. Example: "Chitinous
+  Shell" blocks neck slot but grants +3 DR. "Mutant Claw" replaces weapon
+  slot but grows stronger with radiation level.
+
+PATTERN 2: "NEW GAMEPLAY VERBS"
+  Every Qud mutation creates a NEW thing you can DO, not just a number
+  that goes up. Burrowing Claws = dig through walls. Wings = fly over
+  terrain. Domination = play as another creature. Force Wall = create
+  terrain.
+
+  NIGRL parallel: Mutations should grant abilities (like the existing
+  ability system). "Acid Spit" = new ranged attack. "Phase Shift" = walk
+  through walls for X turns. "Pheromone Aura" = pacify adjacent enemies.
+
+PATTERN 3: "ENVIRONMENT INTERACTION"
+  Qud mutations interact with the physical world: Flaming Hands sets
+  tiles on fire, Freezing Hands freezes water, Burrowing Claws digs
+  walls, Corrosive Gas corrodes gear, Electrical Generation chains
+  through water.
+
+  NIGRL parallel: Meth Lab has toxicity/radiation as environmental
+  features. Mutations could interact with these. "Rad Absorption" =
+  clear radiation from tiles you walk on, healing you. "Toxic Cloud" =
+  leave poison gas when hit. "Grease Blood" = spill grease tiles when
+  wounded.
+
+PATTERN 4: "SCALING BEYOND NUMBERS"
+  Qud mutation scaling often adds new capabilities at thresholds, not
+  just bigger numbers. Burrowing Claws at level 5 can dig metal walls
+  (previously only dirt). Telepathy at level 8 sees inventory. Teleport
+  at high level reduces scatter to near-zero.
+
+  NIGRL parallel: Mutations could gain new riders at radiation thresholds.
+  "Thick Hide" at base = +2 DR. At 150+ rad = also reflects 25% melee
+  damage. At 250+ rad = also grants immunity to bleed.
+
+PATTERN 5: "GLIMMER / POWER-HAS-A-COST"
+  Esper Glimmer mechanic: more mental mutations = stronger psychic
+  hunters come after you. Power attracts danger.
+
+  NIGRL parallel: Could tie to existing faction system. More mutations =
+  higher "Mutant Signature" that attracts special enemies or reduces
+  faction reputation with groups that hate mutants.
+
+PATTERN 6: "DEFECTS AS MEANINGFUL CHOICES"
+  Qud defects aren't just bad -- they're interesting constraints that
+  change how you play. Narcolepsy means you might fall asleep mid-fight
+  (terrifying), but the bonus MP lets you take stronger mutations. Evil
+  Twin creates a persistent nemesis.
+
+  NIGRL parallel: Bad mutations shouldn't just be "-2 Strength." They
+  should be: "Bioluminescent" (enemies can see you from further away),
+  "Glass Bones" (falls/knockback deal 3x damage), "Paranoid" (random
+  hallucination enemies appear on screen).
+
+
+========================================================================
+VI. CONCRETE NIGRL RECOMMENDATIONS
+========================================================================
+
+Based on the Qud analysis, here are specific mutation categories for
+NIGRL's radiation mutation system overhaul:
+
+CATEGORY A: COMBAT MUTATIONS (grant activated abilities)
+- Acid Spit: Ranged attack, 3-tile line, deals damage + corrosion debuff
+- Toxic Nova: AOE burst centered on self, applies toxicity to all
+  adjacent enemies
+- Bone Spurs: Passive thorns (reflect melee damage) + activated burst
+- Mutant Strength: +power but -speed (trade one stat axis for another)
+- Adrenal Surge: Gain double energy for 5 turns, 30-turn cooldown
+
+CATEGORY B: MOBILITY MUTATIONS (change how you move)
+- Phase Shift: Walk through walls for 3 turns, 40-turn cooldown
+- Long Legs: +15% movement speed permanently, but kick attack replaces
+  normal melee
+- Gecko Grip: Move through enemy-occupied tiles without attacking (slip
+  past enemies)
+- Tunnel Digger: Dig through destructible walls (new terrain interaction)
+
+CATEGORY C: DEFENSE MUTATIONS (passive body changes)
+- Chitinous Shell: +3 DR but blocks hat slot (equipment tradeoff)
+- Rubber Skin: Immune to electrical damage, but -2 to all melee damage
+  dealt
+- Regeneration: Heal 1 HP when you kill an enemy (NOT passive regen --
+  respects the no-passive-regen rule)
+- Adrenaline Glands: When below 30% HP, gain +50% damage for 10 turns
+  (once per floor)
+
+CATEGORY D: UTILITY MUTATIONS (information/environment)
+- Echolocation: Detect enemies through walls within 5-tile radius
+- Pheromone Cloud: 30% chance enemies that enter melee range are Confused
+  for 2 turns
+- Radiation Sense: See radiation levels on all visible tiles, immune to
+  rad ambushes
+- Toxic Metabolism: Convert toxicity to HP (spend 20 tox to heal 10 HP,
+  activated)
+
+CATEGORY E: DEFECT MUTATIONS (bad but interesting)
+- Bioluminescent: Your sight radius +2, but enemies can also detect you
+  from +3 tiles away
+- Brittle Bones: Knockback effects deal 2x damage, you can't wear boots
+- Hemophilia: All bleed durations doubled, but your blood creates grease
+  tiles
+- Paranoid: Phantom enemies occasionally appear in FOV (not real, waste
+  your attacks)
+- Unstable Form: Every 50 turns, one random stat shifts by +/-1
+
+IMPLEMENTATION NOTE:
+Each mutation should be implemented as an Effect subclass (using NIGRL's
+existing @register decorator system) with the appropriate lifecycle hooks.
+Combat mutations can also grant AbilityDef entries via engine.grant_ability().
+Equipment-blocking mutations use a new "blocked_slots" field checked
+during equip validation.
+
+The existing tier system (weak/strong/huge) maps well to mutation power:
+- Weak: Simple single-effect mutations (Thick Fur, Night Vision)
+- Strong: Dual-mode or scaling mutations (Quills, Adrenal Control)
+- Huge: Game-changing mutations (Phase Shift, Burrowing Claws, Temporal)
+
+Bad mutations (67% chance) should draw from DEFECT category.
+Good mutations (33% chance) should draw from COMBAT/MOBILITY/DEFENSE/UTILITY.
+
+
+END OF REFERENCE

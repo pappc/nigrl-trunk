@@ -1,0 +1,37 @@
+CDDA-INSPIRED MUTATION EXPANSION — SUMMARY
+============================================
+20 new mutation candidates (5 per category) to extend the 80-mutation overhaul.
+Inspired by Cataclysm: Dark Days Ahead. Explores themes NOT in existing 80:
+terrain creation, summoning, sound, stealth, item fusion, enemy manipulation,
+conditional triggers, resource transformation, probability manipulation.
+
+WEAK GOOD (21-25):
+  21. Slime Trail — leave slime tiles that trip/tox enemies; you're immune
+  22. Echolocation Pulse — reveal entire floor briefly + disorient nearby enemies
+  23. Sticky Fingers — bonus loot on melee kills + gold pickup bonus + item duplication
+  24. Chameleon Skin — stand still to become invisible; ambush strike +50-100% dmg
+  25. Probability Flux — +5-15% to ALL % rolls (yours AND enemy's); L3 25% death save
+
+WEAK BAD (21-25):
+  21. Volatile Anatomy — random stat swap each floor (-2 one stat, +1 another)
+  22. Resonant Bones — taking hits alerts all enemies in radius; they get speed boost
+  23. Magnetic Blood — +15-35% enemy ranged accuracy vs you; speed penalty from metal items
+  24. Neural Leakage — consecutive same-ability use deals -25-75% reduced effect
+  25. Unstable Mass — big hits push you randomly; wall impact damage; hazard risk
+
+STRONG GOOD (21-25):
+  21. Flesh Puppeteer — mind-control an enemy to fight for you; blocks weapon slot
+  22. Mimic Flesh — absorb enemy special attacks, apply them on your melee hits
+  23. Split Consciousness — 2 actions per turn for 10-15t, 1-2x/floor; blocks hat
+  24. Web Spinner — place invisible web traps that root enemies; up to 15 webs
+  25. Adaptive Metabolism — build immunity to repeated debuffs within a floor; blocks feet
+
+STRONG BAD (21-25):
+  21. Echo Chamber Skull — 3-7 self-damage on ability/gun/item use; blocks hat
+  22. Sympathetic Pain — 15-25% of damage you deal returns as self-damage; blocks neck
+  23. Entropic Aura — weapons degrade with use; rings/neck items decay per floor
+  24. Midas Curse — 20-40% chance items transmute to gold on pickup
+  25. Split Identity — every 20-30 turns, "other self" takes 1 random harmful action
+
+KEY SYNERGIES: Slime+Pheromone, Web+Chameleon, Puppet+Split, Mimic+Leech
+KEY ANTI-SYNERGIES: Chameleon+Lopsided, Sympathetic+Feral, Midas+Iron Gut

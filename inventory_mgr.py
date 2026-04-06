@@ -635,6 +635,10 @@ def _handle_equipment_input(engine, action):
             if item_defn and item_defn.get("no_unequip"):
                 engine.messages.append(f"{item.name} cannot be unequipped!")
                 return False
+            # Block unequip for enchanted-locked items (Soloman)
+            if getattr(item, "enchanted_locked", False):
+                engine.messages.append(f"{item.name} is fused to you!")
+                return False
             if slot_id == "weapon":
                 engine.equipment["weapon"] = None
                 old_defn = get_item_def(item.item_id)
@@ -720,21 +724,30 @@ def _refresh_ring_stat_bonuses(engine):
         if defn:
             for stat, amount in defn.get("stat_bonus", {}).items():
                 totals[stat] = totals.get(stat, 0) + amount
+        # Enchantment bonus (doubled stats or flat +1 all)
+        for stat, amount in getattr(ring, "enchant_stat_bonus", {}).items():
+            totals[stat] = totals.get(stat, 0) + amount
     if engine.neck is not None:
         defn = get_item_def(engine.neck.item_id)
         if defn:
             for stat, amount in defn.get("stat_bonus", {}).items():
                 totals[stat] = totals.get(stat, 0) + amount
+        for stat, amount in getattr(engine.neck, "enchant_stat_bonus", {}).items():
+            totals[stat] = totals.get(stat, 0) + amount
     if engine.feet is not None:
         defn = get_item_def(engine.feet.item_id)
         if defn:
             for stat, amount in defn.get("stat_bonus", {}).items():
                 totals[stat] = totals.get(stat, 0) + amount
+        for stat, amount in getattr(engine.feet, "enchant_stat_bonus", {}).items():
+            totals[stat] = totals.get(stat, 0) + amount
     if engine.hat is not None:
         defn = get_item_def(engine.hat.item_id)
         if defn:
             for stat, amount in defn.get("stat_bonus", {}).items():
                 totals[stat] = totals.get(stat, 0) + amount
+        for stat, amount in getattr(engine.hat, "enchant_stat_bonus", {}).items():
+            totals[stat] = totals.get(stat, 0) + amount
     engine.player_stats.set_ring_bonuses(totals)
     new_max = engine.player_stats.max_hp
     engine.player.max_hp = new_max
@@ -796,6 +809,7 @@ def _refresh_ring_stat_bonuses(engine):
             defn = get_item_def(slot_item.item_id)
             if defn:
                 ept += defn.get("energy_per_tick", 0)
+            ept += getattr(slot_item, "enchant_speed_bonus", 0)
     for ring in engine.rings:
         if ring is not None:
             defn = get_item_def(ring.item_id)
@@ -1129,6 +1143,27 @@ def _use_item(engine, index):
                 ("One More Sip! ", (100, 200, 255)),
                 ("The bottle's not empty yet.", (200, 200, 200)),
             ])
+        # On the Rocks: clear all hangover (active + pending)
+        if getattr(item, "on_the_rocks", False):
+            cleared = False
+            # Remove active hangover effect
+            hangover_eff = next(
+                (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'hangover'),
+                None,
+            )
+            if hangover_eff:
+                hangover_eff.expire(engine.player, engine)
+                engine.player.status_effects.remove(hangover_eff)
+                cleared = True
+            # Clear pending hangover stacks
+            if engine.pending_hangover_stacks > 0:
+                engine.pending_hangover_stacks = 0
+                cleared = True
+            if cleared:
+                engine.messages.append([
+                    ("On the Rocks! ", (180, 220, 255)),
+                    ("Hangover cleared.", (200, 200, 200)),
+                ])
 
     elif effect_type == "soft_drink":
         drink_id = effect.get("drink_id")
@@ -1461,15 +1496,6 @@ def _use_item(engine, index):
                 (f"{best.name} is chilled!", (150, 220, 255)),
             ])
 
-    # Nuclear Research L4 "Isotope Junkie": using a consumable grants +5 radiation (pierces resistance)
-    if engine.skills.get("Nuclear Research").level >= 4:
-        from combat import add_radiation
-        add_radiation(engine, engine.player, 5, pierce_resistance=True)
-        engine.messages.append([
-            ("Isotope Junkie! ", (120, 220, 80)),
-            ("+5 radiation", (160, 255, 120)),
-        ])
-
     if effect.get("consumed", True) and not skip_consume:
         # Use identity search instead of index — apply_effect may have mutated the inventory
         if getattr(item, "charges", None) is not None:
@@ -1521,6 +1547,18 @@ def _use_food(engine, item, food_id):
             for eff_type in pdef.get("effects", []):
                 food_effects.append({"type": eff_type})
 
+    # Sandwich fusion: merge second food's effects into the list
+    sandwich_food_id = getattr(item, "sandwich_food_id", None)
+    if sandwich_food_id:
+        second_defn = get_food_def(sandwich_food_id)
+        if second_defn:
+            second_name = second_defn.get("name", sandwich_food_id)
+            food_name = "Sandwich"
+            well_fed_effect_name = "Chef's Special"
+            eat_length = min(eat_length, second_defn.get("eat_length", 10))
+            for eff in second_defn.get("effects", []):
+                food_effects.append(eff)
+
     # Check for Quick Eat buff — if active, consume food instantly
     quick_eat = next(
         (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'quick_eat'),
@@ -1543,6 +1581,7 @@ def _use_food(engine, item, food_id):
             well_fed_effect_name=well_fed_effect_name,
             greasy_stacks_per_charge=greasy_stacks_per_charge,
             is_fried=is_fried,
+            sandwich_food_id=sandwich_food_id or "",
         )
         eating.expire(engine.player, engine)
         return
@@ -1562,6 +1601,7 @@ def _use_food(engine, item, food_id):
         well_fed_effect_name=well_fed_effect_name,
         greasy_stacks_per_charge=greasy_stacks_per_charge,
         is_fried=is_fried,
+        sandwich_food_id=sandwich_food_id or "",
         silent=True
     )
 

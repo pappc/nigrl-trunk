@@ -1,0 +1,732 @@
+================================================================================
+TYRONE'S PENTHOUSE — 7 NEW SERVICE NPC DESIGNS
+================================================================================
+
+Context: These 7 NPCs add to the existing three (Gun Dealer, Chef, Plug). All are
+one-time free services — no cash required, no repeat visits. Each NPC occupies a
+small room or alcove off the main penthouse floor, accessible by bumping into them.
+Interaction model: walk-into-NPC opens a menu overlay; player makes one choice; NPC
+flags as used for the rest of the run; second approach gives a short dismissal line.
+
+Design constraints:
+- Each NPC must parallel the existing trio's interaction model (bump = menu).
+- One free choice per run.
+- No cash cost (that separates these from paid NPCs like Big Mama or Daquan).
+- Every NPC must serve a different system to avoid overlap.
+- ASCII rendering. Chars chosen to evoke their role at a glance.
+
+================================================================================
+NPC 1 — THE BARTENDER: DELROY
+================================================================================
+
+CONCEPT
+-------
+The penthouse parallel to the Chef (food) and the Plug (smoking). Delroy is a stocky
+man behind a bar counter on the north wall. He is the drinks NPC: he offers the player
+a free round from a curated selection of the game's alcohol consumables. Notably he
+does not offer random garbage — he curates a short list of drinks that are genuinely
+useful at the transition point between zones.
+
+CHAR / COLOR
+------------
+char = 'B'  (Bartender)
+color = (180, 130, 60)   — warm amber, like cheap whiskey
+
+POSITION
+--------
+North wall, west quadrant. A counter entity (hazard_type="counter", char='=') runs
+in front of him, blocking direct approach. Player bumps the counter tile to interact.
+
+INTERACTION FLOW
+----------------
+On first bump: menu overlay titled "DELROY'S BAR — FREE ROUND (ONE PER VISIT)"
+
+  Delroy: "On the house. Just the one."
+
+  Menu lists 5 drinks, always the same 5 (not randomized):
+
+    a) [Malt Liquor]          — Drinking XP, STR buff, +tox
+    b) [Homemade Hennessy]    — Drinking/Alcoholism XP, strong STR buff
+    c) [Steel Reserve]        — Strong CON buff, bleeds slowly
+    d) [Platinum Reserve]     — High Drinking/Alcoholism XP, big power spike
+    e) [Virulent Vodka]       — Activates on-hit tox transfer (Meth Lab synergy)
+
+  Player presses a-e to receive that drink in inventory. No immediate consumption —
+  the drink is added as a normal inventory item. They can save it, use it immediately,
+  or pass it through the Stash Box (if implemented). Menu closes.
+
+  On second bump: "Delroy: Had your free one. You're buying next time."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine flag: engine.delroy_used = False; set True after pick; never resets mid-run.
+  - On pick: call create_item_entity(chosen_drink_id) and append to player inventory.
+  - The 5 curated drinks are hardcoded in the implementation (not random) — Delroy's
+    "curation" is the design flavor.
+  - If the player has a full inventory (unlikely given unlimited inventory), the item
+    is placed on the floor beneath the player.
+  - Drinking skill XP fires on actual consumption, not on receipt — same as any drink.
+
+WHY THESE 5 DRINKS
+------------------
+  - Malt Liquor / Homemade Hennessy / Steel Reserve: three calibers of STR/CON buff;
+    straightforward power for melee builds.
+  - Platinum Reserve: the highest Drinking/Alcoholism XP drink in the game; for players
+    trying to push past a skill threshold before entering the Meth Lab.
+  - Virulent Vodka: explicitly a Meth Lab prep item — activates on-hit tox transfer,
+    which combos with enemy tox pools on the Meth Lab floors.
+
+BALANCE NOTES
+-------------
+Free single drink cannot be too powerful. None of these drinks are game-breaking in
+isolation. Virulent Vodka is arguably the highest-value pick for savvy players going
+into the Meth Lab, creating an interesting skill-expression moment. Melee builds will
+likely take Platinum Reserve or Hennessy.
+
+SYNERGIES
+---------
+  - Alcoholism L3 Stash Finder perk (random alcohol added to inventory): stacks with
+    Delroy's free pick — both can be ready for the Meth Lab entry.
+  - Chef's Sandwich: if the player has a food item in inventory and uses Delroy's
+    drink + Chef's sandwich, they can set up a powerful two-item combo burst.
+  - Virulent Vodka + Chemical Warfare Spillover Aura: tox on hit transfers to kills
+    which then transfer tox to nearby enemies — compounding poison chain in Meth Lab.
+
+================================================================================
+NPC 2 — THE SKILL TRADER: LA'QUISHA
+================================================================================
+
+CONCEPT
+-------
+The most mechanically complex of the seven NPCs. La'Quisha is a woman sitting at a
+small table in the northeast corner, surrounded by piles of books and scribbled notes.
+She offers a single "skill trade": drain 1 level from a skill the player has invested
+in, and invest that energy into a skill the player has touched (has potential_exp in)
+but never formally leveled. The result is a cross-skill power transfer that lets players
+course-correct build paths that aren't working.
+
+This is built around the user's specific vision: pick a skilled skill, pick an unleveled
+skill that has latent potential, and trade levels. The transaction is irreversible.
+
+CHAR / COLOR
+------------
+char = 'L'  (La'quisha)
+color = (160, 200, 255)  — cool blue, intellectual
+
+POSITION
+--------
+Northeast alcove, around ox+32, oy+3. A table entity (hazard_type="table", char=0xE002)
+in front of her. She barely moves.
+
+INTERACTION FLOW
+----------------
+On first bump: menu overlay in two steps.
+
+STEP 1 — SELECT THE SKILL TO DRAIN
+Title: "LA'QUISHA'S SKILL TRADE — STEP 1: WHICH SKILL TO PULL FROM?"
+Subtitle: "She'll drain 1 full level from this skill."
+
+  Lists only skills where: skill.level >= 1
+  Format for each row:
+    [Smoking L3]     Real: 600 / 600 XP    (full level will be removed)
+    [Stabbing L2]    Real: 400 / 400 XP
+
+  Player presses a letter to select. Level must be >= 1. Skills at level 0 (even with
+  real_exp toward level 1) are excluded — there must be a full level to take.
+
+STEP 2 — SELECT THE SKILL TO BOOST
+Title: "LA'QUISHA'S SKILL TRADE — STEP 2: WHERE TO PUT IT?"
+Subtitle: "She'll inject enough XP to bring this skill to level 1."
+
+  Lists only skills where: skill.level == 0 AND skill.potential_exp > 0
+    (has potential but never been leveled — the player "touched" the skill)
+  Format:
+    [Meth-Head]      Potential: 840 XP   (needs 200 to reach L1)
+    [Gunplay]        Potential: 320 XP   (needs 200 to reach L1)
+
+  Player presses a letter to select.
+
+CONFIRMATION PROMPT
+  "Are you sure? This cannot be undone."
+  Y = confirm, N / Esc = cancel without penalty.
+
+ON CONFIRM
+  - SOURCE skill: skill.level -= 1; skill.real_exp is set to 0 (the level's XP is gone,
+    same as if the level was never earned). Corresponding perk is LOST.
+  - TARGET skill: skill.real_exp += DEFAULT_EXP_CURVE[0] (200) — enough to hit level 1.
+    Call skill.add_real_exp() to trigger level threshold check and unlock perk.
+  - Skill point pool (engine.skills.skill_points) is unchanged — this is a direct XP
+    injection that bypasses the normal conversion economy.
+  - engine flag: engine.laquisha_used = True.
+  - Post-confirmation message:
+    "La'Quisha: Knowledge ain't destroyed. Just relocated."
+
+EDGE CASES
+----------
+  - If player has no skills at level >= 1: La'Quisha says "You ain't learned enough
+    to trade anything yet." No menu opens.
+  - If player has no skills with level == 0 AND potential_exp > 0: La'Quisha says
+    "You haven't touched anything new. Come back when you've been exploring."
+  - If both pools exist but player has only 1 skill and it's the same one: impossible
+    by definition (source must be leveled, target must be unleveled), so it can't
+    be the same skill.
+  - Perks from the SOURCE level are lost immediately. If the perk granted an ability
+    (e.g., via engine.grant_ability), the ability should be removed from the player's
+    ability list (engine.abilities dict — remove the entry).
+  - The TARGET skill's perk at L1 fires immediately on level-up trigger.
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.laquisha_used: bool = False
+  - Step 1 pool: [s for s in engine.skills.all() if s.level >= 1]
+  - Step 2 pool: [s for s in engine.skills.all() if s.level == 0 and s.potential_exp > 0]
+  - Source mutation: s.level -= 1; s.real_exp = 0.0 (do NOT touch potential_exp)
+  - Target mutation: target_skill.add_real_exp(200) — fires the normal level-up chain
+    including perk unlock notification
+  - Perk removal for source: call engine._remove_perk_at_level(skill_name, old_level)
+    — this function does not yet exist; it must: (1) look up SKILL_PERKS[skill_name][old_level-1],
+    (2) if perk grants an ability, remove it from engine.abilities, (3) if perk grants
+    a stat bonus, subtract it from player_stats permanently. This is the most
+    technically demanding part of the implementation.
+
+BALANCE CONSIDERATIONS
+----------------------
+The key constraint is that you must LOSE a level to GAIN a level. This is never a free
+lunch. Common use cases:
+  - Player has Alcoholism L2 from drinking but never invested in Meth-Head, even though
+    they've been hit by tox. La'Quisha lets them turn one of those Alcoholism levels into
+    a Meth-Head L1 — better Meth Lab prep.
+  - Player accidentally leveled Dismantling (from breaking items) but is going into
+    the Meth Lab where Decontamination matters more. Trade 1 Dismantling level for
+    Decontamination L1.
+  - The tradeoff is genuine: high-level skills have the best perks at upper levels.
+    Draining L3 to L2 loses the L3 perk. Players must weigh perk value carefully.
+
+SYNERGIES
+---------
+  - Professor Cracksworth (existing NPC): use Cracksworth to unlock a skill to L1,
+    then use La'Quisha to trade a different skill — double skill manipulation in one
+    penthouse visit.
+  - Meth Lab entry: the Meth-Head, Chemical Warfare, and Decontamination skills are
+    all best accessed through La'Quisha if the player has any potential_exp in them
+    but zero levels (very common for Crack Den runs that barely triggered tox).
+
+================================================================================
+NPC 3 — THE PAWN MAN: RICO
+================================================================================
+
+CONCEPT
+-------
+Rico runs a pawn operation out of a back room. He offers the player a deal: hand over
+one equipped item (from any equipment slot), and he gives a replacement from his stock
+— a randomly drawn item from the zone's loot tables, guaranteed to be from a slot the
+player doesn't currently have filled. The tradeoff is that the player gives up
+something known for a mystery item. High-risk, high-upside lateral equipment trade.
+
+CHAR / COLOR
+------------
+char = 'R'  (Rico, pawn)
+color = (200, 160, 80)  — dirty gold, pawn shop aesthetic
+
+POSITION
+--------
+West wall, south quadrant, small alcove. A counter hazard in front.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "RICO'S PAWN — TRADE ONE PIECE (ONE-TIME)"
+
+  Rico: "Bring me something good, I got something better. Maybe."
+
+  Menu lists all currently equipped items across all slots:
+    [Weapon]   Rusty Pipe (ATK +4)
+    [Feet]     Sneakers (+1 STS)
+    [Ring 1]   Ring of the Scholar (+2 BKS)
+    etc.
+
+  Player selects one item to trade in.
+
+  After selection, Rico immediately produces 1 item from a CURATED PAWN POOL:
+    - Item must be equippable (category="equipment")
+    - Item must be drawn from the Meth Lab zone's normal loot tables (zone="meth_lab")
+      to ensure the reward is Meth Lab-relevant
+    - Item is drawn randomly with weights, same as normal loot generation
+    - The traded-in item is removed from the player and unequipped
+    - The new item is placed directly in inventory (not auto-equipped)
+    - Message: "Rico: That'll do. Take this."
+
+  On second bump: "Rico: We're square. Don't come back."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.rico_used: bool = False
+  - On trade: unequip the selected item (set the equipment slot to None in engine),
+    remove the item entity from inventory, then generate one random equippable item
+    using loot.generate_floor_loot(zone="meth_lab", floor_num=1, ...) filtered to
+    equippable items. Retry up to 10 times if result is non-equippable.
+  - Do not restrict which slot the new item fills — the player gets what they get.
+
+BALANCE CONSIDERATIONS
+----------------------
+The player gives up a known, quantified item for a random Meth Lab item. Meth Lab items
+tend to be stronger overall (higher floor, harder enemies), so on average this is a
+slight upgrade — but the variance is enormous. You might trade your best weapon for
+boots. The risk is real.
+
+Best use: trade a weak item you don't care about (a basic ring, starter weapon) for a
+chance at a strong Meth Lab equippable. Players who intentionally enter the penthouse
+with a low-value item to sacrifice will feel smart if the trade lands well.
+
+SYNERGIES
+---------
+  - Tyrone's shop: if the player buys a new gun from the Gun Dealer NPC, they free up
+    their old weapon slot — then trade the old weapon to Rico for a Meth Lab random.
+  - Stat Mirror (existing design): reroll stat spread before trading, then get a
+    Meth Lab item that synergizes with the new spread.
+
+================================================================================
+NPC 4 — THE TATTOO ARTIST: PRECIOUS
+================================================================================
+
+CONCEPT
+-------
+Precious runs a back-alley tattoo parlor. She offers the player a single permanent
+body modification: choose one stat to boost by +1 permanently, but a different stat
+(chosen randomly) takes a -1 penalty. The net stat total is unchanged, but the
+distribution is forcibly shifted. Unlike the Stat Mirror (which lets you redistribute
+at will), Precious forces a random penalty — you pick your gain, fate picks your loss.
+
+This creates a tense gamble: players with a key stat already at the cap (12) cannot
+raise it further, and getting the penalty on CON (affecting HP) or a combat stat is
+genuinely painful.
+
+CHAR / COLOR
+------------
+char = 'P'  (Precious, tattoo)
+color = (180, 80, 160)  — purple/magenta, alternative aesthetic
+
+POSITION
+--------
+Southwest alcove, small room. A chair hazard (hazard_type="chair", char='"') beside her.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "PRECIOUS TATTOO — ONE INK (FREE)"
+
+  Precious: "I can put something on you that sticks. Your choice which. Not which hurts."
+
+  Menu lists the 6 stats with current values:
+    a) Constitution  [10]  — +1 to this
+    b) Strength      [8]   — +1 to this
+    c) Book-Smarts   [6]   — +1 to this
+    d) Street-Smarts [12]  — +1 to this  (grayed out: ALREADY AT CAP)
+    e) Tolerance     [9]   — +1 to this
+    f) Swagger       [8]   — +1 to this
+
+  Stats already at max (12 for the main 5; cap TBD for Swagger, suggest 12 also) are
+  grayed out and unselectable. If all stats are at cap (theoretical edge case), Precious
+  says "You're maxed out. Even I can't improve perfection." and does nothing.
+
+  Player selects one stat to boost.
+
+  Immediately after selection:
+    - The chosen stat increases by +1 permanently (player_stats._base[stat] += 1).
+    - The game randomly selects a DIFFERENT stat from the remaining 5 that is NOT
+      already at its minimum (6 for main stats, or 1 for Swagger).
+    - That stat decreases by -1 permanently.
+    - Both changes are displayed simultaneously:
+      "Constitution +1 | Tolerance -1"
+      "Precious: The pain is part of it."
+
+  engine flag: engine.precious_used = True.
+  On second bump: "Precious: You're already inked. Come back next life."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.precious_used: bool = False
+  - Stat caps for selection: cannot boost a stat already at 12.
+  - Penalty selection: random.choice([stats except chosen]) filtered to those > minimum.
+    Minimum for CON/STR/BKS/STS/TOL: 6. Minimum for Swagger: 1 (or 6 if unified).
+  - Apply both changes via player_stats directly (not temporary bonuses) —
+    same layer as character creation base stats.
+  - HP recalculation: if CON changes, engine.player.max_hp should be recalculated
+    (player.max_hp = 30 + player_stats.effective_constitution * 10).
+  - If CON was chosen as the boost but current hp > new max somehow (edge case from
+    penalty landing on CON of another path — impossible since they're different stats),
+    handle gracefully.
+
+BALANCE CONSIDERATIONS
+----------------------
+  - The most extreme outcome: you boost STR by +1 and lose CON -1. This costs 10 max HP.
+    For a player at 100 HP entering the Meth Lab, that is a 10% HP loss. Potentially
+    very bad. Players must weigh this risk honestly.
+  - The safest picks are stats you don't care about losing from: boosting BKS at the cost
+    of risking TOL is relatively painless. Boosting CON at the risk of losing STR is a
+    pure HP gain at the cost of slightly less melee damage.
+  - Expected value is neutral (net 0 stat points) but variance is high. Skill-expressive.
+
+SYNERGIES
+---------
+  - Stat Mirror (existing design): use Stat Mirror FIRST to arrange your stats optimally,
+    then use Precious to pick the safest possible boost. The Stat Mirror means you know
+    exactly which stat you can afford to lose 1 from.
+  - Repentance Pew (existing design): if the Pew gives +1 random stat, use Precious
+    afterward — the total pool is now higher, making the Precious trade less painful.
+
+================================================================================
+NPC 5 — THE PHARMACIST: DR. PILL
+================================================================================
+
+CONCEPT
+-------
+Dr. Pill is a shady unlicensed pharmacist who offers a free ability injection — but
+the ability you receive is randomly drawn from the game's full ability registry (or a
+curated "street pharmacy" subset of thematically appropriate abilities). The player
+cannot choose which ability they get. They either take the mystery injection or decline.
+No cash required. Pure risk: the ability could be incredibly powerful or fairly useless.
+
+This parallels the Plug (random strain from a pick-5 list) but for abilities rather
+than consumables, and with full randomness — you don't even get a menu of choices,
+just a random result.
+
+CHAR / COLOR
+------------
+char = '$'  (pill capsule silhouette, money sign as stand-in)
+color = (80, 220, 120)   — hospital green
+
+POSITION
+--------
+Southeast, small alcove. A shelf hazard (hazard_type="shelf", char=']') beside him.
+
+INTERACTION FLOW
+----------------
+On first bump: a yes/no confirmation only. No preview of what the ability is.
+
+  Dr. Pill: "I got something that might help. Or might not. Fifty-fifty. You in?"
+  [Y] Take the injection   [N] Decline
+
+  If Y: a random ability is drawn from the PHARMACY_POOL (see below) and granted to the
+  player via engine.grant_ability(ability_id) with ChargeType.PER_FLOOR or as designed.
+  Message: "Dr. Pill: *injects* That's the stuff."
+  The ability name and description are immediately displayed in a popup (same as the
+  perk unlock popup pattern) so the player knows what they got.
+
+  If N: "Dr. Pill: Your loss." No negative consequence.
+
+  engine flag: engine.drpill_used = True.
+  On second bump (whether they took it or not): "Dr. Pill: One dose per customer."
+
+PHARMACY POOL — CURATED STREET ABILITY LIST
+--------------------------------------------
+A hardcoded list of ~15 abilities from the ABILITY_REGISTRY that make thematic and
+mechanical sense as "street pharmacology injections." They should all be useful enough
+that the player is tempted, and varied enough that the randomness matters.
+
+Suggested pool (subject to what exists in ABILITY_REGISTRY by implementation time):
+  1. warp               — instant teleport; escapability in Meth Lab
+  2. smoke_screen       — visibility-blocking cloud; stealth utility
+  3. rad_nova           — radiation burst on self + heal; Meth Lab synergy
+  4. stim_pack          — speed boost; movement utility
+  5. pandemic           — mass tox on visible enemies; Chemical Warfare synergy
+  6. berserk            — damage boost at cost of defense; melee aggression
+  7. force_push         — knockback ability; crowd control
+  8. adrenaline_shot    — full HP heal or near-death recovery
+  9. toxic_cloud        — places AOE tox tile; terrain control
+  10. dimension_door    — short-range teleport variant
+  11. armor_up          — temporary defense spike
+  12. nerve_gas_grenade — heavy AOE damage; risky but powerful
+  13. blood_frenzy      — leech on hit; sustain tool
+  14. static_burst      — Electrodynamics synergy ability
+  15. ice_nova          — Cryomancy synergy; Chebyshev AOE freeze
+
+  Implementation note: the pool should be filtered at runtime to only include abilities
+  that exist in ABILITY_REGISTRY — if some haven't been implemented yet, they are simply
+  absent from the pool. The pool should have at least 5 entries to function.
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.drpill_used: bool = False
+  - PHARMACY_POOL: list[str] = ["warp", "rad_nova", "pandemic", ...] — hardcoded list
+    of ability IDs, filtered to keys present in ABILITY_REGISTRY at runtime.
+  - random.choice(filtered_pool) selects the ability.
+  - engine.grant_ability(chosen_id) — same call as any ability grant.
+  - Show ability popup: same pattern as PERK_POPUP (MenuState.PERK_POPUP) with the
+    ability's name and description. Player presses any key to dismiss.
+  - If filtered pool is empty (all abilities missing): Pill says "I'm out of stock."
+    engine flag still sets to True (he's "used up" even if nothing was given).
+
+BALANCE CONSIDERATIONS
+----------------------
+  - Full randomness is the whole design. Some injections (warp, pandemic) are high-value;
+    others (armor_up) are situational. The player can decline, so this is never a trap.
+  - Unlike the Plug, there is no browsing — no information before committing. The
+    decision is purely "do I want a random ability?" which is a personality test as much
+    as a strategy decision. Gambling builds and players who like variance will take it.
+  - The ability arrives with its standard charge count (PER_FLOOR = refreshes, TOTAL =
+    single-run uses, etc.) — no special scaling.
+
+SYNERGIES
+---------
+  - Meth-Head L2 (extra ability charges): if the player has Meth-Head perk that adds
+    charges to abilities, Dr. Pill's random injection benefits from that too.
+  - Ability-granting unique items: a player stacking multiple ability-grant sources can
+    enter the Meth Lab with 3-4 abilities active, making Dr. Pill a key stop.
+
+================================================================================
+NPC 6 — THE FENCE: MARCUS
+================================================================================
+
+CONCEPT
+-------
+Marcus is a information broker who deals in run intelligence. His service is uniquely
+non-mechanical: he tells the player one of three true facts about the current run's
+Meth Lab configuration — which faction has heavier presence, which enemy type spawns
+most on floor 1, or what the first floor's loot table is biased toward. The player
+picks which "intel package" they want. This is purely informational but in a roguelike,
+information is power.
+
+This parallels the Bulletin Board (existing design) but is interactive and run-specific
+(the Bulletin Board is static educational text; Marcus gives run-specific intelligence).
+
+CHAR / COLOR
+------------
+char = 'M'  (Marcus, fence/broker)
+color = (140, 140, 140)  — grey, nondescript, shady
+
+POSITION
+--------
+Center-south area of the penthouse, standing alone — accessible from multiple angles.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "MARCUS — INTEL (PICK ONE)"
+
+  Marcus: "I know what's down there. Worth more than anything Tyrone's selling."
+
+  Menu offers exactly 3 intel options to pick from:
+
+    a) FACTION REPORT
+       Reveals: "Aldor presence is heavy on floor 1." or "Scryers outnumber Aldor
+       this run." or "Faction activity is mixed." — derived from the Meth Lab's
+       actual spawn tables by sampling which faction enemies were seeded into the
+       zone's loot/spawn configuration.
+
+    b) THREAT BRIEF
+       Reveals: "The Purger patrols the first floor of the Meth Lab." or "Covid-26
+       cases are dense on floor 1." — identifies which of the unique/dangerous enemy
+       types is heaviest in the first Meth Lab floor spawn table.
+
+    c) SUPPLY LINE
+       Reveals: "Strain supply is heavy this run — expect lots of joints in the Meth
+       Lab." or "Gunplay build — ammo drops are above average on floor 1." or "Cash
+       is tight. Stock up here." — derived from loot table bias (which item categories
+       have high aggregate weight in this run's meth_lab floor 1 table).
+
+  Player presses a/b/c to receive that report.
+  Report text is displayed in the message log and as a one-time popup.
+
+  engine flag: engine.marcus_used = True.
+  On second bump: "Marcus: I told you what I know. Move along."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.marcus_used: bool = False
+  - Each intel type derives its text from actual engine state at Penthouse time:
+    a) Faction report: count Aldor vs. Scryer enemy types in ZONE_SPAWN_TABLES["meth_lab"]
+       (or sample from engine's seeded randomness if the table is dynamic) and report
+       whichever has higher aggregate spawn weight.
+    b) Threat brief: find which of the "dangerous" enemy types (purger, covid_26,
+       toxic_slug, sludge_amalgam, chemist) has the highest spawn_weight in
+       ZONE_SPAWN_TABLES["meth_lab"][0] (floor 1 table).
+    c) Supply line: sum weights by item category in loot.generate_floor_loot's internal
+       table for meth_lab floor 1. Report the top category.
+  - The intel is always TRUE — Marcus never lies. He is a fence, not a conman.
+  - Implementation simplification if dynamic analysis is complex: pre-seed Marcus's
+    three possible reports at zone generation time (generate_penthouse or
+    generate_meth_lab entry point) and store as engine.marcus_reports: list[str].
+
+BALANCE CONSIDERATIONS
+----------------------
+  - Pure information; no mechanical effect. Cannot be imbalanced in the damage/HP sense.
+  - Value varies by player knowledge. New players may not know what a "Purger" is, so
+    the threat brief is confusing. The Bulletin Board (educational) and Marcus (run-
+    specific) complement each other — Bulletin Board teaches the systems, Marcus applies
+    them to THIS run.
+  - The faction report directly informs whether the player should visit Smooth Carl
+    (existing design) to buy reputation before descending.
+
+SYNERGIES
+---------
+  - Smooth Carl (existing design): Marcus's faction report tells you which faction to
+    buy rep with. Perfect combo — Marcus gives intel, Carl sells the response.
+  - Stat Mirror + Faction Report: if Aldor is dominant, maybe rebalance toward STS
+    (for their stealth-sensitive enemies) before going down.
+  - Bulletin Board: the Bulletin Board teaches what the Purger does; Marcus tells you
+    if the Purger is actually down there this run. Use both.
+
+================================================================================
+NPC 7 — THE COACH: BIG JEROME
+================================================================================
+
+CONCEPT
+-------
+Big Jerome (not to be confused with floor-1's chicken-eating Jerome the enemy) is a
+retired street brawler turned motivational coach. He offers the player a one-time
+combat coaching session: a permanent flat boost to one of three combat-specific
+mechanics — max HP, melee damage bonus, or dodge chance. The boost is small but
+permanent. Jerome's coaching is the most straightforward of all seven NPCs: no
+randomness, no tradeoffs, just a pure stat improvement where the player picks the
+dimension that helps their build most.
+
+Jerome is the "consolation NPC" for players who feel underprepared for the Meth Lab
+but want a direct, non-gambling solution. He requires no items, no cash, no sacrifice.
+
+CHAR / COLOR
+------------
+char = 'J'  (Jerome, coach)
+color = (255, 200, 100)  — warm gold, encouragement
+
+POSITION
+--------
+Center of the penthouse, south area — the most accessible NPC, easy to find.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "BIG JEROME — ONE SESSION (FREE)"
+
+  Jerome: "You're not ready for what's down there. Let me fix that. Pick one."
+
+  Menu offers 3 options, always the same:
+
+    a) IRON CHIN
+       "Increase your max HP by +15. Permanently."
+       Effect: engine.player.max_hp += 15; engine.player.hp = min(engine.player.hp + 15,
+       engine.player.max_hp) — heal up to the new max too.
+       Also: player_stats.iron_chin_bonus = 15 (serialized field; added to max_hp calc
+       at load time so save/load preserves it).
+
+    b) MEAN HANDS
+       "Your melee attacks deal +2 damage permanently."
+       Effect: player_stats.melee_damage_bonus += 2.
+       (melee_damage_bonus already proposed in engine state notes; if not yet implemented,
+       this is its creation point. It is added to melee damage in combat.py's resolution.)
+
+    c) GHOST STEP
+       "Increase your dodge chance by +5%."
+       Effect: player_stats.dodge_chance += 5.
+       (dodge_chance already exists on PlayerStats — this simply boosts it permanently.)
+
+  Player presses a/b/c.
+  Message: "Jerome: That's right. Now you're ready."
+  engine flag: engine.jerome_coach_used = True.
+  On second bump: "Jerome: You got what you came for. Go use it."
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.jerome_coach_used: bool = False
+    (Note: must not conflict with any existing "jerome" flags on engine — the enemy Jerome
+    is a separate system. Use a distinct name.)
+  - Iron Chin (+15 max HP):
+    Add player_stats.iron_chin_bonus: int = 0 field (serialized).
+    In engine's max_hp calculation: max_hp = 30 + constitution * 10 + iron_chin_bonus.
+  - Mean Hands (+2 melee damage):
+    player_stats.melee_damage_bonus += 2. Already tracked as a field.
+    Applied in combat.py where player melee power is calculated.
+  - Ghost Step (+5% dodge):
+    player_stats.dodge_chance += 5. Already a field. Works immediately.
+  - Save/load: all three fields serialize normally as part of PlayerStats JSON dump.
+
+BALANCE CONSIDERATIONS
+----------------------
+  - Iron Chin is the most broadly useful (every build needs HP) — expect most players
+    to take it. +15 HP = roughly 10% at CON 10. Meaningful, not game-breaking.
+  - Mean Hands is best for melee builds (Stabbing/Beating/Slashing). +2 damage is small
+    but permanent and doesn't require any resource.
+  - Ghost Step is best for STS-heavy builds that already invest in dodge. +5% dodge at
+    a base of 0% is minor; at 15% base it starts compounding nicely.
+  - The lack of tradeoff is intentional. Jerome is the "safety valve" NPC — for players
+    who need a guaranteed improvement, not a gamble. All other NPCs involve some variance
+    or sacrifice. Jerome does not.
+
+SYNERGIES
+---------
+  - Precious (NPC 4 above): Precious might randomly penalize CON (-1 = -10 HP).
+    Jerome's +15 HP from Iron Chin is a direct hedge against Precious's worst outcome.
+    Players can visit Precious first, and if CON gets penalized, take Jerome's Iron Chin
+    to compensate partially.
+  - Mutation system: Meth Lab mutations can permanently reduce stats. Ghost Step's
+    dodge bonus is unaffected by mutations (it's a flat dodge %, not a stat). This makes
+    it a mutation-proof defense investment.
+  - Big Mama's Penthouse Plate (existing): Plate gives +HoT. Iron Chin raises the max HP
+    that HoT tops off toward. Pair for maximum effective HP recovery before descent.
+
+================================================================================
+LAYOUT NOTES — ALL 7 NPCs TOGETHER
+================================================================================
+
+With the existing 3 NPCs (Gun Dealer, Chef, Plug) and these 7 new ones, the Penthouse
+has 10 service NPCs total. The fixed 39x14 layout needs careful placement.
+
+Suggested zones:
+  NORTH WALL (counter-facing):
+    - Delroy (Bartender) — NW, behind counter
+    - Gun Dealer (existing) — N center, behind counter
+    - Chef (existing) — NE, behind counter
+
+  EAST ALCOVE:
+    - La'Quisha (Skill Trader) — NE corner, table
+    - Rico (Pawn Man) — mid-E, counter
+
+  WEST AREA:
+    - Plug (existing) — NW alcove
+    - Precious (Tattoo) — SW alcove, chair
+
+  SOUTH / CENTER:
+    - Big Jerome (Coach) — S center, most accessible
+    - Marcus (Fence) — center-S, open floor
+
+  SOUTH ALCOVES:
+    - Dr. Pill (Pharmacist) — SE alcove, shelf
+
+  This distributes NPCs around the perimeter, keeps the center walkable, and clusters
+  thematically similar NPCs (north = goods/services bar, east = meta-skill stuff,
+  west = body/consumable modification, south = info/stat tuning).
+
+================================================================================
+ENGINE FLAGS SUMMARY
+================================================================================
+
+New engine flags required (all bool, default False, reset on new run, NOT on floor
+change — penthouse is one floor total):
+
+  engine.delroy_used       — Bartender drink pick
+  engine.laquisha_used     — Skill Trader trade
+  engine.rico_used         — Pawn Man equipment trade
+  engine.precious_used     — Tattoo stat modification
+  engine.drpill_used       — Pharmacist random ability
+  engine.marcus_used       — Fence intel pick
+  engine.jerome_coach_used — Coach stat boost
+
+New PlayerStats fields required:
+  player_stats.iron_chin_bonus: int = 0  (serialized; added to max_hp formula)
+  player_stats.melee_damage_bonus: int — may already exist; if not, created here
+  player_stats.dodge_chance: int — already exists; no new field needed for Ghost Step
+
+================================================================================
+PRIORITY ORDER FOR IMPLEMENTATION
+================================================================================
+
+  Tier 1 — Simplest (minimal new UI, clear precedent):
+    Delroy (Bartender)     — single choice, item grant; mirrors Plug pattern
+    Big Jerome (Coach)     — 3 options, permanent stat; clearest interaction
+
+  Tier 2 — Moderate complexity (existing patterns + small new logic):
+    Rico (Pawn Man)        — equipment trade; uses existing equip/unequip logic
+    Precious (Tattoo)      — stat modify + random penalty; stat math only
+    Marcus (Fence)         — intel lookup; pure text, no mechanical effect
+
+  Tier 3 — Highest complexity (new menus, perk removal, ability pools):
+    Dr. Pill (Pharmacist)  — ability pool + existing grant_ability; moderate
+    La'Quisha (Skill Trader) — 2-step menu, perk removal, level-down logic; hardest
+
+================================================================================

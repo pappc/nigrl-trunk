@@ -1,0 +1,59 @@
+SUMMARY: skill-decontamination-L4-aura-options.txt
+==================================================
+
+6 toggle aura options for Decontamination L4 (replaces _PLACEHOLDER at SKILL_PERKS index 3).
+Every even-numbered Decon perk = toggle aura (swap with Gamma Aura; one active at a time).
+
+OPTION 1 — Sacred Ground Aura
+  Aura: rad tiles in FOV within 5 tiles gain +2 turns/tick (cap 30t). Walking has 15% chance
+  to spontaneously create a new rad tile (8t).
+  Passive: stepping off a rad tile adds +4 turns to it (Holy Footprint).
+  Requires Consecrate for most value. Vibe: zone-sustain paladin.
+
+OPTION 2 — Divine Sight Aura
+  Aura: visible enemies gain 1 Condemned stack/tick (cap 20). When enemy LEAVES FOV:
+  burst for stacks*3 true damage, stacks reset.
+  Passive: each visible enemy with 5+ stacks = +1 rad resist (cap +3).
+  Uses FOV as a novel combat mechanic — unprecedented in NIGRL. Vibe: punishes fleeing enemies.
+
+OPTION 3 — Corona of Judgment
+  Aura (costs 15 rad to activate): when a VISIBLE enemy hits you, deal (10+rad//20) true damage
+  to them AND gain 8 rad. Toggle cost = 15 rad (free to deactivate).
+  Passive (Radiant Constitution): while your rad is 50-200, take 1 less damage from all sources.
+  Force Sensitive synergy: every hit loads your rad pool. Vibe: immovable paladin.
+
+OPTION 4 — Penitent Aura
+  Aura: emit (3 + (1-HP%)*17) rad/tick to enemies within 3 tiles. Full HP = 3/tick (weak).
+  Near-death = up to 20/tick (strongest aura in game).
+  Passive (Martyrdom): once per floor, survive a lethal hit at 1 HP; gain 50 rad instantly.
+  Most exciting passive in the doc. Vibe: blazes brightest at the brink of death.
+
+OPTION 5 — Absolution Aura
+  Aura: enemies within 3 tiles at 100+ rad are cleansed: lose half their rad, take (stripped//4)
+  true damage; player heals (stripped//8) HP.
+  Passive: +25% Decontamination XP from all sources (engine.decon_xp_mult = 1.25).
+  Completion of Gamma->Absolution->Gamma loop. Vibe: healer-purifier.
+
+OPTION 6 — Ironsoul Aura
+  Aura: gain 1 flat DR per enemy in FOV (cap 5 DR). Each hit from a visible enemy grants 10 rad.
+  Passive (Line of Sight Awareness): FOV radius +1. New enemies entering sight are announced.
+  New: sight_radius_bonus passive (no other perk extends FOV). Vibe: awareness-as-armor.
+
+AUTHOR RECOMMENDATION:
+  Corona of Judgment (3) — tightest Force Sensitive synergy, creates first cost-to-purging
+  tension in the game, new combat hook.
+  Divine Sight (2) — most unique to NIGRL specifically; uses FOV in completely new way.
+  Penitent (4) — most exciting perk text; Martyrdom is memorable roguelike design.
+
+NEW FIELDS NEEDED BY OPTION:
+  Option 2: entity.condemned_stacks: int = 0 (must serialize)
+  Option 4: engine.martyrdom_used_this_floor: bool = False (reset on floor transition)
+  Option 5: engine.decon_xp_mult: float = 1.0 (set to 1.25 on unlock)
+  Option 6: engine.first_seen_entity_ids: set = set() (reset on floor transition)
+  Option 6: player_stats.sight_radius_bonus += 1 (or inline in compute_fov)
+
+FILES TO MODIFY (all options):
+  abilities.py, effects.py, skills.py (index 3 perk replacement)
+  combat.py (options 3, 4, 6 hook into hit path)
+  engine.py (options 1, 2, 4, 6 add engine state)
+  entity.py + save_system.py (option 2 only)

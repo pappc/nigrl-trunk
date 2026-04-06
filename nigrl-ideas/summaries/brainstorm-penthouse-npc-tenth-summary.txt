@@ -1,0 +1,47 @@
+BRAINSTORM SUMMARY: PENTHOUSE 10TH NPC
+Source: nigrl-ideas/brainstorm-penthouse-npc-tenth.txt
+Date: 2026-04-02
+
+6 concepts for the 10th and final one-time service NPC in Tyrone's Penthouse.
+All concepts avoid overlapping the existing 9 NPCs (Gun Dealer, Chef, Plug, La'Quisha,
+Precious, Rico, Soloman, Sage/Mixologist, Dice/Craps Dealer).
+
+RANKED RECOMMENDATIONS:
+
+1. DARNELL "The Memory Man" (A+) — RECOMMENDED
+   Tallies three Crack Den metrics (kills, items used, cash spent), displays counts,
+   player picks ONE to cash in for a reward. Other two tallies are wiped.
+   Kill tally → max HP + ability charges. Item tally → random permanent stat points.
+   Cash tally → permanent defense.
+   Weird factor: high. Mechanically original. Retroactively rewards playstyle.
+   Engine state: 3 counters tracked from run start + darnell_used bool.
+
+2. SANDMAN "The Dream Broker" (A)
+   Voluntary sleep: pay ability charges (blind — which ability unknown until after),
+   receive temp HP + cleanse. Light nap (1 charge, 1 debuff cleanse, +20 temp HP) or
+   Heavy sleep (all charges from 1 ability, all debuffs cleansed, +30 HP, +40 temp HP).
+   Weird factor: high (blind cost revealed AFTER you commit).
+
+3. LOLA "The Sprint Coach" (B+)
+   Pick one of 3 permanent movement techniques:
+   Burst Step (free double-tile move once per floor), Shadow Step (idle enemies
+   don't notice you 1 tick longer), Iron Stride (immune to all movement slowing effects).
+   Cleanly fills the movement/speed design space. Orthogonal to all 9 existing NPCs.
+
+4. BIG PETE "The Contractor" (B+)
+   Bounty contract: player picks a Meth Lab enemy type to hunt; Pete gives a deferred
+   reward (random from HP/temp HP/defense/speed/ability charges) for achieving 3-7 kills
+   of that type. One re-roll on contract terms allowed.
+   Implementation is heaviest of the 6.
+
+5. NEEDLE "The Body Mod Artist" (B)
+   Pick one of 5 permanent defensive/offensive body modifications:
+   Subdermal Plates (+20 def), Bone Bracing (-2 melee dmg taken per hit),
+   Nerve Deadening (DOT ticks -1, min 1), Hollow Knuckles (+1 melee dmg, +5% crit),
+   Scar Tissue (first hit per combat -50%).
+   Clean mechanic filling armor/DR space.
+
+6. MAMA EZRA "The Medium" (C)
+   Cryptic psychic reading of one room on Meth Lab floor 1 (real data, abstract
+   language). Optional compass marker toward that room. Pure information, thin payoff.
+   Suggested as flavor text attached to a different NPC rather than a standalone slot.

@@ -1,0 +1,579 @@
+DECONTAMINATION SKILL — PERKS L3 THROUGH L6
+NIGRL Design Document
+======================================================================
+
+DOCUMENT PURPOSE
+----------------
+This document designs six perk options for Decontamination levels 3-6,
+replacing the placeholder L3 perk ("Fallout") and filling L4-L6. The
+existing L1-L2 perks are kept as-is:
+
+  L1 — Radiant: +30% rad resist, +2 TOL, +2 STR
+  L2 — Emission: set all visible enemies' rad to yours (1/floor); irradiated
+       enemies take rad//50 damage/tick and decay 5 rad/tick
+
+SKILL IDENTITY RECAP
+--------------------
+Decontamination is the "rad removal" skill. Its XP sources are: radiation
+resisted (1 XP/point via add_radiation) and radiation removed (2 XP/point via
+remove_radiation). The Skywalker OG strain fuels the fantasy: smoke it, purge
+rad from yourself, and each 25 rad removed awards +2 temp STR via Force
+Sensitive. The L2 Emission dumps your rad onto enemies so they irradiate each
+other to death.
+
+The design problem is that L1-L2 are both "pass rad around" mechanics. The
+tree needs L3-L6 to answer: what does a high-level Decontamination player DO
+with their radiation beyond sharing it?
+
+The answer this doc proposes: you consecrate the ground. You leave irradiated
+wake. You cycle rad up and purge it for burst damage or burst heal. You become
+a moving hazard zone.
+
+The tree's verb set by endgame:
+  - Emit (share rad with enemies, L2)
+  - Consecrate (place irradiated ground tiles, L3 option A or L4)
+  - Purge-surge (convert your own rad removal into a burst, L3 option B)
+  - Absorb (drink rad from the floor or enemies into yourself, L5)
+  - Radiant Wake (leave rad tiles passively as you walk, L6)
+
+This is NOT a tank build (White Power owns that). It is a mobile skirmisher
+that treats radiation as a resource to cycle in and out, leaving hazardous
+terrain behind. It pairs naturally with Emission (dump rad onto enemies) and
+Force Sensitive (profit off purging it back off yourself).
+
+
+======================================================================
+LEVEL 3 OPTIONS
+======================================================================
+
+L3 OPTION A — "CONSECRATE"
+Type: activated ability (ChargeType.PER_FLOOR, 2 charges)
+New ability id: "consecrate"
+Target type: SELF (no targeting UI — fires on player position)
+Cost: 50 radiation (paid with pierce_resistance=False so resistance applies)
+
+MECHANICAL DESCRIPTION:
+  Spend 50 rad to irradiate the floor beneath you and all tiles within radius 1
+  (a 3x3 patch, 9 tiles max, clipped to walkable tiles). Each affected tile
+  becomes a "rad_tile" for 20 turns.
+
+  Rad tile behavior (mirrors grease_tiles pattern in engine.py):
+    - Enemies that end their turn on a rad tile gain +20 radiation.
+    - The player standing on a rad tile gains +5 radiation per turn (not blocked
+      by rad resistance, but generates Decontamination XP as if resisted: XP =
+      5 * resistance_pct / 100 rounded, since it technically bypasses). This
+      creates a minor cost/benefit: you laid it, you can still be in it.
+    - Tiles render as "+" character in yellow-green (fg=(160, 255, 80),
+      bg=(25, 40, 10)) when visible; dimmed when explored-not-visible.
+    - Tile data structure: dungeon.rad_tiles: dict[tuple, int] — (x,y) -> turns_remaining
+      (same pattern as dungeon.grease_tiles).
+
+  Passive bonus at L3: +15% rad resistance added on top of Radiant's 30%, so
+  cumulative 45%.
+
+VISUAL / RENDERING:
+  Add dungeon.rad_tiles check in render.py's tile loop, priority between
+  grease_tiles and spray_paint (grease > rad_tile > spray_paint). Render as
+  "+" in yellow-green when visible, muted yellow-green when explored.
+
+IMPLEMENTATION HOOKS:
+  - Add dungeon.rad_tiles: dict = {} in dungeon.py alongside grease_tiles.
+  - In engine.py's _run_energy_loop, after grease tile processing (step 4c),
+    add step 4d: rad tile tick — for each entity on a rad tile: if enemy, add
+    +20 rad via add_radiation(engine, enemy, 20, from_player=True); if player,
+    add_radiation(engine, player, 5, pierce_resistance=True). Decrement
+    rad_tiles timers. Remove expired entries. Grant Nuclear Research XP for
+    enemy rad gained (handled inside add_radiation already).
+  - Add rad_tiles to save_system.py dungeon serialization.
+  - _execute_consecrate: compute 3x3 walkable tiles around player, set each in
+    dungeon.rad_tiles to 20 (or refresh if already present). Deduct 50 rad via
+    remove_radiation (this fires Force Sensitive on_rad_lost, giving STR if
+    active — a natural synergy). Cost remove means you want to have 50+ rad
+    before consecrating.
+
+BALANCE:
+  2 charges/floor. Each charge dumps 20 rad per enemy on the tile per turn,
+  for 20 turns — potentially 400 rad total per enemy if they stand there, which
+  via Emission's irradiated DOT (rad//50 = 8 damage/tick at 400 rad) is
+  meaningful zonal damage. The 50 rad cost is the loop: you use Skywalker OG
+  to build rad, then consecrate (which itself removes the 50 via remove_radiation
+  and thus fires Force Sensitive), leaving a live zone.
+
+SYNERGIES:
+  - With Force Sensitive: consecrating removes 50 rad, which crosses the 25
+    threshold twice for +4 temp STR — you get offensive upside from placing
+    tiles.
+  - With Emission (L2): irradiated enemies will walk into your consecrated
+    zones and receive even more rad stacks, accelerating their DOT.
+  - With Nuclear Research Rad Bomb: two different zone-control abilities with
+    distinct characters — Rad Bomb is a placed timed explosive, Consecrate is a
+    persistent aura patch.
+
+WHY THIS IS UNIQUE:
+  No other skill places persistent irradiating ground tiles. Grease tiles do
+  fire damage to enemies; rad tiles do radiation buildup — a different class of
+  hazard that synergizes with the existing irradiated DOT system.
+
+PERK TEXT (for skills.py):
+  "Consecrate — 2/floor. Spend 50 rad: irradiate the 3x3 area beneath you
+   (20t). Enemies on rad tiles gain +20 rad/turn. +15% rad resistance."
+
+
+----------------------------------------------------------------------
+
+L3 OPTION B — "PURGE SURGE"
+Type: passive
+New engine field: engine.purge_surge_accumulated (int, 0; cleared on floor)
+New PlayerStats field: player_stats.purge_surge_active (bool, False)
+
+MECHANICAL DESCRIPTION:
+  Whenever you lose radiation by any means (remove_radiation is called on the
+  player), track the cumulative amount lost this floor. At every 50-rad
+  milestone, your NEXT melee attack deals bonus damage equal to (rad_lost_this_
+  milestone * 0.4) rounded, capped at 30 bonus damage per surge. The bonus
+  damage applies only once and then resets the "pending" counter for that
+  milestone.
+
+  Separately: while you are above 100 rad, each melee hit applies 10 rad to
+  the struck enemy (this is new — Fallout's 20% irradiate at 100 rad replaced
+  by a softer, always-on version tied to carrying charge).
+
+  The "next attack deals bonus" is signalled by a status icon / message: "Purge
+  Surge ready! (+N bonus dmg)".
+
+  Passive bonus: +1 STR (smaller than Fallout's +2 since the damage upside is
+  passive and potentially larger over a full floor of cycling).
+
+IMPLEMENTATION HOOKS:
+  - Add engine.purge_surge_accumulated = 0 (reset on floor start, not on surge
+    proc — tracks cumulative for milestone calculation).
+  - Add engine.purge_surge_pending_dmg = 0 (cleared after next melee hit).
+  - In remove_radiation (combat.py), after the XP line: if entity is
+    engine.player, increment engine.purge_surge_accumulated by removed; check
+    if new total // 50 > old total // 50; if so, compute bonus =
+    min(30, int(removed * 0.4)) and set engine.purge_surge_pending_dmg += bonus,
+    emit a message.
+  - In combat.py's player melee attack resolution, after base damage computed:
+    if engine.purge_surge_pending_dmg > 0 and Decontamination level >= 3,
+    add engine.purge_surge_pending_dmg to hit; reset to 0; display surge proc.
+  - Above-100-rad irradiate on melee: in player melee hit resolution, if player
+    rad >= 100 and Decontamination >= 3, call add_radiation(engine, defender,
+    10, from_player=True).
+  - Save/load: purge_surge_accumulated and purge_surge_pending_dmg in engine
+    state.
+
+BALANCE:
+  Over a full floor using Skywalker OG twice (removing ~60 rad each time),
+  you'd cross 50-rad milestones twice and 100-rad twice: roughly 4 surge procs
+  for ~15-25 bonus damage each, total ~60-100 bonus melee damage across a floor.
+  That's equivalent to ~5-8 bonus weapon hits — meaningful but not dominant.
+  The persistent on-hit irradiation at 100+ rad stacks with Emission's DOT.
+
+SYNERGIES:
+  - With Force Sensitive: both proc off remove_radiation — Purge Surge turns
+    the same act (purging rad) into both an STR bonus AND a queued damage bonus.
+    High-cycle play gets both benefits simultaneously.
+  - With Skywalker OG: the strain's primary use (removing rad) now has two
+    offensive payoffs instead of one.
+
+PERK TEXT (for skills.py):
+  "Purge Surge — Passive. Every 50 rad lost this floor: next melee hit deals
+   +N bonus damage (N = rad_lost * 0.4, max 30). While above 100 rad: melee
+   hits irradiate target for 10 rad. +1 STR."
+
+RECOMMENDATION NOTE:
+  Consecrate (Option A) introduces a wholly new mechanic verb (placing terrain).
+  Purge Surge (Option B) is more combat-fluent and easier to implement. They
+  have different feelings: Consecrate is deliberate and positional; Purge Surge
+  is reactive and automatic. Option A is the stronger design pick for build
+  identity; Option B is the safer gameplay pick for players who don't want to
+  think about terrain.
+
+
+======================================================================
+LEVEL 4 — "HALF-LIFE AURA"
+======================================================================
+
+Type: activated ability (ChargeType.PER_FLOOR, 3 charges)
+New ability id: "half_life_aura"
+Target type: SELF
+
+MECHANICAL DESCRIPTION:
+  Activate to gain the Half-Life Aura buff for 15 turns. While active:
+    - Any enemy that moves within 2 tiles of you gains +15 rad/turn they remain
+      in range (checked during the enemy's turn, not on every engine tick).
+    - You passively drain 3 rad/turn from yourself while the aura is up. This
+      rad loss fires Force Sensitive (on_rad_lost) if the buff is active —
+      meaning the aura literally charges your Force Sensitive stacks over time.
+    - Visual: player's character pulses with a rad-green tint (SDL overlay glow;
+      or simpler: status effect icon shows in the effects bar as "AURA").
+
+  The aura does NOT deal direct damage — it irradiates, which the existing
+  irradiated DOT (from Emission or any irradiated state) then handles. The
+  design question answered: "what if I'm an irradiation source just by
+  existing in a room?"
+
+  Upgrade interaction at L4 if Consecrate (L3A) is taken: rad tiles now also
+  deal +5 rad/turn to enemies instead of +20 (net: same rate, but slightly
+  extended since the aura keeps enemies in range — NOTE: the two values are
+  independent systems; consider instead that Consecrate + Half-Life Aura
+  together mean enemies in rad zones near you are gaining up to +35 rad/turn,
+  which is significant zone denial).
+
+  If Purge Surge (L3B) taken: Half-Life Aura's 3 rad/turn self-drain counts
+  toward purge_surge_accumulated, generating surge procs passively over the
+  15-turn window (~3-4 surge procs just from the aura's drain over 15 turns if
+  they cluster at 50-rad milestones — this is a passive bonus loop).
+
+NEW ENGINE STATE:
+  engine.half_life_aura_active = False (track for aura passive logic)
+  engine.half_life_aura_turns_remaining = 0
+
+  Alternatively: implement as an Effect subclass "half_life_aura_effect" with:
+    - tick(): self-drain 3 rad (remove_radiation), check enemy proximity
+      (iterate dungeon.entities within 2 Chebyshev distance of player, add_radiation
+      +15 to each alive enemy, from_player=True), decrement duration.
+    - expire(): clear aura, message.
+  This is cleaner than engine flags and follows the existing effect pattern.
+
+IMPLEMENTATION NOTES:
+  - _execute_half_life_aura(engine): apply_effect(engine.player, engine,
+    "half_life_aura", duration=15). Message: "Half-Life Aura activated!"
+  - HalfLifeAuraEffect(Effect): id="half_life_aura", category="buff".
+    tick(): remove 3 rad from player (calls on_rad_lost on Force Sensitive if
+    active), find enemies within Chebyshev 2 of player, add 15 rad each
+    from_player=True.
+
+BALANCE:
+  3 charges/floor, 15 turns each = 45 aura-turns per floor. At average 2
+  enemies in range for 8 turns per activation: +240 rad to those enemies per
+  use. With Emission already having set them to high rad, this pushes them
+  further past the DOT threshold. The self-drain of 45 rad across 15 turns is
+  meaningful — you need to have been building rad via Skywalker OG or zone
+  exposure. This rewards staying at medium-high radiation rather than always
+  purging.
+
+SYNERGIES:
+  - Force Sensitive: 45 rad drained passively over 15 turns = almost 2 Force
+    Sensitive threshold crossings (+4 temp STR) without smoking anything.
+  - Emission (L2): set enemies to 100+ rad, then activate aura — aura pushes
+    them past the mutation-dangerous 250+ threshold faster, and their irradiated
+    DOT escalates.
+  - Consecrate (L3A): position a rad zone, stand in it with the aura. Enemies
+    now get +20 rad/turn from the tile AND +15 rad/turn from the aura AND the
+    irradiated DOT from Emission. True zone denial.
+
+PERK TEXT (for skills.py):
+  "Half-Life Aura — 3/floor. For 15 turns: enemies within 2 tiles gain
+   +15 rad/turn. You drain 3 rad/turn (fuels Force Sensitive). +1 TOL."
+
+
+======================================================================
+LEVEL 5 — "SPONGE"
+======================================================================
+
+Type: activated ability (ChargeType.PER_FLOOR, 2 charges)
+New ability id: "rad_sponge"
+Target type: AOE_CIRCLE (radius 3, centered on player)
+
+MECHANICAL DESCRIPTION:
+  Activate: absorb radiation from all irradiated enemies within radius 3. For
+  each enemy in range:
+    - Remove 50% of that enemy's current radiation.
+    - Add half of the removed amount to your own radiation (rounded down).
+      Example: enemy at 200 rad — you remove 100, you gain 50.
+    - Award Decontamination XP for the rad removed from enemies (2 XP per point
+      removed, same rate as self-remove, since you're doing the decontamination).
+
+  After absorbing: if you now exceed 150 rad, you emit a Rad Pulse — deal
+  (current_rad // 10) damage to all enemies within radius 2. This pulse fires
+  once per Sponge activation, not per enemy absorbed. It is NOT a guaranteed
+  bonus — it only triggers if the absorption pushed you over 150.
+
+  Passive at L5: rad tiles (if Consecrate was taken) now also remove 5 rad/turn
+  from enemies (in addition to adding 20 rad — net is +15 per turn). This means
+  the tiles are siphoning rather than purely adding, which is thematically
+  the "decontamination" fantasy: the zone is actively processing radiation.
+
+  If Consecrate was NOT taken: passive instead grants +10% rad resistance
+  (cumulative total: 55% if Radiant taken; 45% if only Radiant with Purge Surge
+  path).
+
+NEW ENGINE STATE:
+  None — the absorb is a single fire operation. The Rad Pulse is an inline
+  damage call in the execute function.
+
+IMPLEMENTATION NOTES:
+  _execute_rad_sponge(engine):
+    player = engine.player
+    visible = engine.dungeon.visible  # only visible enemies can be sponged
+    monsters = [e for e in engine.dungeon.entities if e.entity_type == "monster"
+                and e.alive and visible[e.y][e.x]]
+    from engine import chebyshev_distance  # or however distance is computed
+    in_range = [m for m in monsters if distance(player, m) <= 3 and m.radiation > 0]
+    if not in_range:
+        engine.messages.append("No irradiated enemies in range!")
+        return False
+    total_absorbed = 0
+    for m in in_range:
+        removed = m.radiation // 2
+        m.radiation -= removed
+        gained = removed // 2
+        add_radiation(engine, player, gained, pierce_resistance=True)
+        bksmt = engine.player_stats.effective_book_smarts
+        engine.skills.gain_potential_exp("Decontamination", removed * 2, bksmt)
+        total_absorbed += removed
+    engine.messages.append(f"Sponge: absorbed {total_absorbed} rad from {len(in_range)} enemies!")
+    # Rad Pulse check
+    if player.radiation >= 150:
+        pulse_dmg = player.radiation // 10
+        for m in [e for e in engine.dungeon.entities if e.entity_type == "monster"
+                  and e.alive and distance(player, e) <= 2]:
+            deal_damage(engine, m, pulse_dmg)
+        engine.messages.append(f"Rad Pulse! ({pulse_dmg} damage in radius 2)")
+    return True
+
+BALANCE:
+  2 charges/floor. Requires enemies to already have radiation (set by Emission
+  or Half-Life Aura or Consecrate). At its best — 3 enemies at 200 rad each:
+  removes 300 total rad across enemies, gains 150 rad yourself, triggers pulse
+  for 15 damage each in radius 2. That's a big swing. At its worst — no
+  irradiated enemies — it literally does nothing (returns False).
+
+  The dependency on setup (enemies must be irradiated) is the cost. Sponge
+  rewards investing in the full skill tree: Emission sets them up, Consecrate
+  or Half-Life Aura builds their rad further, then Sponge harvests it. Used
+  alone on floor 3 with low-rad enemies it's a wasted action.
+
+SYNERGIES:
+  - Emission (L2) -> Consecrate or Half-Life Aura (L3/L4) -> Sponge (L5) is
+    the core combo loop: set rad, grow rad, harvest rad. One Sponge use after
+    Emission can pull 50% of your emitted rad back plus trigger a pulse.
+  - Force Sensitive: adding radiation to yourself via Sponge does NOT trigger
+    Force Sensitive (which only cares about rad removal). But the subsequent
+    Skywalker OG smoke (to purge that absorbed rad) fires it. So Sponge loads
+    up your rad resource for a future Force Sensitive activation.
+  - Purge Surge (L3B): absorbing rad that you then purge via Skywalker crosses
+    more 50-rad milestones. Sponge -> Skywalker OG is a burst cycle.
+
+PERK TEXT (for skills.py):
+  "Sponge — 2/floor. Absorb 50% of each irradiated enemy's rad within 3 tiles
+   (you gain half). If this pushes you above 150 rad: Rad Pulse (rad//10 dmg,
+   radius 2). Rad tiles sponge 5 rad/turn from enemies (if Consecrate known)."
+
+
+======================================================================
+LEVEL 6 — "RADIANT WAKE"
+======================================================================
+
+Type: passive
+
+MECHANICAL DESCRIPTION:
+  Every tile you walk away from leaves a Radiant footprint (rad tile with 6
+  turns duration) IF your current radiation is 75 or above.
+
+  Footprint behavior:
+    - Same rad_tile system as Consecrate uses (dungeon.rad_tiles).
+    - Enemies walking onto a footprint tile gain +10 rad (instead of Consecrate's
+      +20/turn — these are smaller, shorter-lived).
+    - Duration: 6 turns. At your base speed that's roughly 4-5 moves before
+      the oldest tile decays.
+    - If Consecrate is known: Radiant Wake tiles additionally generate 2
+      Decontamination XP per enemy that steps on them (XP for "decontaminating"
+      via passive irradiation — flavor stretch but mechanically motivates leveling).
+
+  Condition: only generates tiles when player rad >= 75. This is a meaningful
+  threshold — you need to be "charged up" to leave a wake. Below 75, nothing.
+  Above 75, every move leaves a trail.
+
+  Passive stat line: +2 STR, +10% rad resistance (cumulative total now 55%
+  from Radiant alone; with Pure's eventual scaling, higher still).
+
+  Interaction with dungeon.rad_tiles: tiles placed by Wake use shorter duration
+  (6t) vs Consecrate's (20t). Distinguish in storage: they're the same dict,
+  same logic, just created with shorter values. No separate system needed.
+
+NEW ENGINE STATE:
+  engine.player_stats.radiant_wake_active (bool, derived from Decontamination
+  level >= 6 — no explicit flag needed; check in handle_move).
+
+  OR: In engine.handle_move, after successful player move, check:
+    if engine.skills.get("Decontamination").level >= 6 and engine.player.radiation >= 75:
+        old_pos = (old_x, old_y)
+        if engine.dungeon.tiles[old_y][old_x] == TILE_FLOOR:
+            engine.dungeon.rad_tiles[old_pos] = max(
+                engine.dungeon.rad_tiles.get(old_pos, 0), 6
+            )
+  This is 4 lines in handle_move — extremely low implementation cost.
+
+BALANCE:
+  Active whenever rad >= 75, which Skywalker OG builds to easily. The tiles are
+  short-lived and individually weaker than Consecrate's (6t, +10 rad vs 20t,
+  +20 rad/turn). But they're automatic and create interesting tactical play:
+    - Kiting enemies through your own wake irradiates them incrementally.
+    - Retreat paths through old rooms leave lingering radiation that affects
+      any enemy that follows.
+    - At 75+ rad, walking in circles before a fight "primes" a room.
+
+  The +2 STR is the mechanical reward for the stat-hungry player who hasn't
+  been getting much STR from L3-L5 (which were ability/passive focused). The
+  cumulative rad resist at 55% means incoming rad damage (from nuclear enemies
+  and Meth Lab hazards) is well-mitigated.
+
+SYNERGIES:
+  - All of them: Radiant Wake is the capstone that makes every prior investment
+    pay off more. More rad-tiles on the board means Emission's AOE irradiation
+    stacks further, Half-Life Aura enemies encounter more tiles, Sponge has more
+    irradiated targets to harvest from.
+  - Particularly strong with Consecrate: you lay a 3x3 zone, kite through it,
+    and your Wake extends the radiation perimeter around that zone.
+
+PERK TEXT (for skills.py):
+  "Radiant Wake — Passive. While above 75 rad: every tile you leave behind
+   becomes a rad tile (6t, +10 rad/turn to enemies). +2 STR, +10% rad resist."
+
+
+======================================================================
+RECOMMENDED PERK SELECTION SUMMARY
+======================================================================
+
+  L3: Consecrate (Option A) — introduces terrain mechanic, core to build identity
+      [Alt: Purge Surge (Option B) — simpler, purely melee-fluent version]
+  L4: Half-Life Aura — personal irradiation field, rewards staying at med-high rad
+  L5: Sponge — harvest enemies' rad; loop closer with Emission + Consecrate
+  L6: Radiant Wake — capstone passive that makes all prior tiles more relevant
+
+This arc creates a build that:
+  - Floors 1-2: Resist rad and share it (Radiant + Emission)
+  - Floor 3 onwards: Lay terrain, cycle rad through Force Sensitive + Skywalker OG
+  - Mid-game: Add a personal aura and start harvesting rad from enemies
+  - Late-game: Walking itself becomes a weapon when charged
+
+The cycle loop in full build:
+  1. Build rad via Skywalker OG or Half-Life Aura self-drain or Meth Lab exposure
+  2. Emission -> sets enemy rad to yours
+  3. Half-Life Aura -> pushes enemy rad higher while you drain yours (double purpose)
+  4. Consecrate -> leave rad zones (costs 50 rad, fires Force Sensitive)
+  5. Sponge -> harvest enemy rad, trigger Rad Pulse, reload your rad pool
+  6. Skywalker OG -> purge remaining rad for Force Sensitive STR, Purge Surge procs
+  7. Walk away -> Radiant Wake trails irradiate pursuers
+
+
+======================================================================
+IMPLEMENTATION NOTES — FILES TO MODIFY
+======================================================================
+
+dungeon.py:
+  - Add: self.rad_tiles: dict[tuple, int] = {}
+  - Add rad_tiles to save serialization and load restoration.
+
+engine.py:
+  - In _run_energy_loop after grease tile logic: process rad_tiles (enemy += rad,
+    player += rad, decrement/expire).
+  - In handle_move: Radiant Wake logic (4 lines, conditional on skill level).
+  - Add engine state for: purge_surge_accumulated, purge_surge_pending_dmg
+    (if Purge Surge selected for L3).
+
+combat.py:
+  - In remove_radiation: increment purge_surge_accumulated, check milestones,
+    set purge_surge_pending_dmg (if Purge Surge selected).
+  - In player melee attack: apply and clear purge_surge_pending_dmg bonus damage
+    (if Purge Surge selected).
+  - In player melee attack: if player rad >= 100 and Decon L3, add_radiation
+    to defender for 10 (if Purge Surge selected).
+
+render.py:
+  - In tile rendering loop: add rad_tiles check before spray_paint check.
+    Render as "+" in (160, 255, 80) / (25, 40, 10) when visible.
+    Dimmed version (80, 130, 40) / (12, 20, 5) when explored-not-visible.
+
+abilities.py:
+  - Add AbilityDef entries for "consecrate", "half_life_aura", "rad_sponge".
+  - Implement _execute_consecrate, _execute_half_life_aura, _execute_rad_sponge.
+  - half_life_aura is best implemented as an Effect rather than engine flags.
+
+effects.py:
+  - Add HalfLifeAuraEffect(Effect): id="half_life_aura", category="buff".
+    tick(): drain 3 rad from player (via remove_radiation — fires on_rad_lost
+    on Force Sensitive); find enemies within Chebyshev 2, add 15 rad each.
+
+save_system.py:
+  - dungeon.rad_tiles serialization (same pattern as grease_tiles).
+  - Engine state fields: purge_surge_accumulated, purge_surge_pending_dmg.
+
+skills.py:
+  - Replace Fallout placeholder with chosen L3 perk.
+  - Fill L4 (Half-Life Aura), L5 (Sponge), L6 (Radiant Wake).
+
+
+======================================================================
+BALANCE BENCHMARKS — COMPARISON AGAINST PEER SKILLS
+======================================================================
+
+White Power L3-L6 offensive output:
+  - L5 Absolution: 3/floor, 15-turn toxic discharge -> deals tox// to 2 random
+    enemies. High damage but requires high tox resource.
+  - L6 Immaculate: Purity cap doubled. More defensive scaling.
+
+Chemical Warfare L3-L6 offensive output:
+  - L3 Acid Meltdown: 25 tox cost, halves move, kills create acid pools.
+  - L5 Toxic Shell: consume tox as temp HP, nova on break. Very high damage ceiling.
+
+Nuclear Research L3-L6:
+  - L4 Half-Life Mark: placed detonation, 2 charges. High but conditional.
+  - L5 Enrichment: stacks for boosted detonations. Deliberate setup.
+
+Decontamination vs these:
+  - Consecrate + Sponge + Radiant Wake is lower burst damage ceiling than
+    Toxic Shell or Enrichment detonations, which is appropriate. Decontamination's
+    strength is area denial, DoT stacking via Emission, and resource cycling
+    (Force Sensitive STR gains). It wins on sustained zonal control, not single
+    burst kills.
+  - Half-Life Aura's passive rad feed to enemies in melee range is comparable
+    to Toxic Frenzy's always-on melee bonus — both scale with the player being
+    in dangerous proximity. The risk/reward is similar.
+
+The skill is intentionally mid-tier on raw damage, high-tier on area disruption
+and resource self-sustainability.
+
+
+======================================================================
+POTENTIAL EDGE CASES
+======================================================================
+
+1. Rad tiles persist after floor transition: solve by clearing dungeon.rad_tiles
+   in zone_generators.py spawn() or in engine floor transition logic (already
+   done for grease_tiles since a new dungeon is generated).
+
+2. Consecrate while at exactly 50 rad: costs all your rad, leaves you at 0.
+   This is intentional — you can't consecrate on empty. If player rad < 50,
+   _execute_consecrate returns False with message "Not enough radiation!"
+
+3. Sponge with no irradiated enemies visible: returns False, does NOT consume
+   the charge. Message: "No irradiated enemies in sight!"
+
+4. Radiant Wake + Consecrate overlap: player walks through their own Consecrate
+   zone. The Wake tiles don't override Consecrate tiles — use max(existing, 6)
+   so Consecrate's 20-turn tiles aren't degraded by the 6-turn Wake tiles. Done
+   in: dungeon.rad_tiles[pos] = max(dungeon.rad_tiles.get(pos, 0), 6) for Wake,
+   and dungeon.rad_tiles[pos] = max(dungeon.rad_tiles.get(pos, 0), 20) for
+   Consecrate.
+
+5. Half-Life Aura + Force Sensitive interaction: draining 45 rad over 15 turns
+   is almost 2 full threshold crossings. This could award +4 STR just from the
+   aura. That's a significant passive bonus layered on top of the aura's
+   offensive irradiation. Monitor in playtesting — if too strong, reduce self-
+   drain to 2 rad/turn (30 rad total for 15 turns = 1 threshold crossing = +2 STR).
+
+6. Save/load of HalfLifeAuraEffect: since it's a timed Effect, it serializes
+   via the existing effects save system. No special handling needed.
+
+7. Purge Surge (L3B) + Sponge (L5) cross-path: if both are taken, absorbing
+   enemy rad via Sponge adds to your radiation, which you then purge via
+   Skywalker OG, which fires remove_radiation, which increments
+   purge_surge_accumulated. The cycle compounds. This is good — it rewards
+   the full investment. Watch the ceiling: if a player absorbs 200 rad from
+   Sponge then purges it all, that's 4 milestone crossings x 30 cap = 120
+   bonus melee damage queued. That's a large burst window. Cap the pending
+   bonus at 60 total pending to prevent extreme queuing.
+

@@ -854,10 +854,12 @@ def _spawn_smoke_lounge(dungeon, room, floor_tiles, zone):
     loot_list = []
     loot_list.append(("grinder", None))
     loot_list.append(("pack_of_cones", None))
+    from loot import ZONE_STRAIN_WEIGHTS
     weed_pool = ["kush", "joint", "weed_nug"]
+    zone_strains = list(ZONE_STRAIN_WEIGHTS.get(zone, ZONE_STRAIN_WEIGHTS["crack_den"]).keys())
     for _ in range(random.randint(7, 8)):
         weed_id = random.choice(weed_pool)
-        loot_list.append((weed_id, random.choice(STRAINS)))
+        loot_list.append((weed_id, random.choice(zone_strains)))
 
     for item_id, strain in loot_list:
         free = [(x, y) for x, y in floor_tiles if not dungeon.is_blocked(x, y)]
@@ -1596,6 +1598,41 @@ def generate_penthouse(dungeon):
         if 0 <= ax < dungeon.width and 0 <= y < dungeon.height:
             dungeon.tiles[y][ax] = TILE_WALL
 
+    # --- Carve 3 NPC rooms below the bottom wall ---
+    # Each room: 5 wide x 5 tall (3x3 interior), sharing the penthouse bottom
+    # wall as their top wall.  A 1-tile opening connects each room to the
+    # penthouse interior.
+    npc_room_centers = [ox + 6, ox + 15, ox + 24]
+    dungeon._penthouse_npc_rooms = []  # list of (center_x, frozenset of interior tiles)
+    for cx in npc_room_centers:
+        left  = cx - 2
+        right = cx + 2
+        top   = oy + rh - 1   # == oy + 13 (shared bottom wall)
+        bot   = oy + rh + 3   # == oy + 17
+
+        # Carve interior floor (3x3)
+        room_tiles = set()
+        for ry in range(top + 1, bot):
+            for rx in range(left + 1, right):
+                if 0 <= rx < dungeon.width and 0 <= ry < dungeon.height:
+                    dungeon.tiles[ry][rx] = TILE_FLOOR
+                    room_tiles.add((rx, ry))
+
+        # Draw walls: left, right, bottom columns
+        for ry in range(top + 1, bot + 1):
+            for wx in (left, right):
+                if 0 <= wx < dungeon.width and 0 <= ry < dungeon.height:
+                    dungeon.tiles[ry][wx] = TILE_WALL
+        for rx in range(left, right + 1):
+            if 0 <= rx < dungeon.width and 0 <= bot < dungeon.height:
+                dungeon.tiles[bot][rx] = TILE_WALL
+
+        # Punch doorway in the shared top wall
+        if 0 <= cx < dungeon.width and 0 <= top < dungeon.height:
+            dungeon.tiles[top][cx] = TILE_FLOOR
+
+        dungeon._penthouse_npc_rooms.append((cx, frozenset(room_tiles)))
+
     dungeon._build_room_tile_map()
 
 
@@ -1701,19 +1738,19 @@ def spawn_penthouse(dungeon, player, floor_num, zone, player_skills, player_stat
     dungeon.entities.append(tyrone)
 
     # --- Shop items (8 total on counter edge, row 3) ---
-    # 5 seeded-random uniques (2x value)
+    # 5 seeded-random uniques (random price 150-200 each)
     shop_entries = []  # list of (item_id, price)
     for uid in random.sample(UNIQUE_TABLE_A, 5):
-        shop_entries.append((uid, get_item_value(uid) * 2))
+        shop_entries.append((uid, random.randint(150, 200)))
 
     # 2 suffix-less tinfoil hats (fixed prices)
     shop_entries.append(("hat_tinfoil_hat_ripped_plain", 100))
-    shop_entries.append(("hat_tinfoil_hat_excellent_plain", 300))
+    shop_entries.append(("hat_tinfoil_hat_excellent_plain", 100))
 
-    # 1 random gun (1.5x value)
-    all_guns = [k for k, v in ITEM_DEFS.items() if v.get("subcategory") == "gun"]
+    # 1 random gun (random price 150-200)
+    all_guns = [k for k, v in ITEM_DEFS.items() if v.get("subcategory") == "gun" and not v.get("temporary")]
     gun_id = random.choice(all_guns)
-    shop_entries.append((gun_id, round(get_item_value(gun_id) * 1.5)))
+    shop_entries.append((gun_id, random.randint(150, 200)))
 
     for i, (item_id, price) in enumerate(shop_entries):
         defn = get_item_def(item_id) or {}
@@ -1730,6 +1767,165 @@ def spawn_penthouse(dungeon, player, floor_num, zone, player_skills, player_stat
         item_entity.item_id = item_id
         item_entity.shop_price = price
         dungeon.entities.append(item_entity)
+
+    # --- NPC rooms (3 random service NPCs from the pool) ---
+    _spawn_penthouse_npcs(dungeon, oy)
+
+
+# ── Penthouse NPC pool & spawning ────────────────────────────────────────
+
+# NPC definitions: key → (name, char, color, stock_builder)
+# stock_builder(npc) is called to attach stock data to the entity.
+
+def _build_gun_dealer_stock(npc):
+    """Attach 3 random guns to the Gun Dealer."""
+    from items import ITEM_DEFS
+    all_guns = [k for k, v in ITEM_DEFS.items() if v.get("subcategory") == "gun" and not v.get("temporary")]
+    npc.gun_stock = random.sample(all_guns, min(3, len(all_guns)))
+
+def _build_plug_stock(npc):
+    """Attach 5 random strains to the Plug."""
+    from loot import ZONE_STRAIN_WEIGHTS
+    # Pull from both crack_den and meth_lab strain pools
+    all_strains = set()
+    for zone_key in ("crack_den", "meth_lab"):
+        all_strains.update(ZONE_STRAIN_WEIGHTS.get(zone_key, {}).keys())
+    all_strains = sorted(all_strains)
+    npc.strain_stock = random.sample(all_strains, min(5, len(all_strains)))
+
+def _build_chef_stock(npc):
+    """Chef has no stock — fusion uses player's inventory."""
+    npc.chef_used = False
+
+def _build_skill_trader_stock(npc):
+    """Skill Trader: trade rolled on first interaction (needs live skill state)."""
+    npc.trade_available = True
+    npc.trade_rolled = False  # rolled lazily on first bump
+
+def _build_tattoo_artist_stock(npc):
+    """Tattoo Artist: pick a stat for +5, random other stat -5."""
+    npc.tattoo_used = False
+
+def _build_pawn_man_stock(npc):
+    """Pawn Man: trade an equipped item for a random Meth Lab item."""
+    npc.pawn_used = False
+
+def _build_enchanter_stock(npc):
+    """Enchanter: one-time enchantment service, no stock needed."""
+    npc.enchanter_used = False
+
+def _build_mixologist_stock(npc):
+    """Mixologist: one-time service, puts a drink on the rocks."""
+    npc.mixologist_used = False
+
+def _build_craps_stock(npc):
+    """Craps Dealer: replayable until 3 consecutive losses."""
+    npc.craps_consec_losses = 0
+
+def _build_ezra_stock(npc):
+    """Mama Ezra: one-time loot multiplier service."""
+    npc.ezra_used = False
+
+_PENTHOUSE_NPC_POOL = {
+    "gun_dealer": {
+        "name": "Richard",
+        "char": "G",
+        "color": (200, 60, 60),
+        "stock_builder": _build_gun_dealer_stock,
+    },
+    "chef": {
+        "name": "Big Spoon",
+        "char": "C",
+        "color": (255, 200, 100),
+        "stock_builder": _build_chef_stock,
+    },
+    "plug": {
+        "name": "Peanut",
+        "char": "P",
+        "color": (100, 255, 100),
+        "stock_builder": _build_plug_stock,
+    },
+    "skill_trader": {
+        "name": "La'Quisha",
+        "char": "L",
+        "color": (100, 160, 255),
+        "stock_builder": _build_skill_trader_stock,
+    },
+    "tattoo_artist": {
+        "name": "Precious",
+        "char": "T",
+        "color": (255, 80, 200),
+        "stock_builder": _build_tattoo_artist_stock,
+    },
+    "pawn_man": {
+        "name": "Rico",
+        "char": "R",
+        "color": (200, 180, 60),
+        "stock_builder": _build_pawn_man_stock,
+    },
+    "enchanter": {
+        "name": "Soloman",
+        "char": "E",
+        "color": (255, 215, 80),
+        "stock_builder": _build_enchanter_stock,
+    },
+    "mixologist": {
+        "name": "Sage",
+        "char": "S",
+        "color": (180, 120, 220),
+        "stock_builder": _build_mixologist_stock,
+    },
+    "craps_dealer": {
+        "name": "Deshawn",
+        "char": "D",
+        "color": (255, 50, 50),
+        "stock_builder": _build_craps_stock,
+    },
+    "ezra": {
+        "name": "Mama Ezra",
+        "char": "M",
+        "color": (160, 80, 200),
+        "stock_builder": _build_ezra_stock,
+    },
+}
+
+def _spawn_penthouse_npcs(dungeon, oy):
+    """Spawn 3 random service NPCs in the penthouse NPC rooms."""
+    npc_rooms = getattr(dungeon, '_penthouse_npc_rooms', [])
+    if not npc_rooms:
+        return
+
+    pool_keys = list(_PENTHOUSE_NPC_POOL.keys())
+    chosen = random.sample(pool_keys, min(len(npc_rooms), len(pool_keys)))
+
+    for i, npc_key in enumerate(chosen):
+        cx, room_tiles = npc_rooms[i]
+        defn = _PENTHOUSE_NPC_POOL[npc_key]
+
+        npc = Entity(
+            x=cx, y=oy + 15,  # center of 3x3 interior (rows oy+14 to oy+16)
+            char=defn["char"],
+            color=defn["color"],
+            name=defn["name"],
+            entity_type="npc",
+            blocks_movement=True,
+            blocks_fov=False,
+        )
+        npc.npc_subtype = npc_key
+        npc.ai_type = "npc_room_wander"
+        npc.speed = 30
+        npc.energy = 0
+        npc.alive = True
+        npc.hp = 9999
+        npc.max_hp = 9999
+        npc.status_effects = []
+        npc.wander_idle_chance = 0.7
+        npc.spawn_room_tiles = room_tiles
+
+        # Attach NPC-specific stock
+        defn["stock_builder"](npc)
+
+        dungeon.entities.append(npc)
 
 
 # ===================================================================

@@ -1386,6 +1386,17 @@ BEHAVIORS = {
             AIState.WANDERING: wander,
         },
     },
+
+    # ── NPC Room Wander ──────────────────────────────────────────────────
+    # Non-hostile NPC confined to their spawn room.  Uses spawn_room_tiles
+    # to stay within bounds.  Used for penthouse service NPCs.
+    "npc_room_wander": {
+        "initial_state": AIState.WANDERING,
+        "transitions":   {},
+        "actions": {
+            AIState.WANDERING: wander_in_room,
+        },
+    },
 }
 
 
@@ -1537,6 +1548,14 @@ def _do_spider_hatchling_turn(spider, player, dungeon, engine, creature_position
     """
     import random as _rand
 
+    # Tick summon lifetime (micro-spiders have summon_lifetime=5; regular = 0 = no limit)
+    if spider.summon_lifetime > 0:
+        spider.summon_lifetime -= 1
+        if spider.summon_lifetime <= 0:
+            spider.alive = False
+            engine.event_bus.emit("entity_died", entity=spider, killer=None)
+            return "idle"
+
     sx, sy = spider.x, spider.y
     chase = getattr(spider, "_chase_target", None)
 
@@ -1572,7 +1591,7 @@ def _do_spider_hatchling_turn(spider, player, dungeon, engine, creature_position
         damage = 2
         chase.take_damage(damage)
         engine.messages.append(
-            f"Spider Hatchling bites {chase.name} for {damage} damage!"
+            f"{spider.name} bites {chase.name} for {damage} damage!"
         )
         effects.apply_effect(chase, engine, "venom", duration=10, stacks=1)
         chase.aggro_target = spider

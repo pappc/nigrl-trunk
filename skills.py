@@ -99,17 +99,18 @@ SKILL_PERKS["Mutation"] = [
     {"name": "Unstable", "perk_type": "passive", "effect": None, "desc": "20% on melee hit: gain Unstable buff (20t). +5 rad on apply, +2 melee and gun dmg, hits irradiate enemies for 10 rad."},  # level 2
     {"name": "Favorable Odds", "perk_type": "passive", "effect": None, "desc": "+50% good mutation multiplier. Mutations are more likely to be positive."},  # level 3
     {"name": "Shed", "perk_type": "activated", "effect": {"ability": "shed"}, "desc": "Grants Shed ability (unlimited). Sacrifice a random good mutation, undoing it. Cleanses a debuff. Refunds half the tier's rad threshold."},  # level 4
-    _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 5-10
+    {"name": "Triple Helix", "perk_type": "passive", "effect": None, "desc": "30% chance when you mutate to fire a bonus mutation. Same tier, rerolls polarity and effect. No extra rad cost."},  # level 5
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 6-10
 ]
 
 SKILL_PERKS["Nuclear Research"] = [
     {"name": "Irradiated Intellect", "perk_type": "stat", "effect": {"book_smarts": 3}, "desc": "+3 Book Smarts. Radiation gained increased by Book Smarts% of amount gained."},  # level 1
-    {"name": "Rad Bomb", "perk_type": "activated", "effect": {"ability": "rad_bomb"}, "desc": "Place a crystal within 2 tiles that detonates after 3 turns, dealing 15+BKS/2 damage in a 5x5 area (20+BKS at L4). 3 charges/floor. Each cast costs 25 radiation and grants 50 Nuclear Research XP. At 100+ rad, the charge is refunded (rad still spent). Passive: can't mutate below 150 rad."},  # level 2
+    {"name": "Rad Bomb", "perk_type": "activated", "effect": {"ability": "rad_bomb"}, "desc": "Place a crystal within 2 tiles that detonates after 3 turns, dealing 15+BKS/2 damage in a 5x5 area. 3 charges/floor. Each cast costs 25 radiation and grants 50 Nuclear Research XP. At 100+ rad, the charge is refunded (rad still spent). Passive: can't mutate below 150 rad."},  # level 2
     {"name": "Nutrient Producer", "perk_type": "grant_item", "effect": {"item_id": "nutrient_producer"}, "desc": "Gain a Nutrient Producer tool. Combine it with any consumable to convert it into a RadBar."},  # level 3
-    {"name": "Isotope Junkie", "perk_type": "passive", "effect": None, "desc": "Using a consumable grants +5 radiation (pierces resistance). Rad Bomb damage upgraded to 20+BKS."},  # level 4
-    _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 6-10
+    {"name": "Half-Life Mark", "perk_type": "activated", "effect": {"ability": "half_life_mark"}, "desc": "Mark a visible enemy (costs 20 rad). When it drops below 40% HP, it detonates for 15+BKS damage in a 3x3 area and irradiates hit enemies for 30 rad. 2 charges/floor. At 200+ radiation, the charge is not consumed. Passive: can't mutate below 250 rad."},  # level 4
+    {"name": "Enrichment", "perk_type": "activated", "effect": {"ability": "enrichment"}, "desc": "Spend 25 rad to gain an Enrichment stack (max 5). Your next Rad Bomb or Half-Life detonation consumes all stacks: +4 damage per stack, +1 blast radius per 2 stacks. Rad Bomb hitting a Half-Life Marked enemy transfers stacks to the mark. Passive: Rad Bomb placement range +3 (to 5), fuse +1 turn (to 4)."},  # level 5
+    {"name": "Nuclear Feedback", "perk_type": "passive", "effect": None, "desc": "Each enemy hit by a Rad Bomb or Half-Life detonation grants you +10 radiation (pierces resistance). Passive: can't mutate below 400 rad."},  # level 6
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 7-10
 ]
 
 SKILL_PERKS["Deep-Frying"] = [
@@ -122,7 +123,7 @@ SKILL_PERKS["Deep-Frying"] = [
 ]
 
 SKILL_PERKS["Dismantling"] = [
-    {"name": "Scrapper's Eye",    "perk_type": "stat",    "effect": {"book_smarts": 2, "constitution": 2}, "desc": "+2 BKS, +2 CON. Destroying items heals 10% of item value (min 3 HP)."},  # level 1
+    {"name": "Scrapper's Eye",    "perk_type": "stat",    "effect": {"constitution": 2}, "desc": "+2 CON. Destroying items heals 10% of item value (min 3 HP)."},  # level 1
     {"name": "Chop Shop",   "perk_type": "passive", "effect": None,                                  "desc": "+2 SWG, +2 STS. Destroying an item grants +5 armor and +$20 cash. 20% chance to gain Scrap."},      # level 2
     {"name": "Nigga Armor", "perk_type": "passive", "effect": None,                                  "desc": "+2 SWG, +2 STS. Gain a stack of Nigga Armor on destroy (-1 DR, 30t)."},    # level 3
     {"name": "Salvage Insight", "perk_type": "stat", "effect": {"constitution": 2}, "desc": "+2 CON. 10% chance on destroy to gain +1 to a random stat permanently."},  # level 4
@@ -133,7 +134,7 @@ SKILL_PERKS["Dismantling"] = [
 ]
 
 SKILL_PERKS["Abandoning"] = [
-    {"name": "+2 All Stats", "perk_type": "stat", "effect": {"constitution": 2, "strength": 2, "street_smarts": 2, "book_smarts": 2, "tolerance": 2, "swagger": 2}, "desc": "+2 to all stats. Leaving things behind builds character."},  # level 1
+    {"name": "+1 All Stats", "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 to all stats. Leaving things behind builds character."},  # level 1
     {"name": "Anotha Motha", "perk_type": "passive", "effect": None, "desc": "Receive 5 extra item drops when descending to the next floor."},                                                                                           # level 2
     {"name": "Left Behind",  "perk_type": "stat", "effect": {"constitution": 1, "strength": 1, "street_smarts": 1, "book_smarts": 1, "tolerance": 1, "swagger": 1}, "desc": "+1 all stats. On descend, gain +1 DR per item left on the floor (lasts until next floor)."},  # level 3
     {"name": "Milk From The Store", "perk_type": "activated", "effect": {"ability": "milk_from_the_store"}, "desc": "+1 all stats. Activate to double all stats for 10 turns. 3 charges/floor."},  # level 4
@@ -227,10 +228,10 @@ SKILL_PERKS["Slashing"] = [
 ]
 
 SKILL_PERKS["Smartsness"] = [
-    {"name": "+2 BKS",            "perk_type": "stat",      "effect": {"book_smarts": 2},           "desc": "+2 Book Smarts. Forbidden knowledge has its perks."},                    # level 1
-    {"name": "Spell Retention",    "perk_type": "passive",   "effect": {"book_smarts": 2},           "desc": "+2 BKS. 15% chance when casting a spell to not consume the charge."},     # level 2
+    {"name": "Forbidden Knowledge", "perk_type": "stat", "effect": {"book_smarts": 3}, "desc": "+3 Book Smarts."},  # level 1
+    {"name": "Spell Retention",    "perk_type": "passive",   "effect": {"book_smarts": 1},           "desc": "+1 BKS. 15% chance when casting a spell to not consume the charge."},     # level 2
     {"name": "Arcane Intelligence", "perk_type": "passive",   "effect": None,                         "desc": "On Smartsness XP gain: 25% chance to gain +2 Arcane Intelligence stacks (+1 spell damage per stack, 20 turns)."},  # level 3
-    {"name": "Spell Echo",          "perk_type": "passive",   "effect": {"book_smarts": 2},           "desc": "+2 BKS. 15% chance on spell cast: spell fires again at same target for 50% damage, no charge consumed. Echo can chain. Retargets if target dies. Not channeled spells."},  # level 4
+    {"name": "Spell Echo",          "perk_type": "passive",   "effect": {"book_smarts": 1},           "desc": "+1 BKS. 15% chance on spell cast: spell fires again at same target for 50% damage, no charge consumed. Echo can chain. Retargets if target dies. Not channeled spells."},  # level 4
     {"name": "Spellweaver",         "perk_type": "passive",   "effect": {"book_smarts": 3},           "desc": "+3 BKS. Casting a different spell than your last within 5 turns deals +30% damage. Chain indefinitely by alternating spells."},  # level 5
     _PLACEHOLDER, _PLACEHOLDER,
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                                                          # levels 6-10
@@ -320,18 +321,21 @@ SKILL_PERKS["Ammo Rat"] = [
 
 
 SKILL_PERKS["Decontamination"] = [
-    {"name": "Radiant", "perk_type": "stat", "effect": {"tolerance": 2, "strength": 2, "rad_resistance": 30}, "desc": "+30% Rad Resistance, +2 Tolerance, +2 Strength."},  # level 1
-    {"name": "Emission", "perk_type": "activated", "effect": {"ability": "emission"}, "desc": "Set all visible enemies' radiation to yours. 1 use/floor. Irradiated enemies take rad//50 damage/tick and decay 5 rad/tick."},  # level 2
-    {"name": "Fallout", "perk_type": "stat", "effect": {"strength": 2}, "desc": "+2 Strength. 20% chance on dealing damage to irradiate the target (+100 rad)."},  # level 3
-    _PLACEHOLDER, _PLACEHOLDER,
-    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 3-10
+    {"name": "Radiant", "perk_type": "stat", "effect": {"tolerance": 2, "strength": 2, "rad_resistance": 30}, "desc": "+10 Max Armor. +30% Rad Resistance, +2 Tolerance, +2 Strength."},  # level 1
+    {"name": "Gamma Aura", "perk_type": "activated", "effect": {"ability": "gamma_aura", "strength": 3}, "desc": "+3 STR. Toggle aura: enemies within 2 tiles gain +5 rad/turn. 2x Decontamination XP from resisted radiation. Nearby enemy dying with 50+ rad removes 25 of your radiation."},  # level 2
+    {"name": "Consecrate", "perk_type": "activated", "effect": {"ability": "consecrate", "rad_resistance": 15}, "desc": "+20 Max Armor. 2/floor, 30t CD. Lay a 5x3 rad zone (20t). Enemies: +10 rad/turn, true dmg. Standing in zone: +1 Swagger/turn (cap 5). Low rad = chance to preserve charge. +15% rad resist."},  # level 3
+    {"name": "Ironsoul Aura", "perk_type": "activated", "effect": {"ability": "ironsoul_aura", "swagger": 2}, "desc": "+2 SWG. Toggle aura: +1 DR per visible enemy (cap 5), +2 FOV radius. Hits from visible enemies grant +10 rad. 25% on melee hit: lose damage dealt in radiation, gain it as armor."},  # level 4
+    {"name": "Sanctified Discharge", "perk_type": "passive", "effect": None, "desc": "+30 Max Armor. Consecrate upgraded: 4 charges/floor, +20 rad/turn. 30% chance/turn: +1 Ignite stack, +1 Shocked stack (independent, cap 10 each). Both capped: double true damage."},  # level 5
+    {"name": "Retribution Aura", "perk_type": "activated", "effect": {"ability": "retribution_aura", "street_smarts": 2}, "desc": "+2 STS. Toggle aura: enemies that melee you take rad/20 + Decon level true damage (cap 30) and you drain 5 rad per proc."},  # level 6
+    _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,  # levels 7-10
 ]
 
 SKILL_PERKS["Arachnigga"] = [
     {"name": "Web Trail", "perk_type": "activated", "effect": {"ability": "web_trail"}, "desc": "You are immune to webs. Activate: for 5 turns, every tile you move off of gets a cobweb. 3/floor."},  # level 1
     {"name": "Summon Spider", "perk_type": "activated", "effect": {"ability": "summon_spiderling"}, "desc": "Summon a Spider Hatchling on an adjacent tile. It guards until enemies approach, then chases and bites. 5/floor."},  # level 2
     {"name": "Toxic Bite", "perk_type": "activated", "effect": {"ability": "toxic_bite"}, "desc": "Bite an adjacent enemy for STS damage + 2 Venom stacks (10t). Enemies that die while venomed leave a Venom Pool. 6/floor."},  # level 3
-    _PLACEHOLDER, _PLACEHOLDER,                                                                # levels 4-5
+    {"name": "Brood Mother", "perk_type": "passive", "effect": None, "desc": "Spider Hatchlings split into 2 micro-spiders on death (1 HP, 5t lifespan). Venom Pools hatch a spiderling after 3 turns."},  # level 4
+    {"name": "Spider's Nest", "perk_type": "activated", "effect": {"ability": "spiders_nest"}, "desc": "+30 speed on cobweb tiles. Activate: 7x7 cobweb area. 20% per tile to place a spider egg (hatches in 2t). Enemies caught are cocooned (3t, immobile, venom bursts on break). 2/floor."},  # level 5
     _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER, _PLACEHOLDER,                      # levels 6-10
 ]
 
@@ -365,7 +369,7 @@ SKILL_PERKS["Cryomancy"] = [
 
 
 SKILL_PERKS["Electrodynamics"] = [
-    {"name": "Charged Up", "perk_type": "stat", "effect": {"book_smarts": 2, "swagger": 2}, "desc": "+10 Speed, +2 Book Smarts, +2 Swagger."},  # level 1
+    {"name": "Charged Up", "perk_type": "stat", "effect": {"swagger": 2}, "desc": "+10 Speed, +2 Swagger."},  # level 1
     {"name": "Volt Dash", "perk_type": "activated", "effect": {"ability": "volt_dash"}, "desc": "Blink to tile within 5 radius. Deal 1-(10+5×Electro lvl) dmg along the line and adjacent to landing. +1 Shock. 4/floor."},  # level 2
     {"name": "Discharge", "perk_type": "activated", "effect": {"ability": "discharge"}, "desc": "Channel 6 turns (3 cycles). Wave 1: +1 Shocked (LOS, 7 radius). Wave 2: 1-(10+10×Electro lvl) lightning dmg (LOS, 5 radius). 25t cooldown."},  # level 3
     {"name": "Surge", "perk_type": "passive", "effect": None, "desc": "Lightning spell hits have 50% chance to grant Surge (+10 speed per stack, 20 turns, stacks & refreshes)."},  # level 4
@@ -381,7 +385,7 @@ SKILL_PERKS["Drive-By"] = [
 ]
 
 SKILL_PERKS["Elementalist"] = [
-    {"name": "Elemental Staves", "perk_type": "stat", "effect": {"book_smarts": 3}, "desc": "+3 Book Smarts. Receive an elemental staff matching your highest elemental skill (Pyromania/Cryomancy/Electrodynamics). Staves fire bolts (F key, range 4, 5+BKS/3 dmg, +1 element debuff). Req 12 BKS."},  # level 1
+    {"name": "Elemental Staves", "perk_type": "stat", "effect": {"book_smarts": 1}, "desc": "+1 Book Smarts. Receive an elemental staff matching your highest elemental skill (Pyromania/Cryomancy/Electrodynamics). Staves fire bolts (F key, range 4, 5+BKS/3 dmg, +1 element debuff). Req 12 BKS."},  # level 1
     {"name": "Chromatic Orb", "perk_type": "activated", "effect": {"ability": "chromatic_orb"}, "desc": "Targeted projectile. Randomly picks fire/cold/lightning. Dmg: element skill level × 6. Applies 3 stacks of that debuff. 20-turn cooldown."},  # level 2
     {"name": "Arcane Flux", "perk_type": "passive", "effect": None, "desc": "+10% chance to preserve spell charges. Charge preservation effects (Muffin Magic, Blue Paint, etc.) now also apply to cooldown-based spells, negating the cooldown."},  # level 3
     _PLACEHOLDER, _PLACEHOLDER,   # levels 4-5

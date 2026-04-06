@@ -36,6 +36,9 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "toxic_shell": "Toxic barrier; nova detonates when temp HP hits 0",
     "purity_stacks": "Building purity; temp HP when this expires",
     "bastion": "-25% damage taken, -20% damage dealt",
+    "gamma_aura": "Nearby enemies gain +5 rad/turn; 2x Decon XP from resisted rad",
+    "ironsoul_aura": "+1 DR per visible enemy (cap 5); +2 FOV; melee converts rad to armor",
+    "retribution_aura": "Enemies that melee you take true damage; drains rad",
     "absolution": "Gaining tox; tox lost deals damage to nearby enemies",
     "agent_orange": "Can't deal melee damage; 20 damage when it expires",
     "alco_seltzer_immunity": "Immune to debuffs",
@@ -66,6 +69,7 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "disarmed": "Deals half melee damage",
     "distracted": "Next attack will miss",
     "divine_shield": "Each stack absorbs one hit",
+    "empty_pockets": "Already been pickpocketed",
     "dot": "Taking damage each turn",
     "eagle_eye": "Unlimited vision range",
     "eating_food": "Eating; can't act until finished",
@@ -79,6 +83,7 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "frozen": "Frozen solid; can't act, +99 damage resistance",
     "glass_shards": "1 damage per stack per turn",
     "glory_fists": "+5 STR, chance to permanently gain stats on hit",
+    "cocoon": "Cocooned: immobilized, can't attack, venom bursts on break",
     "gouge": "Stunned until hit by the player",
     "greasy": "+3% dodge per stack",
     "green_drank": "Drinks heal HP/armor and remove rad/tox",
@@ -140,6 +145,7 @@ _PLAYER_DESCRIPTIONS: dict[str, str] = {
     "sleeper_agent": "+1 damage, +2% lifesteal per stack; lost on move",
     "slipped": "Lost footing, lose next action",
     "slow": "Slowed, acting less often",
+    "half_life_mark": "Detonates at 40% HP for AOE damage + radiation",
     "snipers_mark": "Taking 10% more damage permanently",
     "soul_count": "Tracking collected souls",
     "soul_empower": "+4 to a random stat",
@@ -2228,12 +2234,12 @@ class JagermeisterBuff(Effect):
 
 @register
 class ButterbeerBuff(Effect):
-    """Buff (Butterbeer): +25% briskness for 100 turns."""
+    """Buff (Butterbeer): +25% briskness for 25 turns."""
     id = "butterbeer_buff"
     category = "buff"
     priority = 0
 
-    def __init__(self, duration: int = 100, **kwargs):
+    def __init__(self, duration: int = 25, **kwargs):
         super().__init__(duration=duration, **kwargs)
 
     @property
@@ -3743,11 +3749,12 @@ class EatingFoodEffect(Effect):
     category = "buff"
     priority = 100  # High priority to prevent any actions
 
-    def __init__(self, duration: int = 10, food_name: str = "Food", food_id: str = "", food_effects: list = None, well_fed_effect_name: str = "Well Fed", greasy_stacks_per_charge: int = 0, is_fried: bool = False, **kwargs):
+    def __init__(self, duration: int = 10, food_name: str = "Food", food_id: str = "", food_effects: list = None, well_fed_effect_name: str = "Well Fed", greasy_stacks_per_charge: int = 0, is_fried: bool = False, sandwich_food_id: str = "", **kwargs):
         super().__init__(duration=duration, **kwargs)
         self.food_name = food_name
         self.food_id = food_id
         self.food_effects = food_effects or []
+        self.sandwich_food_id = sandwich_food_id
         self.well_fed_effect_name = well_fed_effect_name
         self.greasy_stacks_per_charge = greasy_stacks_per_charge
         self.is_fried = is_fried
@@ -3810,7 +3817,7 @@ class EatingFoodEffect(Effect):
                                                  custom_display_name=self.well_fed_effect_name, silent=True)
                 if hot_cheetos_effect:
                     engine.messages.append(f"You feel {self.well_fed_effect_name}!")
-                engine.grant_ability_charges("firebolt", 10)
+                engine.grant_ability_charges("firebolt", _random.randint(5, 10))
 
             elif effect_type == "greasy_buff":
                 if self.greasy_stacks_per_charge > 0:
@@ -3939,9 +3946,21 @@ class EatingFoodEffect(Effect):
                         ("but you have no radiation to purge.", (180, 180, 180)),
                     ])
 
-        # Grant munching skill XP
+        # Grant munching skill XP (sandwich: half of combined XP)
         if self.food_id:
-            engine._gain_munching_xp(self.food_id)
+            if self.sandwich_food_id:
+                from items import FOOD_MUNCHING_XP
+                xp_a = FOOD_MUNCHING_XP.get(self.food_id, 5)
+                xp_b = FOOD_MUNCHING_XP.get(self.sandwich_food_id, 5)
+                half_xp = round((xp_a + xp_b) / 2)
+                adjusted = round(half_xp * engine.player_stats.xp_multiplier)
+                engine.skills.gain_potential_exp(
+                    "Munching", adjusted,
+                    engine.player_stats.effective_book_smarts,
+                    briskness=engine.player_stats.total_briskness,
+                )
+            else:
+                engine._gain_munching_xp(self.food_id)
 
         # Greasy food: award 50% of munching XP as deep-frying XP
         if self.is_fried and self.food_id:
@@ -4102,6 +4121,9 @@ class VenomEffect(Effect):
         existing.duration = max(existing.duration, self.duration)
 
     def tick(self, entity, engine):
+        # Cocoon pauses venom ticking — damage accumulates in cocoon effect instead
+        if getattr(self, '_cocoon_paused', False):
+            return
         damage = self.stacks
         # Venom can't kill the player — skip damage at 1 HP
         if entity == engine.player and entity.hp <= 1:
@@ -4117,6 +4139,82 @@ class VenomEffect(Effect):
                 engine.event_bus.emit("entity_died", entity=entity, killer=None)
                 engine.messages.append(f"{entity.name} dies from venom!")
         self.duration -= 1
+
+
+@register
+class CocoonEffect(Effect):
+    """Cocoon — enemy wrapped in silk. Immobilized, can't attack, can't gain energy.
+    Venom ticks silently (tracked internally). On expiry, all accumulated venom
+    damage is dealt as a single burst. Spawns a micro-spider on break."""
+    id = "cocoon"
+    category = "debuff"
+    priority = 100
+
+    def __init__(self, duration: int = 3, **kwargs):
+        super().__init__(duration=duration, **kwargs)
+        self.venom_damage_stored = 0
+
+    @property
+    def display_name(self) -> str:
+        return "Cocooned"
+
+    def apply(self, entity, engine):
+        # Pause venom effects — we'll tick them ourselves
+        for eff in entity.status_effects:
+            if getattr(eff, 'id', '') == 'venom':
+                eff._cocoon_paused = True
+
+    def modify_energy_gain(self, amount: float, entity) -> float:
+        return 0.0
+
+    def before_turn(self, entity, player, dungeon) -> bool:
+        return True  # skip turn
+
+    def modify_incoming_damage(self, damage: int, entity) -> int:
+        return 0  # immune to damage while cocooned
+
+    def tick(self, entity, engine):
+        # Accumulate venom damage silently
+        for eff in entity.status_effects:
+            if getattr(eff, 'id', '') == 'venom':
+                self.venom_damage_stored += getattr(eff, 'stacks', 1)
+        self.duration -= 1
+
+    def expire(self, entity, engine):
+        # Unpause venom
+        for eff in entity.status_effects:
+            if getattr(eff, 'id', '') == 'venom':
+                eff._cocoon_paused = False
+        # Burst all stored venom damage at once
+        if self.venom_damage_stored > 0 and entity.alive:
+            entity.take_damage(self.venom_damage_stored)
+            engine.messages.append([
+                ("Cocoon bursts! ", (180, 180, 255)),
+                (f"{entity.name} takes {self.venom_damage_stored} venom burst damage!", (80, 200, 60)),
+            ])
+            if not entity.alive:
+                engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
+        # Spawn a micro-spider if player has Brood Mother (L4+)
+        if engine.skills.get("Arachnigga").level >= 4 and entity.alive or not entity.alive:
+            from entity import Entity
+            from ai import get_initial_state
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nx, ny = entity.x + dx, entity.y + dy
+                if not engine.dungeon.is_blocked(nx, ny):
+                    micro = Entity(
+                        x=nx, y=ny, char="s", color=(120, 200, 80),
+                        name="Micro-Spider", entity_type="monster",
+                        hp=1, max_hp=1, power=1, defense=0,
+                        ai_type="spider_hatchling", speed=80,
+                        is_summon=True, summon_lifetime=5,
+                    )
+                    micro._is_micro_spider = True
+                    micro.ai_state = get_initial_state("spider_hatchling")
+                    engine.dungeon.add_entity(micro)
+                    break
+
+    def on_reapply(self, existing, entity, engine):
+        existing.duration = max(existing.duration, self.duration)
 
 
 @register
@@ -5187,6 +5285,104 @@ class SpedEffect(Effect):
 
 
 @register
+class HalfLifeMarkEffect(Effect):
+    """Half-Life Mark: enemy detonates when dropping below 40% HP.
+    3x3 AOE dealing 15+BKS damage, irradiates hit enemies for 30 rad."""
+    id = "half_life_mark"
+    category = "debuff"
+    priority = 5
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=9999, floor_duration=True, **kwargs)
+        self.triggered = False
+        self.enrichment_stacks = 0  # transferred from Rad Bomb or direct Enrichment
+
+    def check_threshold(self, entity, engine):
+        """Check if entity dropped below 40% HP. If so, detonate."""
+        if self.triggered:
+            return
+        if not entity.alive or entity.hp > entity.max_hp * 0.4:
+            return
+        self.triggered = True
+        self._detonate(entity, engine)
+
+    def _detonate(self, entity, engine):
+        """AOE centered on the marked entity. Base 3x3, expanded by Enrichment."""
+        from combat import add_radiation
+        from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+        bks = engine.player_stats.effective_book_smarts
+        damage = 15 + bks
+        radius = 1  # default 3x3
+        # Apply enrichment stacks
+        stacks = self.enrichment_stacks
+        if stacks > 0:
+            damage += stacks * 4
+            radius += stacks // 2
+            engine.messages.append([
+                ("Enrichment consumed! ", (180, 255, 80)),
+                (f"+{stacks * 4} damage, radius {radius * 2 + 1}x{radius * 2 + 1}", (160, 255, 120)),
+            ])
+        cx, cy = entity.x, entity.y
+        size = radius * 2 + 1
+        engine.messages.append([
+            ("HALF-LIFE DETONATION! ", (120, 255, 80)),
+            (f"{entity.name} erupts for {damage} damage! ({size}x{size})", (160, 255, 120)),
+        ])
+        # Pulse animation
+        if engine.sdl_overlay:
+            tiles = [
+                (cx + ddx, cy + ddy)
+                for ddx in range(-radius, radius + 1)
+                for ddy in range(-radius, radius + 1)
+                if 0 <= cx + ddx < DUNGEON_WIDTH and 0 <= cy + ddy < DUNGEON_HEIGHT
+            ]
+            engine.sdl_overlay.add_tile_flash_ripple(
+                tiles, cx, cy, color=(80, 255, 80), duration=0.6
+            )
+        # Gather all targets in area
+        targets = []
+        for e in engine.dungeon.entities:
+            if not getattr(e, 'alive', False):
+                continue
+            if e.entity_type not in ("monster", "player"):
+                continue
+            if abs(e.x - cx) <= radius and abs(e.y - cy) <= radius:
+                targets.append(e)
+        enemies_hit = 0
+        for target in targets:
+            target.take_damage(damage)
+            add_radiation(engine, target, 30)
+            if target is engine.player:
+                engine._gain_catchin_fades_xp(damage)
+                engine.messages.append(f"You take {damage} half-life blast damage!")
+            else:
+                enemies_hit += 1
+                engine.messages.append(
+                    f"{target.name} takes {damage} half-life blast + 30 rad!"
+                )
+                if not target.alive:
+                    engine.event_bus.emit("entity_died", entity=target, killer=engine.player)
+        # Nuclear Research L6 "Nuclear Feedback": +10 rad per enemy hit
+        if enemies_hit > 0 and engine.skills.get("Nuclear Research").level >= 6:
+            feedback_rad = enemies_hit * 10
+            add_radiation(engine, engine.player, feedback_rad, pierce_resistance=True)
+            engine.messages.append([
+                ("Nuclear Feedback! ", (180, 255, 80)),
+                (f"+{feedback_rad} rad ({enemies_hit} enemies hit)", (160, 255, 120)),
+            ])
+        # Remove this effect from the entity
+        if self in entity.status_effects:
+            entity.status_effects.remove(self)
+
+    @property
+    def display_name(self) -> str:
+        return "Half-Life Mark"
+
+    def on_reapply(self, existing, entity, engine):
+        pass  # no stacking — one mark per target
+
+
+@register
 class SnipersMarkEffect(Effect):
     """Sniper's Mark: target takes 10% more damage (rounded up). Permanent until death."""
     id = "snipers_mark"
@@ -5330,7 +5526,8 @@ class PurgeInfectionEffect(Effect):
 class ZombieRageEffect(Effect):
     """Zombie Rage buff (Infected L2): stacking buff.  Each stack = +20% melee
     damage, +20 energy/tick.  Stacks have independent 10-turn timers.
-    On melee kill: +5 infection (once, regardless of stacks) and reset cooldown."""
+    On melee kill: +5 infection per stack and reset cooldown.
+    Nerf: if Purity is active, melee damage is hard-capped to 1."""
     id = "zombie_rage"
     category = "buff"
     priority = 5
@@ -5385,12 +5582,14 @@ class ZombieRageEffect(Effect):
     def on_player_melee_hit(self, engine, defender, damage: int) -> None:
         if not defender.alive:
             from combat import add_infection
-            add_infection(engine, engine.player, 5)
+            stacks = len(self.timers)
+            infection_gain = 5 * stacks
+            add_infection(engine, engine.player, infection_gain)
             # Reset cooldown so ability can be used again immediately
             engine.ability_cooldowns.pop("zombie_rage", None)
             engine.messages.append([
                 ("Zombie Rage! ", (180, 50, 50)),
-                ("+5 infection from the kill! Cooldown reset!", (220, 120, 120)),
+                (f"+{infection_gain} infection from the kill! Cooldown reset!", (220, 120, 120)),
             ])
 
 
@@ -5617,6 +5816,25 @@ class DistractedEffect(Effect):
 
     def on_reapply(self, existing, entity, engine):
         pass  # no stacking, just keep existing
+
+
+@register
+class EmptyPocketsEffect(Effect):
+    """Marker debuff: enemy has already been pickpocketed. Permanent, no gameplay effect."""
+    id = "empty_pockets"
+    category = "debuff"
+    priority = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=9999, **kwargs)
+        self.floor_duration = True
+
+    @property
+    def display_name(self) -> str:
+        return "Empty Pockets"
+
+    def on_reapply(self, existing, entity, engine):
+        pass  # no stacking
 
 
 @register
@@ -6037,3 +6255,219 @@ class HamstrungEffect(Effect):
 
     def on_reapply(self, existing, entity, engine):
         existing.stacks += 1
+
+
+@register
+class ConsecratedGroundEffect(Effect):
+    """Buff (Decontamination L3): +1 Swagger/turn while standing on rad tiles, cap +5.
+    Resets when player steps off. Floor-duration passive."""
+    id = "consecrated_ground"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=1, floor_duration=True, **kwargs)
+        self.swagger_bonus = 0
+
+    @property
+    def display_name(self) -> str:
+        if self.swagger_bonus > 0:
+            return f"Consecrated (+{self.swagger_bonus} SWG)"
+        return "Consecrated Ground"
+
+    def before_turn(self, entity, engine):
+        pos = (entity.x, entity.y)
+        on_rad_tile = pos in engine.dungeon.rad_tiles
+        if on_rad_tile and self.swagger_bonus < 5:
+            self.swagger_bonus += 1
+            engine.player_stats.add_temporary_stat_bonus("swagger", 1)
+        elif not on_rad_tile and self.swagger_bonus > 0:
+            engine.player_stats.add_temporary_stat_bonus("swagger", -self.swagger_bonus)
+            self.swagger_bonus = 0
+
+    def expire(self, entity, engine):
+        if self.swagger_bonus > 0:
+            engine.player_stats.add_temporary_stat_bonus("swagger", -self.swagger_bonus)
+            self.swagger_bonus = 0
+
+    def on_reapply(self, existing, entity, engine):
+        pass  # floor-duration, no stacking
+
+
+@register
+class ConsecratedGroundEffect(Effect):
+    """Buff (Decontamination L3): +1 Swagger/turn while standing on rad tiles, cap +5.
+    Resets when player steps off. Floor-duration passive."""
+    id = "consecrated_ground"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=1, floor_duration=True, **kwargs)
+        self.swagger_bonus = 0
+
+    @property
+    def display_name(self) -> str:
+        if self.swagger_bonus > 0:
+            return f"Consecrated (+{self.swagger_bonus} SWG)"
+        return "Consecrated Ground"
+
+    def before_turn(self, entity, engine):
+        pos = (entity.x, entity.y)
+        on_rad_tile = pos in engine.dungeon.rad_tiles
+        if on_rad_tile and self.swagger_bonus < 5:
+            self.swagger_bonus += 1
+            engine.player_stats.add_temporary_stat_bonus("swagger", 1)
+        elif not on_rad_tile and self.swagger_bonus > 0:
+            engine.player_stats.add_temporary_stat_bonus("swagger", -self.swagger_bonus)
+            self.swagger_bonus = 0
+
+    def expire(self, entity, engine):
+        if self.swagger_bonus > 0:
+            engine.player_stats.add_temporary_stat_bonus("swagger", -self.swagger_bonus)
+            self.swagger_bonus = 0
+
+    def on_reapply(self, existing, entity, engine):
+        pass  # floor-duration, no stacking
+
+
+@register
+class GammaAuraEffect(Effect):
+    """Buff (Decontamination L2 'Gamma Aura'): toggle.
+    While active: enemies within 2 tiles gain +5 rad/turn (earns Decon XP).
+    2x Decontamination XP from resisting radiation.
+    floor_duration so it persists until toggled off or floor ends."""
+    id = "gamma_aura"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=9999, floor_duration=True, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Gamma Aura"
+
+    def apply(self, entity, engine):
+        pass
+
+    def tick(self, entity, engine):
+        """Each tick: irradiate enemies within Chebyshev 2 of the player."""
+        from combat import add_radiation
+        px, py = entity.x, entity.y
+        for m in engine.dungeon.entities:
+            if m.entity_type != "monster" or not m.alive:
+                continue
+            if max(abs(m.x - px), abs(m.y - py)) <= 2:
+                add_radiation(engine, m, 5, from_player=True)
+                # Decontamination XP for rad applied via aura
+                bksmt = engine.player_stats.effective_book_smarts
+                engine.skills.gain_potential_exp("Decontamination", 5, bksmt)
+
+    def expire(self, entity, engine):
+        pass
+
+    def on_reapply(self, existing, entity, engine):
+        pass  # toggle logic prevents reapply
+
+
+@register
+class IronsoulAuraEffect(Effect):
+    """Buff (Decontamination L4 'Ironsoul Aura'): toggle.
+    While active: +1 DR per visible enemy in FOV (cap 5), +2 FOV radius.
+    Hits from visible enemies grant +10 rad.
+    25% on melee hit: lose damage dealt in radiation, gain it as armor.
+    floor_duration so it persists until toggled off or floor ends."""
+    id = "ironsoul_aura"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=9999, floor_duration=True, **kwargs)
+        self._cached_dr = 0
+
+    @property
+    def display_name(self) -> str:
+        if self._cached_dr > 0:
+            return f"Ironsoul Aura ({self._cached_dr} DR)"
+        return "Ironsoul Aura"
+
+    def apply(self, entity, engine):
+        engine.fov_radius += 2
+        engine._compute_fov()
+
+    def _count_visible_enemies(self, engine) -> int:
+        visible = engine.dungeon.visible
+        count = 0
+        for m in engine.dungeon.entities:
+            if m.entity_type == "monster" and m.alive and visible[m.y][m.x]:
+                count += 1
+        return count
+
+    def modify_incoming_damage(self, damage: int, entity) -> int:
+        """Flat DR based on visible enemy count (cap 5)."""
+        if not hasattr(entity, '_game_engine'):
+            return damage
+        engine = entity._game_engine
+        dr = min(5, self._count_visible_enemies(engine))
+        self._cached_dr = dr
+        return max(1, damage - dr)
+
+    def before_turn(self, entity, engine):
+        """Cache the engine reference on entity for modify_incoming_damage."""
+        entity._game_engine = engine
+
+    def on_player_melee_hit(self, engine, defender, damage: int) -> None:
+        """25% chance: lose damage dealt in radiation, gain it as armor."""
+        import random
+        if random.random() >= 0.25:
+            return
+        player = engine.player
+        rad_to_lose = min(damage, player.radiation)
+        if rad_to_lose <= 0:
+            return
+        from combat import remove_radiation
+        remove_radiation(engine, player, rad_to_lose)
+        max_armor = engine._compute_player_max_armor()
+        armor_gain = min(rad_to_lose, max(0, max_armor - player.armor))
+        if armor_gain > 0:
+            player.armor += armor_gain
+        engine.messages.append([
+            ("Ironsoul! ", (180, 200, 255)),
+            (f"-{rad_to_lose} rad → +{armor_gain} armor.", (160, 180, 240)),
+        ])
+
+    def expire(self, entity, engine):
+        engine.fov_radius -= 2
+        engine._compute_fov()
+        if hasattr(entity, '_game_engine'):
+            del entity._game_engine
+
+    def on_reapply(self, existing, entity, engine):
+        pass  # toggle logic prevents reapply
+
+
+@register
+class RetributionAuraEffect(Effect):
+    """Buff (Decontamination L6 'Retribution Aura'): toggle.
+    While active: enemies that melee you take rad/20 + Decon level true damage (cap 30).
+    Drains 5 rad per proc. floor_duration, persists until toggled off or floor ends."""
+    id = "retribution_aura"
+    category = "buff"
+    priority = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(duration=9999, floor_duration=True, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return "Retribution Aura"
+
+    def apply(self, entity, engine):
+        pass
+
+    def expire(self, entity, engine):
+        pass
+
+    def on_reapply(self, existing, entity, engine):
+        pass  # toggle logic prevents reapply

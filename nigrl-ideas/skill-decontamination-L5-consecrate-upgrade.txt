@@ -1,0 +1,719 @@
+DECONTAMINATION SKILL — LEVEL 5 CONSECRATE UPGRADE OPTIONS
+NIGRL Design Document
+Generated: 2026-04-02
+======================================================================
+
+DOCUMENT PURPOSE
+----------------
+Design 6 perk options for Decontamination Level 5. This perk is a
+DIRECT UPGRADE to Consecrate (L3). The passive component (+30 Max Armor)
+is already decided. The creative work here is: what does Consecrate's
+zone DO that is new, offensively powerful, and distinct from what the
+tree already provides?
+
+TREE STATE AT L5
+----------------
+  L1 — Radiant:       +30% rad resist, +2 TOL, +2 STR, +10 max armor
+  L2 — Gamma Aura:    +3 STR. Toggle: enemies w/in 2 tiles gain +5 rad/turn.
+                       2x Decon XP from resisted rad. Nearby irradiated
+                       kills remove 25 player rad.
+  L3 — Consecrate:    2/floor, 30t CD. Lay a 5x3 rad zone in a chosen
+                       cardinal direction (20t). Enemies: +10 rad/turn +
+                       true damage (2 + decon_level//2). Player standing
+                       in zone: +1 Swagger/turn (cap 5). Low rad = chance
+                       to preserve charge. +15% rad resist, +20 max armor.
+  L4 — Ironsoul Aura: +2 SWG. Toggle: +1 DR per visible enemy (cap 5),
+                       +2 FOV. Hits from visible enemies grant +10 rad.
+                       25% on melee hit: deal damage as rad gain to self,
+                       receive as armor.
+  L5 — THIS DOCUMENT  (+30 max armor — passive decided)
+
+WHAT CONSECRATE DOES NOW (BASELINE)
+-------------------------------------
+  - Zone shape: 5 tiles deep x 3 tiles wide (15 tiles max), player at
+    near-edge center, chosen cardinal direction
+  - Duration: 20 turns
+  - Charges: 2/floor, 30t cooldown
+  - Enemy on tile: +10 rad/turn + true damage (2 + decon_level//2)
+  - Player on tile: +1 Swagger/turn (capped at 5 above base)
+  - Charge preservation: if player rad < 30 when cast, 50% chance to
+    preserve charge (the "holy ground" grace condition)
+  - Passive line: +15% rad resist, +20 max armor
+
+THINGS DECONTAMINATION DOES NOT CURRENTLY DO
+---------------------------------------------
+The following status effects exist in the game but have NEVER been applied
+by ANY Decontamination perk. These are the design space for L5:
+  - Shocked (damage amp: +50% damage taken from all sources)
+  - Stunned (skip turn)
+  - Feared (flee behavior)
+  - Bleeding (DOT)
+  - Ignite (fire DOT, stacking)
+  - Greasy (slip chance, fire interaction)
+  - Dazed (wander aimlessly)
+  - Hamstrung (flat damage reduction per stack)
+
+The L5 upgrade should introduce at least one of these. Radiation has so
+far been the tree's only offensive vector. That changes here.
+
+ZONE SIZE UPGRADE (AVAILABLE TO ALL OPTIONS)
+-------------------------------------------
+The user noted interest in growing 5x3 -> 7x5. That's 35 tiles vs 15 —
+a 2.3x footprint increase. Any option may include this as part of the
+upgrade. If an option makes the zone bigger, it is the PRIMARY offensive
+buff and the new zone effect should be appropriately smaller. If the zone
+stays 5x3, the new zone effect should be stronger.
+
+Size change implementation:
+  The consecrate_zone_size field can be stored in engine.consecrate_zone_size
+  = (5, 3) by default; L5 upgrade sets it to (7, 5). OR: simply check
+  skills.get("Decontamination").level >= 5 in _execute_consecrate() to
+  choose which footprint to compute.
+
+NOTE ON IMPLEMENTATION PATTERN
+-------------------------------
+Each option modifies _execute_consecrate() and the per-tick rad_tile
+processing in engine._run_energy_loop. The rad_tiles dict stores:
+  dungeon.rad_tiles: dict[tuple, tuple] = {(x,y): (turns_remaining, mode)}
+where mode is a string key. The L5 upgrade changes which mode string
+_execute_consecrate writes. The tick handler already dispatches on mode.
+
+======================================================================
+OPTION 1 — "NUCLEAR VERDICT"
+Concept: Zone becomes a death sentence. Enemies inside build a delayed
+         detonation — they carry the rad charge OUT of the zone if they
+         flee, and it explodes when they hit full saturation.
+======================================================================
+
+NAME: Nuclear Verdict
+ZONE SIZE CHANGE: 7x5 (upgrade from 5x3)
+NEW MODE STRING: "verdict"
+
+OFFENSIVE EFFECT (ENEMIES IN ZONE):
+  Per-tick behavior in mode "verdict":
+    - +10 rad/turn (unchanged from base)
+    - True damage (2 + decon_level//2) per turn (unchanged)
+    - NEW: When an enemy exits a Verdict zone tile (moves from a rad tile
+      to a non-rad tile), they gain the "verdict_marked" status effect
+      (8 turns). While marked:
+        - Their radiation cannot decay naturally (rad_decay blocked;
+          modify in the enemy's per-tick rad processing).
+        - If they reach 200+ rad while marked, they DETONATE: deal
+          (rad // 8) true damage to all entities within 2 tiles including
+          themselves; their rad is then zeroed.
+        - Flavor: "The radiation doesn't let them go."
+
+  NEW STATUS EFFECT: VerdictMarkedEffect
+    id="verdict_marked", category="debuff", duration=8
+    apply(): message "[enemy] is marked for nuclear verdict!"
+    tick(): if entity.radiation >= 200: trigger detonation (deal damage,
+            zero radiation, expire effect).
+    modify_energy_gain(): no modifier (enemy still moves normally; they
+            just can't shake the charge).
+    Implementation note: block rad decay by checking for this effect in
+    the enemy's rad-decay step (currently in engine._run_energy_loop
+    where enemy.radiation -= 5 or similar decay value). If the effect is
+    active on that enemy, skip the decay for that tick.
+
+PLAYER STANDING BONUS (unchanged from L3):
+  +1 Swagger/turn while in zone (cap 5). No change here. The size
+  increase from 7x5 means this bonus is easier to maintain during kiting.
+
+SYNERGY WITH GAMMA AURA:
+  Gamma Aura pushes enemies deeper into rad buildup (5 rad/turn from
+  the aura). Verdict zones then lock that rad in place when the enemy
+  escapes. An enemy irradiated by Gamma Aura + Verdict zone cannot
+  dump their charge — they're carrying a bomb.
+
+SYNERGY WITH IRONSOUL AURA:
+  Ironsoul rewards standing in the thick of it (+1 DR per visible enemy).
+  Verdict punishes enemies for leaving — so THEY come to YOU. Ironsoul
+  + Verdict creates a zone where enemies keep walking into the consecrated
+  ground because fleeing is almost worse.
+
+IMPLEMENTATION NOTES:
+  engine._run_energy_loop (rad_tile tick):
+    - In the "verdict" mode branch: add_radiation(engine, enemy, 10),
+      deal true damage (2 + decon_level//2). No new flag needed on the tile.
+  engine._run_energy_loop (monster movement):
+    - After each monster move: if monster's OLD position was in
+      dungeon.rad_tiles and new position is NOT: apply VerdictMarkedEffect.
+    - Efficient check: store monster's prior position in ai.py's do_ai_turn()
+      return value, or in entity.last_move_pos (entity.py already has
+      entity.last_move_dir per MEMORY.md). Use that to check old pos.
+  effects.py:
+    - VerdictMarkedEffect(Effect): id="verdict_marked". tick() handles
+      detonation check. Also: block rad decay on entity by checking in
+      the same loop where enemy rad decay is processed.
+  Zone size in _execute_consecrate(): if decon_level >= 5, use 7x5.
+
+PERK TEXT (for skills.py):
+  "Consecrate upgrade: zone grows to 7x5. Enemies that exit the zone
+   are Verdict Marked (8t) — their rad cannot decay and detonates
+   (rad//8 AOE true dmg) if they hit 200 rad. +30 max armor."
+
+BALANCE:
+  The 7x5 zone is the primary buff — more coverage. Verdict is a
+  conditional bonus that rewards the full tree investment: you need
+  enemies to build 200 rad (requires Emission + time in zone). It's
+  more of a "panic button" for enemies that try to flee than a guaranteed
+  proc. Against low-rad enemies it does nothing. Against Emission-primed
+  enemies it creates terrifying chase scenarios.
+
+
+======================================================================
+OPTION 2 — "IRRADIATED GROUND, SHOCKED SOUL"
+Concept: Consecrate now deals with electricity's side of exposure.
+         Radiation + electrical discharge = the Shocked debuff. Enemies
+         in the zone are taking 50% more damage from everything.
+======================================================================
+
+NAME: Sanctified Discharge
+ZONE SIZE CHANGE: 5x3 (NO size increase — the debuff is strong enough)
+NEW MODE STRING: "discharge"
+
+OFFENSIVE EFFECT (ENEMIES IN ZONE):
+  Per-tick behavior in mode "discharge":
+    - +10 rad/turn (unchanged)
+    - True damage (2 + decon_level//2) per turn (unchanged)
+    - NEW: Every turn an enemy is on a discharge tile, they have a 30%
+      chance to gain Shocked (3 turns). Shocked: +50% incoming damage
+      from all sources for its duration.
+    - The chance accumulates: an enemy standing still in the zone for
+      3 turns expects to be Shocked ~66% of those turns on average.
+    - Enemies that are ALREADY shocked and step on a discharge tile reset
+      their Shocked duration to 3 (no stacking to 6+, cap at 3).
+    - Flavor: "The rad zone crackles with divine electricity. The sinners
+      standing in it conduct it perfectly."
+
+PLAYER STANDING BONUS:
+  +1 Swagger/turn (unchanged). ADDITIONAL new bonus: the player is immune
+  to the Shocked proc from their own Discharge tiles (you are the conduit,
+  not the target).
+
+SYNERGY WITH GAMMA AURA:
+  Gamma Aura + Discharge: enemy in Gamma Aura range AND on a discharge
+  tile: +5 rad/turn from aura + +10 rad/turn from tile + 30% chance/turn
+  to be Shocked. When Shocked, the rad DOT (rad//50 dmg/tick) is also
+  amplified 50% by the Shocked modifier. The zone becomes an amplified
+  execution chamber.
+
+SYNERGY WITH IRONSOUL AURA:
+  Ironsoul is defensive. This option is offensively minded. The natural
+  play: Ironsoul ON while closing distance (getting DR), then lay
+  Discharge Consecrate and swap to Gamma Aura for the kill phase.
+  Or: keep Ironsoul on and let Discharge do the offensive lifting.
+
+IMPLEMENTATION NOTES:
+  engine._run_energy_loop (rad_tile tick):
+    - In "discharge" mode: add_radiation(engine, enemy, 10), deal true
+      damage. Then: roll random.random() < 0.30; if True and enemy not
+      already shocked (check active effects): apply_effect(enemy, engine,
+      "shocked", duration=3). If already shocked: find the effect and
+      reset its duration to 3.
+  Shocked effect already exists in effects.py (it modifies incoming
+  damage). No new effect needed. Just call apply_effect with the
+  existing "shocked" id.
+  Immunity: in the discharge mode branch, check if entity is engine.player;
+  if so, skip the Shocked roll.
+  Zone size: unchanged at 5x3.
+
+PERK TEXT (for skills.py):
+  "Consecrate upgrade: mode changes to Discharge. Enemies on Discharge
+   tiles have 30% chance/turn to gain Shocked (3t, +50% damage taken).
+   You are immune to your own Discharge tiles. +30 max armor."
+
+BALANCE:
+  At 30%/turn, an enemy standing in the zone for 3 turns expects 0-1
+  Shocked procs. But with 10 rad/turn AND the rad DOT from reaching 50+
+  rad, Shocked doesn't need to proc constantly — it's a massive spike when
+  it does. Against high-DR enemies (which are the late-floor threat), the
+  Shocked damage amplification is more valuable than raw damage. This is
+  the "anti-armor" Consecrate variant.
+
+  Risk of being too strong: if enemy AI tends to stand still in the zone
+  (room_guard, stunned enemies, etc.), Shocked procs consistently. This
+  is acceptable — you chose the zone placement, that's the reward.
+
+
+======================================================================
+OPTION 3 — "SCOURGING FLAME"
+Concept: Holy fire. Consecrate now IGNITES enemies in the zone.
+         Radiation + fire = the most aesthetically violent option.
+         Burning sanctified ground. Enemies are both irradiated and on fire.
+======================================================================
+
+NAME: Scourging Flame
+ZONE SIZE CHANGE: 7x5 (upgrade from 5x3)
+NEW MODE STRING: "scourge"
+
+OFFENSIVE EFFECT (ENEMIES IN ZONE):
+  Per-tick behavior in mode "scourge":
+    - +8 rad/turn (REDUCED from +10 — fire handles the rest)
+    - True damage (2 + decon_level//2) per turn (unchanged)
+    - NEW: Every 3 turns an enemy spends on a scourge tile, they gain
+      Ignite (3 stacks, 8 turns). Ignite is an existing stacking fire DOT.
+      Threshold: tracked per-enemy via a counter stored in engine or the
+      enemy entity. Use entity.scourge_tick_count (int, default 0): ++
+      each tick the entity is on a scourge tile; reset on leaving the tile;
+      at multiples of 3: apply ignite 3 stacks.
+    - The zone itself does NOT visually become fire (no fire hazard
+      entities spawned). This is radiant combustion — divine heat that
+      doesn't need visible flames.
+    - At Decontamination level 7+ (future): scourge tile ignite threshold
+      drops to every 2 turns (future-proofing hook, not needed now).
+
+PLAYER STANDING BONUS:
+  +1 Swagger/turn (unchanged). ADDITIONAL: player is immune to Ignite
+  procs from their own Scourge tiles (you are the source of the fire,
+  not a recipient). Player can still be on greasy tiles and have fire
+  interact with grease — but the scourge tiles themselves don't apply
+  Ignite to the player.
+
+SYNERGY WITH GAMMA AURA:
+  Gamma Aura irradiates enemies within 2 tiles. Scourge tiles ignite
+  them if they spend time in the zone. A kiting strategy: chase enemies
+  through the zone while Gamma Aura chips their rad up, and every 3 turns
+  they get an Ignite stack. With 3+ stacks of Ignite + rad DOT + Gamma
+  Aura's field: multi-vector DOT on a single enemy.
+
+SYNERGY WITH IRONSOUL AURA:
+  Ironsoul's 25% on-melee-hit proc (deal damage as rad to self, receive
+  as armor) means you're building both rad and armor. Scourging Flame
+  rewards standing in the zone (you get Swagger regen + fire the enemies
+  below you). Using both: lay the zone, stand in it with Ironsoul on,
+  melee enemies as they burn.
+
+SYNERGY WITH GREASE TILES (terrain interaction):
+  This is a unique cross-system interaction available ONLY to this option.
+  If a scourge tile overlaps with a grease tile (entity type="hazard",
+  hazard_type="greasy"), the grease tile should explode: deal 8 fire
+  damage to all entities in a 2-tile radius and remove the grease tile.
+  Implementation: in the scourge tile tick, check if dungeon.grease_tiles
+  contains this position. If so: fire explosion and remove grease.
+  This is a very cool emergent interaction with an existing system.
+
+IMPLEMENTATION NOTES:
+  entity.py: add scourge_tick_count: int = 0 (new field for scourge
+    ignite tracking). Reset in _do_rad_tile_processing for entities
+    leaving tiles (set to 0 when entity not on scourge tile).
+  engine._run_energy_loop (rad_tile tick):
+    - In "scourge" mode: add_radiation(engine, enemy, 8), deal true damage.
+    - Increment entity.scourge_tick_count. If entity.scourge_tick_count % 3 == 0:
+      apply_effect(enemy, engine, "ignite", stacks=3, duration=8).
+    - Check grease overlap for fire explosion.
+  effects.py: Ignite effect already exists. apply_effect with stacks=3.
+  Zone size: 7x5. The bigger zone matters more for Scourge because Ignite
+    takes 3 turns to first proc — enemies need to stay in zone longer.
+
+PERK TEXT (for skills.py):
+  "Consecrate upgrade: zone grows to 7x5. Zone becomes Scourge mode:
+   every 3 turns on the zone, enemies gain Ignite (3 stacks, 8t). Scourge
+   tiles detonate overlapping grease. +30 max armor."
+
+BALANCE:
+  The rad gain drops from +10 to +8/turn — slightly slower rad buildup.
+  But Ignite at 3 stacks is a significant DOT on top of that (Ignite
+  typically does 3-5 damage/tick/stack in early definitions). The grease
+  interaction is a bonus with no downside. Zone size increase means more
+  tactical flexibility.
+
+  Potentially high combo: Ignite + rad DOT (from Emission + rad buildup)
+  + true damage from zone + Scourge damage = 4 damage vectors on one enemy.
+  This is the most burst-oriented option. Against low-HP enemies on late
+  floors it might feel like overkill, but Ignite's stacking means it scales
+  into harder content.
+
+
+======================================================================
+OPTION 4 — "DIVINE TERROR"
+Concept: The zone makes enemies afraid. Feared enemies flee into your
+         next attack. A crowd-control Consecrate — enemies who enter the
+         zone don't fight back, they run. You choose where they run TO.
+======================================================================
+
+NAME: Divine Terror
+ZONE SIZE CHANGE: 5x3 (NO size increase — control scales with zone width)
+NEW MODE STRING: "terror"
+
+OFFENSIVE EFFECT (ENEMIES IN ZONE):
+  Per-tick behavior in mode "terror":
+    - +10 rad/turn (unchanged)
+    - True damage (2 + decon_level//2) per turn (unchanged)
+    - NEW: When an enemy FIRST enters a terror tile (transitions from
+      non-terror tile to terror tile), they must pass a morale check:
+        if enemy.hp <= (enemy.max_hp * 0.6):  # below 60% HP
+          apply_effect(enemy, engine, "feared", duration=4)
+      If above 60% HP: no fear. The zone is a finishing tool — enemies
+      that are already wounded break and run.
+    - The 60% threshold is intentional. Full-HP enemies do NOT fear the
+      zone. You have to soften them first (with Gamma Aura rad, melee,
+      or Emission). Then they step in and panic.
+    - Feared enemies flee away from the player. The zone placement
+      geometry then matters: if the zone is in front of you (toward the
+      enemy), a feared enemy turns and runs THROUGH the zone to escape,
+      taking more ticks of damage as they flee through the zone tiles.
+    - This creates a chase geometry: you place the zone between you and
+      the enemy corridor, enemies run into it, fear triggers at 60%, they
+      flee through the remaining tiles, radiating and taking true damage
+      as they go.
+
+PLAYER STANDING BONUS:
+  +1 Swagger/turn (unchanged). ADDITIONAL: when a Feared enemy takes
+  melee damage from YOU (and only you), the fear duration is extended
+  by 2 turns. This rewards chasing feared enemies rather than letting
+  them flee to a wall and re-engage.
+
+SYNERGY WITH GAMMA AURA:
+  Gamma Aura + Terror: gamma softens enemies (5 rad/turn), getting them
+  to 60% HP faster via the rad DOT (rad//50). Then Terror zone finishes
+  the psychology — they step in and break. The Gamma Aura handles the
+  setup damage; Terror handles the execution behavior.
+
+SYNERGY WITH IRONSOUL AURA:
+  Ironsoul rewards visible enemies (DR per visible). Feared enemies are
+  still visible — they count toward Ironsoul's DR stacks while they run.
+  Bonus: feared enemies run away, which means they're not attacking you
+  (0 attacks on the player), while you still benefit from the DR bonus
+  of their presence. Very high defensive upside during a fear proc.
+
+IMPLEMENTATION NOTES:
+  engine._run_energy_loop (rad_tile tick):
+    - In "terror" mode: add_radiation(engine, enemy, 10), deal true dmg.
+    - Track first entry: entity.on_terror_tile (bool). Set to True when
+      entity steps onto a terror tile; set to False when not on terror tile.
+      OR: only trigger on entry — check entity's last position. If last
+      turn entity was NOT on a terror tile and this turn it IS: fear check.
+      Use entity.last_pos_was_terror: bool = False (entity field).
+    - Fear proc: if entity.last_pos_was_terror == False and current tile
+      is terror tile: set entity.last_pos_was_terror = True; if entity.hp
+      <= entity.max_hp * 0.6: apply_effect(entity, engine, "feared", duration=4).
+    - Reset entity.last_pos_was_terror = False when entity leaves all terror tiles.
+  combat.py (player melee):
+    - After melee hit: if target has "feared" effect and attacker is player:
+      find feared effect, extend duration by 2.
+  entity.py: add last_pos_was_terror: bool = False.
+  Note: Feared effect already exists in effects.py. No new effect class.
+
+PERK TEXT (for skills.py):
+  "Consecrate upgrade: Terror mode. Enemies below 60% HP that enter the
+   zone are Feared (4t). Melee hits on Feared enemies extend fear by 2t.
+   +30 max armor."
+
+BALANCE:
+  The fear threshold at 60% means this only triggers after meaningful
+  damage has been dealt. Against fresh full-HP enemies it's dead weight —
+  that's the explicit design tradeoff. Against softened enemies it's
+  devastating: a 4-turn fear on a late-floor enemy with 30% HP remaining
+  means you chase them through their own zone and finish them safely.
+  The "chase through zone" interaction is particularly strong against
+  corridor maps: a 5x3 zone placed across a hallway becomes an inescapable
+  gauntlet for fleeing enemies.
+
+  Risk: might be frustrating if the player is trying to kill an enemy
+  and it keeps running away. The Feared extension on melee hit partially
+  addresses this — the faster you chase, the longer the fear extends,
+  so you can "steer" feared enemies rather than losing them.
+
+
+======================================================================
+OPTION 5 — "CURSED EARTH"
+Concept: The zone now also inflicts Bleeding on enemies. Radiation burns
+         them from the inside; the bleeding drains them from the outside.
+         Enemies exiting the zone leave a trail of blood tiles.
+         Two DOTs, one zone. The ground is permanently hostile.
+======================================================================
+
+NAME: Cursed Earth
+ZONE SIZE CHANGE: 7x5 (upgrade from 5x3)
+NEW MODE STRING: "cursed_earth"
+
+OFFENSIVE EFFECT (ENEMIES IN ZONE):
+  Per-tick behavior in mode "cursed_earth":
+    - +10 rad/turn (unchanged)
+    - True damage (2 + decon_level//2) per turn (unchanged)
+    - NEW: Every 4 turns an enemy spends continuously on cursed_earth tiles,
+      they gain Bleeding (5 turns, 4 damage/turn). Tracked via a per-enemy
+      counter (same pattern as scourge_tick_count above; use
+      entity.cursed_earth_ticks: int = 0, reset on leaving tiles, proc
+      at multiples of 4).
+    - NEW: When an enemy EXITS a cursed_earth tile (moves off it), they
+      leave a "blood_patch" hazard tile at their old position. Blood
+      patch: existing hazard_type in the system (per MEMORY.md, this type
+      was designed in ability-granting-batch2-single.txt). Applies bleeding
+      2t to enemies standing on it. Duration 10 turns.
+      This means: enemies fleeing the zone SMEAR BLOOD across the floor
+      behind them. Other enemies following them step into blood patches.
+
+  BLOOD TRAIL GEOMETRY:
+    The 7x5 zone combined with exit bleeding means: enemies that walk
+    into the zone and then flee leave up to 8-10 blood patch tiles behind
+    them (one per tile they moved through). A corridor becomes a slaughterhouse.
+    Blood patches are entity-based (hazard entities) — they stack with rad
+    tiles (both affect the same tile simultaneously).
+
+PLAYER STANDING BONUS:
+  +1 Swagger/turn (unchanged). ADDITIONAL: player is immune to their
+  own blood patch tiles (you are consecrated ground, not a target of
+  your own earth). Player gains +2 Decontamination XP per turn they
+  stand in a cursed_earth tile — the zone rewards staying inside it.
+
+SYNERGY WITH GAMMA AURA:
+  Gamma Aura irradiates enemies. Cursed Earth makes them bleed when they
+  enter and leave blood everywhere when they flee. Enemies under Gamma
+  Aura taking the rad DOT hit 60% HP faster, which means they start
+  fleeing sooner, which means more blood patches scattered across the floor.
+  More patches = more bleeding applied to more enemies following behind.
+
+SYNERGY WITH IRONSOUL AURA:
+  Ironsoul's triggered armor gain (+10 rad to self on being hit, 25%
+  convert damage to rad/armor) means the player benefits from staying
+  put in the Cursed Earth zone (Swagger regen from zone + armor building
+  from Ironsoul). The blood patches from fleeing enemies slow pursuit
+  of the player (other enemies step in blood and take DOT), giving the
+  player more time to continue healing through Ironsoul's mechanics.
+
+IMPLEMENTATION NOTES:
+  entity.py: add cursed_earth_ticks: int = 0.
+  engine._run_energy_loop (rad_tile tick):
+    - In "cursed_earth" mode: add_radiation(engine, enemy, 10), deal true
+      damage. Increment entity.cursed_earth_ticks. If ticks % 4 == 0:
+      apply_effect(enemy, engine, "bleeding", duration=5, amount=4).
+  engine._run_energy_loop (monster movement) OR ai.py (post-move hook):
+    - After entity moves: if old position was a cursed_earth tile and new
+      position is NOT: create_blood_patch(old_x, old_y, engine.dungeon).
+      Blood patch creation: instantiate a hazard entity with
+      hazard_type="blood_patch", place in dungeon.entities at that position.
+      Use existing blood_patch hazard from hazards.py (already designed).
+  effects.py: Bleeding effect already exists. No new effect needed.
+  Blood patch: already exists as a hazard type per MEMORY.md / the
+    ability-granting-batch2-single.txt design. If not yet implemented,
+    implement as a minimal hazard: entity_type="hazard",
+    hazard_type="blood_patch", char='.', color=(180, 0, 0). Process in
+    engine._run_energy_loop alongside grease tiles: if enemy stands on it,
+    apply_effect(enemy, engine, "bleeding", duration=2, amount=2).
+
+PERK TEXT (for skills.py):
+  "Consecrate upgrade: zone grows to 7x5, mode becomes Cursed Earth.
+   Enemies bleed (4t) every 4 turns on tiles. Exiting enemies leave
+   blood patches at their old position. +30 max armor."
+
+BALANCE:
+  Bleeding (4 damage/4 turns) stacks with the existing rad DOT from
+  the zone's +10 rad/turn (enemies at 50 rad take rad//50=1 dmg/tick,
+  which compounds). Bleed on exit is tactically interesting because
+  it punishes both staying (Bleeding buildup) and leaving (blood tile).
+  The choice for enemies: stand still and bleed more; or leave and
+  seed the floor with hazards. Either way the player wins.
+
+  The 7x5 zone means blood patches can cover a lot of floor. If a room
+  has multiple enemies all entering and exiting the zone, the floor
+  outside the zone gradually fills with blood patches. This self-extends
+  the zone's effective hazard range beyond its borders.
+
+
+======================================================================
+OPTION 6 — "JUDGMENT STRIKE"
+Concept: Consecrate becomes a trigger. Enemies who take enough rad damage
+         while in the zone are EXECUTED by a bolt of radiant energy — an
+         instant-kill at a HP threshold. No DOT needed; just threshold.
+         This makes Consecrate feel like holy judgment rather than slow death.
+======================================================================
+
+NAME: Judgment Strike
+ZONE SIZE CHANGE: 5x3 (NO size increase — execution doesn't need big zones)
+NEW MODE STRING: "judgment"
+NOTE: This shares a name with the Consecrate ability variant in
+  consecrate-ability-designs.txt (Design 5 "Judgment"). That document
+  described a concept that became unused; this L5 perk is an upgrade to
+  the IMPLEMENTED Consecrate, not a variant. The mechanic below is
+  distinct from that design doc's version.
+
+OFFENSIVE EFFECT (ENEMIES IN ZONE):
+  Per-tick behavior in mode "judgment":
+    - +10 rad/turn (unchanged)
+    - True damage (2 + decon_level//2) per turn (unchanged)
+    - NEW "JUDGMENT THRESHOLD": Each turn an enemy is in the zone, check:
+        if enemy.radiation >= 150 and enemy.hp <= (enemy.max_hp * 0.35):
+          EXECUTE: deal 9999 damage (guaranteed kill). Display:
+          "JUDGMENT — [enemy_name] is struck down!"
+          The execution emits a radiant flash: a bright yellow "!" is
+          briefly displayed at the enemy's position via the floating text
+          system (same as floating damage numbers). Enemy dies.
+    - The double condition (150+ rad AND below 35% HP) means Judgment
+      doesn't fire on fresh enemies or enemies with high HP remaining.
+      You must have been running the zone (rad buildup) AND dealt
+      meaningful prior damage (melee, abilities, other zone effects).
+    - The threshold of 35% HP is intentional — this is not a one-tap
+      ability. It's a finishing blow that eliminates the "grinding down
+      a near-dead enemy while they chip away at you" problem.
+    - "Execution immunity": bosses (entity.is_boss == True) are immune
+      to the execute. They instead take (enemy.radiation // 12) true
+      damage as a pseudo-execute proc that does NOT kill but still hurts.
+
+PLAYER STANDING BONUS:
+  +1 Swagger/turn (unchanged). ADDITIONAL: each Judgment execution
+  restores 15 player HP (the "judge takes power from the condemned").
+  This is NOT a regen mechanic — it's a burst heal on kill, like a
+  vampiric proc. Only procs on executions, not on natural zone deaths.
+
+SYNERGY WITH GAMMA AURA:
+  Gamma Aura is the fastest way to push enemy rad above 150. At 5 rad/turn
+  from the aura + 10 rad/turn from the zone = 15 rad/turn for an enemy
+  standing in both the zone AND within 2 tiles. That's 150 rad in 10 turns.
+  Meanwhile you're dealing rad DOT + true damage. The target hits 35% HP
+  and Judgment fires. Gamma Aura is the natural partner for this option.
+
+SYNERGY WITH IRONSOUL AURA:
+  Ironsoul's hit-from-visible-enemy -> +10 rad to self means you're
+  building your OWN rad while enemies build in the zone. With Ironsoul
+  active, your rad can fuel Consecrate's next cast (Consecrate's "low
+  rad = preserve charge" mechanic). In a weird way, Ironsoul makes
+  you fight harder and more aggressively inside your own zone, which is
+  exactly where Judgment is triggered.
+  Also: +HP on Judgment proc means Ironsoul's damage-to-armor cycle
+  and Judgment's kill-to-heal cycle combine for sustained fighting in
+  the zone.
+
+IMPLEMENTATION NOTES:
+  engine._run_energy_loop (rad_tile tick):
+    - In "judgment" mode: add_radiation(engine, enemy, 10), deal true dmg.
+    - After damage: if enemy.radiation >= 150 and enemy.hp <= enemy.max_hp
+      * 0.35 and not entity.is_boss:
+        deal_damage(engine, enemy, 9999)  # kills it
+        engine.add_floating_text(enemy.x, enemy.y, "JUDGMENT!", color=(255, 230, 80))
+        engine.player.hp = min(engine.player.hp + 15, engine.player.max_hp)
+        engine.messages.append(f"Judgment! {enemy.name} is struck down! (+15 HP)")
+    - Boss case: if entity.is_boss: deal_damage(engine, enemy, enemy.radiation // 12)
+  entity.py: is_boss already proposed in MEMORY.md as a new field.
+    For enemies without this field, default False.
+  sdl_overlay.py: floating "JUDGMENT!" text in bright yellow-gold at
+    the enemy's tile. Use existing FloatingText system with a distinct
+    color to make it visually distinguishable from damage numbers.
+  HP restore: direct assignment min(hp + 15, max_hp). No effect needed.
+
+PERK TEXT (for skills.py):
+  "Consecrate upgrade: Judgment mode. Enemies at 150+ rad and below 35%
+   HP in the zone are instantly executed. Each Judgment: +15 HP to you.
+   Bosses take rad//12 true damage instead. +30 max armor."
+
+BALANCE:
+  The double condition is the limiter. This option is hardest to trigger
+  but most satisfying when it fires. Against early-floor enemies with
+  lower HP pools, the 35% threshold is reached faster (35% of 40 HP =
+  14 HP — standard enemies reach this quickly). Against late-floor enemies
+  with 120+ HP, you need to have dealt 80+ HP before Judgment fires.
+  The 150 rad requirement means you need the zone up for 15 turns OR
+  Gamma Aura + zone for 10 turns. It's a setup-intensive option.
+
+  Reward is highest when it works: instant kills, no grinding, +15 HP
+  per execution on a floor with 8 enemies = 120 potential HP restored.
+  That's substantial sustain. This is the "big plays" option — unreliable
+  against a single strong enemy, devastating against a room full of
+  weakened clustered enemies.
+
+  The boss interaction prevents trivializing boss fights with instant kills
+  while still making Judgment feel impactful in boss encounters.
+
+
+======================================================================
+CROSS-OPTION COMPARISON
+======================================================================
+
+Option 1 — Nuclear Verdict (7x5, exit detonation)
+  - Offensive style: Delayed bomb; enemies can't escape their rad charge
+  - Complexity: Medium (new effect class, enemy exit detection)
+  - Payoff: High variance — rare but explosive
+  - Best with: Emission (pre-load enemy rad before entering zone)
+  - Flavor fit: "The irradiation follows them"
+
+Option 2 — Sanctified Discharge (5x3, Shocked debuff)
+  - Offensive style: Damage amplification; everything hits harder
+  - Complexity: Low (Shocked already exists, 30% roll per tick)
+  - Payoff: Reliable but not flashy; every source of damage benefits
+  - Best with: Gamma Aura (aura rad + shock = amplified rad DOT)
+  - Flavor fit: "The zone makes enemies vulnerable to all punishment"
+
+Option 3 — Scourging Flame (7x5, Ignite stacks + grease interaction)
+  - Offensive style: Multi-DOT; fire + rad + true damage
+  - Complexity: Medium (tick counter, grease cross-interaction)
+  - Payoff: Best sustained DPS; 3 damage vectors
+  - Best with: Grease tiles (emergent interaction) + melee combat
+  - Flavor fit: "Divine fire consumes the wicked"
+
+Option 4 — Divine Terror (5x3, Fear on wounded enemies)
+  - Offensive style: Crowd control into follow-up hits
+  - Complexity: Medium (entry detection, fear extension on melee)
+  - Payoff: Safest to use; Feared enemies stop attacking
+  - Best with: Ironsoul Aura (DR while feared enemies count toward cap)
+  - Flavor fit: "Broken spirit, then broken body"
+
+Option 5 — Cursed Earth (7x5, Bleeding + blood patches on exit)
+  - Offensive style: Hazard seeding; zone extends beyond its borders
+  - Complexity: High (exit blood patches, cursed_earth_ticks counter)
+  - Payoff: Best at room control; floor fills with hazards over time
+  - Best with: Gamma Aura (force enemies to flee and seed blood patches)
+  - Flavor fit: "The earth remembers every step of the condemned"
+
+Option 6 — Judgment Strike (5x3, execution threshold + HP restore)
+  - Offensive style: Instant kill + sustain; finisher mechanic
+  - Complexity: Low-Medium (threshold check, floating text, HP restore)
+  - Payoff: Highest highs, lowest lows; requires setup
+  - Best with: Gamma Aura (fastest to 150 rad) + anything that damages
+  - Flavor fit: "The tribunal renders its verdict"
+
+======================================================================
+RECOMMENDED CHOICE BASED ON DESIGN BRIEF
+======================================================================
+
+User asked for OFFENSIVE focus, variety, unused status effects, and a
+"feels powerful" upgrade. Ranking by how well each meets those criteria:
+
+  BEST: Option 6 (Judgment Strike) — nothing in NIGRL currently instant-
+    kills based on a threshold condition. The JUDGMENT! floating text
+    moment is the highest-impact visual and mechanical fantasy.
+
+  SECOND: Option 3 (Scourging Flame) — Ignite is unused by Decon; the
+    grease interaction is genuinely emergent; the 7x5 zone is visually
+    satisfying; multi-DOT is reliable and rewarding.
+
+  THIRD: Option 2 (Sanctified Discharge) — Simplest to implement,
+    Shocked is unused by Decon, the damage amplification is immediately
+    felt. Lacks visual drama but mechanically tight.
+
+  The other three (Verdict, Terror, Cursed Earth) are strong but either
+  more niche (Terror requires wounded enemies), more complex (Cursed Earth
+  blood trails), or high-variance in payoff (Verdict detonation).
+
+
+======================================================================
+IMPLEMENTATION FILES OVERVIEW (APPLIES TO ALL OPTIONS)
+======================================================================
+
+abilities.py:
+  - In _execute_consecrate(): add conditional at top for decon_level >= 5
+    that changes mode string written to rad_tiles and optionally changes
+    zone dimensions from (5,3) to (7,5).
+
+engine.py:
+  - In _run_energy_loop's rad_tile processing: add mode dispatch for the
+    new mode string. Options 1/4/5 also need post-movement hooks.
+  - Options 3 and 5: add entity field reset (scourge_tick_count or
+    cursed_earth_ticks set to 0 when entity leaves tiles).
+
+entity.py:
+  - Option 3: add scourge_tick_count: int = 0
+  - Option 4: add last_pos_was_terror: bool = False
+  - Option 5: add cursed_earth_ticks: int = 0
+
+effects.py:
+  - Option 1: add VerdictMarkedEffect (new class)
+  - Options 2, 3, 4, 5, 6: use EXISTING effect classes (Shocked, Ignite,
+    Feared, Bleeding). No new effects.
+
+skills.py:
+  - Replace L5 placeholder (or fill in) with chosen perk's text.
+
+save_system.py:
+  - If new entity fields added (options 3, 4, 5): add to entity
+    serialization/deserialization.

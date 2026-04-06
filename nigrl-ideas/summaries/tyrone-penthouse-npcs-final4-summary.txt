@@ -1,0 +1,67 @@
+SUMMARY: tyrone-penthouse-npcs-final4.txt
+Brainstorm — Final 4 NPCs completing Tyrone's Penthouse pool of 10
+
+NPCs AT A GLANCE
+----------------
+1. Soloman (Enchanter, 'E', deep gold) — Pick one equipped item; applies a powerful
+   slot-based permanent buff (weapon x1.5 dmg, gun x1.5 dmg, hat +2 all stats,
+   neck +40 armor, feet +20 speed, ring double stat bonuses). Tradeoff: item becomes
+   PERMANENTLY LOCKED (cannot unequip for rest of run). Works on uniques. One use.
+
+2. Deja (Mixologist, 'D', vibrant purple) — Player brings 2 drinks from inventory;
+   fuses them into a named cocktail with both drinks' effects PLUS a bonus third
+   effect determined by the combination. 7 named cocktails + default House Mix
+   fallback. Unlike Chef (always Sandwich), Deja has a discovery matrix. Only sets
+   used flag on successful mix — players without 2 drinks can return after acquiring.
+
+3. Professor Kline (Gene Doctor, 'K', radioactive teal) — Two services: (A) Reroll
+   one existing mutation (same tier, random result — good or bad); (B) Induce a
+   guaranteed mutation at a chosen tier for the normal rad cost (bypasses tick-based
+   RNG). Requires mutation delta storage in mutations.py for reversal logic. Most
+   complex of the four. Does not set used flag if player has no mutations AND no rad.
+
+4. Carlton (Fixer, 'C', off-white) — Dynamic menu shows ALL applicable fixes:
+   (A) Unlock an enchanted_locked item for 30% current cash (Soloman's lock only;
+   enchantment effects STAY); (B) Reverse all tracked permanent stat penalties
+   (from Precious, bad mutations, etc.) via permanent_penalties ledger on PlayerStats;
+   (C) Clear all active temporary debuffs (fallback if nothing else applies).
+   Player picks ONE fix. One use per run.
+
+KEY ENGINE FLAGS REQUIRED
+--------------------------
+engine.soloman_used, deja_used, kline_used, carlton_used
+(deja_used and kline_used NOT set on gate-check failures — only on service completion)
+
+KEY NEW ENTITY/STATS FIELDS
+-----------------------------
+entity.enchanted_locked: bool = False  (Soloman lock; Carlton reads it)
+player_stats.permanent_penalties: list[dict] = []  (Carlton B ledger; written by
+  Precious, Kline, and any future permanent-penalty system; serialized)
+
+KEY NEW ITEMS (cocktails, all zones=[], weight=0; Deja-only)
+-------------------------------------------------------------
+lean_special, iron_malt, black_out, venom_sling, rad_punch, double_down,
+midas_pour, house_mix (fallback)
+
+KEY NEW EFFECT
+--------------
+VenomSlingEffect (id="venom_sling_buff", dur=15; on_player_melee_hit adds +8 flat
+tox whenever the hit also triggers on-hit tox transfer)
+
+KEY NEW ENGINE FLAG (gameplay)
+-------------------------------
+engine.forced_weak_mutation_next: bool = False  (Rad Punch cocktail)
+
+NOTABLE CROSS-INTERACTIONS
+---------------------------
+- Soloman + Carlton: enchant item → unlock it later for 30% cash (two-phase power loop)
+- Soloman + Rico: enchanted_locked items BLOCKED from Rico's trade (check in trade logic)
+- Precious + Carlton: Carlton B reverses Precious's random stat penalty
+- Kline + Mutation tree: Kline Induce turbocharges mutation builds (guaranteed trigger)
+- Deja + Chemical Warfare: Venom Sling cocktail × Spillover Aura = tox chain in Meth Lab
+
+IMPLEMENTATION PRIORITY
+------------------------
+Tier 1: Soloman (simple math + one entity flag)
+Tier 2: Deja (cocktail matrix + new item defs), Carlton (gracefully degrades without ledger)
+Tier 3: Kline (mutation reversal — requires delta storage in mutations.py)

@@ -46,6 +46,7 @@ class TargetType(Enum):
     AOE_CIRCLE = "aoe_circle"       # Circular AoE around a target tile.
     ADJACENT = "adjacent"           # Quick-select an adjacent enemy (auto if only 1).
     ADJACENT_TILE = "adjacent_tile" # Press a directional key to target an adjacent tile (any non-wall).
+    CARDINAL = "cardinal"           # Pick a cardinal direction (N/S/E/W); execute_at receives (dx, dy).
 
 
 class ChargeType(Enum):
@@ -706,34 +707,48 @@ def _rad_bomb_execute(engine) -> bool:
     engine.targeting_cursor = engine._get_smart_targeting_cursor()
     engine.targeting_spell = {"type": "ability_cursor"}
     engine.menu_state = MenuState.TARGETING
-    engine.messages.append("Rad Bomb: choose placement (range 2, Enter). [Esc] cancel.")
+    max_range = _rad_bomb_range(engine)
+    engine.messages.append(f"Rad Bomb: choose placement (range {max_range}, Enter). [Esc] cancel.")
     return False
 
 
+def _rad_bomb_range(engine) -> int:
+    """Rad Bomb placement range. Base 2, +3 at Nuclear Research L5 (Enrichment)."""
+    if engine.skills.get("Nuclear Research").level >= 5:
+        return 5
+    return 2
+
+
+def _rad_bomb_fuse(engine) -> int:
+    """Rad Bomb fuse turns. Base 3, +1 at Nuclear Research L5 (Enrichment)."""
+    if engine.skills.get("Nuclear Research").level >= 5:
+        return 4
+    return 3
+
+
 def _rad_bomb_execute_at(engine, tx: int, ty: int) -> bool:
-    """Place a rad bomb crystal at (tx, ty) if within range 2 and not blocked."""
+    """Place a rad bomb crystal at (tx, ty) if within range and not blocked."""
     from hazards import create_rad_bomb_crystal
     px, py = engine.player.x, engine.player.y
     dist = max(abs(tx - px), abs(ty - py))
+    max_range = _rad_bomb_range(engine)
     if dist < 1:
         engine.messages.append("Rad Bomb: can't place on yourself!")
         return False
-    if dist > 2:
-        engine.messages.append("Rad Bomb: out of range! (max 2 tiles)")
+    if dist > max_range:
+        engine.messages.append(f"Rad Bomb: out of range! (max {max_range} tiles)")
         return False
     if engine.dungeon.is_blocked(tx, ty):
         engine.messages.append("Rad Bomb: that tile is blocked!")
         return False
     bks = engine.player_stats.effective_book_smarts
-    if engine.skills.get("Nuclear Research").level >= 4:
-        damage = 20 + bks
-    else:
-        damage = 15 + bks // 2
-    crystal = create_rad_bomb_crystal(tx, ty, damage=damage)
+    damage = 15 + bks // 2
+    fuse = _rad_bomb_fuse(engine)
+    crystal = create_rad_bomb_crystal(tx, ty, damage=damage, fuse=fuse)
     engine.dungeon.add_entity(crystal)
     engine.messages.append([
         ("Rad Bomb placed! ", (120, 220, 80)),
-        (f"Detonates in 3 turns ({damage} dmg)", (160, 255, 120)),
+        (f"Detonates in {fuse} turns ({damage} dmg)", (160, 255, 120)),
     ])
     return True
 
@@ -742,8 +757,9 @@ def _rad_bomb_validate(engine, tx: int, ty: int):
     """Validate Rad Bomb targeting."""
     px, py = engine.player.x, engine.player.y
     dist = max(abs(tx - px), abs(ty - py))
-    if dist > 2:
-        return "Out of range (max 2)"
+    max_range = _rad_bomb_range(engine)
+    if dist > max_range:
+        return f"Out of range (max {max_range})"
     return None
 
 
@@ -1018,6 +1034,10 @@ def _execute_at_pickpocket(engine, tx: int, ty: int) -> bool:
     if target is None:
         engine.messages.append("Pickpocket: no enemy there.")
         return False
+    # Can only pickpocket each enemy once
+    if any(getattr(e, 'id', '') == 'empty_pockets' for e in target.status_effects):
+        engine.messages.append(f"{target.name}'s pockets are already empty!")
+        return False
     stsmt = engine.player_stats.effective_street_smarts
     damage = max(1, stsmt // 2 - target.defense)
     _deal_damage(engine, damage, target)
@@ -1027,6 +1047,8 @@ def _execute_at_pickpocket(engine, tx: int, ty: int) -> bool:
     engine.messages.append(
         f"Pickpocket! {target.name} takes {damage} dmg. You snag ${cash_stolen}! ({hp_disp})"
     )
+    # Mark as pickpocketed
+    effects.apply_effect(target, engine, "empty_pockets", silent=True)
     # Sleight of Hand (Stealing L4): chance to distract the target
     if target.alive:
         stealing_skill = engine.skills.get("Stealing")
@@ -2632,6 +2654,68 @@ def _execute_at_toxic_bite(engine, tx: int, ty: int) -> bool:
     return True
 
 
+def _execute_spiders_nest(engine) -> bool:
+    """Spider's Nest: 7x7 cobweb area centered on player. 20% per tile = spider egg.
+    Enemies caught are cocooned (3t)."""
+    import random as _rand
+    import effects
+    from hazards import create_web, create_spider_egg
+    from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
+
+    px, py = engine.player.x, engine.player.y
+    webs_placed = 0
+    eggs_placed = 0
+    cocooned = []
+
+    for dx in range(-3, 4):
+        for dy in range(-3, 4):
+            tx, ty = px + dx, py + dy
+            if tx < 1 or tx >= DUNGEON_WIDTH - 1 or ty < 1 or ty >= DUNGEON_HEIGHT - 1:
+                continue
+            if not engine.dungeon.tiles[tx][ty].walkable:
+                continue
+            # Skip player tile for web placement
+            if tx == px and ty == py:
+                continue
+            # Don't stack webs
+            if any(getattr(e, 'hazard_type', None) == 'web'
+                   for e in engine.dungeon.get_entities_at(tx, ty)):
+                continue
+            # Check for enemy on this tile — cocoon them
+            target = engine.dungeon.get_blocking_entity_at(tx, ty)
+            if (target and target.entity_type == "monster"
+                    and not getattr(target, "is_summon", False) and target.alive):
+                effects.apply_effect(target, engine, "cocoon", duration=3)
+                cocooned.append(target.name)
+            # Place web
+            if not engine.dungeon.is_blocked(tx, ty):
+                engine.dungeon.add_entity(create_web(tx, ty))
+                webs_placed += 1
+                # 20% chance for spider egg
+                if _rand.random() < 0.20:
+                    engine.dungeon.add_entity(create_spider_egg(tx, ty))
+                    eggs_placed += 1
+
+    # Arachnigga XP
+    adjusted_xp = round(25 * engine.player_stats.xp_multiplier)
+    engine.skills.gain_potential_exp(
+        "Arachnigga", adjusted_xp,
+        engine.player_stats.effective_book_smarts,
+        briskness=engine.player_stats.total_briskness,
+    )
+
+    engine.messages.append([
+        ("Spider's Nest! ", (180, 180, 255)),
+        (f"{webs_placed} webs, {eggs_placed} eggs placed.", (200, 200, 220)),
+    ])
+    if cocooned:
+        engine.messages.append([
+            ("Cocooned: ", (180, 180, 255)),
+            (", ".join(cocooned) + "!", (200, 200, 220)),
+        ])
+    return True
+
+
 def _execute_crack_hallucinations(engine) -> bool:
     """Set the crack hallucinations flag. Next consumable used grants meth equal to its value."""
     if getattr(engine, 'crack_hallucinations_active', False):
@@ -2643,6 +2727,117 @@ def _execute_crack_hallucinations(engine) -> bool:
         ("Your next consumable will fuel your meth meter.", (200, 160, 255)),
     ])
     return True
+
+
+_DECON_AURA_IDS = {"gamma_aura", "ironsoul_aura", "retribution_aura"}
+
+
+def _remove_decon_auras(engine):
+    """Remove any active Decontamination aura from the player."""
+    for eff in list(engine.player.status_effects):
+        if getattr(eff, 'id', '') in _DECON_AURA_IDS:
+            eff.duration = 0
+            eff.expire(engine.player, engine)
+            engine.player.status_effects = [
+                e for e in engine.player.status_effects if e is not eff
+            ]
+
+
+def _execute_gamma_aura(engine) -> bool:
+    """Gamma Aura: toggle ON/OFF. Free to toggle. Only one Decon aura at a time.
+    While ON: enemies within 2 tiles gain +5 rad/turn, 2x Decon XP from resisted rad."""
+    from effects import apply_effect
+
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'gamma_aura'),
+        None,
+    )
+    if existing:
+        # Toggle OFF
+        existing.duration = 0
+        existing.expire(engine.player, engine)
+        engine.player.status_effects = [
+            e for e in engine.player.status_effects if e is not existing
+        ]
+        engine.messages.append([
+            ("Gamma Aura OFF. ", (160, 200, 80)),
+            ("Radiation field deactivated.", (140, 180, 80)),
+        ])
+        return False  # don't consume a charge
+    else:
+        # Toggle ON — remove any other Decon aura first
+        _remove_decon_auras(engine)
+        apply_effect(engine.player, engine, "gamma_aura")
+        engine.messages.append([
+            ("Gamma Aura ON! ", (120, 255, 80)),
+            ("Enemies within 2 tiles irradiated. 2x Decon XP.", (160, 255, 120)),
+        ])
+        return False  # toggle doesn't consume charges
+
+
+def _execute_ironsoul_aura(engine) -> bool:
+    """Ironsoul Aura: toggle ON/OFF. Free to toggle. Only one Decon aura at a time.
+    While ON: +1 DR per visible enemy (cap 5), +2 FOV, hits grant +10 rad,
+    25% melee hit: convert damage in rad to armor."""
+    from effects import apply_effect
+
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'ironsoul_aura'),
+        None,
+    )
+    if existing:
+        # Toggle OFF
+        existing.duration = 0
+        existing.expire(engine.player, engine)
+        engine.player.status_effects = [
+            e for e in engine.player.status_effects if e is not existing
+        ]
+        engine.messages.append([
+            ("Ironsoul Aura OFF. ", (180, 200, 255)),
+            ("Iron presence fades.", (160, 180, 240)),
+        ])
+        return False
+    else:
+        # Toggle ON — remove any other Decon aura first
+        _remove_decon_auras(engine)
+        apply_effect(engine.player, engine, "ironsoul_aura")
+        engine.messages.append([
+            ("Ironsoul Aura ON! ", (180, 220, 255)),
+            ("+DR per visible enemy, +2 FOV. Hits fuel radiation.", (160, 200, 240)),
+        ])
+        return False
+
+
+def _execute_retribution_aura(engine) -> bool:
+    """Retribution Aura: toggle ON/OFF. Free to toggle. Only one Decon aura at a time.
+    While ON: enemies that melee you take rad/20 + Decon level true damage (cap 30), drains 5 rad."""
+    from effects import apply_effect
+
+    existing = next(
+        (e for e in engine.player.status_effects if getattr(e, 'id', '') == 'retribution_aura'),
+        None,
+    )
+    if existing:
+        # Toggle OFF
+        existing.duration = 0
+        existing.expire(engine.player, engine)
+        engine.player.status_effects = [
+            e for e in engine.player.status_effects if e is not existing
+        ]
+        engine.messages.append([
+            ("Retribution Aura OFF. ", (255, 220, 80)),
+            ("Righteous fury subsides.", (240, 200, 100)),
+        ])
+        return False
+    else:
+        # Toggle ON — remove any other Decon aura first
+        _remove_decon_auras(engine)
+        apply_effect(engine.player, engine, "retribution_aura")
+        engine.messages.append([
+            ("Retribution Aura ON! ", (255, 230, 80)),
+            ("Enemies that strike you will burn.", (240, 210, 100)),
+        ])
+        return False
 
 
 def _execute_emission(engine) -> bool:
@@ -2677,6 +2872,47 @@ def _execute_emission(engine) -> bool:
     return True
 
 
+def _execute_at_consecrate(engine, dx: int, dy: int) -> bool:
+    """Lay a 5x3 irradiated zone. Player is on the back edge; 4 rows extend in the chosen direction.
+    dx/dy is the cardinal direction (e.g., dx=1,dy=0 for East)."""
+    from config import TILE_FLOOR
+    player = engine.player
+    px, py = player.x, player.y
+
+    # Build the 5x3 tile set: player row (depth 0) + 4 rows forward
+    tiles = []
+    for depth in range(5):
+        for breadth in range(-1, 2):  # -1, 0, 1 = 3 wide
+            if dx != 0:
+                # Horizontal direction: depth along x, breadth along y
+                tx = px + dx * depth
+                ty = py + breadth
+            else:
+                # Vertical direction: depth along y, breadth along x
+                tx = px + breadth
+                ty = py + dy * depth
+            if (0 <= tx < engine.dungeon.width and 0 <= ty < engine.dungeon.height
+                    and engine.dungeon.tiles[ty][tx] == TILE_FLOOR):
+                tiles.append((tx, ty))
+
+    if not tiles:
+        engine.messages.append("No valid tiles to consecrate!")
+        return False
+
+    # Place rad tiles (20 turns), refresh existing ones
+    for pos in tiles:
+        engine.dungeon.rad_tiles[pos] = max(engine.dungeon.rad_tiles.get(pos, 0), 20)
+
+    # Set cooldown
+    engine.ability_cooldowns["consecrate"] = 30
+
+    engine.messages.append([
+        ("CONSECRATE! ", (255, 215, 0)),
+        (f"{len(tiles)} tiles irradiated (20t).", (160, 255, 80)),
+    ])
+    return True
+
+
 def _snipers_mark_execute_at(engine, tx, ty) -> bool:
     """Apply Sniper's Mark debuff to a target monster."""
     from effects import apply_effect
@@ -2699,6 +2935,66 @@ def _snipers_mark_execute_at(engine, tx, ty) -> bool:
     ])
     # Track marked target for charge refund on kill
     engine.snipers_mark_target_id = getattr(target, 'instance_id', id(target))
+    return True
+
+
+def _half_life_mark_execute_at(engine, tx, ty) -> bool:
+    """Apply Half-Life Mark to a target monster."""
+    from effects import apply_effect
+    from combat import remove_radiation
+    target = None
+    for e in engine.dungeon.get_entities_at(tx, ty):
+        if e.entity_type == "monster" and e.alive:
+            target = e
+            break
+    if target is None:
+        engine.messages.append("No target there!")
+        return False
+    # Check if already marked
+    if any(getattr(eff, 'id', '') == 'half_life_mark' for eff in target.status_effects):
+        engine.messages.append(f"{target.name} is already marked!")
+        return False
+    # Cost: 20 radiation
+    if engine.player.radiation < 20:
+        engine.messages.append("Not enough radiation! (need 20)")
+        return False
+    # At 200+ rad, don't consume a charge
+    free_cast = engine.player.radiation >= 200
+    remove_radiation(engine, engine.player, 20)
+    apply_effect(target, engine, "half_life_mark")
+    engine.messages.append([
+        ("Half-Life Mark! ", (120, 255, 80)),
+        (f"{target.name} will detonate at 40% HP.", (160, 255, 120)),
+    ])
+    if free_cast:
+        engine.messages.append([
+            ("Irradiated! ", (120, 220, 80)),
+            ("Charge preserved (200+ rad).", (160, 255, 120)),
+        ])
+        # Refund the charge that was consumed
+        ability_inst = engine.abilities.get("half_life_mark")
+        if ability_inst:
+            ability_inst.charges = min(ability_inst.charges + 1, ability_inst.definition.max_charges)
+    return True
+
+
+def _enrichment_execute(engine) -> bool:
+    """Spend 25 rad to gain an Enrichment stack (max 5). Stacks empower next Rad Bomb or Half-Life detonation."""
+    from combat import remove_radiation
+    MAX_ENRICHMENT = 5
+    if engine.player.radiation < 25:
+        engine.messages.append("Not enough radiation! (need 25)")
+        return False
+    current = getattr(engine, 'enrichment_stacks', 0)
+    if current >= MAX_ENRICHMENT:
+        engine.messages.append(f"Enrichment already at max ({MAX_ENRICHMENT} stacks)!")
+        return False
+    remove_radiation(engine, engine.player, 25)
+    engine.enrichment_stacks = current + 1
+    engine.messages.append([
+        ("Enrichment! ", (180, 255, 80)),
+        (f"Stack {engine.enrichment_stacks}/{MAX_ENRICHMENT} (+{engine.enrichment_stacks * 4} dmg, +{engine.enrichment_stacks // 2} radius)", (160, 255, 120)),
+    ])
     return True
 
 
@@ -3290,7 +3586,7 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
     "rad_bomb": AbilityDef(
         ability_id="rad_bomb",
         name="Rad Bomb",
-        description="Place a crystal within 2 tiles that detonates after 3 turns, dealing 15+BKS/2 damage in a 5x5 area (20+BKS at L4). 3 charges/floor. Each cast costs 25 radiation and grants 50 Nuclear Research XP. At 100+ rad, the charge is refunded (rad still spent).",
+        description="Place a crystal within 2 tiles that detonates after 3 turns, dealing 15+BKS/2 damage in a 5x5 area. 3 charges/floor. Each cast costs 25 radiation and grants 50 Nuclear Research XP. At 100+ rad, the charge is refunded (rad still spent).",
         char="*",
         color=(120, 220, 80),
         target_type=TargetType.SINGLE_ENEMY_LOS,
@@ -3315,6 +3611,64 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         tags=frozenset({"debuff", "targeted", "active"}),
         execute_at=_snipers_mark_execute_at,
     ),
+    "half_life_mark": AbilityDef(
+        ability_id="half_life_mark",
+        name="Half-Life Mark",
+        description="Mark a visible enemy (costs 20 rad). At 40% HP it detonates: 15+BKS damage in 3x3, +30 rad to hit enemies. 2/floor. At 200+ rad, charge preserved. Passive: can't mutate below 250 rad.",
+        char="H",
+        color=(120, 255, 80),
+        target_type=TargetType.SINGLE_ENEMY_LOS,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=2,
+        rad_cost=0,  # handled manually in execute (need pre-check + conditional refund)
+        tags=frozenset({"debuff", "targeted", "active", "radiation", "aoe"}),
+        execute_at=_half_life_mark_execute_at,
+    ),
+    "enrichment": AbilityDef(
+        ability_id="enrichment",
+        name="Enrichment",
+        description="Spend 25 rad to gain an Enrichment stack (max 5). Stacks empower next Rad Bomb or Half-Life detonation: +4 damage/stack, +1 blast radius per 2 stacks. Rad Bomb hitting a Half-Life Marked enemy transfers stacks to the mark. Passive: Rad Bomb range +3 (to 5), fuse +1 turn (to 4).",
+        char="E",
+        color=(180, 255, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        rad_cost=0,  # handled manually in execute
+        tags=frozenset({"buff", "active", "radiation"}),
+        execute=_enrichment_execute,
+    ),
+    "gamma_aura": AbilityDef(
+        ability_id="gamma_aura",
+        name="Gamma Aura",
+        description="Toggle: enemies within 2 tiles gain +5 rad/turn. 2x Decon XP from resisted rad.",
+        char="G",
+        color=(120, 255, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        tags=frozenset({"radiation", "aura", "toggle"}),
+        execute=_execute_gamma_aura,
+    ),
+    "ironsoul_aura": AbilityDef(
+        ability_id="ironsoul_aura",
+        name="Ironsoul Aura",
+        description="Toggle: +1 DR per visible enemy (cap 5), +2 FOV. Hits grant +10 rad. 25% melee: rad → armor.",
+        char="I",
+        color=(180, 220, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        tags=frozenset({"radiation", "aura", "toggle"}),
+        execute=_execute_ironsoul_aura,
+    ),
+    "retribution_aura": AbilityDef(
+        ability_id="retribution_aura",
+        name="Retribution Aura",
+        description="Toggle: enemies that melee you take rad/20 + Decon level true damage (cap 30). Drains 5 rad.",
+        char="R",
+        color=(255, 220, 80),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.INFINITE,
+        tags=frozenset({"radiation", "aura", "toggle"}),
+        execute=_execute_retribution_aura,
+    ),
     "emission": AbilityDef(
         ability_id="emission",
         name="Emission",
@@ -3326,6 +3680,18 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         max_charges=1,
         tags=frozenset({"radiation", "aoe", "active"}),
         execute=_execute_emission,
+    ),
+    "consecrate": AbilityDef(
+        ability_id="consecrate",
+        name="Consecrate",
+        description="Lay a 5x3 irradiated zone (20t). Enemies: +10 rad/turn, true dmg. You: +1 Swagger/turn (cap 5) while standing in it.",
+        char="C",
+        color=(255, 215, 0),
+        target_type=TargetType.CARDINAL,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=2,
+        tags=frozenset({"radiation", "zone", "active"}),
+        execute_at=_execute_at_consecrate,
     ),
     "ignite_spell": AbilityDef(
         ability_id="ignite_spell",
@@ -3755,6 +4121,19 @@ ABILITY_REGISTRY: dict[str, AbilityDef] = {
         is_spell=False,
         max_range=1.5,
         execute_at=_execute_at_toxic_bite,
+    ),
+    "spiders_nest": AbilityDef(
+        ability_id="spiders_nest",
+        name="Spider's Nest",
+        description="Blanket a 7x7 area in cobwebs. 20% per tile to place a spider egg (hatches in 2t near enemies). Enemies caught are cocooned for 3 turns. 2/floor.",
+        char="N",
+        color=(180, 180, 255),
+        target_type=TargetType.SELF,
+        charge_type=ChargeType.PER_FLOOR,
+        max_charges=2,
+        tags=frozenset({"web", "summon", "active", "aoe"}),
+        execute=_execute_spiders_nest,
+        is_spell=False,
     ),
     # ── Infected ───────────────────────────────────────────────────────────
     "purge": AbilityDef(

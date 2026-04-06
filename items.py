@@ -1033,7 +1033,7 @@ ITEM_DEFS = {
         "base_damage": 10,
         "str_req": 7,
         "reach": 2,
-        "str_scaling": {"type": "tiered", "divisor": 1},  # +1 dmg per STR above 7
+        "str_scaling": {"type": "ratio", "numerator": 2, "denominator": 3},  # +2 dmg per 3 STR above 7
         "weapon_type": "stabbing",
         "value": 50,
         "zones": ["crack_den"],
@@ -1049,12 +1049,13 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "base_damage": 6,
+        "base_damage": 5,
         "str_req": 5,
         "reach": 2,
         # +1 dmg per 1 STR for first 2 pts over req, then +1 per 2 for next 4,
         # +1 per 3 for next 6, continuing with increasing divisors, capping at +1 per 8 STR
         "str_scaling": {"type": "diminishing_tiered"},
+        "on_hit_effect": {"type": "glass_shards", "stacks": 1, "duration": 5},
         "weapon_type": "stabbing",
         "value": 40,
         "zones": ["crack_den"],
@@ -1092,6 +1093,7 @@ ITEM_DEFS = {
         "base_damage": 4,
         "str_req": 1,
         "reach": 1,
+        "str_scaling": {"type": "tiered", "divisor": 3},  # +1 dmg per 3 STR above 1
         "on_hit_effect": {"type": "glass_shards", "stacks": 1, "duration": 5},
         "weapon_type": "stabbing",
         "value": 40,
@@ -1128,7 +1130,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "base_damage": 5,
+        "base_damage": 8,
         "str_req": 8,
         "reach": 1,
         "weapon_type": "beating",
@@ -1148,7 +1150,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "base_damage": 2,
+        "base_damage": 5,
         "str_req": 8,
         "reach": 1,
         "weapon_type": "beating",
@@ -1192,7 +1194,7 @@ ITEM_DEFS = {
         "reach": 1,
         "weapon_type": "beating",
         "str_scaling": {"type": "ratio", "numerator": 2, "denominator": 3},  # +2/3 per STR above req
-        "on_hit_stun_chance": 0.10,
+        "on_hit_stun_chance": 0.20,
         "stun_duration": 3,
         "value": 55,
         "zones": ["crack_den"],
@@ -1249,14 +1251,14 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "base_damage": 10,
+        "base_damage": 11,
         "str_req": 9,
         "reach": 1,
         "weapon_type": "beating",
         "str_scaling": {"type": "tiered", "divisor": 2},  # +1 per 2 STR above 9
         "on_hit_sunder": 1,                                # permanently reduce defender.defense by 1 per hit
         "value": 58,
-        "zones": ["meth_lab"],
+        "zones": ["crack_den"],
         "use_verb": None,
         "use_effect": None,
     },
@@ -1273,8 +1275,8 @@ ITEM_DEFS = {
         "str_req": 3,
         "reach": 2,
         "weapon_type": "beating",
-        "stat_scaling": {"type": "swagger_linear", "divisor": 2},  # +1 per 2 SWAGGER
-        "on_hit_bounce": {"chance": 0.25, "damage_pct": 0.50},     # 25% chance to arc to nearest adj enemy
+        "str_scaling": {"type": "tiered", "divisor": 2},  # +1 per 2 STR above 3
+        "on_hit_bounce": {"chance": 0.25, "damage_pct": 1.00},     # 25% chance to arc to nearest adj enemy for full damage
         "value": 42,
         "zones": ["crack_den"],
         "use_verb": None,
@@ -1423,6 +1425,7 @@ ITEM_DEFS = {
         "weapon_type": "beating",
         "str_scaling": {"type": "tiered", "divisor": 3},  # +1 per 3 STR above 7
         "on_hit_rad": {"enemy": 12, "self": 5},            # heavy rad to both
+        "bonus_dmg_from_target_rad": 20,                    # +ceil(target_rad / 20) bonus damage
         "value": 60,
         "zones": ["meth_lab"],
         "use_verb": None,
@@ -1436,7 +1439,7 @@ ITEM_DEFS = {
         "subcategory": "weapon",
         "equip_slot": "weapon",
         "power_bonus": 0,
-        "defense_bonus": 1,
+        "defense_bonus": 4,
         "base_damage": 5,
         "str_req": 6,
         "reach": 1,
@@ -1457,7 +1460,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "base_damage": 6,
+        "base_damage": 7,
         "str_req": 5,
         "reach": 1,
         "weapon_type": "beating",
@@ -1545,7 +1548,7 @@ ITEM_DEFS = {
         "str_req": 3,
         "reach": 1,
         "weapon_type": "stabbing",
-        "stat_scaling": {"type": "swagger_linear", "divisor": 1, "multiplier": 2},  # +2 dmg per Swagger
+        "stat_scaling": {"type": "swagger_linear", "divisor": 1},  # +1 dmg per Swagger
         "value": 55,
         "zones": ["meth_lab"],
         "use_verb": None,
@@ -1580,7 +1583,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "base_damage": 9,
+        "base_damage": 12,
         "str_req": 5,
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above 5
@@ -1600,7 +1603,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "base_damage": 8,
+        "base_damage": 11,
         "str_req": 6,
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},  # +1 dmg per 2 STR above 6
@@ -1811,7 +1814,7 @@ ITEM_DEFS = {
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},
         "weapon_type": "slashing",
-        "value": 400,
+        "value": 100,
         "tags": ["ag_sword", "spec_weapon", "unique"],
         "description": "Spec: Judgement — charge through a clear line to an enemy 2-5 tiles away for 1.5x damage. On kill: +20 spec.",
         "name_alternating": [(255, 215, 0), (200, 170, 0)],
@@ -1834,7 +1837,7 @@ ITEM_DEFS = {
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},
         "weapon_type": "beating",
-        "value": 300,
+        "value": 100,
         "tags": ["really_old_maul", "spec_weapon", "unique"],
         "description": "Spec: Crush an adjacent enemy's defense to 0 for 20 turns.",
         "name_alternating": [(255, 140, 40), (40, 40, 40)],
@@ -1857,7 +1860,7 @@ ITEM_DEFS = {
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},
         "weapon_type": "stabbing",
-        "value": 250,
+        "value": 100,
         "tags": ["dragon_dagger", "spec_weapon", "unique"],
         "description": "Spec: 2 rapid melee strikes on an adjacent enemy. Each hit resolves as a full attack.",
         "name_gradient": [(180, 40, 40), (255, 140, 60)],
@@ -1880,7 +1883,7 @@ ITEM_DEFS = {
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},
         "weapon_type": "slashing",
-        "value": 200,
+        "value": 100,
         "tags": ["ramp_damage", "unique"],
         "description": "Each hit grants +2 damage (max +20). Resets after 10 consecutive hits.",
         "name_gradient": [(30, 30, 30), (255, 255, 255)],
@@ -1902,7 +1905,7 @@ ITEM_DEFS = {
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 3},
         "weapon_type": "stabbing",
-        "value": 200,
+        "value": 100,
         "tags": ["sleeper_agent", "unique"],
         "description": "Gain +1 damage and +2% lifesteal per turn standing still (max 10 stacks). Resets on move.",
         "name_alternating": [(100, 255, 100), (180, 80, 255)],
@@ -1924,7 +1927,7 @@ ITEM_DEFS = {
         "reach": 1,
         "bks_scaling": {"divisor": 2},
         "weapon_type": "stabbing",
-        "value": 250,
+        "value": 100,
         "tags": ["rune_scraper", "unique"],
         "description": "Scales with Book Smarts. Adds STR/2 to spell damage.",
         "name_gradient": [(160, 60, 220), (30, 10, 40)],
@@ -1946,7 +1949,7 @@ ITEM_DEFS = {
         "reach": 1,
         "str_scaling": {"type": "tiered", "divisor": 2},
         "weapon_type": "slashing",
-        "value": 250,
+        "value": 100,
         "tags": ["whirlwind_axe", "unique"],
         "description": "30% chance per melee attack to hit all adjacent enemies.",
         "name_gradient": [(220, 60, 60), (140, 140, 140)],
@@ -1970,7 +1973,7 @@ ITEM_DEFS = {
         "str_scaling": {"type": "none"},
         "tol_scaling": {"divisor": 2},
         "weapon_type": "beating",
-        "value": 250,
+        "value": 100,
         "tags": ["massive_blunt", "unique"],
         "description": "Scales with Tolerance. 10% chance on hit to smoke a random joint from the floor.",
         "name_gradient": [(139, 90, 43), (50, 255, 50)],
@@ -2105,6 +2108,7 @@ ITEM_DEFS = {
         "defense_bonus": 0,
         "armor_bonus": 20,
         "stat_bonus": {},
+        "value": 100,
         "tags": ["amulet_ee", "unique"],
         "description": "Grants 3 soul abilities: Cleanse (purge 1 debuff), Mend (restore armor), Empower (+4 random stat until floor change). Each costs 1 soul.",
         "name_gradient": [(160, 160, 160), (160, 50, 220), (160, 160, 160)],
@@ -2125,6 +2129,7 @@ ITEM_DEFS = {
         "armor_bonus": 50,
         "stat_bonus": {},
         "reach_bonus": 1,
+        "value": 100,
         "tags": ["cuban_link", "unique"],
         "name_alternating": [(255, 255, 80), (160, 120, 40), (212, 175, 55)],
         "zones": [],
@@ -2148,6 +2153,7 @@ ITEM_DEFS = {
             "tolerance": 5,
             "swagger": 5,
         },
+        "value": 100,
         "tags": ["nine_ring", "unique"],
         "description": "+5 to all stats. 25% lifesteal on all damage sources.",
         "name_gradient": [(180, 150, 0), (255, 255, 80)],
@@ -2165,6 +2171,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "stat_bonus": {"strength": 4},
+        "value": 100,
         "tags": ["berserkers_ring", "unique"],
         "description": "+4 STR. On melee kill: +4 STR for 10 turns (stacks).",
         "name_gradient": [(200, 200, 210), (255, 215, 0), (200, 200, 210)],
@@ -2185,6 +2192,7 @@ ITEM_DEFS = {
         "stat_bonus": {},
         "energy_per_tick": 50,
         "fov_penalty": 2,
+        "value": 100,
         "tags": ["blinding_speed", "unique"],
         "name_gradient": [(80, 180, 255), (200, 240, 255), (255, 255, 255)],
         "zones": [],
@@ -2204,6 +2212,7 @@ ITEM_DEFS = {
         "stat_bonus": {},
         "energy_per_tick": 20,
         "fov_penalty": 0,
+        "value": 100,
         "tags": ["springing_boots", "unique"],
         "description": "Spring: teleport up to 3 tiles, gain +50% dodge for 5 turns. 5% break chance.",
         "name_gradient": [(160, 120, 70), (60, 40, 20)],
@@ -2225,6 +2234,7 @@ ITEM_DEFS = {
         "stat_bonus": {},
         "energy_per_tick": 20,
         "fov_penalty": 0,
+        "value": 100,
         "tags": ["striding_boots", "unique"],
         "description": "Stride: all actions cost 50% less energy for 10 turns. 5% break chance.",
         "name_gradient": [(60, 40, 20), (160, 120, 70)],
@@ -2243,6 +2253,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "stat_bonus": {},
+        "value": 100,
         "tags": ["titan_blood", "unique"],
         "description": "First time dropping below 25% HP each floor: gain Titan Form (20t) — +50 temp HP, +50% melee damage, +10 HP/turn regen, 25% stun on hit.",
         "name_gradient": [(30, 10, 10), (200, 30, 30), (30, 10, 10)],
@@ -2260,6 +2271,7 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "stat_bonus": {},
+        "value": 100,
         "tags": ["intimidation_ring", "unique"],
         "description": "On room entry: fear all enemies with max HP <= 30% of yours for 15 turns.",
         "zones": [],
@@ -2276,43 +2288,10 @@ ITEM_DEFS = {
         "power_bonus": 0,
         "defense_bonus": 0,
         "stat_bonus": {},
+        "value": 100,
         "tags": ["sustenance_ring", "unique"],
         "description": "15% chance to spawn a bonus item when consuming food, drinks, or joints.",
         "name_gradient": [(240, 130, 30), (255, 240, 80)],
-        "zones": [],
-        "use_verb": None,
-        "use_effect": None,
-    },
-    "brainstorming_cap": {
-        "name": "Brainstorming Cap",
-        "char": chr(0xE00D),
-        "color": (40, 60, 180),
-        "category": "equipment",
-        "subcategory": "hat",
-        "equip_slot": "hat",
-        "power_bonus": 0,
-        "defense_bonus": 0,
-        "armor_bonus": 0,
-        "stat_bonus": {"book_smarts": 5},
-        "tags": ["brainstorming_cap", "unique"],
-        "name_gradient": [(30, 40, 160), (220, 230, 255)],
-        "zones": [],
-        "use_verb": None,
-        "use_effect": None,
-    },
-    "thinking_cap": {
-        "name": "Thinking Cap",
-        "char": chr(0xE00D),
-        "color": (40, 60, 180),
-        "category": "equipment",
-        "subcategory": "hat",
-        "equip_slot": "hat",
-        "power_bonus": 0,
-        "defense_bonus": 0,
-        "armor_bonus": 0,
-        "stat_bonus": {"book_smarts": 5},
-        "tags": ["thinking_cap", "unique"],
-        "name_gradient": [(30, 40, 160), (220, 230, 255)],
         "zones": [],
         "use_verb": None,
         "use_effect": None,
@@ -2328,6 +2307,7 @@ ITEM_DEFS = {
         "defense_bonus": 0,
         "armor_bonus": 0,
         "stat_bonus": {},
+        "value": 100,
         "tags": ["flagellant", "unique"],
         "description": "Take 1-5 self-damage per turn (can't kill). 10% chance per turn to purge a random debuff.",
         "name_gradient": [(180, 50, 50), (80, 20, 20)],
@@ -2353,6 +2333,7 @@ ITEM_DEFS = {
             "tolerance": 2,
             "swagger": 2,
         },
+        "value": 100,
         "tags": ["straw_hat", "unique"],
         "description": "Death save: negate one killing blow, revive at 50% HP. Hat is destroyed.",
         "name_gradient": [(30, 30, 30), (220, 200, 80)],
@@ -3462,7 +3443,7 @@ ITEM_DEFS = {
         "equip_slot": "sidearm",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 300,
+        "value": 100,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3490,7 +3471,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 350,
+        "value": 100,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3542,7 +3523,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 200,
+        "value": 125,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3568,7 +3549,7 @@ ITEM_DEFS = {
         "equip_slot": "sidearm",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 300,
+        "value": 160,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3595,7 +3576,7 @@ ITEM_DEFS = {
         "equip_slot": "sidearm",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 350,
+        "value": 180,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3622,7 +3603,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 300,
+        "value": 160,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3649,7 +3630,7 @@ ITEM_DEFS = {
         "equip_slot": "sidearm",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 300,
+        "value": 160,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3676,7 +3657,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 300,
+        "value": 160,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3702,7 +3683,7 @@ ITEM_DEFS = {
         "equip_slot": "sidearm",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 250,
+        "value": 145,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3730,7 +3711,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 400,
+        "value": 200,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3756,7 +3737,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 400,
+        "value": 200,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3783,7 +3764,7 @@ ITEM_DEFS = {
         "equip_slot": "weapon",
         "power_bonus": 0,
         "defense_bonus": 0,
-        "value": 300,
+        "value": 160,
         "primary_skill": None,
         "secondary_skill": None,
         "tertiary_skill": None,
@@ -3928,11 +3909,17 @@ def get_item_value(item_id: str, strain: str = None) -> int:
 def get_skill_xp(item_id: str, skill_name: str) -> int:
     """Return the base XP gain for a skill interaction with an item.
 
-    XP = item_value * SKILL_VALUE_MULTIPLIERS[skill_name]
-    Falls back to a multiplier of 1.0 for unregistered skills.
+    Stealing uses sqrt scaling for diminishing returns on high-value items:
+        XP = sqrt(item_value) * 1.5
+    Other skills use linear scaling:
+        XP = item_value * SKILL_VALUE_MULTIPLIERS[skill_name]
     """
+    import math
+    value = get_item_value(item_id)
+    if skill_name == "Stealing":
+        return round(math.sqrt(value) * 1.5)
     multiplier = SKILL_VALUE_MULTIPLIERS.get(skill_name, 1.0)
-    return round(get_item_value(item_id) * multiplier)
+    return round(value * multiplier)
 
 
 def get_deep_frying_xp(food_item_id: str) -> int:
@@ -4025,8 +4012,6 @@ UNIQUE_TABLE_A = [
     "titans_blood_ring",
     "ring_of_intimidation",
     "ring_of_sustenance",
-    "brainstorming_cap",
-    "thinking_cap",
     "flagellants_mask",
     "straw_hat",
     "decimator",
@@ -4120,6 +4105,11 @@ def build_inventory_display_name(item_id, strain, quantity, prefix=None, charges
     if prefix is not None and charges is not None and max_charges is not None:
         pdef = get_food_prefix_def(prefix)
         adj = pdef["display_adjective"] if pdef else prefix.title()
+        # Sandwich: display as just "Sandwich (5/5)" without base food name
+        if prefix == "sandwich":
+            if qty > 1:
+                return f"{qty} Sandwiches ({charges}/{max_charges})"
+            return f"Sandwich ({charges}/{max_charges})"
         if qty > 1:
             return f"{qty} {adj} {_pluralize(base_name, item_id)}{strain_part} ({charges}/{max_charges})"
         return f"{adj} {base_name}{strain_part} ({charges}/{max_charges})"
@@ -4708,7 +4698,7 @@ def generate_examine_lines(item_id, engine=None):
                         "+1 hangover stack.",
                     ],
                     "butterbeer": [
-                        "+25% Briskness for 100 turns.",
+                        "+25% Briskness for 20 turns.",
                         "+1 hangover stack.",
                     ],
                     "absinthe": [
@@ -4869,7 +4859,7 @@ def generate_examine_lines(item_id, engine=None):
                             dur = eff.get("duration", 0)
                             lines.append([("+2 all stats for ", C_GOOD), (f"{dur} turns.", C_GOOD)])
                             lines.append([("50% melee ignite chance.", C_GOOD)])
-                            lines.append([("+10 Firebolt charges.", C_GOOD)])
+                            lines.append([("+5-10 Firebolt charges.", C_GOOD)])
                             lines.append([("Ignites you when it expires.", C_BAD)])
                         elif ft == "grant_ability_charges":
                             aid = eff.get("ability_id", "?").replace("_", " ").title()
@@ -4900,6 +4890,7 @@ def generate_examine_lines(item_id, engine=None):
                             lines.append([("Ranged: 50% miss w/o using stack.", C_INFO)])
                             lines.append([("Permanent until consumed.", C_GOOD)])
                         elif ft == "hard_boiled_egg":
+                            lines.append([("Heals 50 HP.", C_GOOD)])
                             lines.append([("Death save: revive at half HP.", C_GOOD)])
                             lines.append([("Lasts 100 turns. Stacks.", C_GOOD)])
                         elif ft == "eagle_eye":

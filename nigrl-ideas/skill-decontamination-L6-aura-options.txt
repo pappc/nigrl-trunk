@@ -1,0 +1,673 @@
+DECONTAMINATION SKILL — LEVEL 6 CAPSTONE AURA OPTIONS
+NIGRL Design Document
+Generated: 2026-04-02
+======================================================================
+
+DOCUMENT PURPOSE
+----------------
+Design 5-6 bold, code-ready perk options for Decontamination Level 6.
+This is the CAPSTONE of the tree — the most powerful perk, and the
+third toggleable aura alongside Gamma and Ironsoul. It must be
+OFFENSIVE (L4 Ironsoul covers defense), DISTINCT from both existing
+auras, and strong enough to feel like a capstone.
+
+TREE STATE AT L6
+----------------
+  L1 — Radiant:             +10 Max Armor, +30% rad resist, +2 TOL, +2 STR
+  L2 — Gamma Aura:          +3 STR. Toggle: enemies w/in 2 tiles gain +5 rad/turn.
+                             2x Decon XP from resisted rad. Irradiated kills
+                             remove 25 player rad.
+  L3 — Consecrate:          +20 Max Armor, +15% rad resist. 2/floor, 30t CD.
+                             Lay 5x3 rad zone (20t). Enemies: +10 rad/turn +
+                             true dmg. Player: +1 SWG/turn in zone (cap 5).
+  L4 — Ironsoul Aura:       +2 SWG. Toggle: +1 DR per visible enemy (cap 5),
+                             +2 FOV. Hits from visible enemies grant +10 rad.
+                             25% on melee hit: rad lost → armor gained.
+  L5 — Sanctified Discharge: +30 Max Armor. Consecrate: 4 charges/floor,
+                             +20 rad/turn. 30%/turn: +1 Ignite, +1 Shocked.
+                             Both capped → double true damage.
+  L6 — THIS DOCUMENT
+
+AURA RULES (established engine pattern)
+----------------------------------------
+  - Toggle is free (ChargeType.INFINITE, TargetType.SELF ability).
+  - One Decon aura active at a time. _remove_decon_auras() is called before
+    applying the new aura — new id must be added to _DECON_AURA_IDS set.
+  - Implemented as a floor_duration Effect (duration=9999, floor_duration=True).
+  - Always-on passive bonus: a small stat or armor boost that the player keeps
+    regardless of toggle state, separate from the aura body.
+  - New aura id must be added to:
+      abilities.py: _DECON_AURA_IDS set, _execute_[name] function, ABILITY_REGISTRY
+      effects.py: @register class, EFFECT_DESCRIPTIONS dict
+      engine.py: skill unlock handler (grant_ability call)
+      skills.py: perk entry at index 5
+
+WHAT THE THREE AURAS DO (THE DECISION SPACE)
+---------------------------------------------
+  Gamma Aura (L2):    Radiation accumulation on nearby enemies. Best vs
+                      clustered packs, pairs with irradiated DOT and
+                      Consecrate's rad zone. Pure offense via rad buildup.
+  Ironsoul Aura (L4): Defensive scaling. DR from visible enemies, FOV bonus,
+                      rad-to-armor conversion on melee. Best when taking
+                      sustained fire or surrounded. Pure defense.
+  L6 Aura:            The player needs a THIRD identity. Should answer:
+                      "when is this better than Gamma AND Ironsoul?" The
+                      answer must be a situation Gamma/Ironsoul cannot handle.
+
+PLAYER STATE AT L6 (assuming all prior perks)
+----------------------------------------------
+  - +10+20+30 = +60 max armor, +45% rad resist, +3 STR, +2 SWG, +2 TOL
+  - Consecrate: 4 charges/floor, 20 rad/turn, ignite+shocked procs, double
+    true damage at cap
+  - Gamma Aura and Ironsoul Aura available
+  - Likely Decontamination level 6, meaning very high Decon XP investment
+  - Player is a melee frontline paladin with high rad levels from Ironsoul
+
+======================================================================
+OPTION 1 — "WRATH OF GOD AURA"
+High concept: your radiation is no longer a resource — it is a weapon.
+Every point of rad you carry translates to direct retributive damage
+against anything that dares hit you. The paladin's holy fury made literal.
+======================================================================
+
+NAME: Wrath of God Aura
+
+ALWAYS-ON PASSIVE (regardless of toggle):
+  - +2 STS (Street Smarts). Your radiant body reads threats before they arrive.
+
+AURA EFFECT (while ON):
+  - When ANY enemy deals melee damage to the player, they immediately take
+    retributive true damage equal to player.radiation // 20.
+    Example: 200 rad → 10 retribution damage per enemy hit. 400 rad → 20.
+  - This retribution hits BEFORE the enemy's damage is resolved (checked in
+    modify_incoming_damage or the combat hit handler in combat.py). Retribution
+    deals true damage (bypasses enemy defense, not subject to rad resist).
+  - Additionally: each retribution proc removes 5 player rad (uncapped —
+    this is the DRAIN, the cost of channeling your radiation as fury).
+    No rad gain from this aura. Rad is SPENT, not maintained.
+  - If the retribution kills the enemy (entity.alive becomes False), the kill
+    triggers the normal entity_died event bus event (Gamma kill purge applies,
+    normal XP, etc.).
+  - Cap: retribution damage capped at 30 per hit (prevents late-game
+    degenerate one-shots; cap adjustable).
+
+IMPLEMENTATION NOTES:
+  - New effect class: WrathOfGodAuraEffect (id="wrath_of_god_aura")
+  - Hook: modify_incoming_damage is the cleanest place. It already has access
+    to entity (the player). Add engine reference via before_turn cache
+    (same pattern as IronsoulAuraEffect._game_engine).
+  - The retribution triggers on the incoming hit BEFORE the damage reduction
+    is applied by armor/DR. Sequence: attacker hits → wrath_of_god fires
+    retribution on attacker → then normal damage to player proceeds.
+  - Retribution delivery: call entity.take_damage(retrib) on the attacker.
+    Need the attacker reference. The modify_incoming_damage signature only has
+    (damage, entity). Propose storing "last_attacker" on engine per hit, OR
+    add a new hook: on_player_hit(engine, attacker, damage) that effects can
+    override. The latter is cleanest.
+  - Simpler alternative: handle in combat.py in the melee resolution block.
+    After player takes damage from an attacker, check for wrath_of_god_aura
+    effect on player and fire retribution against the attacker inline. This
+    avoids any new lifecycle hook and matches how combat.py already handles
+    ironsoul_aura.
+  - The rad drain (5 rad per proc) uses combat.remove_radiation() with
+    pierce_resistance=True so it doesn't hit diminishing returns.
+  - New engine state needed: none. Per-hit logic lives in combat.py.
+  - Add to _DECON_AURA_IDS: "wrath_of_god_aura"
+
+WHY THIS OVER THE OTHER AURAS?
+  - Gamma: irradiates enemies over time. Wrath retaliates instantly.
+    Gamma is patient, Wrath is reactive. Against fast, hard-hitting enemies
+    (like Meth Lab faction bosses), Wrath punishes aggression. Gamma just
+    slowly kills them while they beat you.
+  - Ironsoul: reduces incoming damage. Wrath DOESN'T reduce damage; it
+    weaponizes being hit. Wrath is the glass-cannon toggle of the three —
+    you still take full hits, but every hit hurts them back. Pair with high
+    max armor to survive the hits while the retribution kills the attacker.
+  - Best situation: tanky frontline, walking into melee with multiple enemies.
+    Gamma is better for AOE radiation buildup on clusters. Ironsoul is
+    better when you need to survive. Wrath is better when your radiation
+    is high AND you want kills to happen fast AND you can tank the incoming.
+
+SYNERGY WITH FULL TREE:
+  - L1 Radiant / L3+L5 armor: more max armor = more tolerance for being hit
+    without dying. Wrath rewards tanking hits, so armor buys more procs.
+  - L4 Ironsoul melee proc: 25% chance to convert rad to armor. Keep
+    alternating: swing (Ironsoul fills armor from your rad), then toggle to
+    Wrath before an enemy swings at you. The rotation is: hit with Ironsoul
+    → build armor → toggle Wrath before the retributive phase → absorb hits
+    → toggle back. Real tactical decision.
+  - L5 Sanctified Discharge ignite/shocked: enemies standing on Consecrate
+    at 10 Ignite and 10 Shocked stacks will also be hammered by Wrath
+    retribution — the triple damage vector.
+  - Gamma Aura: if you've already stacked rad on enemies with Gamma, they
+    take irradiated DOT (rad//50/tick). Toggle to Wrath AFTER they've been
+    cooked, so while they swing at you in the last phase of their lives, Wrath
+    returns fire. Gamma builds, Wrath finishes.
+  - Player radiation drain: since Ironsoul builds rad on player via incoming
+    hits, and Wrath SPENDS rad on retribution, these two create a loop if
+    alternated: Ironsoul grants rad → toggle Wrath → Wrath spends that rad
+    as retribution. Not gamebreaking because they cannot both be active.
+
+WHY EXCITING AS CAPSTONE:
+  Being surrounded feels different now. With Gamma you slowly cook them.
+  With Ironsoul you endure them. With Wrath, every hit they land is a
+  mistake. The fantasy is the paladin who INVITES being surrounded because
+  each attacker is executing themselves. High radiation = high retribution =
+  the player is glowing like a reactor and anything that touches them regrets it.
+
+PERK TEXT (for skills.py):
+  "Wrath of God Aura: +2 STS. Toggle aura: when enemies deal melee damage to
+  you, they take true damage equal to your radiation / 20 (cap 30). Each proc
+  drains 5 of your radiation. Your suffering is their punishment."
+
+BALANCE NOTES:
+  - At 200 rad: 10 retribution per hit. Against a typical enemy with 40 HP,
+    you need 4 hits on YOU (they hit you 4 times). That's reasonable.
+  - At 400 rad (near max viable): 20 retribution per hit. Two hits kills a
+    weak enemy. This is powerful but requires sustained high radiation, which
+    conflicts with Ironsoul's rad-to-armor conversion reducing your rad.
+  - The 5 rad drain creates a soft timer. At 400 rad and taking 4 hits/combat,
+    you spend 20 rad per room. You start each floor with whatever rad you
+    carried over — likely 100-200 post-Ironsoul use. This limits Wrath's
+    power to maybe 10-40 retribution shots per floor, which is correct for
+    a capstone.
+
+
+======================================================================
+OPTION 2 — "CORONA OF JUDGMENT AURA"
+High concept: you become a death sentence for any irradiated enemy. The
+moment an enemy reaches a radiation threshold near you, they combust in
+a nova of radiant force. Enemies flee in terror of what you represent.
+======================================================================
+
+NAME: Corona of Judgment Aura
+
+ALWAYS-ON PASSIVE (regardless of toggle):
+  - +15% rad resist (stacks with existing). You are immune to your own judgment.
+
+AURA EFFECT (while ON):
+  - Each tick the aura is active, scan all living enemies within Chebyshev 5
+    of the player. For any enemy whose current radiation >= 100:
+    immediately trigger a Judgment Burst on that enemy:
+      a) The enemy takes true damage equal to their radiation // 10.
+         (100 rad = 10 dmg. 250 rad = 25 dmg. 500 rad = 50 dmg.)
+      b) The enemy's radiation is halved (enemy.radiation //= 2). This is
+         the "judgment" — their rad is SPENT to deal the burst.
+      c) All living enemies within Chebyshev 2 of the BURST enemy take 5
+         splash true damage (regardless of their own rad level). The burst
+         radiates outward — this is the "corona" effect.
+      d) After the burst, the enemy receives the "feared" status effect
+         (if not already feared): they flee for 4 turns. At 100+ rad they
+         saw the burst happen to a nearby ally. Terror spreads.
+  - Each enemy can only be Judgment Burst once per floor
+    (track via engine state: judgment_burst_ids: set). This prevents
+    the aura from trivially evaporating enemies who sit at high rad.
+  - The Judgment Burst proc applies Decontamination XP: 10 XP per burst.
+
+IMPLEMENTATION NOTES:
+  - New effect class: CoronaOfJudgmentAuraEffect (id="corona_of_judgment_aura")
+  - tick() method: iterate entities, check radiation threshold and chebyshev
+    distance, fire burst logic. Burst logic: call entity.take_damage(burst_dmg),
+    apply feared effect on target, splash on neighbors.
+  - New engine state: engine.judgment_burst_ids: set (reset on floor transition).
+    Check before firing: if entity.entity_id in engine.judgment_burst_ids: skip.
+    After firing: engine.judgment_burst_ids.add(entity.entity_id).
+  - The per-enemy "once per floor" rule is critical. Without it, Gamma Aura
+    + Corona of Judgment would trivially one-room-clear anything. With it,
+    the burst is a single powerful proc that rewards stacking rad first.
+  - Feared effect: already implemented in effects.py. Use apply_effect(entity,
+    engine, "feared", duration=4).
+  - Splash: iterate entities within chebyshev 2 of burst_target, call
+    entity.take_damage(5) on each, fire entity_died events for kills.
+  - Corona aura and Gamma Aura SYNERGIZE directly: Gamma stacks the rad up,
+    Corona detonates it. Toggle Gamma to build rad on enemies, then swap to
+    Corona to trigger the burst wave.
+  - Add to _DECON_AURA_IDS: "corona_of_judgment_aura"
+
+WHY THIS OVER THE OTHER AURAS?
+  - Gamma: irradiates enemies. Corona DETONATES irradiated enemies. They are
+    designed to work in sequence: Gamma builds, then you swap to Corona to
+    collect the burst. Corona is the "harvest" phase aura.
+  - Ironsoul: defensive scaling. Corona is pure offensive, zero defense.
+    Corona rewards being offensive (using Gamma, Consecrate) while Ironsoul
+    rewards being defensive.
+  - Best situation: rooms with multiple irradiated enemies (after using Gamma
+    Aura for a floor, then swapping to Corona when they're all at 100+ rad).
+    One tick fires a Judgment Burst chain reaction across the whole room.
+
+SYNERGY WITH FULL TREE:
+  - Gamma Aura: the ideal loop — use Gamma to irradiate the room, swap to
+    Corona when enemies hit 100 rad, watch Judgment Bursts cascade. Then
+    swap back to Gamma for the next room.
+  - L5 Sanctified Discharge: Consecrate applies 20 rad/turn on enemies.
+    Combined with Gamma Aura, enemies in Consecrate zones hit 100 rad in
+    5-10 turns. Corona then fires on them as soon as they leave the zone.
+  - The splash damage creates incidental fear in clustered groups —
+    even enemies that haven't been irradiated yet see their neighbors burst.
+
+WHY EXCITING AS CAPSTONE:
+  The "burst + fear" fantasy. You're a walking divine bomb trigger. The
+  moment enemies get cooked enough by your radiation aura, they explode
+  in a nova. The room-clear potential is there but it requires setup: you
+  can't just walk in with Corona active. You have to SET UP with Gamma/
+  Consecrate first. The capstone rewards mastery of the full tree's toolkit.
+
+PERK TEXT (for skills.py):
+  "Corona of Judgment Aura: +15% rad resist. Toggle aura: each turn, enemies
+  within 5 tiles at 100+ radiation trigger a Judgment Burst — true damage
+  equal to their radiation / 10, rad halved, nearby enemies splashed, all
+  feared for 4 turns. Once per enemy per floor."
+
+
+======================================================================
+OPTION 3 — "MARTYR'S FIRE AURA"
+High concept: you choose when to die. While this aura is active, when your
+HP would drop to zero, you instead detonate in a massive radiant explosion
+that deals damage to everything in sight — then you survive at 1 HP.
+Between that detonation and the normal game: you are genuinely dangerous
+in a way no other aura can replicate.
+======================================================================
+
+NAME: Martyr's Fire Aura
+
+ALWAYS-ON PASSIVE (regardless of toggle):
+  - +2 CON. The paladin body endures so that the soul can sacrifice.
+
+AURA EFFECT (while ON):
+  - Passive field: while the aura is active, you emit a mild radiant presence.
+    All enemies within Chebyshev 3 take 1 true damage per turn. Not
+    irradiation — raw radiant true damage. Small but constant. The aura
+    "shines" regardless of the detonation mechanic.
+  - Detonation trigger (the big mechanic): ONCE PER FLOOR, if an incoming
+    attack would reduce your HP to 0 or below while this aura is active:
+      a) The killing blow deals 0 damage (blocked entirely this turn only).
+      b) You immediately fire a "Radiant Detonation" — deal true damage to
+         ALL visible enemies equal to your current radiation // 5 + 20.
+         (Example: 200 rad → 60 damage. 400 rad → 100 damage. Base 20 always.)
+      c) Your radiation is set to 0 after the detonation.
+      d) You survive at 1 HP. You are NOT healed — you survive with 1 HP.
+      e) The detonation flag is cleared per floor: "martyr_detonated" on engine.
+         Once per floor only. If you trigger it, it's gone until next floor.
+  - Message shown to player: "RADIANT DETONATION! [damage] to all visible
+    enemies! You survive on faith alone."
+
+IMPLEMENTATION NOTES:
+  - New effect class: MartyrFireAuraEffect (id="martyr_fire_aura")
+  - The per-turn 1 true damage aura: tick() method iterates visible enemies
+    within chebyshev 3, calls entity.take_damage(1), fires entity_died if
+    needed.
+  - The detonation: this needs a new lifecycle hook OR inline handling in
+    combat.py. Propose: in combat.py, when calculating final HP after player
+    takes damage, check for martyr_fire_aura effect on player:
+      if new_hp <= 0 and has martyr_fire_aura and not engine.martyr_detonated:
+          deal aura damage to all visible enemies
+          player.hp = 1
+          engine.martyr_detonated = True
+          return  # skip the actual kill
+  - New engine state: engine.martyr_detonated: bool (default False, reset on
+    floor transition in engine._on_new_floor or equivalent).
+  - New per-turn field: engine state NOT needed for the 1-dmg aura (handled
+    purely in tick()).
+  - The detonation radiation use: call remove_radiation(engine, player,
+    player.radiation, pierce_resistance=True) to zero it.
+  - One-shot nature: "once per floor" makes this a genuine permadeath safety
+    net — but one you have to equip and hold. The decision to run this aura
+    is partly "I'm about to do something risky."
+  - The 1-dmg per turn passive hits EVERY enemy in radius 3, always. No
+    threshold. No condition. This makes the aura active even when you're
+    not at death's door.
+  - Add to _DECON_AURA_IDS: "martyr_fire_aura"
+
+WHY THIS OVER THE OTHER AURAS?
+  - Gamma: irradiates, slow buildup. Martyr's Fire is immediate —
+    small constant damage to everything near you, plus a dramatic trump card.
+  - Ironsoul: prevents taking damage. Martyr's Fire LET'S you take the damage
+    and then punishes the attacker massively. Philosophically opposite:
+    Ironsoul says "you can't hurt me," Martyr says "you CAN hurt me,
+    and when you do it wrong, everything dies."
+  - Best situation: when you're playing dangerously (low HP on purpose,
+    rushing Consecrate zones, baiting enemies into tight corridors). The
+    detonation is STRONGEST when your radiation is high — incentivizes
+    maintaining high rad, which Ironsoul ALSO builds via incoming hits.
+    Load up with Ironsoul first to maximize rad, then swap to Martyr's Fire
+    before diving into the boss room.
+
+SYNERGY WITH FULL TREE:
+  - L4 Ironsoul builds player radiation via incoming hits. Toggle to Martyr's
+    Fire after rad is loaded — the detonation value scales with accumulated
+    rad. 400 rad from Ironsoul = 100 detonation damage to ALL visible enemies.
+  - L1 Radiant / armor perks: survive longer, more chances to use the
+    detonation on a REAL threat rather than wasting it on a small hit.
+  - L5 Sanctified Discharge: the 1-dmg per turn aura on enemies who are also
+    getting Ignite + Shocked from Consecrate is a nice pressure addition.
+    While they burn and get shocked, they also take the small aura tick.
+
+WHY EXCITING AS CAPSTONE:
+  It's the only permadeath-adjacent safety net in the whole game that isn't
+  just "heal." The detonation creates a moment that feels like a legendary
+  last stand — you're about to die and instead you NUKE THE ROOM. That story
+  moment is the capstone fantasy. The 1-dmg-per-turn passive keeps it useful
+  even in uneventful rooms. The opportunity cost is real: other auras are
+  more consistently powerful, but Martyr's Fire is dramatic.
+
+PERK TEXT (for skills.py):
+  "Martyr's Fire Aura: +2 CON. Toggle aura: emit radiant heat (1 true damage/
+  turn to enemies within 3 tiles). Once per floor: a killing blow instead
+  triggers Radiant Detonation — deal radiation / 5 + 20 true damage to all
+  visible enemies, zero your radiation, survive at 1 HP."
+
+
+======================================================================
+OPTION 4 — "PENITENT AURA" (Righteous Vulnerability)
+High concept: you abandon all defense. While this aura is on, you cannot
+gain armor and your DR is 0 — but every point of incoming damage you
+WOULD have been protected from by armor/DR is instead returned as bonus
+melee damage on your next attack. Suffering becomes power.
+======================================================================
+
+NAME: Penitent Aura
+
+ALWAYS-ON PASSIVE (regardless of toggle):
+  - +3 STR. Raw physical power. You have rejected protection and chosen
+    to hit harder as compensation.
+
+AURA EFFECT (while ON):
+  - Your effective armor and effective DR are both treated as 0. You take
+    full, unmitigated damage from all incoming attacks.
+  - For every point of damage that armor OR DR would have absorbed, add
+    that value to a "penitent_charge" counter on engine (int, reset per floor).
+  - Your NEXT melee attack deals bonus damage equal to penitent_charge
+    (flat addition to damage before defense is subtracted). After the attack
+    fires, penitent_charge resets to 0.
+  - Cap: penitent_charge capped at 50. You cannot stack indefinitely.
+  - Display: show penitent_charge value in the game UI or as a message.
+    "Penitent Charge: [N]" so the player knows what they're banking.
+  - Taking multiple hits before swinging? Each hit adds to the pot.
+    Walking through a room surrounded and NOT attacking builds maximum charge.
+    Then one swing dumps it all. Reward for patience and endurance.
+
+IMPLEMENTATION NOTES:
+  - New effect class: PenitentAuraEffect (id="penitent_aura")
+  - The "zero armor/DR": in combat.py player damage resolution, check for
+    penitent_aura on player. If present:
+    a) Calculate what armor/DR would have absorbed: would_absorb = player.armor + player_stats.dr
+    b) Add would_absorb to engine.penitent_charge (capped at 50)
+    c) Apply full damage (skip armor/DR subtraction)
+  - The bonus damage on next melee: in combat.py or spells.py where player
+    melee damage is computed, if engine.penitent_charge > 0:
+    bonus_damage += engine.penitent_charge; engine.penitent_charge = 0.
+  - New engine state: engine.penitent_charge: int = 0 (reset per floor and
+    on aura expire).
+  - The aura expire() must also reset penitent_charge to 0 (don't carry
+    charge from Penitent mode into a different aura's damage calculations).
+  - The effect does NOT zero actual armor values on the entity. It intercepts
+    in combat.py: "if has penitent aura, ignore armor/DR and bank it instead."
+  - This means if you toggle Ironsoul right before getting hit, your armor
+    still saves you. You have to COMMIT to Penitent. That's the tradeoff.
+  - Add to _DECON_AURA_IDS: "penitent_aura"
+
+WHY THIS OVER THE OTHER AURAS?
+  - Gamma: slow irradiation buildup. Penitent is direct damage amplification
+    and only useful if you have armor/DR to bank. Gamma is better against
+    groups. Penitent is better for single-target burst where you can
+    absorb multiple hits and then unload.
+  - Ironsoul: reduces incoming damage. Penitent ELIMINATES damage reduction
+    to AMPLIFY outgoing. They are mechanical opposites.
+  - Best situation: when you have very high armor (Decon tree gives +60 max)
+    and you're fighting a boss or single high-HP enemy. Walk up, eat 3 hits
+    (Ironsoul would have absorbed ~15 damage per hit = 45 charge), then
+    swing for 45 bonus damage on one punch.
+  - Also useful when YOUR armor is already depleted (you're at 0 armor).
+    When armor is 0, Penitent doesn't punish you (there's nothing to give up)
+    and you still get +3 STR from the passive. Late-fight emergency toggle.
+
+SYNERGY WITH FULL TREE:
+  - The Decon tree gives massive max armor. All that armor you've built (60+
+    from just the passive bonuses) becomes the FUEL for Penitent's charge.
+    At full armor (60+), taking one hit might absorb 10+ damage → 10+ charge.
+    Four hits = 40+ charge, near the cap. Then one melee swing hits for 50
+    bonus damage. This is the payoff of investing in the full tree.
+  - L5 Sanctified Discharge: enemies on Consecrate take 20 rad/turn. While
+    they're roasting on your zone, stand in it yourself (swagger bonus) and
+    let them hit you to build Penitent charge. Walk into the zone, absorb hits,
+    emerge swinging.
+  - L2 Gamma Aura: irradiate them, then swap to Penitent. They're slowed by
+    the irradiated DOT, you're absorbing their weakened hits and banking
+    charge. The irradiated enemy deals less damage per hit BUT you bank
+    charge on each one.
+
+WHY EXCITING AS CAPSTONE:
+  It completely changes how you use your defensive investment. All those armor
+  bonuses from L1/L3/L4/L5 become an OFFENSIVE resource when Penitent is
+  active. The perk rewards players who deeply understand the tree — you've
+  built up 60+ max armor over 5 perk levels, and now the capstone makes that
+  armor a sword. The "vulnerability as power" fantasy is different from
+  anything else in the game.
+
+PERK TEXT (for skills.py):
+  "Penitent Aura: +3 STR. Toggle aura: your armor and DR are treated as 0.
+  Each point that would have been absorbed is instead stored as Penitent
+  Charge (cap 50). Your next melee strike spends all charge as bonus damage."
+
+
+======================================================================
+OPTION 5 — "RADIANT PRESENCE AURA" (Aura of Fear + Command)
+High concept: your radiation is now visible to enemies as divine terror.
+Nearby enemies are suppressed — they cannot gain status buffs, they take
+bonus damage while afflicted with any status (ignite, shocked, feared,
+rad), and if they would ever flee from you, they instead freeze in place
+for 2 turns. You are not a warrior. You are a force of nature they cannot
+run from.
+======================================================================
+
+NAME: Radiant Presence Aura
+
+ALWAYS-ON PASSIVE (regardless of toggle):
+  - +2 SWG, +2 TOL. Your presence is magnetic. You absorb punishment
+    and radiate authority.
+
+AURA EFFECT (while ON):
+  - SUPPRESSION FIELD (radius 3, Chebyshev):
+    Enemies within 3 tiles who have ANY active status effect (ignite, shocked,
+    feared, bleeding, stunned, dazed, hamstrung — any effect with
+    category="debuff") take +3 bonus true damage per status effect they carry.
+    Check once per player turn in the aura's tick() method.
+    Example: an enemy with ignite (1 stack) + shocked + radiation DOT on them
+    = 3 active debuffs → takes 9 bonus true damage this turn just from presence.
+    The counting uses: len([e for e in enemy.status_effects if e.category == "debuff"]).
+  - FREEZE ON FLEE:
+    If an enemy within radius 5 enters FLEEING AIState (or would trigger the
+    feared effect's flee movement), they instead receive the "stunned" effect
+    for 2 turns. Their fear response locks up. They cannot escape you.
+    Implementation: in ai.py or the feared before_turn, check if the entity
+    fleeing has a player within chebyshev 5 who has radiant_presence_aura
+    active. If yes, apply stunned(2) instead of allowing the flee step.
+  - BUFF SUPPRESSION:
+    Enemy abilities that would apply buffs to themselves (regeneration, temp
+    armor gain, etc.) are blocked within radius 3. Check in apply_effect:
+    if effect.category == "buff" and target is a monster and radiant_presence
+    aura is active on player and chebyshev distance <= 3: skip application
+    and log a suppressed message. (This is a rare case; most enemies don't
+    self-buff. It's the conceptual pillar of the aura — "divine authority
+    cannot be circumvented.")
+
+IMPLEMENTATION NOTES:
+  - New effect class: RadiantPresenceAuraEffect (id="radiant_presence_aura")
+  - tick() method: iterate entities within chebyshev 3, count debuffs, deal
+    true damage equal to count * 3. Call entity.take_damage() and fire
+    entity_died events for kills.
+  - Freeze on flee: the least invasive approach is in ai.py's FLEEING state
+    handler or the feared effect's before_turn. Before executing flee movement,
+    check if player has radiant_presence_aura within range 5:
+    if yes, apply stunned(2) to entity and return True (skip movement).
+  - Buff suppression: check in engine's apply_effect function (or the top of
+    Effect.apply()). If the entity receiving the buff is a monster, the
+    applicator is themselves (not the player), and player has the aura:
+    skip. Practically affects a handful of enemies with self-buff behaviors.
+  - The debuff damage scales beautifully with the full tree: Consecrate
+    applies irradiated DOT (debuff), Ignite (debuff), Shocked (debuff). An
+    enemy in a Consecrate zone with all three = 9 bonus true damage per turn
+    from presence PLUS the zone damage itself.
+  - Add to _DECON_AURA_IDS: "radiant_presence_aura"
+
+WHY THIS OVER THE OTHER AURAS?
+  - Gamma: best for naked enemies (no debuffs yet). Radiant Presence is best
+    AFTER you've loaded debuffs onto enemies via Consecrate + Gamma + L5.
+    Gamma is setup, Presence is payoff — same sequence as Corona of Judgment
+    but continuous rather than burst.
+  - Ironsoul: defensive utility. Presence is offensive AND utility (the
+    freeze-on-flee closes a real gameplay hole — irradiated enemies at low
+    HP often flee, wasting your Decon XP and Consecrate duration).
+    With Presence, nothing escapes. That's a qualitatively different play feel.
+  - Best situation: mid-combat after multiple debuffs are in play.
+    Swap to Presence once Consecrate zone + Gamma have loaded debuffs.
+    The freeze-on-flee is also invaluable when irradiated enemies at 1/4 HP
+    would normally sprint away and survive.
+
+SYNERGY WITH FULL TREE:
+  - L5 Sanctified Discharge applies Ignite + Shocked: that's 2 debuffs per
+    enemy per Consecrate zone. Every enemy in the zone takes 6 bonus true
+    damage per turn from Presence aura on top of zone damage.
+  - The freeze-on-flee synergizes with the irradiated DOT — enemies with 100+
+    rad who would flee to escape the DOT are instead frozen and cooked.
+  - Gamma Aura's irradiation counts as a debuff (irradiated effect). Toggle
+    Gamma → load rad on enemies → swap to Presence → they can't flee and
+    take bonus damage per debuff they carry.
+
+WHY EXCITING AS CAPSTONE:
+  The freeze-on-flee is the moment that makes this perk feel unique.
+  Roguelike enemies fleeing is consistently frustrating — chasing a half-dead
+  enemy through corridors, wasting turns. Presence says: nothing flees from
+  you. Combine that with scaling damage per debuff and you have an aura that
+  rewards the full tree's debuff-stacking toolkit.
+
+PERK TEXT (for skills.py):
+  "Radiant Presence Aura: +2 SWG, +2 TOL. Toggle aura: enemies within 3
+  tiles take 3 true damage per active debuff on them each turn. Enemies
+  within 5 tiles that would flee are instead stunned for 2 turns. They
+  cannot run from what you are."
+
+
+======================================================================
+OPTION 6 — "ATOMIC FIST AURA" (Melee Empowerment)
+High concept: your melee attacks are nuclear. While this aura is active,
+every melee hit detonates a small radiant explosion at the target —
+dealing AOE true damage in a 1-tile radius around the hit enemy. You are
+not attacking one enemy at a time. Every swing is a small bomb.
+======================================================================
+
+NAME: Atomic Fist Aura
+
+ALWAYS-ON PASSIVE (regardless of toggle):
+  - +2 STR, +15% rad resist. Your fists are weapons of mass irradiation.
+
+AURA EFFECT (while ON):
+  - Melee Radiant Explosion: each time the player successfully lands a melee
+    attack (including weapon attacks, unarmed, but NOT gun shots or abilities),
+    a 1-tile-radius radiant explosion fires at the struck enemy's position:
+      a) All living enemies (NOT the main target — they take normal weapon
+         damage) within Chebyshev 1 of the struck enemy take true damage
+         equal to 5 + player.radiation // 40.
+         (At 0 rad: 5. At 200 rad: 10. At 400 rad: 15.)
+      b) Each enemy hit by the splash also gains +15 radiation.
+      c) The main target (the one you directly hit) only takes normal weapon
+         damage, NOT the splash. This prevents double-hit weirdness.
+  - Additionally: your melee damage against irradiated enemies (any enemy
+    with radiation > 0) gains +3 flat bonus damage. Reward for maintaining
+    Gamma Aura pressure or Consecrate rad stacks before swinging.
+  - No per-turn tick effect. This is purely a melee trigger, implemented
+    in on_player_melee_hit().
+
+IMPLEMENTATION NOTES:
+  - New effect class: AtomicFistAuraEffect (id="atomic_fist_aura")
+  - Hook: on_player_melee_hit(engine, defender, damage). After the hit lands:
+    px, py = defender.x, defender.y
+    splash_dmg = 5 + engine.player.radiation // 40
+    for entity in engine.dungeon.entities:
+        if entity is defender: continue
+        if entity.entity_type != "monster" or not entity.alive: continue
+        if max(abs(entity.x - px), abs(entity.y - py)) <= 1:
+            entity.take_damage(splash_dmg)
+            add_radiation(engine, entity, 15, from_player=True)
+            if not entity.alive:
+                engine.event_bus.emit("entity_died", entity=entity, killer=engine.player)
+  - Irradiated bonus: also in on_player_melee_hit, before the normal damage
+    is finalized, if defender.radiation > 0: add +3 to damage.
+    (This requires that damage be mutable before dealing — check how
+    ironsoul_aura on_player_melee_hit works for the pattern.)
+  - No new engine state needed. No per-floor tracking.
+  - Add to _DECON_AURA_IDS: "atomic_fist_aura"
+
+WHY THIS OVER THE OTHER AURAS?
+  - Gamma: irradiates enemies within 2 tiles per TICK (passive spread).
+    Atomic Fist irradiates enemies on HIT (active, position-based). Gamma
+    is better when you can't melee safely. Fist is better when you're
+    aggressively in their faces — each swing propagates radiation AND deals
+    AOE damage.
+  - Ironsoul: defensive. Atomic Fist is pure offense. No DR, no armor.
+    The choice is classic: "do I want to survive longer (Ironsoul) or do I
+    want to kill things faster (Atomic Fist)?"
+  - Best situation: tight corridors (splash hits EVERYONE in 1 tile, which
+    in a 3-wide hallway is both flanking enemies). Also pairs perfectly with
+    Consecrate — lay the zone, enemies cluster in it, walk in and swing.
+    Every melee hit splashes the adjacent enemies too.
+
+SYNERGY WITH FULL TREE:
+  - L2 Gamma Aura: use Gamma to pre-irradiate enemies. Then swap to Atomic
+    Fist. Now your melee hits get +3 vs irradiated enemies, AND the splash
+    further irradiates anyone nearby (15 rad per splash). The already-
+    irradiated enemies also take more DOT from their radiation.
+  - L3/L5 Consecrate zone: enemies standing in the zone take rad per turn
+    AND true damage. Walk into the zone yourself (swagger bonus from standing
+    in it!) and start swinging. Splash from Atomic Fist hits all clustered
+    enemies. One swing in a crowd of 4 = one direct hit + 3 splashes.
+  - The +15 rad per splash synergizes beautifully with Gamma Aura in sequence:
+    Gamma loads rad on multiple enemies, Fist then deals +3 bonus damage to
+    all of them AND adds more rad via splash, then swap back to Gamma if you
+    need more. Rad stacking loop.
+  - Player's own radiation from Ironsoul phase: if you've built up 200 rad
+    from an Ironsoul-heavy room, swap to Atomic Fist — splash damage is now
+    10 per adjacent enemy, not 5. Radiation investment pays off.
+
+WHY EXCITING AS CAPSTONE:
+  It changes the geometry of combat. Every melee encounter becomes a question
+  of positioning: "can I angle this swing to splash the enemy behind him?"
+  In tight corridors or Consecrate zones with clustered enemies, Atomic Fist
+  turns the player into a walking IED. The visual and mechanical fantasy —
+  punching one person and making everyone around them explode in radiation —
+  is visceral, readable, and uniquely expresses the Decontamination paladin.
+
+PERK TEXT (for skills.py):
+  "Atomic Fist Aura: +2 STR, +15% rad resist. Toggle aura: melee hits trigger
+  a radiant explosion — all enemies within 1 tile of the target take 5 +
+  radiation / 40 true damage and gain 15 radiation. +3 melee damage vs any
+  irradiated enemy."
+
+
+======================================================================
+IMPLEMENTATION SUMMARY TABLE
+======================================================================
+
+Option | Name                  | Passive       | Core Hook          | New State
+-------|-----------------------|---------------|--------------------|------------------
+  1    | Wrath of God          | +2 STS        | combat.py hit recv | none
+  2    | Corona of Judgment    | +15% rad res  | tick() scan        | judgment_burst_ids (set)
+  3    | Martyr's Fire         | +2 CON        | tick() + kill save | martyr_detonated (bool)
+  4    | Penitent              | +3 STR        | combat.py recv     | penitent_charge (int)
+  5    | Radiant Presence      | +2 SWG +2 TOL | tick() + ai.py     | none
+  6    | Atomic Fist           | +2 STR +15%rr | on_player_melee_hit| none
+
+COMPLEXITY RANKING (implementation effort):
+  Easiest:   Option 6 (Atomic Fist) — all in on_player_melee_hit, no state
+  Easy:      Option 1 (Wrath of God) — combat.py inline, no state
+  Medium:    Option 4 (Penitent) — combat.py intercept + new engine int
+  Medium:    Option 5 (Radiant Presence) — tick + ai.py touch + suppress
+  Harder:    Option 2 (Corona of Judgment) — tick burst + new set + splash
+  Hardest:   Option 3 (Martyr's Fire) — kill prevention in combat.py + new bool
+
+RECOMMENDED PICK (designer's note):
+  Option 6 (Atomic Fist) is the cleanest to implement and has the most
+  immediately readable combat identity. Option 1 (Wrath of God) is the most
+  thematically powerful paladin capstone. Option 4 (Penitent) is the boldest
+  mechanical inversion and creates the most interesting decision (all your
+  armor becomes a sword). Any of the three would make an excellent capstone.

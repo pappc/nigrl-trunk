@@ -1,0 +1,895 @@
+QUD x RIMWORLD HYBRID MUTATIONS — ADDITIONAL CANDIDATES (10)
+=============================================================
+NIGRL Roguelike — gritty urban setting (Crack Den / Meth Lab)
+Design goal: 10 additional mutations that combine Caves of Qud's gameplay
+verb philosophy (what you CAN DO) with Rimworld Biotech's cost structure
+philosophy (how you PAY for it). The result should feel like something
+neither game has alone.
+
+Author note: These mutations supplement mutation-overhaul-plan.txt and
+rimworld-inspired-mutations.txt (total candidate pool: 100 before these).
+Each entry is a candidate for its named category. Do not add any entry
+that duplicates the existing 100. Format and upgrade principles match
+the main overhaul plan.
+
+THE HYBRID DESIGN PRINCIPLE:
+  Qud gives us verbs — movement as weapon, terrain creation, possession,
+  discharge arcs, corrosive auras, mass-mind scaling, glimmer accumulation.
+  Rimworld gives us cost structures — spontaneous chaos, cognitive decay,
+  escalating punishments, environmental inversion, the thing that hunts you.
+  Neither game alone would produce these. The hybrid is the point.
+
+Upgrade principles:
+  - Good mutations get STRONGER on upgrade.
+  - Bad mutations get WORSE on upgrade.
+  - Typical cap: L3.
+  - All mutations permanent; Shed removes entirely and resets level to 0.
+  - Scarred Tissue fires on bad mutation upgrades (consolation +1 stat).
+
+Distribution: 3 Weak Good, 2 Weak Bad, 3 Strong Good, 2 Strong Bad.
+
+
+TABLE OF CONTENTS
+-----------------
+I.   Weak Good Mutations (3 entries: #1-3)
+II.  Weak Bad Mutations (2 entries: #4-5)
+III. Strong Good Mutations (3 entries: #6-8)
+IV.  Strong Bad Mutations (2 entries: #9-10)
+V.   Implementation Notes — New Engine/PlayerStats Fields
+VI.  New Effects Required
+VII. New Abilities Required
+VIII.Balance Notes
+
+
+================================================================
+I. WEAK GOOD MUTATIONS (3)
+================================================================
+
+Design principle: These grant a new gameplay verb tied to an existing
+mechanic (movement, electricity, enemy clustering) that creates new
+positioning incentives without being build-defining on their own.
+
+--
+
+1. HORN GROWTH — "A bony ridge has erupted from your forehead. You can
+   feel it wanting to hit things."
+   Qud inspiration: Horns — charge attack (move 3+ tiles straight,
+   bonus impact damage on the enemy you collide with).
+   Rimworld inspiration: Unstoppable gene — cannot be slowed during
+   movement; motion is commitment.
+   Hybrid thesis: Movement becomes a weapon, creating a reason to
+   stand far from enemies before engaging rather than closing directly.
+   Effect: When the player moves 3 or more tiles in a single straight
+   line (cardinal or diagonal, same direction each step) and ends that
+   movement adjacent to an enemy, the final step triggers a Horn Charge
+   instead of a normal move. The charge deals bonus damage equal to
+   (distance_traveled + mutation_count // 4), added on top of normal
+   melee damage. The charge requires no extra action — it resolves as
+   part of the movement turn. If a wall or entity breaks the line before
+   3 tiles, no charge fires.
+   Tracking: engine.horn_charge_dir (tuple|None, reset each turn) and
+   engine.horn_charge_distance (int, reset each turn). After each player
+   move step, check whether the step continued in the same direction as
+   the previous step. If 3+ steps in one direction end adjacent to an
+   enemy, fire the charge bonus.
+   Additionally, while a Horn Charge is available (i.e., during any
+   turn where the player has already moved 3+ straight tiles and is now
+   adjacent to an enemy), the player cannot be slowed by grease tiles
+   or SlowEffect on that turn — momentum cannot be interrupted mid-charge.
+   Upgrade:
+     L1: 3+ straight-line tiles to charge; bonus dmg = distance +
+         mutation_count//4; slow-immunity only on the charging turn.
+     L2: Threshold drops to 2 straight-line tiles to trigger a charge.
+         Bonus dmg = distance*2 + mutation_count//4. If the charge kills
+         the enemy, the player may immediately take 1 free movement step
+         (the momentum carries them through).
+     L3: Threshold stays at 2 tiles. Bonus dmg = distance*2 +
+         mutation_count//3. The free-step-on-kill is retained. Additionally,
+         a successful charge stuns the target for 2 turns (the impact is
+         bone-cracking). Cap.
+   Reversal: Remove horn_charge_dir/horn_charge_distance tracking;
+   remove the charge damage bonus; remove slow-immunity on charge turns.
+   Shed only removes the charge bonus — movement itself is unaffected.
+   System hooks: engine.py player movement path (per-step direction
+   tracking), combat.py melee hit (charge bonus damage application),
+   effects.py SlowEffect modify_movement check (skip if horn_charging
+   flag is set this turn), engine.horn_charge_dir: tuple|None,
+   engine.horn_charge_distance: int, player_stats.horn_growth_active: bool.
+   --
+
+2. CHAIN DISCHARGE — "Static builds up in your fingertips. You point,
+   and it goes looking for the next closest thing to fry."
+   Qud inspiration: Electrical Generation — arc that chains through
+   conductive targets in clusters; more enemies = more chains.
+   Rimworld inspiration: Environmental interaction design — crowd
+   dynamics as a resource, rewarding the player for not isolating enemies.
+   Hybrid thesis: Grants a crowd-punisher ability that rewards fighting
+   groups instead of picking enemies off one at a time — the opposite of
+   normal roguelike instinct.
+   Effect: Grants the Chain Discharge ability (INFINITE charges,
+   SINGLE_ENEMY_LOS target). Fire an electrical bolt at one visible
+   enemy within 6 tiles. Deals 7 + (mutation_count // 3) shock damage
+   and applies 2 stacks of "shocked" to the primary target. If a second
+   enemy is within 2 tiles of the primary target, the bolt chains to
+   them for 4 + (mutation_count // 4) shock damage and 1 shocked stack.
+   Each chain can itself spawn another chain under the same rules (max
+   chains: 1 at L1). Cooldown: 5 turns. Enemies already shocked take
+   +2 bonus damage from the discharge (the current amplifies in a
+   wet/shocked body).
+   Upgrade:
+     L1: Primary bolt 7 + count//3 dmg, 2 shocked; chain to 1 enemy
+         within 2 tiles for 4 + count//4, 1 shocked; max 1 chain;
+         5t cooldown.
+     L2: Primary bolt 9 + count//3 dmg; chain range extends to 3 tiles;
+         max chains increases to 2 (the bolt can bounce twice). Cooldown
+         drops to 4 turns. Each chain now also applies 1 stack of "wet"
+         to the chained target (electricity burns through their tissues,
+         leaving them damp — the smell is awful).
+     L3: Primary bolt 12 + count//3 dmg; chain range 3 tiles; max chains
+         3. Cooldown 3 turns. Any enemy that dies while shocked immediately
+         discharges an additional 1-chain burst centered on their corpse
+         (death discharge: same chain rules but 3 tiles range and 1 chain
+         max; fires once per death). Cap.
+   Reversal: Revoke "chain_discharge" ability entirely.
+   System hooks: ABILITY_REGISTRY "chain_discharge", ChargeType.INFINITE
+   with cooldown, spells.py execute (LOS shot, chain resolver that BFS
+   outward from hit target checking for other entities within range,
+   apply shocked/wet effects), effects.py ShockedEffect (already exists),
+   WetEffect (already exists), engine.chain_discharge_targets_hit: set
+   (per-cast; prevents re-hitting same entity in one chain sequence).
+   --
+
+3. MASS RESONANCE — "The more of them there are, the more of you there
+   is. You can feel them feeding it."
+   Qud inspiration: Mass Mind — psychic power scales with number of
+   nearby intelligent creatures; proximity becomes amplification.
+   Rimworld inspiration: Environmental crowd dynamics and Kill Thirst's
+   "I need enemies near me" reversal of standard safety instinct.
+   Hybrid thesis: Rewards being surrounded — the exact opposite of normal
+   roguelike positioning instinct — by turning enemy density into a stat
+   multiplier that recalculates each turn.
+   Effect: For each enemy within 4 tiles of the player, gain +1 temporary
+   melee power bonus (recalculated every turn, stored as
+   player_stats.mass_resonance_power_bonus: int). At 3 or more enemies
+   in range, also gain +10 speed. At 5 or more enemies in range, gain
+   +1 DR. These bonuses vanish the moment enemies leave the radius or die
+   — there is no lag or grace period at L1. The bonuses are calculated at
+   the start of the player's turn before their action resolves.
+   Upgrade:
+     L1: Radius 4 tiles; +1 power per enemy; +10 speed at 3+ enemies;
+         +1 DR at 5+ enemies. Bonuses reset immediately when count drops.
+     L2: Radius 5 tiles; +2 power per enemy (bonus doubles); +20 speed
+         at 3+ enemies; +2 DR at 5+ enemies. Bonuses still reset immediately.
+         Additionally, at 4+ enemies in range, your melee attacks briefly
+         stagger all adjacent enemies after hitting your primary target:
+         stagger applies a 1-turn debuff (MassResonanceStaggerEffect) that
+         reduces those adjacent enemies' next attack damage by 2 (the
+         psychic pressure disrupts their motor control for a moment).
+     L3: Radius 6 tiles; +2 power per enemy; +30 speed at 3+ enemies;
+         +3 DR at 5+ enemies. At 4+ enemies in range, your melee attacks
+         cleave: damage the primary target AND all enemies immediately
+         adjacent to you (standard melee damage, no bonus to cleave
+         targets). The L2 stagger is replaced by cleave at L3 (stagger
+         no longer applies). Additionally, when an enemy dies and exits
+         the radius, the lost power bonus doesn't vanish for 3 turns
+         (resonance echo: a ghost of the mass lingers, tracked as
+         engine.mass_resonance_echo_turns: int, per-turn decrement). Cap.
+   Reversal: Remove mass_resonance_active flag; zero power bonus, speed
+   bonus, DR bonus immediately.
+   System hooks: player_stats.mass_resonance_power_bonus: int,
+   player_stats.mass_resonance_speed_bonus: int,
+   player_stats.mass_resonance_dr_bonus: int,
+   player_stats.mass_resonance_active: bool, engine.py player-turn-start
+   (count enemies in radius, set bonuses), combat.py melee hit (cleave
+   at L3 — hit all adjacent entities in one pass),
+   engine.mass_resonance_echo_turns: int (L3; per-turn decrement; if > 0
+   keep power bonus from last count frozen).
+
+
+================================================================
+II. WEAK BAD MUTATIONS (2)
+================================================================
+
+Design principle: These impose information and timing penalties that
+alter your play pattern without simply reducing stats. The best ones
+create a specific thing you fear that other builds would ignore entirely.
+
+--
+
+4. AMNESIAC PULSES — "The radiation ate something in your temporal lobe.
+   You keep re-discovering rooms you've been in."
+   Qud inspiration: Amnesia defect — periodically forgets map exploration
+   in an area around the player, forcing re-scouting.
+   Rimworld inspiration: Slow Learning and cognitive degradation genes —
+   losing knowledge you already earned is more punishing than never
+   having it, because it violates your model of safety.
+   Hybrid thesis: An information-decay mutation that removes knowledge
+   rather than stats, punishing backtracking and forcing the player to
+   treat explored areas as unpredictably dangerous again.
+   Effect: Every 30 turns (tracked as engine.amnesiac_pulse_counter: int,
+   per-floor, resets each floor), a pulse fires. The pulse un-explores a
+   6-tile radius around the player's current position — all tiles in that
+   radius are reset from "explored" to "unexplored" in dungeon.explored.
+   They return to fog of war. Enemies in those tiles become hidden again
+   (the player loses the last-seen tile memory for those entities). Items
+   on tiles in the un-explored radius also become invisible until re-stepped.
+   The pulse fires BEFORE the player's action resolves. Message displayed:
+   "Your memory blurs. The map recedes."
+   Note: The FOV tiles the player can CURRENTLY SEE are not un-explored —
+   only tiles outside current FOV within the 6-tile pulse radius are
+   affected. Tiles in current FOV were re-confirmed this turn; the amnesia
+   only erases what you remembered, not what you can see right now.
+   Upgrade (gets worse):
+     L1: Every 30 turns; 6-tile un-explore radius; tiles currently in FOV
+         are NOT un-explored. Items on affected tiles go hidden.
+     L2: Timer drops to every 22 turns. Radius extends to 8 tiles. Also
+         un-explores any item-location markers (items on the fog tiles
+         disappear from memory as before). Additionally, the pulse also
+         clears the player's entity memory for enemies that were last-seen
+         in the pulse radius (engine.last_seen_positions dict cleared for
+         those entities), meaning enemies can surprise you from areas you
+         thought you'd cleared.
+     L3: Timer drops to every 15 turns. Radius 10 tiles. The pulse now also
+         has a 30% chance to apply 1-turn confusion to the player (the
+         amnesia scrambles spatial orientation momentarily). The confusion
+         applies after the un-explore, so the player may walk the wrong way
+         during the first confused turn. Cap.
+   Reversal: Remove amnesiac_pulse_counter, remove amnesiac_pulses_active
+   flag. The already-cleared fog does not return — only future pulses are
+   stopped. The player keeps whatever state the dungeon.explored dict is in
+   at the moment of Shed.
+   System hooks: player_stats.amnesiac_pulses_active: bool,
+   engine.amnesiac_pulse_counter: int (per-floor),
+   engine.py player-turn-start (increment counter, check threshold, fire
+   un-explore pass over dungeon.explored), dungeon.py (provide a
+   radius-clear helper for explored tiles), effects.py ConfuseEffect
+   (already exists; apply at L3 30% chance), engine.last_seen_positions:
+   dict[str, tuple] (entity_id -> last seen (x,y); already exists or add
+   for L2 enemy-memory clearing).
+   --
+
+5. SPONTANEOUS COMBUSTION — "Your body temperature has opinions. Strong
+   ones. Unpredictable ones."
+   Qud inspiration: Spontaneous Combustion defect — the player randomly
+   catches fire with no ability to prevent or predict it.
+   Rimworld inspiration: Fire Spew gene's "dangerous to everyone including
+   yourself" identity + Impid's environmental chaos that makes the player
+   a liability as much as an asset.
+   Hybrid thesis: Chaos timer that damages you but ALSO punishes nearby
+   enemies — the bad effect has real upside in melee range, creating a
+   genuine decision about how close you want to be when the timer fires.
+   Effect: Every 20 turns (tracked as engine.combustion_counter: int,
+   per-floor, resets each floor), roll 30%. On success, the player
+   spontaneously ignites: apply IgniteEffect (3 turns, 2 fire damage/turn)
+   to the player, AND deal 3 splash fire damage to all entities immediately
+   adjacent to the player at the moment of ignition (no save, no roll —
+   proximity is punishment and reward alike). Message: "You burst into
+   flame without warning." The timer resets to 0 after each check whether
+   or not combustion fires.
+   You cannot control when this happens. The splash damage is the ONLY
+   upside and requires you to be in melee range when it fires, which is
+   precisely when fire damage to yourself is most dangerous. The tension
+   is the design.
+   Upgrade (gets worse):
+     L1: Every 20 turns, 30% combustion; 2 fire dmg/turn for 3t; 3 dmg
+         splash to all adjacent entities; timer resets after check.
+     L2: Timer drops to every 15 turns, 40% chance. Player fire damage
+         increases to 3/turn for 4 turns. Splash damage increases to 4.
+         Additionally, if combustion fires while the player is below 50%
+         HP, the ignite duration extends to 6 turns (the weakened body
+         burns longer). The HP check fires at the moment of combustion.
+     L3: Timer drops to every 10 turns, 50% chance. Player fire dmg 4/turn
+         for 5 turns. Splash increases to 5. The low-HP extended burn from
+         L2 is retained (6 turns if below 50% HP). Additionally, at L3 the
+         combustion can no longer be extinguished by the WetEffect — the
+         mutation burns hot enough to steam off moisture. If IgniteEffect
+         would be removed by a Wet application while Spontaneous Combustion
+         is active, the Wet is consumed but the Ignite remains. Cap.
+   Note: The existing fire hazard (entity_type="hazard", hazard_type="fire")
+   already deals fire damage per turn to entities standing on it. This
+   mutation adds a second, player-internal ignite source that uses the same
+   IgniteEffect. The L3 wet-immunity is a flag on the ignite effect applied
+   by this mutation only — combustion_ignite: bool on the IgniteEffect
+   instance signals the wet-purge logic to skip removal.
+   Reversal: Remove spontaneous_combustion_active flag; zero out the counter.
+   If currently ignited by combustion, the ignite is NOT removed on Shed —
+   the existing effect runs its duration.
+   System hooks: player_stats.spontaneous_combustion_active: bool,
+   engine.combustion_counter: int (per-floor), engine.py player-turn-start
+   (counter increment, roll check, apply ignite to player + splash to
+   adjacents), effects.py IgniteEffect (add combustion_ignite: bool field;
+   L3 wet-immunity check), combat.py (splash fire damage helper — same
+   pattern as existing AoE damage passes).
+
+
+================================================================
+III. STRONG GOOD MUTATIONS (3)
+================================================================
+
+Design principle: Strong good mutations should define or enable a build
+identity. Each one creates a completely new gameplay verb that no other
+system in NIGRL currently provides.
+
+--
+
+6. FORCE BARRICADE — "You think hard enough and the air solidifies.
+   It's not pretty, but it holds."
+   Qud inspiration: Force Wall — create a temporary wall of energy that
+   blocks movement and projectiles; terrain creation as a tactical verb.
+   Rimworld inspiration: Foam Spray's tactical utility + charge-gated
+   ability design; resource-constrained terrain alteration.
+   Hybrid thesis: Terrain creation is completely new to NIGRL. No other
+   mutation, item, or ability creates obstacles. This introduces one of
+   the most tactically rich verbs in the genre — controlling space.
+   Effect: Grants the Force Barricade ability (1 charge/floor,
+   ADJACENT_TILE target). The player targets an adjacent tile. A 3-tile
+   line of force-wall entities spawns at that tile, oriented perpendicular
+   to the direction from the player to the target tile (i.e., if you
+   target the tile to your north, the wall runs east-west through that
+   tile). Wall tiles are entity_type="hazard", hazard_type="force_wall",
+   char='#', color=(180, 180, 255). They block movement for all entities
+   including the player. They block gun shots (bullets cannot pass through
+   them). They persist for 12 turns then expire and are removed. Enemies
+   that pathfind into a force wall tile are blocked and must route around.
+   Lasts 12 turns. If a force wall tile would spawn in a wall tile, that
+   wall segment is skipped (the barricade has gaps in corners).
+   Upgrade:
+     L1: 1 charge/floor; 3-tile wall; 12 turns duration; blocks movement
+         and gun shots; perpendicular orientation only.
+     L2: 2 charges/floor; wall extends to 5 tiles; duration increases to
+         18 turns. Additionally, enemies that attempt to move into a force
+         wall tile take 3 psychic damage (the barrier pushes back — not
+         a stun, just damage). This makes the wall an active deterrent
+         rather than just an obstacle.
+     L3: 2 charges/floor (unchanged). Wall extends to 5 tiles. Duration
+         24 turns. The barrier damage increases to 6. Additionally, if
+         the player is inside the closed area formed by the barricade
+         plus existing walls (i.e., fully behind cover), they gain +2 DR
+         for as long as the barricade remains active (cover bonus, tracked
+         as engine.force_barricade_cover: bool, recalculated each turn by
+         checking whether all 8 player-adjacent directions are blocked by
+         wall, force wall, or map edge). Cap.
+   Reversal: Revoke "force_barricade" ability. Existing force wall entities
+   on the map expire naturally — they are not removed on Shed, since they
+   are dungeon entities at that point. The ability simply cannot be used again.
+   System hooks: ABILITY_REGISTRY "force_barricade", ChargeType.PER_FLOOR,
+   spells.py execute (spawn 3 or 5 force_wall entities in a perpendicular
+   line relative to player→target direction vector, check dungeon.is_wall()
+   before each spawn), hazards.py (create_force_wall(x, y, duration)
+   factory function), dungeon.py is_blocked() must recognize force_wall
+   entities as blocking, gun_system.py LOS check must treat force_wall
+   tiles as blocking, engine.py tick (decrement force wall durations, remove
+   expired walls, recalculate cover bonus at L3),
+   engine.force_barricade_cover: bool (L3 per-turn).
+   --
+
+7. BODY JACK — "You reach into their skull with something that isn't
+   your hand. For a few seconds, you ARE them."
+   Qud inspiration: Domination — possess an enemy's body and control it
+   directly; the player's consciousness transfers, leaving their real
+   body vulnerable.
+   Rimworld inspiration: Psychic Bonding risk/reward — your original body
+   is inert and exposed while you're absent; power requires vulnerability.
+   Hybrid thesis: The most complex new verb in the document. Use an enemy
+   as a vehicle — their stats, their position, their HP as a shield. But
+   your body sits still while you're gone, creating genuine tension and
+   the need for careful positioning before activation.
+   Effect: Grants the Body Jack ability (1 charge/floor, SINGLE_ENEMY_LOS,
+   range 5 tiles). Target a visible enemy within 5 tiles. You possess their
+   body for 8 turns. While possessing:
+     - The player's active position becomes the possessed enemy's position.
+       All player movement, melee attacks, and ability use fires from the
+       possessed entity's location using THEIR stats (their power, their
+       defense, their speed).
+     - Your real body goes dormant at your original position. It cannot act.
+       It can be attacked by enemies. If your dormant body takes any damage,
+       possession ends immediately and the damage is applied to your real HP.
+     - If the possessed enemy takes lethal damage while you control them,
+       possession ends immediately: that entity dies, and the player returns
+       to their dormant body position with no damage. The enemy kill counts
+       (XP, loot, gold) for the player.
+     - On natural possession end (8 turns), the possessed entity is stunned
+       for 3 turns and takes 5 psychic damage.
+   Implementation note: This requires a possession_active: bool flag on
+   engine and engine.possessed_entity_id: str|None. During a possessed turn,
+   player input is routed to move/attack the possessed entity instead of the
+   player entity. The player entity has its ai_type temporarily set to
+   "dormant" (new AI mode: do nothing, just sit; enemy attacks are resolved
+   against it normally). This is architecturally non-trivial — see Section V.
+   Upgrade:
+     L1: 1 charge/floor; 5-tile range; 8-turn possession; exit stun 3t,
+         5 psychic dmg; dormant body vulnerable.
+     L2: 1 charge/floor; 6-tile range; 12-turn possession; exit stun 5t,
+         8 psychic dmg. Additionally, if you kill any enemy while possessing
+         the host, those kills grant you the XP and gold as normal. This is
+         clarified in L2 because L1 may be ambiguous — kills credit the player.
+     L3: 2 charges/floor; 7-tile range; 15-turn possession; exit stun 5t,
+         10 psychic dmg. Additionally, if the possessed target DIES while
+         you control them (lethal damage taken), you absorb their remaining
+         psychic energy: gain temp HP equal to 30% of their max HP (the death
+         shock transfers to you). This makes intentional "sacrifice the host"
+         a viable tactic. Cap.
+   Reversal: Revoke "body_jack" ability. If possession is currently active
+   when Shed fires, possession ends immediately and all normal exit conditions
+   apply (stun, psychic damage to host). The player returns to their real body.
+   System hooks: ABILITY_REGISTRY "body_jack", ChargeType.PER_FLOOR,
+   spells.py execute (target valid, set possession_active flag, set dormant
+   marker on player entity), engine.py input routing (check possession_active,
+   redirect player commands to possessed entity), engine.py turn tick
+   (decrement possession turns, handle exit condition), ai.py "dormant"
+   AI mode (skip turn, allow incoming attacks), combat.py death handler
+   (check if dying entity is possessed; if so, end possession, optionally
+   apply L3 temp HP), entity.py possessed_by_player: bool field (used to
+   skip the entity from normal AI processing while possessed).
+   engine.possession_active: bool, engine.possessed_entity_id: str|None,
+   engine.possession_turns_remaining: int.
+   --
+
+8. CORROSIVE AURA — "Something seeps from your pores. It eats metal.
+   It eats skin. Not yours, though."
+   Qud inspiration: Corrosive Gas Generation — persistent area that
+   strips enemy defense over time; the generator is immune to their own
+   product.
+   Rimworld inspiration: Pollution Rush environmental inversion — thrive
+   in your own hazard while everything else withers; the zone around you
+   becomes hostile territory for everyone but you.
+   Hybrid thesis: A passive debuff aura that stacks defense reduction on
+   enemies who stay close — rewarding melee builds that want enemies at
+   range 1, and punishing enemies that cluster around the player.
+   Effect: Passive. Emit a corrosive zone in a 3-tile radius around the
+   player at all times (no activation required). Each turn, ALL enemies
+   within the radius take 1 stack of CorrosiveAuraEffect (new: -1 defense
+   per stack, cap -5 stacks). You are fully immune to your own aura.
+   The stacks persist on the enemy for 4 turns after they leave the radius
+   (the corrosion lingers on their body). If an enemy reaches -5 defense
+   stacks, they take 2 acid damage per turn FOR AS LONG AS THEY REMAIN
+   WITHIN THE RADIUS (the corrosion has eaten through enough to hurt). The
+   damage and defense reduction are tracked via CorrosiveAuraEffect on each
+   enemy individually.
+   Note: The "-1 defense per stack" means an enemy with 3 defense takes
+   only 3 hits before reaching effective 0 defense; at -5 stacks their
+   "effective defense" is their base defense minus 5 (can go negative,
+   making them take more damage than normal). This is aggressive against
+   high-DR enemies specifically — the aura punishes tanks.
+   Upgrade:
+     L1: 3-tile radius; -1 DR/stack per turn in radius; cap -5; 4-turn
+         stack persistence after leaving radius; 2 acid dmg/turn at -5 stacks.
+     L2: Radius extends to 4 tiles. Stack cap increases to -7 DR. Acid
+         damage at cap increases to 3/turn. Additionally, the corrosive
+         residue you leave behind persists on the floor: tiles the player
+         stood on for 2+ consecutive turns become CorrosiveTile hazards for
+         4 turns (dungeon.corrosive_tiles: dict[tuple, int] = {(x,y): turns_remaining};
+         any enemy stepping on a corrosive tile takes 1 stack of CorrosiveAuraEffect
+         at the start of their turn on that tile). This makes your movement
+         path dangerous for enemies.
+     L3: Radius 5 tiles. Stack cap -8 DR. Acid damage at cap 4/turn.
+         Corrosive tiles persist (L2). Additionally, enemies at the -5+
+         stack threshold (not just cap) that die within the radius explode
+         in a corrosive burst: 3-tile radius of their corpse, deal 4 acid
+         damage to all entities in range (enemies only — not the player,
+         who is immune). This creates chain-reaction potential in clustered
+         fights. Cap.
+   Reversal: Remove corrosive_aura_active flag. Existing CorrosiveAuraEffect
+   stacks on enemies expire naturally — they are not purged on Shed. Corrosive
+   tiles on the dungeon floor also expire naturally.
+   System hooks: player_stats.corrosive_aura_active: bool,
+   engine.py turn tick (for each enemy within radius, apply/refresh
+   CorrosiveAuraEffect or increment stack count), effects.py
+   CorrosiveAuraEffect (new: tracks stacks as self.stacks: int; each
+   tick decrements duration; on tick apply acid damage if stacks >= 5;
+   modify_incoming_damage subtracts stacks from defender.defense),
+   dungeon.py corrosive_tiles: dict[tuple, int] (L2; cleared on floor change),
+   engine.py player move (L2: check if player stood on tile 2+ turns;
+   create corrosive tile entry), combat.py (L3: on enemy death, check if
+   in radius and stacks >= 5, apply corrosive burst AOE).
+
+
+================================================================
+IV. STRONG BAD MUTATIONS (2)
+================================================================
+
+Design principle: Strong bad mutations should create escalating, inescapable
+pressure that permanently changes how you play the run. The best ones are
+things you can work around but never ignore.
+
+--
+
+9. EVIL TWIN — "There's another you. It's angrier. It knows where you sleep."
+   Qud inspiration: Evil Twin defect — a hostile copy of you spawns on the
+   map and hunts you exclusively; no enemy AI, just pursuit.
+   Rimworld inspiration: Aggressive/Hyper-Aggressive gene escalation + Kill
+   Thirst's "something is hunting you" constant background tension; the threat
+   that scales with how dangerous you've become.
+   Hybrid thesis: An uncounterable procedural threat that scales with your
+   power (because the Twin has your stats). The more dangerous you become,
+   the more dangerous your shadow becomes. Equipment slot constraint makes
+   it a physical manifestation, not just a mechanic tax.
+   Effect: At the start of each floor, one Shadow Twin spawns at a random
+   map location. The Twin is a new enemy entity (enemy_type="shadow_twin")
+   with the player's current melee power, defense, and 70% of the player's
+   max HP. It is hostile to the player only — it ignores all other enemies
+   and cannot be provoked by them. AI mode: CHASING (always; ignores FearEffect,
+   ConfuseEffect, StunEffect has full duration but does not prevent subsequent
+   chase). The Twin always spawns — there is no way to prevent it.
+   On kill: gain temp HP equal to 5 + (mutation_levels["evil_twin"] * 3)
+   and +1 melee power for the rest of the floor (absorbing the shadow's energy).
+   Equipment constraint: Cannot equip the hat slot (the Shadow Twin maintains a
+   spiritual link through your exposed head; covering it severs the link but
+   costs you your shadow's kill reward potential — actually: no hat means the
+   player suffers a passive -2 SWG while this mutation is active because the
+   exposed head is a vulnerability, NOT because wearing a hat is forbidden.
+   The mechanical constraint is: player_stats.evil_twin_swagger_penalty = -2,
+   permanently active; hats still work but this penalty does not go away).
+   Note: The flavor of "can't wear hat" was compelling but mechanically
+   hard to enforce without UI complications. Instead: the -2 SWG reflects
+   the exposed, vulnerable head. The player can wear a hat if they want
+   but the penalty remains.
+   If the Twin lands 3 successful hits on the player during a floor, it
+   steals 1 permanent point from a random stat (engine randomly picks a
+   stat from the six and decrements its _base value by 1; min 1 for any
+   stat; displayed in message log: "The twin takes something from you.").
+   The Twin ALWAYS spawns. You must kill it or outlast it.
+   Upgrade (gets worse):
+     L1: Twin has 70% player max HP; 3 hits needed for stat theft; on-kill
+         reward: +5 temp HP, +1 melee power (floor); -2 SWG passive penalty.
+     L2: Twin has 100% player max HP. Hits required for stat theft drops to 2.
+         On-kill reward unchanged (+5 temp HP, +1 melee power). Additionally,
+         the Twin now mimics the player's highest stat at a 50% bonus (+2 to
+         whatever the player's highest stat is — this is a dynamic calculation
+         each time the Twin is spawned). The Twin becomes competent at what
+         you're competent at.
+     L3: Twin has 130% player max HP, +2 melee power bonus over the player's
+         current power. Stat theft on 1 hit. On-kill reward increases: +10 temp
+         HP, +2 melee power (floor). The Twin is now your mirror at its worst.
+         Additionally, if the Twin is alive when the player reaches the stairs,
+         it BLOCKS the exit — the player cannot descend until the Twin is killed.
+         The Twin moves to the stair tile and occupies it. This enforces a final
+         confrontation. Cap.
+   Reversal (Shed): Remove evil_twin_swagger_penalty, remove spawn logic.
+   The Twin currently on the floor is not removed — it persists until killed
+   or the floor is exited. Future floors spawn no Twin. The existing Twin
+   can still steal stats if it lands hits before dying.
+   System hooks: enemies.py MONSTER_REGISTRY "shadow_twin" (special spawn
+   entry; power/defense/hp derived from player at spawn time via
+   engine.player_stats context; spawn_weight=0; only spawned by mutation
+   system), engine.py floor-start (check evil_twin_active, spawn Shadow Twin),
+   ai.py (CHASING always, immunity to confuse/fear direction change; stun still
+   applies duration but target resumes chase after), combat.py player death /
+   stat-theft handler (engine.evil_twin_hits_this_floor: int; on 3/2/1 hits,
+   decrement random stat _base), engine.py stair-exit check (L3: block if
+   shadow_twin entity alive on this floor), player_stats.evil_twin_swagger_penalty: int.
+   --
+
+10. GLIMMER BUILDUP — "They can feel you thinking. Every time you flex
+    that gift, something in the dark takes notice."
+    Qud inspiration: Esper Glimmer system — every use of a mental mutation
+    or ability accumulates Glimmer, which attracts increasingly dangerous
+    psychic-hunter enemies; the more power you use, the more you advertise
+    yourself.
+    Rimworld inspiration: Freak Magnet's "mutations attract enemies" +
+    Kill Thirst's escalating consequence structure; punishment that compounds
+    rather than resets.
+    Hybrid thesis: Directly punishes ability-heavy builds in a game where
+    abilities are otherwise always good. Creating synergistic conflict with
+    Psychic Amplifier (Strong Good, which rewards ability use) — having both
+    creates a volatile push-pull that is the design goal. The Glimmer counter
+    NEVER resets and NEVER decreases.
+    Effect: Each time the player fires ANY ability from ABILITY_REGISTRY,
+    engine.glimmer_stacks (run-persistent int, never resets, never decreases)
+    increments by 1. At specific thresholds, a special Glimmer Hunter enemy
+    spawns on the CURRENT floor immediately:
+      Threshold 5:  1 Glimmer Scout spawns (fast, low HP, AI mode ALERTING —
+                    it chases you AND alerts every other enemy on the floor
+                    to your position the turn it spots you).
+      Threshold 10: 1 Glimmer Stalker spawns (medium, CHASING, has a psychic
+                    bolt ability: SINGLE_ENEMY_LOS, 6 range, 5 dmg bypassing
+                    armor, on hit applies "silenced" debuff for 3 turns —
+                    new SilencedEffect: prevents ability use for duration).
+      Threshold 15: 1 Glimmer Reaper spawns (strong, CHASING, AoE psychic
+                    scream ability: 3-tile radius AOE around itself, 4 dmg to
+                    all entities in range, applies ConfuseEffect for 4 turns
+                    to all affected).
+      Each 5 beyond 20: 1 additional Glimmer Reaper spawns.
+    All Glimmer Hunters are hostile to the player only (ignore other enemies).
+    They spawn at a random unblocked tile more than 5 tiles from the player.
+    Glimmer Scouts can spot the player at 8 tiles range (larger than normal
+    sight radius) — the psychic sensitivity makes them acute.
+    Upgrade (gets worse):
+      L1: Thresholds: 5/10/15/+5; standard hunter stats above.
+      L2: Thresholds drop to 3/7/12/+4. Glimmer Hunters gain +1 defense and
+          +1 power. Glimmer Scouts additionally have a 20% chance on alerting
+          to permanently reduce the player's next-ability charge by 1 (the
+          alert disrupts your concentration — charge loss is permanent for
+          that ability's current charge count).
+      L3: Thresholds drop to 2/5/9/+3. Hunters gain +2 defense and +2 power.
+          Glimmer Reapers now have a 20% chance on death to split: spawn a
+          second Reaper at the death location (the psychic rupture of death
+          echoes). This means killing a Reaper can beget another Reaper with
+          20% probability. Additionally, at L3 the SilencedEffect from Stalkers
+          now lasts 5 turns instead of 3. Cap.
+    Note: This mutation has direct synergistic conflict with Psychic Amplifier
+    (Strong Good — amplifies ability damage/range). A player with both gets
+    stronger abilities AND more frequent Glimmer Hunters. The tension between
+    these two mutations is intentional and creates the most interesting build
+    decision in the mutation system. It is not a trap — it is a risk/reward
+    dial. The player who manages their ability use carefully can leverage both.
+    Reversal (Shed): Remove glimmer_buildup_active flag. glimmer_stacks value
+    is NOT reset — the psychic signature is already out there. Future ability
+    uses no longer increment the counter. Hunter spawning logic is disabled.
+    Any Glimmer Hunters currently on the floor remain until killed.
+    System hooks: player_stats.glimmer_buildup_active: bool,
+    engine.glimmer_stacks: int (run-persistent; serialized in save),
+    abilities.py or engine.py ability fire path (_fire_ability or equivalent:
+    after successful ability execution, check glimmer_buildup_active and
+    increment glimmer_stacks, then check thresholds and spawn accordingly),
+    enemies.py MONSTER_REGISTRY "glimmer_scout", "glimmer_stalker",
+    "glimmer_reaper" (spawn_weight=0; stats defined; glimmer_scout AI
+    mode: alert_on_sight_then_chase; glimmer_stalker: CHASING with psychic
+    bolt special attack; glimmer_reaper: CHASING with AOE scream special
+    attack), effects.py SilencedEffect (new: dur=3 or 5; before_turn hook
+    returns "silenced" to block ability input), engine.py ability dispatch
+    (check silenced effect before allowing ability use),
+    engine.glimmer_thresholds_triggered: set[int] (track which thresholds
+    have already spawned their hunter — each threshold spawns exactly once;
+    re-entrant protection needed since glimmer is run-persistent and you
+    only want to spawn on first crossing, not every check).
+
+
+================================================================
+V. IMPLEMENTATION NOTES — NEW ENGINE/PLAYERSTAT FIELDS
+================================================================
+
+NEW engine.py per-turn / per-floor fields:
+  horn_charge_dir: tuple|None        — direction of current move chain
+                                        (dx, dy); reset at start of each
+                                        player turn.
+  horn_charge_distance: int          — consecutive steps in horn_charge_dir;
+                                        reset at start of each player turn.
+  amnesiac_pulse_counter: int        — per-floor; increments per player turn;
+                                        reset on floor change.
+  combustion_counter: int            — per-floor; same pattern as narcoleptic.
+  mass_resonance_echo_turns: int     — per-turn; decrement; if > 0 freeze
+                                        last power bonus.
+  force_barricade_cover: bool        — per-turn; recalc each player turn if
+                                        force barricade is active.
+  possession_active: bool            — run-persistent (clears on possession end).
+  possessed_entity_id: str|None      — entity id of currently possessed host.
+  possession_turns_remaining: int    — decrements per turn while possessed.
+  evil_twin_hits_this_floor: int     — per-floor; tracks hits for stat theft.
+  glimmer_stacks: int                — RUN-PERSISTENT; never resets; serialized.
+  glimmer_thresholds_triggered: set[int] — RUN-PERSISTENT; which thresholds
+                                        have already spawned their Hunter.
+
+NEW player_stats fields:
+  horn_growth_active: bool
+  mass_resonance_active: bool
+  mass_resonance_power_bonus: int
+  mass_resonance_speed_bonus: int
+  mass_resonance_dr_bonus: int
+  amnesiac_pulses_active: bool
+  spontaneous_combustion_active: bool
+  corrosive_aura_active: bool
+  evil_twin_swagger_penalty: int  (static -2 while active)
+  glimmer_buildup_active: bool
+
+NEW dungeon fields:
+  corrosive_tiles: dict[tuple, int]  — (x,y) -> turns_remaining; L2 Corrosive
+                                        Aura; cleared on floor change.
+
+NEW entity fields:
+  possessed_by_player: bool          — skips from normal AI processing while True.
+  evil_twin_entity: bool             — marks the shadow_twin entity; used for
+                                        stair-blocking logic at L3.
+
+NEW SAVE SYSTEM:
+  glimmer_stacks and glimmer_thresholds_triggered must be serialized in
+  save_system.py as they are run-persistent. Pattern: add to engine's
+  serialization dict alongside existing run-persistent fields like
+  mutation_levels, soul_shards, etc.
+
+
+================================================================
+VI. NEW EFFECTS REQUIRED
+================================================================
+
+CorrosiveAuraEffect (id="corrosive_aura_stacks")
+  Category: debuff. Applied per-turn to enemies in Corrosive Aura radius.
+  Fields: stacks: int (increments each turn in range).
+  tick(): decrement duration normally. If stacks >= 5, deal 2/3/4 acid
+          damage (scales with mutation level, pass as effect param).
+  modify_incoming_damage(): subtract self.stacks from defender's defense
+                             total before damage calculation.
+  expire(): stacks lost.
+  Note: Stacks don't accumulate in the traditional sense — each turn in
+  radius adds 1 stack up to cap. Leaving radius does NOT reset stacks;
+  they persist for 4 turns (the duration of the effect at point of leaving).
+
+MassResonanceStaggerEffect (id="mass_resonance_stagger")
+  Category: debuff. Applied to enemies adjacent to player after melee hit
+  at L2 Mass Resonance.
+  Duration: 1 turn.
+  modify_incoming_damage() / before_turn: reduce next attack damage by 2.
+  Note: L2 only; replaced by cleave at L3.
+
+SilencedEffect (id="silenced")
+  Category: debuff. Prevents ability use.
+  Duration: 3 turns (5 at Glimmer Buildup L3).
+  before_turn hook: if silenced, set a flag that blocks ability menu
+                    access in input_handler.py or engine.py ability
+                    dispatch. Message: "You are silenced — abilities
+                    unavailable."
+  Note: Does NOT prevent item use or physical attacks. Only blocks the
+  ABILITY_REGISTRY activation pathway.
+
+
+================================================================
+VII. NEW ABILITIES REQUIRED
+================================================================
+
+"chain_discharge"
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: INFINITE (with cooldown)
+  Cooldown: 5 / 4 / 3 turns (by mutation level)
+  Execute: shoot primary bolt → apply shocked/wet to target → BFS nearby
+           entities within chain_range tiles → apply chain bolts → resolve
+           death discharge at L3.
+
+"force_barricade"
+  TargetType: ADJACENT_TILE
+  ChargeType: PER_FLOOR (1 charge at L1, 2 at L2/L3)
+  Execute: compute perpendicular line from player→target direction vector
+           → spawn 3/5 force_wall hazard entities along that line →
+           check each spawn point for wall collision before placing.
+
+"body_jack"
+  TargetType: SINGLE_ENEMY_LOS
+  ChargeType: PER_FLOOR (1 at L1/L2, 2 at L3)
+  Range: 5 / 6 / 7 tiles (check during execute)
+  Execute: set possession_active=True, possessed_entity_id=target.id,
+           set target.possessed_by_player=True, set player.ai_type to
+           "dormant" (or equivalent dormant flag), set
+           possession_turns_remaining.
+
+NEW HAZARD TYPE:
+  hazard_type="force_wall"
+  char='#', color=(180, 180, 255) (pale blue)
+  Blocks movement: yes (must be recognized by dungeon.is_blocked())
+  Blocks LOS: yes (for gun targeting)
+  Duration: per-entity field (set at spawn)
+  No damage on contact (L1); barrier push damage (3 / 6 dmg) at L2/L3
+    applied in engine.py entity-move check when entity attempts to enter
+    force_wall tile.
+
+NEW ENEMY TYPES (spawn_weight=0; mutation-exclusive spawns):
+  "shadow_twin"    — stats derived from player at spawn time; hostile player-only;
+                     AI: CHASING always; ignores fear/confuse direction change.
+  "glimmer_scout"  — fast, low HP; AI: alert then chase; 8-tile sight;
+                     special: on first sight of player, alert all enemies.
+  "glimmer_stalker" — medium; AI: CHASING; special_attack: psychic bolt
+                      (SINGLE_ENEMY_LOS, 6 range, 5 dmg no-armor, apply
+                      SilencedEffect 3t).
+  "glimmer_reaper" — strong; AI: CHASING; special_attack: psychic scream
+                      (AOE_CIRCLE 3 radius, 4 dmg, ConfuseEffect 4t to all
+                      in range); L3: 20% death-spawn second Reaper.
+
+
+================================================================
+VIII. BALANCE NOTES
+================================================================
+
+WEAK GOOD tier calibration:
+  Horn Growth: charge bonus of distance*2 at L2 means a 4-step charge
+  deals 8 bonus damage. Against Crack Den floor 2 enemies (30-50 HP),
+  this is meaningful but not decisive — you still need to maneuver. The
+  setup cost (needing 2-3 open tiles of run-up) prevents it from being
+  reliable in cramped corridors. Strong in the larger room types
+  (Oct, Circle, Cross); weaker in Hall and L-shaped rooms.
+
+  Chain Discharge: L1 deals at most 7+count//3 primary + 4+count//4 chain.
+  At mutation_count 6 (late run), that's 9+5 = 14 total potential damage.
+  For comparison, Acid Spit L1 deals 8+2 = 10 to one target. Chain Discharge
+  trades range for multi-target and requires clustering. Balanced: Acid Spit
+  is better single-target, Chain is better in groups. At L3 death discharges
+  can chain — that's the payoff for the weak-tier investment.
+
+  Mass Resonance: +1 power per enemy within 4 tiles. At 3 enemies, +3 power
+  and +10 speed. Against floor 3-4 content, player with 12 STR hits for
+  roughly 12+weapon_bonus power. +3 power in a 3-enemy surround is a 25%
+  power increase — strong but temporary. The downside is you are surrounded.
+  At L2 (+2/enemy, +20 speed), being surrounded by 4 is +8 power — this
+  approaches broken territory but is gated behind actively being mobbed,
+  which is dangerous. Recommend monitoring in playtesting and capping L2
+  power bonus at +6 total if needed.
+
+WEAK BAD tier calibration:
+  Amnesiac Pulses: A 6-tile radius un-explore every 30 turns is annoying
+  but not dangerous — the current-FOV protection means you can't be
+  immediately ambushed. The real pain is re-scouting rooms you thought
+  were clear. At L3 (15 turns, 10 tiles, 30% confuse), this becomes a
+  severe information tax. Comparable to Myopia in severity at base level,
+  significantly worse at L3.
+
+  Spontaneous Combustion: 30% every 20 turns means expected combustion
+  roughly every 66 turns. Across a 4-floor run (~300 player turns/floor
+  estimated), that's about 18 combustion events total at L1. Each costs
+  6 HP (2/turn x 3 turns) = ~108 HP total. Player max HP ~130 at CON 10.
+  This is a meaningful but survivable drain. The upside (3 splash to
+  adjacent enemies) is worth ~9 total damage if consistently surrounded.
+  At L3 (50% every 10 turns), expected combustion every 20 turns, far more
+  dangerous — but at 4 turns or 8 if below 50% HP. This is brutal late
+  run. Intended: L3 makes this mutation genuinely threatening.
+
+STRONG GOOD tier calibration:
+  Force Barricade: 1/floor terrain creation is an extraordinary effect.
+  Comparable power level to Frog Legs Leap or Body Jack in tactical
+  impact. Balance concern: can the player cheese certain rooms by
+  barricading the only entrance? Answer: yes, but 1 charge/floor limits
+  this to one encounter. The 12-turn duration means enemies can simply wait
+  for the wall to drop. The tactical depth is the tradeoff: creating the
+  wall takes resources and positioning. At L2/L3 with 2 charges, becomes
+  a serious tactical tool. Appropriately rare (Strong Good).
+
+  Body Jack: 1/floor possession is powerful but extremely risky. The
+  dormant body being vulnerable creates genuine counterplay. An aggressive
+  enemy pack can kill your real body mid-possession, which ends with a
+  now-hostile possessed enemy (who may attack your just-returned, low-HP
+  self). This is the defining tension of the mutation. L3's 2 charges per
+  floor makes it a core build identity for a "puppetmaster" run.
+
+  Corrosive Aura: The -1 DR/stack per turn in radius creates a ramp-up
+  time before the aura is effective. Against a 3-DR enemy, the aura needs
+  3 turns in range to neutralize defense, 5 more to cap and deal acid.
+  This is too slow against fast enemies but devastating against slow,
+  high-DR targets. The corrosive tiles at L2 reward careful path planning.
+  L3 death explosions can chain if enemies have pre-stacked corrosion.
+  Appropriately complex for Strong Good tier.
+
+STRONG BAD tier calibration:
+  Evil Twin: A monster with the player's stats appears every floor. At
+  floor 1 (player ~12 power, ~15 defense typical), the Twin is a real
+  threat with 70% player HP. It cannot be ignored — it always chases.
+  The stat theft (3 hits → -1 permanent stat) is the run-ending consequence
+  players fear. Kill reward (+5 temp HP, +1 melee power) is enough to
+  make the fight worth having. L3 stair-blocking is the signature moment —
+  the final floor always forces a confrontation with your shadow before the
+  boss. A deeply roguelike design: escalating, inescapable, fair.
+
+  Glimmer Buildup: Ability-heavy builds (Blackkk Magic, Mutation synergies,
+  Deep Frying) can easily hit 15+ Glimmer over a run. Glimmer Scout at 5
+  stacks is annoying but manageable. Stalker at 10 is a genuine threat
+  (silence duration cuts into combat tempo). Reaper at 15 is a boss-tier
+  encounter. The never-decreasing counter means ability-heavy builds feel
+  this mutation compound over the run — it does not reset between floors.
+  A player who carefully limits ability use can keep below 10 Glimmer
+  indefinitely. The tension is in that discipline against powerful
+  ability synergies. Balanced for its tier: the upside of abilities
+  doesn't change; the downside is measured in hunters, not stat nerfs.
+  Psychic Amplifier conflict: having both mutations is a build archetype,
+  not a trap. It rewards skillful management of Glimmer vs. ability
+  investment.
+
+INTERACTIONS OF NOTE:
+  - Horn Growth + Extra Joints: Extra Joints grants free movement step on
+    stunned-enemy hit. Horn Growth gives +2 stun on charge at L3. These
+    synergize: charge → stun → free step → charge again if enough distance.
+    Strong synergy; monitor for looping.
+  - Mass Resonance + Hemorrhagic Aura (Strong Good): Hemorrhagic Aura
+    procs bleed on enemies near you. Mass Resonance rewards being surrounded.
+    Both want enemies close. Combined, this is a high-risk melee identity.
+  - Corrosive Aura + Venom Nodes: Both require enemies to stay in melee range
+    to stack their effects. The aura strips DR; venom adds DoT. Very synergistic
+    melee combination.
+  - Glimmer Buildup + Psychic Amplifier: The intended tension pairing (see
+    above). Having both is a build option, not a mistake.
+  - Evil Twin + Blood Memory: Every floor, you are guaranteed a fight with
+    the Twin. Blood Memory Surge rewards kills with 2x XP. Killing the Twin
+    gives a surge. The Twin fight becomes a scheduled XP event.
+  - Spontaneous Combustion + Toxic Metabolism (Weak Good): The player takes
+    fire damage, which is NOT tox — these don't synergize mechanically, but
+    the flavor of "burning and poisoned" is thematic. Combustion does NOT
+    add toxicity, so Toxic Metabolism speed bonus is unaffected by combustion.
+  - Body Jack + Neural Static: While possessing an enemy, the Neural Static
+    aura is centered on the POSSESSED ENTITY (your active position), not
+    your dormant body. Enemies surrounding your possessed host get the crit
+    reduction aura. This is an interesting edge case — rule: aura effects
+    apply at the player's active position (possessed or real).

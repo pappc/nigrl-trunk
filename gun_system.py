@@ -636,6 +636,10 @@ def _resolve_cone_shot(engine, tx, ty):
     cw_bonus = _cw_damage_bonus(engine, gun_defn)
     min_dmg += cw_bonus
     max_dmg += cw_bonus
+    _edb = getattr(gun, "enchant_damage_bonus", None)
+    if _edb:
+        min_dmg += _edb[0]
+        max_dmg += _edb[1]
 
     # Determine ammo to use and projectile count
     ammo_per_shot = gun_defn.get("ammo_per_shot", (1, 1))
@@ -749,6 +753,10 @@ def _resolve_circle_shot(engine, tx, ty):
     cw_bonus = _cw_damage_bonus(engine, gun_defn)
     min_dmg += cw_bonus
     max_dmg += cw_bonus
+    _edb = getattr(gun, "enchant_damage_bonus", None)
+    if _edb:
+        min_dmg += _edb[0]
+        max_dmg += _edb[1]
     aoe_radius = gun_defn.get("aoe_radius", 2)
 
     # Consume ammo
@@ -785,6 +793,24 @@ def _resolve_circle_shot(engine, tx, ty):
 
     # Get blast tiles and find targets
     blast_tiles = set(_get_gun_circle_tiles(engine, ex, ey, aoe_radius))
+
+    # Animation: projectile trail + explosion ripple
+    sdl = getattr(engine, "sdl_overlay", None)
+    if sdl:
+        # Build projectile path from player to explosion center
+        trail = []
+        dx_t, dy_t = ex - px, ey - py
+        steps = max(abs(dx_t), abs(dy_t))
+        if steps > 0:
+            for s in range(1, steps + 1):
+                trail.append((round(px + dx_t * s / steps), round(py + dy_t * s / steps)))
+            sdl.add_tile_flash_trail(trail, color=(200, 200, 180), duration=0.25, trail_speed=0.02)
+        # Explosion ripple over blast area
+        sdl.add_tile_flash_ripple(
+            list(blast_tiles), ex, ey,
+            color=(255, 100, 20), duration=0.8, ripple_speed=0.05,
+        )
+
     kills = []
 
     # Damage all alive monsters in blast radius
@@ -847,6 +873,10 @@ def _resolve_gun_shot(engine, tx, ty):
     cw_bonus = _cw_damage_bonus(engine, gun_defn)
     min_dmg += cw_bonus
     max_dmg += cw_bonus
+    _edb = getattr(gun, "enchant_damage_bonus", None)
+    if _edb:
+        min_dmg += _edb[0]
+        max_dmg += _edb[1]
 
     # Consume ammo
     gun.current_ammo = max(0, gun.current_ammo - 1)

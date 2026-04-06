@@ -1,0 +1,727 @@
+BODY REPLACEMENT MUTATIONS — 20 NEW MUTATIONS
+================================================
+NIGRL Roguelike — Mutation Overhaul Appendix #3
+Inspired by: Caves of Qud body-slot mutations, CDDA mutation chains
+Purpose: 20 mutations that GROW biological replacements for body parts.
+         Your body becomes the equipment. You don't wear gear — you ARE gear.
+
+Design philosophy (from Qud and CDDA):
+  In Qud, mutations like Carapace, Stinger, Horns, and Burrowing Claws physically
+  alter your body. They block equipment slots but grant permanent natural weapons
+  or defenses. In CDDA, mutation chains evolve: Claws → Talons → Retractable Talons.
+  Your body progressively transforms until equipment is irrelevant.
+
+  These 20 mutations follow that pattern. Every single one grows something on your
+  body that replaces or transforms an equipment slot. The mutation IS the item.
+  No stat buffs. No percentage tweaks. Actual new body parts with their own rules.
+
+Numbering: Categories get entries 31-35 (extending from previous 26-30 slot mutations).
+
+
+================================================================
+WEAK GOOD MUTATIONS (31-35)
+================================================================
+
+31. BARBED KNUCKLES — "Bone hooks punched through your skin. Brass knuckles, but forever."
+    Body part: HANDS (replaces weapon slot)
+    Your fists have grown hooked bone protrusions. You cannot equip weapons — your
+    hands ARE the weapon. Base 5 power, weapon_type "beating." Every melee hit has a
+    25% chance to hook the enemy in place — the target cannot move away from you for
+    1 turn (they can still attack, they just can't flee). This is a "snare" effect,
+    not a root — the enemy chooses its action, but movement options that increase
+    distance from you are blocked.
+    Upgrade:
+      L1: 5 power (beating), weapon locked, 25% snare on hit (1 turn).
+      L2: 7 power. 35% snare chance. Snare duration extends to 2 turns. Additionally,
+          snared enemies take +2 damage from your hits (the hooks dig in deeper when
+          they try to pull away). This bonus only applies while the snare is active.
+      L3: 9 power. 45% snare. 2-turn snare. +3 bonus damage to snared. Additionally,
+          the hooks can grab items off the ground as a free action when you walk
+          over them (instant pickup, no turn cost) — your barbs catch everything.
+          This includes gold piles. Cap.
+    Note: Snare is implemented as a SnaredEffect on the enemy: movement actions that
+    would increase distance from the player are blocked (checked via pathfinding
+    heuristic — if the target tile is farther from player than current tile, blocked).
+    The enemy can still move sideways or toward you.
+    Inspired by: Qud's Stinger (extra natural weapon that occupies a body slot) and
+    CDDA's Talons (natural weapon that replaces gloves slot).
+    Reversal: Remove barbed_knuckles_active; restore weapon slot to empty.
+    System hooks: combat.py melee hit (snare proc), effects.py SnaredEffect (new:
+    blocks distance-increasing movement), engine.py equip validation (lock weapon),
+    inventory_mgr.py (L3 free pickup).
+
+32. CALCIFIED SHINS — "Your lower legs are solid bone now. Steel-toed nothing."
+    Body part: LOWER LEGS (replaces feet slot)
+    Your shins and feet have calcified into solid bone columns. Cannot equip boots.
+    Benefits: immune to leg-targeting status effects (future content — for now,
+    immune to the "slow" component of grease tiles). Your kicks deal 3 damage
+    as a free bonus hit on every melee attack (the calcified leg swings through
+    on the follow-through of every punch/weapon swing). This is a guaranteed
+    extra hit, similar to Qud's Stinger extra attack.
+    Upgrade:
+      L1: Feet locked; grease-slow immune; +3 bonus kick on every melee (armor-piercing).
+      L2: Kick increases to +5 damage. Additionally, enemies you kill with a kick
+          (the kick is the hit that drops them to 0 HP) are launched 2 tiles backward
+          — if they collide with another enemy, the second enemy takes 4 impact damage.
+          Corpse-as-projectile flavor.
+      L3: Kick +7 damage. Corpse launch 3 tiles, 6 impact damage on collision.
+          Additionally, your movement through enemies that are stunned, rooted, or
+          snared is free — you can walk through them (trampling them for 2 damage as
+          you pass). You end up on the other side. This only works on crowd-controlled
+          enemies, not alert ones. Cap.
+    Note: The kick damage is a separate damage instance resolved after the main melee
+    attack. It uses the player's STR scaling but ignores weapon type. The kick always
+    fires, even if the main attack misses (you swing and miss but your leg connects).
+    Inspired by: Qud's Horns (body-part attack that fires on movement/charge) and
+    CDDA's Hooves (natural weapon replacing feet slot with trample ability).
+    Reversal: Remove calcified_shins_active; restore feet slot; remove kick logic.
+    System hooks: combat.py melee (bonus kick damage instance), engine.py movement
+    (L3 trample through CC'd enemies), combat.py entity_died (L2 corpse launch),
+    engine.py equip validation (lock feet).
+
+33. MEMBRANE COWL — "A translucent membrane grew over your head. You can see through it. Barely."
+    Body part: HEAD (replaces hat slot)
+    A thin, tough membrane has grown over your skull and face like a biological
+    hood. Cannot equip hats. The membrane filters airborne contaminants: you gain
+    +15% toxicity resistance (the membrane captures tox particles before they reach
+    your lungs). Additionally, the membrane is slightly adhesive — small projectiles
+    (darts, splinters from future content) stick to it instead of penetrating.
+    For now: incoming gun damage is reduced by 2 (flat reduction, the membrane
+    catches fragments).
+    Upgrade:
+      L1: Hat locked; +15% tox resistance; incoming gun damage -2.
+      L2: +25% tox resistance; gun damage -3. Additionally, the membrane can
+          inflate briefly — grants the Membrane Puff ability (INFINITE charges,
+          SELF target, 8t cooldown): inflate the membrane around your head for
+          2 turns, during which ALL incoming ranged damage is reduced by 50%
+          (the membrane acts as a deflection bubble).
+      L3: +35% tox resistance; gun damage -4. Membrane Puff cooldown drops to 5t,
+          deflection 60%. Additionally, enemies that hit you in melee while Puff
+          is active are splashed with membrane secretion — they gain 5 tox
+          (the membrane oozes when compressed). Cap.
+    Note: The tox resistance is a permanent passive. The gun damage reduction is flat
+    and applied after normal armor/DR calculations. Membrane Puff is a short defensive
+    window specifically against ranged attacks — useless in pure melee encounters.
+    Inspired by: CDDA's Thick Skin / Bark Skin (natural armor that blocks equipment)
+    and Qud's Carapace (activated defensive ability on a body-replacing mutation).
+    Reversal: Remove membrane_cowl_active; revoke "membrane_puff" ability; restore hat slot.
+    System hooks: player_stats.membrane_cowl_active, gun_system.py incoming damage
+    (flat reduction), combat.py tox resistance, ABILITY_REGISTRY "membrane_puff",
+    effects.py MembraneDeflectionEffect (ranged damage reduction).
+
+34. GRASPING TENDRILS — "Finger-like growths sprouted from your palms. Rings slide right off."
+    Body part: HANDS/FINGERS (replaces ring slots — lose 3 of 5 ring slots)
+    Tendrils have grown from your palms, replacing three of your fingers with
+    elongated prehensile appendages. You lose 3 ring slots (down to 2). In exchange,
+    the tendrils grant +1 melee reach — you can attack enemies 2 tiles away (not just
+    adjacent). The tendril strike hits the target tile AND the tile between you and
+    the target (line attack, like a short whip). Both tiles take your full melee damage.
+    Upgrade:
+      L1: Lose 3 ring slots (2 remaining); +1 melee reach (hit 2 tiles in a line).
+      L2: Reach stays +1. Additionally, when you hit an enemy at 2-tile range, the
+          tendrils grab and pull the enemy 1 tile toward you (bringing them to melee
+          range for your next turn). This pull is automatic and free.
+      L3: Reach stays +1. Pull on hit. Additionally, the tendrils can disarm enemies —
+          when you hit an enemy at 2-tile range, there is a 20% chance to knock their
+          weapon to the ground (the weapon entity is placed at the enemy's feet as a
+          droppable item). Disarmed enemies deal unarmed damage until they pick it up
+          on their next move action. Cap.
+    Note: The 2-tile reach attack is resolved as a LINE_FROM_PLAYER targeting with
+    length 2. It hits all valid targets in the line. This makes corridor combat very
+    strong — you can hit 2 enemies in a line from safety.
+    Inspired by: CDDA's Tentacles (extra appendage that grapples at range) and
+    Qud's Multiple Arms (extra attack appendages that cost body slots).
+    Reversal: Remove grasping_tendrils_active; restore 3 ring slots (empty).
+    System hooks: combat.py melee attack (reach extension, line hit), engine.py
+    ring slot count (reduce by 3), ai.py (L2 pull on hit), combat.py (L3 disarm).
+
+35. SPORE SAC — "A fleshy pouch on your shoulder. It puffs when you're stressed."
+    Body part: SHOULDER (replaces outfit slot — the growth is too large for clothing)
+    A biological sac has grown on your shoulder/upper back. It produces fungal spores
+    autonomously. When you take damage that reduces your HP below 50%, the sac
+    ruptures and releases a spore cloud in a 2-tile radius around you. The cloud
+    lasts 3 turns and applies 2 stacks of "confused" to any enemy that enters or
+    starts their turn in it (they inhale spores). You are immune to your own cloud.
+    The sac regenerates after 10 turns (auto-refills).
+    Upgrade:
+      L1: Outfit locked; spore burst at <50% HP, 2-tile radius, 3 turns, 2 confuse
+          stacks; 10t recharge.
+      L2: Threshold <60% HP; 3-tile radius; 4 turns; 3 confuse stacks; 8t recharge.
+          Additionally, enemies confused by your spores deal 25% less damage for the
+          duration of the confusion (the spores also impair muscle coordination).
+      L3: Threshold <70% HP; 3-tile radius; 5 turns; 4 confuse stacks; 6t recharge.
+          Confused enemies -35% damage. Additionally, if a confused enemy dies inside
+          your spore cloud, a Spore Sprout spawns at their location — a temporary
+          friendly entity (10 HP, 4 power, 80 speed, 5-turn lifespan) that attacks
+          the nearest hostile. Maximum 2 Spore Sprouts active at once. Cap.
+    Note: The spore cloud is rendered as a set of tiles with a pale green '.' overlay.
+    dungeon.spore_cloud_tiles: dict[(x,y), int] (turn placed, for expiry tracking).
+    L3 Spore Sprouts are summoned entities with is_summon=True, ally AI (attack enemies),
+    that despawn after 5 turns.
+    Inspired by: CDDA's Spore Cloud (fungal mutation that releases spores on damage)
+    and Qud's conceptual Budding mutation (growth that produces offspring).
+    Reversal: Remove spore_sac_active; clear cloud; despawn sprouts; restore outfit slot.
+    System hooks: combat.py incoming damage (HP threshold check, burst trigger),
+    dungeon.spore_cloud_tiles (new dict), effects.py ConfusedEffect (apply in cloud),
+    engine.py per-turn (cloud expiry, sprout timer), entity.py (sprout summon creation).
+
+
+================================================================
+WEAK BAD MUTATIONS (31-35)
+================================================================
+
+31. FUSED FINGERS — "Your ring finger and middle finger grew together. Then the others joined."
+    Body part: HANDS (cripples ring slots AND weapon grip)
+    Your fingers have partially fused into mitten-like stumps. You lose 2 ring slots
+    (down from 5 to 3). Your weapon grip is compromised — melee damage dealt is
+    reduced by 1 (flat penalty, you can't grip properly). Two-handed items
+    (large guns, mauls, battle axes) now require a 1-turn "grip adjustment" each
+    time you switch targets (first melee attack against a NEW enemy costs +50 energy).
+    Upgrade (gets worse):
+      L1: Lose 2 ring slots (3 remaining); -1 melee damage; +50 energy on first
+          attack vs new target (two-handed items only).
+      L2: Lose 3 ring slots (2 remaining); -2 melee damage. Target-switch penalty
+          applies to ALL weapons (not just two-handed). Additionally, your clumsy
+          hands make item use take +1 turn (eating, using drugs — you fumble
+          with packaging).
+      L3: Lose 4 ring slots (1 remaining); -3 melee damage. Target-switch +100
+          energy. Item use +2 turns. Additionally, dropping items is now involuntary —
+          every 25 turns, you drop a random equipped ring (if any) because your
+          fused fingers can't maintain the grip. Cap.
+    Note: The target-switch penalty tracks engine.fused_fingers_last_target: entity_id.
+    When you melee an entity with a different ID than last_target, the extra energy
+    cost is applied. Switching to the same target (continuation of same fight) is free.
+    Inspired by: CDDA's mutation chains where hand mutations (Paws, Hooves) progressively
+    reduce manipulator effectiveness.
+    Reversal: Remove fused_fingers_active; restore ring slots; remove all penalties.
+    System hooks: engine.py ring slot count, combat.py melee (damage penalty, target-switch
+    cost), item_effects.py (use time penalty), engine.py per-turn (L3 ring drop).
+
+32. DORSAL FIN — "A bony ridge along your spine. It rips through everything you wear."
+    Body part: SPINE/BACK (blocks outfit slot)
+    A cartilaginous fin has grown along your spine from neck to tailbone. It protrudes
+    6 inches from your back. No outfit fits over it — outfit slot permanently blocked.
+    The fin serves no useful purpose (it's not sharp enough to hurt enemies, not large
+    enough to intimidate). It's purely a penalty. Additionally, enemies attacking you
+    from behind gain +1 damage (the fin gives them something to grab and lever their
+    strike into). The fin makes you a larger target from behind.
+    Upgrade (gets worse):
+      L1: Outfit slot blocked; behind-attacks deal +1 bonus damage.
+      L2: Behind-attacks +3 bonus. Additionally, the fin catches on doorways — passing
+          through any 1-tile-wide passage costs +50 energy (the fin scrapes the sides).
+          This stacks with Spinal Spur's corridor penalty if both are active.
+      L3: Behind-attacks +5. Passage penalty +100 energy. Additionally, the fin has
+          grown nerve endings — when an enemy hits you from behind, you flinch, losing
+          your next turn 20% of the time (pain reflex). The flinch also triggers
+          from environmental damage taken from behind (fire, hazards). Cap.
+    Note: "Behind attack" check: attacker is not in player's FOV at time of attack.
+    The passage check uses the same corridor definition as Spinal Spur: both
+    perpendicular tiles are walls.
+    Inspired by: CDDA's body mutations that block clothing slots with no upside (Pure
+    cosmetic mutations that just lock slots are common in CDDA's negative mutation pool).
+    Reversal: Remove dorsal_fin_active; restore outfit slot; remove behind-attack bonus.
+    System hooks: engine.py equip validation (block outfit), combat.py incoming melee
+    (behind-attack check, bonus damage), engine.py movement (passage energy cost),
+    combat.py (L3 flinch chance).
+
+33. CALCIFIED JOINTS — "Your knees don't bend like they used to. Or at all."
+    Body part: LEGS (cripples feet slot effectiveness AND movement)
+    Your knee and ankle joints are calcifying into rigid bone. Boots can still be
+    equipped (the slot isn't blocked), but your movement speed is permanently reduced
+    by 15. Additionally, you cannot enter diagonal movement when moving AWAY from
+    an enemy that is chasing you — you can only flee in cardinal directions (your
+    rigid legs can't handle the lateral movement under pressure). Moving toward
+    enemies or with no enemies chasing is unaffected.
+    Upgrade (gets worse):
+      L1: -15 speed; no diagonal flee from chasing enemies.
+      L2: -25 speed. Diagonal restriction extends to ALL movement when enemies are
+          in LOS (not just when fleeing). Additionally, the calcification makes
+          crouching impossible — you cannot interact with items on the ground while
+          an enemy is adjacent (can't bend down while being threatened).
+      L3: -35 speed. No diagonal movement at all, ever (full calcification — your
+          legs only move in 4 directions). Can't pick up items with adjacent enemies.
+          Additionally, being pushed/knocked back has a 30% chance to crack your joints
+          — you take 5 damage and are slowed by an additional 10 for 5 turns. Cap.
+    Note: L3 permanent no-diagonal is devastating for pathfinding. Moving between
+    rooms in a dungeon takes significantly more steps when limited to 4-directional.
+    Kiting is nearly impossible. This pushes toward "stand and fight" playstyles.
+    Inspired by: CDDA's joint stiffness mutations that reduce movement options
+    progressively, and Qud's design where some mutations restrict how you navigate.
+    Reversal: Remove calcified_joints_active; restore speed; restore diagonal movement.
+    System hooks: player_stats.calcified_joints_active, engine.py movement (diagonal
+    block based on enemy state / L3 always), engine.py speed penalty, combat.py
+    knockback (L3 crack chance), inventory_mgr.py (L2 adjacent-enemy item pickup block).
+
+34. WEEPING SORES — "Open wounds that never close. They're on your hands."
+    Body part: HANDS (cripples weapon AND ring functionality)
+    Your hands are covered in permanent open sores that seep fluid. Equipped weapons
+    become slippery — 10% chance per melee attack to drop your weapon (it falls to
+    your feet, costs 1 turn to re-equip on your next action). Ring stat bonuses are
+    reduced by 1 each (the sores interfere with the rings' contact with your skin —
+    hand-worn magical items need skin contact, apparently). Additionally, every melee
+    attack deals 1 self-damage (the impact reopens the sores).
+    Upgrade (gets worse):
+      L1: 10% weapon drop per swing; ring bonuses -1; 1 self-damage per melee.
+      L2: 15% weapon drop; ring bonuses -2; 2 self-damage per melee. Additionally,
+          the seeping fluid makes your hands toxic — items you pick up have a 10%
+          chance to become "tainted" (a new flag: tainted=True). Tainted food heals
+          50% less. Tainted drugs have 20% chance to do nothing. Tainted ammo is
+          unaffected (bullets don't care about your hand juice).
+      L3: 20% weapon drop; ring bonuses -3; 3 self-damage per melee. Taint chance 20%.
+          Additionally, enemies you hit in melee take 3 tox (your wound seepage is
+          genuinely toxic at this point — the only upside to this mutation). This
+          makes your disease into a weapon, but you're still bleeding and dropping
+          things constantly. Cap.
+    Note: L3's enemy tox on melee hit is a small silver lining in an otherwise purely
+    bad mutation. Synergy: Chemical Warfare skill benefits from the tox application.
+    This creates a tragic-but-functional "my disease is my weapon" identity.
+    Inspired by: CDDA's Sores/Scabs mutations that penalize equipment use while the body
+    is actively deteriorating.
+    Reversal: Remove weeping_sores_active; remove all penalties; clear tainted flags.
+    System hooks: combat.py melee (weapon drop roll, self-damage, L3 enemy tox),
+    stats.py ring_bonuses (reduce per level), inventory_mgr.py (L2 taint roll on pickup),
+    item_effects.py (tainted item check).
+
+35. BLISTERED SCALP — "Your head is a minefield of fluid-filled bumps."
+    Body part: HEAD (cripples hat slot)
+    Your scalp is covered in large, pressurized blisters. Hats can still be equipped
+    but any hat you equip has its stat bonuses reduced by 50% (the blisters prevent
+    proper fit). Additionally, when you take a melee hit, there is a 15% chance a
+    blister pops — you take 2 self-damage (the burst blister is painful) and any
+    enemy within 1 tile takes 3 tox (the blister fluid is contaminated).
+    Upgrade (gets worse):
+      L1: Hat bonuses -50%; 15% blister pop on melee hit (2 self-dmg, 3 tox splash).
+      L2: Hat bonuses -75%; 25% blister pop; 3 self-damage, 5 tox splash. Additionally,
+          popping a blister has a 20% chance to also apply "blinded" to you for 1 turn
+          (fluid gets in your eyes).
+      L3: Hat bonuses -100% (hat provides nothing). 35% blister pop; 4 self-damage,
+          8 tox splash. Blind chance 30%. Additionally, when 3 blisters have popped on
+          the same floor, a large abscess forms — you lose 1 CON permanently (tracked
+          as blistered_scalp_con_loss: int, resets... wait, no. This should be per-floor
+          to avoid permanent spiral). Correction: you gain the "Infected Scalp" debuff
+          for the rest of the floor (-1 CON, -10 speed) after 3 pops on the same
+          floor. Resets on floor change. Cap.
+    Note: Blister pop counter: engine.blister_pop_count: int (per-floor, resets).
+    The tox splash on pop creates an interesting dynamic where getting hit in melee
+    while surrounded by enemies actually punishes THEM more than you (8 tox at L3).
+    Inspired by: CDDA's medical/pathological mutations that create volatile body
+    reactions on damage.
+    Reversal: Remove blistered_scalp_active; restore hat effectiveness; clear pop counter.
+    System hooks: combat.py incoming melee (blister pop roll, self-damage, tox splash),
+    stats.py hat_bonuses (reduce effectiveness), effects.py BlindedEffect (L2),
+    effects.py InfectedScalpEffect (L3 temp debuff).
+
+
+================================================================
+STRONG GOOD MUTATIONS (31-35)
+================================================================
+
+31. CHITIN GAUNTLETS — "Your forearms are encased in armor. The armor has teeth."
+    Body part: ARMS/HANDS (replaces weapon slot AND loses 1 ring slot per hand = -2 rings)
+    Both forearms have grown a chitinous shell that terminates in mandible-like
+    protrusions where your hands were. Cannot equip weapons (the gauntlets ARE your
+    weapons). Cannot wear rings on those hands (lose 2 ring slots, down to 3). The
+    gauntlets have 10 base power (weapon_type "beating") and +3 permanent DR to the
+    player (the chitinous forearms can block incoming strikes).
+    Every melee attack has a dual-strike: you hit with BOTH gauntlets for a single
+    attack action. The first hit deals full damage. The second hit deals 50% damage.
+    Total effective damage per attack: 150% of base power.
+    Upgrade:
+      L1: 10 power (beating), dual-strike (150% per attack), weapon locked, -2 ring slots,
+          +3 DR.
+      L2: 12 power. Dual-strike second hit increases to 75% (total 175%). DR +5 total.
+          Additionally, the mandibles can crush — enemies at 15% HP or less are
+          instantly killed by your melee attack (execution threshold). The message
+          reads "[Chitin Gauntlets] Crushed!" and the kill counts for any on-kill effects.
+      L3: 14 power. Dual-strike second hit 100% (total 200% — double damage per attack).
+          DR +7 total. Execution at 20% HP. Additionally, the gauntlets secrete a
+          hardening resin — after each melee kill, you gain 2 temp HP (the resin coats
+          your arms and hardens briefly). This temp HP doesn't stack, it refreshes. Cap.
+    Note: At L3 with 14 power and 200% damage, each attack effectively deals 28 base
+    damage before stat scaling. This is extremely competitive with endgame weapons.
+    The -2 ring slots and weapon lock are the cost. Melee builds using this never
+    need another weapon.
+    Inspired by: Qud's Burrowing Claws (natural weapon that replaces hands, dual-purpose
+    combat + utility) and CDDA's Chitin/Insect mutation tree (chitinous growths that
+    provide both armor and natural weapons).
+    Reversal: Remove chitin_gauntlets_active; remove DR; restore weapon slot; restore 2 rings.
+    System hooks: combat.py melee (dual-strike resolution), stats.py permanent_dr,
+    engine.py equip validation (lock weapon, reduce rings by 2), combat.py (L2 execution
+    threshold), engine.py (L3 temp HP on kill).
+
+32. TENDRIL SPINE — "Your spine grew... extensions. They grab things on their own."
+    Body part: SPINE/BACK (replaces outfit slot)
+    Six prehensile tendrils have erupted from your spine. Cannot wear outfits (the
+    tendrils shred any clothing). In exchange, the tendrils provide:
+    - Passive: Any enemy that ends their turn adjacent to you is GRAPPLED by a tendril.
+      Grappled enemies have -20 speed and cannot move away from you for 1 turn.
+      You can grapple up to 3 enemies simultaneously.
+    - Passive: Enemies grappled by tendrils take 2 damage per turn (constriction).
+    Upgrade:
+      L1: Outfit locked; grapple up to 3 adjacent enemies (-20 speed, no flee, 2 dmg/turn).
+      L2: Grapple up to 4 enemies; grapple damage 3/turn; speed penalty -30.
+          Additionally, grappled enemies have -2 to their melee damage (the tendrils
+          interfere with their swing). Your melee attacks against grappled enemies
+          deal +2 bonus damage (the tendrils hold them still for you).
+      L3: Grapple up to 5 enemies (nearly every adjacent tile); grapple damage 4/turn;
+          speed -40; enemy melee -3; your bonus +3 vs grappled. Additionally, once per
+          floor, when 3+ enemies are grappled simultaneously, you can activate
+          Tendril Crush (free action): deal 8 damage to all grappled enemies and
+          stun them for 2 turns. Uses are tracked: 1/floor. Cap.
+    Note: Grapple is checked at the END of each enemy's turn — if they end adjacent,
+    a tendril grabs them. It's passive and automatic. The tendrils don't distinguish
+    between enemies — all adjacent hostiles are grabbed.
+    This mutation excels in tight corridors where enemies queue up adjacent to you.
+    In open spaces, enemies can choose not to be adjacent (ranged enemies, fleeing).
+    Inspired by: CDDA's Tentacle mutations (extra appendages that grapple) and Qud's
+    Multiple Arms (extra body parts that act independently in combat).
+    Reversal: Remove tendril_spine_active; release all grapples; restore outfit slot.
+    System hooks: engine.py per-turn (check adjacency, apply grapple), effects.py
+    GrappledEffect (new: -speed, no-flee, dmg/turn), combat.py melee (bonus vs grappled),
+    ABILITY_REGISTRY "tendril_crush" (L3), engine.py equip validation (lock outfit).
+
+33. COMPOUND LEGS — "Your legs split. You have four now. Sort of."
+    Body part: LEGS (replaces feet slot)
+    Your legs have bifurcated below the knee — you now have four lower leg segments
+    ending in wide, splayed foot-pads. Cannot equip boots (nothing fits). Benefits:
+    +25 permanent speed (four contact points = faster movement). You can move through
+    enemies that are 1 size smaller than you (currently: all normal enemies — this
+    creates a "trample" movement option where you walk through an enemy's tile,
+    dealing 3 damage in passing, and end up on the other side). Trampling costs
+    normal movement energy.
+    Upgrade:
+      L1: Feet locked; +25 speed; trample through enemies (3 damage in passing).
+      L2: +35 speed total. Trample damage increases to 5. Additionally, you can
+          change direction mid-run without speed penalty — your four legs provide
+          stability for sharp turns. In game terms: consecutive movements in different
+          directions do not lose the "momentum" bonus (if any future mechanic tracks
+          consecutive same-direction movement for bonus effects, your legs exempt you
+          from the direction requirement).
+      L3: +45 speed total. Trample 7 damage. Additionally, your quad-legs allow
+          a powerful leap: grants the Bounding Leap ability (INFINITE charges, SELF
+          target, 6t cooldown) — leap to any visible tile within 4 tiles, landing on
+          the destination. If an enemy occupies the destination, you land ON them for
+          8 impact damage and push them 1 tile in a random direction. Cap.
+    Note: Trample movement: when player moves into a tile occupied by a living enemy,
+    instead of attacking, the player passes through to the opposite side of the enemy
+    (if that tile is free). The enemy takes trample damage. If the opposite tile is
+    blocked, the trample fails and a normal melee attack occurs instead.
+    Inspired by: Qud's Multiple Legs (extra leg pairs that grant speed and stability,
+    block boots slot) and CDDA's mutation chains where leg mutations progressively
+    replace human movement with animal locomotion.
+    Reversal: Remove compound_legs_active; revoke "bounding_leap"; remove speed; restore feet.
+    System hooks: engine.py movement (trample logic — move through enemies), combat.py
+    (trample damage), stats.py speed bonus, ABILITY_REGISTRY "bounding_leap" (L3),
+    engine.py equip validation (lock feet).
+
+34. FLESH HOLSTER — "A cavity opened in your ribcage. It's... functional."
+    Body part: TORSO (replaces outfit slot, creates biological sidearm slot)
+    A hollow cavity has formed in your side, lined with muscle fibers that can grip
+    and manipulate a gun. It's a biological sidearm — your body literally grew a
+    holster INTO itself. Cannot wear outfits (the cavity is on your torso). Benefits:
+    you can fire your sidearm weapon as a FREE ACTION once per turn (the cavity aims
+    and fires independently using muscle memory). The free shot fires at the nearest
+    visible enemy within the gun's range, with -20% accuracy (it's autonomous, not
+    precise). This is in ADDITION to your normal action — you attack, and your
+    body-holster shoots.
+    Upgrade:
+      L1: Outfit locked; 1 free gun shot/turn at nearest enemy, -20% accuracy.
+      L2: Free shot accuracy penalty reduces to -10%. Additionally, the cavity
+          reloads the gun automatically — reload costs are eliminated (the muscle
+          fibers strip ammo from your inventory and feed it into the gun). No reload
+          turn cost ever.
+      L3: Free shot at full accuracy (no penalty). Auto-reload. Additionally, the
+          cavity can hold a SECOND gun — you can equip 2 guns, one in the normal
+          sidearm slot and one in the body cavity. The cavity gun fires the free
+          shot; the sidearm gun fires on your normal gun-fire action. Two guns
+          active simultaneously. Cap.
+    Note: The free shot is resolved in engine.py player turn processing, after
+    the player's chosen action resolves. It targets the nearest visible enemy.
+    If no valid target exists, no shot is fired (no ammo wasted).
+    L3's second gun is stored in engine.flesh_holster_gun: Entity (separate from sidearm).
+    Inspired by: CDDA's mutation chains where biological weapons supplement or replace
+    manufactured ones, and Qud's body-slot stacking (Multiple Arms carrying extra weapons).
+    Reversal: Remove flesh_holster_active; eject cavity gun (drop to floor); restore outfit.
+    System hooks: engine.py player turn (free shot logic), gun_system.py (auto-reload at L2),
+    engine.flesh_holster_gun (L3 second gun), engine.py equip validation (lock outfit).
+
+35. CROWN OF THORNS — "Bone spikes erupted from your skull. They're still growing."
+    Body part: HEAD (replaces hat slot)
+    A crown of sharp bone spikes has grown from your skull. Cannot equip hats. The
+    crown provides: +2 DR (the spikes deflect glancing blows). Any enemy that hits
+    you in melee takes 3 puncture damage (the spikes cut their attacking limb —
+    this is a thorns effect specific to the crown, separate from and stacking with
+    Second Skin of Thorns or Spiked Extrusion). Additionally, once per floor, when
+    an enemy's melee attack against you would be a crit, the crown's spikes intercept —
+    the crit is negated (becomes a normal hit) and the attacker takes 5 damage.
+    Upgrade:
+      L1: Hat locked; +2 DR; 3 thorns damage on melee hit; crit negation 1/floor (5 dmg).
+      L2: +4 DR; 4 thorns. Crit negation 2/floor; 7 damage to attacker. Additionally,
+          the spikes extend your headbutt range — grants the Skull Spike ability
+          (INFINITE charges, ADJACENT target, 4t cooldown): slam your spiked head into
+          an adjacent enemy for 6 + (mutation_count // 3) damage. This attack bypasses
+          2 points of enemy defense.
+      L3: +6 DR; 5 thorns. Crit negation 3/floor; 10 damage. Skull Spike: 8 + count//3
+          damage, bypasses 3 defense, cooldown 3t. Additionally, enemies killed by Skull
+          Spike have their corpse impaled on your spikes — the next enemy that attacks
+          you in melee takes 3 extra damage from the corpse remnants (one-time per corpse,
+          cleared after it fires or on floor change). Cap.
+    Note: Crown thorns + Second Skin of Thorns + Spiked Extrusion can all stack on the
+    same incoming melee hit. A player with all three could reflect 5 + 7 + 4 = 16 damage
+    per hit they take. That's the "thorns build" fantasy — enemies kill themselves hitting you.
+    Inspired by: Qud's Quills (passive thorns + activated burst) and Horns (charge attack
+    that uses a body part as a weapon).
+    Reversal: Remove crown_of_thorns_active; revoke "skull_spike"; remove DR/thorns; restore hat.
+    System hooks: combat.py incoming melee (thorns + crit negation), stats.py permanent_dr,
+    ABILITY_REGISTRY "skull_spike", engine.py equip validation (lock hat).
+
+
+================================================================
+STRONG BAD MUTATIONS (31-35)
+================================================================
+
+31. TUMOROUS MASS — "It's growing out of your neck. It has its own pulse."
+    Body part: NECK (blocks neck slot, actively harmful)
+    A large tumor has grown on the side of your neck, blocking the neck equipment
+    slot entirely. The tumor is alive and metabolically active — it consumes your
+    resources. Every 10 turns, the tumor absorbs nutrients: you lose 3 HP (it feeds
+    on your blood supply). When the tumor feeds, it grows slightly — tracked as
+    engine.tumor_size: int (starts at 1, increases by 1 every 5th feed, cap at 5).
+    As tumor_size increases, the penalties worsen: each size adds -1 to your maximum
+    HP permanently (the tumor displaces healthy tissue).
+    Upgrade (gets worse):
+      L1: Neck blocked; -3 HP every 10 turns; tumor grows (size 1-5); -1 max HP per size.
+      L2: Feed: -4 HP every 8 turns; tumor grows every 4th feed; max size 7; -2 max HP
+          per size (up to -14 max HP). Additionally, the tumor's mass throws off your
+          balance — -10 speed permanently.
+      L3: Feed: -5 HP every 6 turns; tumor grows every 3rd feed; max size 10; -2 max HP
+          per size (up to -20 max HP). -15 speed. Additionally, when tumor_size reaches
+          5+, it becomes visible to enemies — all enemies on the floor become aware of
+          you (same as Bioluminescence) because the pulsing tumor is conspicuous.
+          At size 8+, the tumor occasionally ruptures: 20% per turn to spray toxic
+          fluid (5 tox to you and 5 tox to all adjacent enemies). Cap.
+    Note: The tumor growth is tracked separately from mutation_levels. Even at L1,
+    the tumor keeps growing across the entire run. A long run with this mutation
+    could see the tumor at size 5 by floor 6-7. The max HP loss is permanent and
+    cumulative. Combined with Accelerated Aging (also permanent max HP loss),
+    this can create terrifyingly low max HP caps.
+    Inspired by: CDDA's Medical/Pathological mutations where growths progressively
+    worsen, and the concept of mutations that are themselves living organisms.
+    Reversal: Remove tumorous_mass_active; restore neck slot; tumor_size resets to 0.
+    Max HP lost from tumor is NOT restored (tissue already destroyed).
+    System hooks: engine.py per-turn (feed counter, HP drain, size increment),
+    player_stats.tumor_size, entity.py max_hp calculation (subtract tumor penalty),
+    ai.py (L3 size 5+ detection), combat.py (L3 size 8+ rupture tox).
+
+32. PARASITIC ARM — "A third arm grew. It doesn't listen to you."
+    Body part: TORSO/SHOULDER (blocks outfit slot, introduces hostile autonomous limb)
+    A third arm has grown from your shoulder. It has its own will and its own agenda.
+    Cannot wear outfits (the arm tears through everything). The parasitic arm acts
+    independently every turn — and it acts AGAINST your interests:
+    - 20% per turn: the arm grabs a random item from your inventory and throws it
+      2 tiles in a random direction (item lands on the floor, retrievable).
+    - 15% per turn: the arm punches YOU for 2 damage (self-harm).
+    - 10% per turn: the arm grabs your equipped weapon and un-equips it (weapon goes
+      to inventory, not dropped — but you lose it mid-combat).
+    Only one of these events fires per turn (checked in priority order).
+    Upgrade (gets worse):
+      L1: Outfit blocked; 20% item throw, 15% self-punch (2 dmg), 10% weapon un-equip.
+      L2: 25% item throw, 20% self-punch (3 dmg), 15% weapon un-equip. Additionally,
+          the arm occasionally grapples enemies and pulls them TOWARD you — 10% per
+          turn to pull a random visible enemy 1 tile closer. This sounds helpful but
+          is dangerous because it pulls enemies into melee range when you might not
+          want them there.
+      L3: 30% throw, 25% self-punch (4 dmg), 20% un-equip. Pull 15%. Additionally,
+          the parasitic arm has grown strong enough to block your attacks — 10% chance
+          per melee attack that the arm intercepts your swing (deals 0 damage, your
+          turn is wasted). The arm is literally fighting you for control. Cap.
+    Note: This is the "worst body part" mutation. Every turn is a gamble — will your
+    third arm sabotage you this turn? The item-throwing is the most common and least
+    dangerous (items are retrievable). The self-punch adds up over time. The weapon
+    un-equip mid-combat is devastating. The L3 swing interception is pure suffering.
+    Inspired by: CDDA's Chimera instability (body parts that act independently and
+    unpredictably) and horror tropes of possessed/autonomous limbs.
+    Reversal: Remove parasitic_arm_active; restore outfit slot.
+    System hooks: engine.py per-turn (priority roll for arm action), inventory_mgr.py
+    (random item throw), combat.py (self-punch, L3 swing intercept), engine.py
+    (weapon un-equip), ai.py (L2 enemy pull logic).
+
+33. CRYSTALLINE BONES — "Your skeleton is turning to glass. Beautiful. Fragile."
+    Body part: SKELETON (cripples ALL equipment slots indirectly)
+    Your bones are crystallizing — becoming harder but catastrophically brittle.
+    All equipment bonuses are reduced by 25% (the crystalline structure interferes
+    with how your body transmits the benefits of worn equipment — armor doesn't flex,
+    weapons feel wrong, rings don't settle). This is a universal equipment penalty.
+    Additionally, when you take 12+ damage in a single hit, there is a 30% chance of
+    a "shatter event": one random piece of equipped gear is destroyed instantly
+    (weapon, hat, neck, ring, boots, or sidearm — whatever you have equipped, one is
+    chosen and removed from the game permanently).
+    Upgrade (gets worse):
+      L1: All equipment bonuses -25%; 30% shatter at 12+ damage (destroy 1 equipped item).
+      L2: Equipment bonuses -40%; 25% shatter at 10+ damage. Additionally, your base
+          melee damage (unarmed or weapon) has a 15% chance per swing to shatter
+          YOUR hand bone — dealing 3 self-damage (you hurt yourself hitting things).
+      L3: Equipment bonuses -50%; 20% shatter at 8+ damage. Hand shatter 25%,
+          4 self-damage. Additionally, your crystalline bones emit audible chimes
+          when you move — all enemies within 5 tiles are always aware of your
+          position (the bones ring with each step). Cap.
+    Note: Equipment bonus reduction is multiplicative: a +4 STR weapon gives +3 at
+    L1, +2 at L2, +2 at L3 (round down). This affects ALL stat bonuses from ALL
+    equipped items. The shatter event destroys the item permanently — it's gone.
+    This is the most equipment-hostile mutation in the game.
+    Inspired by: CDDA's Fragile mutations that make the player's body structurally
+    unsound, and the concept of crystalline/glass bone diseases.
+    Reversal: Remove crystalline_bones_active; restore equipment effectiveness.
+    Destroyed items are NOT returned.
+    System hooks: stats.py all equipment bonus calculations (multiplicative reduction),
+    combat.py incoming damage (shatter threshold check, random gear destruction),
+    combat.py melee (L2 hand shatter), ai.py (L3 bone chime detection).
+
+34. SYMBIOTIC SKIN — "Your skin is a colony now. It has opinions about what you wear."
+    Body part: SKIN (blocks outfit AND hat slots, intermittent ring disruption)
+    Your entire skin surface has been colonized by a symbiotic organism — a living
+    membrane that covers you head to toe. The symbiote rejects foreign materials:
+    cannot equip outfits or hats (the symbiote dissolves fabric on contact). Rings
+    work intermittently — every 15 turns, the symbiote shifts and disrupts ring
+    contact, disabling all ring bonuses for 3 turns (rings are still equipped, just
+    temporarily non-functional). The symbiote provides +2 DR as compensation
+    (it's tough, just hostile to your stuff).
+    Upgrade (gets worse):
+      L1: Outfit + hat blocked; ring disruption 3t every 15t; +2 DR.
+      L2: Ring disruption 5t every 12t. DR stays +2 (doesn't improve). Additionally,
+          the symbiote occasionally extends over your hands — 10% chance per turn to
+          block item use for that turn (can't grip items through the membrane). Food,
+          drugs, abilities still work — only physical item USE (applying salves, reading
+          scrolls, future content) is blocked.
+      L3: Ring disruption 7t every 10t (rings are non-functional more than half the time).
+          DR still +2. Hand block 15%. Additionally, the symbiote has metabolic needs —
+          it absorbs 10% of all healing you receive (before it reaches your HP). A 20 HP
+          heal becomes 18 HP. The symbiote uses this to maintain itself, offering you
+          nothing in return. Cap.
+    Note: The ring disruption timer is tracked as engine.symbiotic_skin_ring_timer: int.
+    When it fires, all ring bonuses are suppressed for the disruption duration. The
+    rings don't need to be re-equipped — they just temporarily do nothing.
+    Two slots blocked for +2 DR is a terrible deal. This mutation is designed to be
+    very punishing for equipment-dependent builds.
+    Inspired by: CDDA's Slime Body mutation (living slime replaces skin, dissolves
+    worn equipment, provides minor natural armor as compensation).
+    Reversal: Remove symbiotic_skin_active; restore hat + outfit slots; remove DR.
+    System hooks: engine.py equip validation (block hat + outfit), engine.py per-turn
+    (ring disruption timer), stats.py ring_bonuses (check disruption active),
+    item_effects.py (L2 hand block), engine.py healing path (L3 absorption).
+
+35. BONE CAGE RIBS — "Your ribs grew outward. They're a cage. You're inside it."
+    Body part: TORSO/RIBS (replaces outfit slot AND restricts sidearm)
+    Your ribs have expanded and grown outward, forming an external bone cage around
+    your torso. Cannot wear outfits (the cage is your torso covering). The cage also
+    restricts arm movement — gun accuracy is permanently reduced by 20% (your arms
+    can't fully extend through the rib gaps). The cage provides +4 DR (it's solid
+    bone). However, the cage restricts breathing — your maximum energy gain per tick
+    is reduced by 10% (you tire faster because your lungs can't fully expand).
+    Upgrade (gets worse):
+      L1: Outfit locked; +4 DR; -20% gun accuracy; -10% energy gain per tick.
+      L2: +4 DR (no increase). Gun accuracy -30%. Energy gain -15%. Additionally,
+          consumable items (food, drugs) take +1 turn to use (hard to bring items
+          to your mouth through the rib cage gaps). The cage is increasingly
+          restrictive.
+      L3: +4 DR still. Gun accuracy -40%. Energy gain -20%. Consumable use +2 turns.
+          Additionally, the cage makes you LARGER — enemies can target you with
+          ranged attacks at +15% accuracy (bigger target). The ribs also occasionally
+          snap under stress: when you take 15+ damage, 20% chance a rib cracks,
+          dealing 3 self-damage and reducing DR by 1 for the rest of the floor
+          (bone_cage_cracks: int tracks lost DR per floor). Cap.
+    Note: The energy gain reduction is applied in engine.py's _run_energy_loop():
+    the player's energy_per_tick is multiplied by 0.9/0.85/0.8. This means the
+    player acts slightly less often than normal — fewer turns per floor. This is
+    subtle but compounds over a long floor.
+    The DR is mediocre compensation for all the penalties. This mutation is "armor
+    that imprisons you."
+    Inspired by: Qud's Carapace (bone/shell armor that provides DR but restricts),
+    taken to the extreme where the armor actively hinders every action.
+    Reversal: Remove bone_cage_ribs_active; restore outfit slot; remove DR; remove
+    all accuracy/energy/consumable penalties.
+    System hooks: stats.py permanent_dr, engine.py _run_energy_loop (energy gain
+    modifier), gun_system.py accuracy (penalty), gun_system.py enemy accuracy vs
+    player (L3 bonus), item_effects.py consumable use time, combat.py incoming
+    damage (L3 rib crack), engine.py equip validation (lock outfit).
+
+
+================================================================
+BODY PART COVERAGE MAP
+================================================================
+
+Every body part is represented:
+
+  HEAD:
+    Good: Membrane Cowl (WG33), Iron Crown (WG30), Grafted Mask (SG29),
+          Crown of Thorns (SG35)
+    Bad:  Corroded Crown (WB29), Blistered Scalp (WB35), Parasitic Caul (SB27)
+
+  NECK:
+    Good: Neural Jack (SG30)
+    Bad:  Tumorous Mass (SB31)
+
+  TORSO/OUTFIT:
+    Good: Spore Sac (WG35), Living Armor (SG27), Tendril Spine (SG32),
+          Flesh Holster (SG34)
+    Bad:  Exposed Vertebrae (WB28), Dorsal Fin (WB32), Parasitic Arm (SB32),
+          Symbiotic Skin (SB34), Bone Cage Ribs (SB35)
+
+  ARMS/HANDS:
+    Good: Barbed Knuckles (WG31), Suction Cups (WG27), Chitin Gauntlets (SG31),
+          Grasping Tendrils (WG34), Phantom Limb (SG28)
+    Bad:  Fused Fingers (WB31), Weeping Sores (WB34), Overgrown Digits (SB28),
+          Atrophied Arms (SB26)
+
+  LEGS/FEET:
+    Good: Padded Soles (WG28), Calcified Shins (WG32), Compound Legs (SG33)
+    Bad:  Brittle Soles (WB30), Calcified Joints (WB33), Exoskeletal Lock (SB29)
+
+  FINGERS/RINGS:
+    Good: Suction Cups (WG27 — +1 per ring, +6th slot), Grasping Tendrils (WG34 — -3 slots for reach)
+    Bad:  Swollen Knuckles (WB27 — ring pain), Fused Fingers (WB31 — lose slots),
+          Overgrown Digits (SB28 — all 5 lost), Crystalline Bones (SB33 — all gear weakened)
+
+  SIDEARM/GUN:
+    Good: Organic Holster (SG26), Flesh Holster (SG34 — free shot)
+    Bad:  Fused Trigger Finger (WB26), Necrotic Holster (SB30),
+          Bone Cage Ribs (SB35 — accuracy loss)
+
+  SHOULDER/BACK (sub-region of torso):
+    Good: Spore Sac (WG35), Crown of Thorns (SG35, head but spikes extend)
+    Bad:  Dorsal Fin (WB32), Parasitic Arm (SB32)
+
+  SPINE:
+    Good: Tendril Spine (SG32)
+    Bad:  Exposed Vertebrae (WB28)
+
+  SKELETON (systemic):
+    Bad:  Crystalline Bones (SB33 — affects everything)
+
+
+================================================================
+"FULL MUTANT" BUILD FANTASY
+================================================================
+
+A player who rolls perfectly could replace their entire body with biological gear:
+
+  HEAD:    Crown of Thorns (SG35) — +6 DR, thorns, crit negation, Skull Spike ability
+  NECK:    Neural Jack (SG30) — neck item bonuses doubled (can still wear one amulet!)
+  OUTFIT:  Tendril Spine (SG32) — grapple 5 enemies, constriction damage, Tendril Crush
+  WEAPON:  Chitin Gauntlets (SG31) — 14 power, dual-strike 200%, execution threshold
+  SIDEARM: Flesh Holster (SG34) — free gun shot every turn, 2 guns at L3
+  FEET:    Compound Legs (SG33) — +45 speed, trample through enemies, Bounding Leap
+  RINGS:   Suction Cups (WG27) — remaining 1-3 rings get +3 bonus each
+
+This character:
+  - Has 13+ DR from mutations alone (Crown 6 + Gauntlets 7)
+  - Deals 28+ melee damage per attack (dual-strike) plus phantom arm bonus
+  - Grapples everything adjacent (tendril spine)
+  - Gets a free gun shot every turn (flesh holster)
+  - Moves at +45 speed with trample and leap
+  - Reflects 5 thorns damage per hit taken (crown)
+  - Never needs to find a single piece of equipment
+
+This is the ultimate mutation build. It's also nearly impossible to achieve
+(requires rolling 7 specific good mutations, several of which are Strong tier).
+But the FANTASY of it existing is what makes the mutation system exciting.

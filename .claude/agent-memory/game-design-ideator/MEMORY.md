@@ -77,6 +77,12 @@ Full L4/L5 designs: `nigrl-ideas/skill_perks_L4_L5.txt`. Table: `nigrl-ideas/ski
 - `nigrl-ideas/skill-deep-frying-combat-abilities.txt` — 10 Deep-Frying L3-L10 abilities (CON-scaling DPS tree); summary in `summaries/skill-deep-frying-combat-abilities-summary.txt`
 - `nigrl-ideas/deep-frying-skill-tree-variants.txt` — 10 complete L1-L10 Deep-Frying tree layouts (10 themes); summary in `summaries/deep-frying-skill-tree-variants-summary.txt`
 - `nigrl-ideas/smartsness-branching-skill-trees.txt` — 10 L1-L3 Smartsness variations; all 30 perks new; 10 abilities, 8 effects; summary in `summaries/smartsness-branching-skill-trees-summary.txt`
+- `nigrl-ideas/skill-decontamination-perks-L3-L6.txt` — 6 perk options for Decon L3-L6; new rad_tiles dungeon system, HalfLifeAuraEffect, Consecrate/Sponge/Wake; summary in `summaries/skill-decontamination-perks-L3-L6-summary.txt`
+- `nigrl-ideas/skill-decontamination-L2-aura-perks.txt` — 6 Decon L2 toggleable aura options (replaces Emission); Half-Life Field/Purification Corona/Sanctified Ground/Radiant Judgment/Ironsoul Aura/Abscess Ward; summary in `summaries/skill-decontamination-L2-aura-perks-summary.txt`
+- `nigrl-ideas/skill-decontamination-L4-aura-options.txt` — 6 Decon L4 toggle aura options; Sacred Ground/Divine Sight/Corona of Judgment/Penitent/Absolution/Ironsoul; summary in `summaries/skill-decontamination-L4-aura-options-summary.txt`
+- `nigrl-ideas/skill-decontamination-L5-consecrate-upgrade.txt` — 6 Decon L5 Consecrate upgrade options (+30 max armor passive decided); Nuclear Verdict/Sanctified Discharge/Scourging Flame/Divine Terror/Cursed Earth/Judgment Strike; summary in `summaries/skill-decontamination-L5-consecrate-upgrade-summary.txt`
+- `nigrl-ideas/skill-decontamination-L6-aura-options.txt` — 6 Decon L6 capstone offensive auras; Wrath of God/Corona of Judgment/Martyr's Fire/Penitent/Radiant Presence/Atomic Fist; summary in `summaries/skill-decontamination-L6-aura-options-summary.txt`
+- `nigrl-ideas/consecrate-ability-designs.txt` — 5 distinct Consecrate variants (Decon L3); all use 5x3 directional zone; Iron Seal/Flensing/Cyclone/Vigil/Judgment; summary in `summaries/consecrate-ability-designs-summary.txt`
 
 ### Abilities
 - `nigrl-ideas/poe-inspired-melee-abilities.txt` — 25 PoE-inspired melee abilities; all 4 weapon types; strikes/slams/warcries/passives/triggers
@@ -89,6 +95,13 @@ Full L4/L5 designs: `nigrl-ideas/skill_perks_L4_L5.txt`. Table: `nigrl-ideas/ski
 - `nigrl-ideas/dungeon-generation-designs.txt` — 9 room generation techniques
 - [spider-event.md](spider-event.md) — Spider Infestation; `spider-enemy-roster.txt`, `black-widow-boss-designs.txt`
 - `nigrl-ideas/tyrone-penthouse-features.txt` — 12 Penthouse hub features (NPCs, interactables, services); summary in `summaries/tyrone-penthouse-features-summary.txt`
+- `nigrl-ideas/tyrone-penthouse-npcs-new7.txt` — 7 new one-time free service NPCs (Delroy/Bartender, La'Quisha/SkillTrader, Rico/Pawn, Precious/Tattoo, DrPill/Ability, Marcus/Intel, BigJerome/Coach); summary in `summaries/tyrone-penthouse-npcs-new7-summary.txt`
+- `nigrl-ideas/tyrone-penthouse-npcs-final4.txt` — Final 4 NPCs completing pool of 10 (Soloman/Enchanter, Deja/Mixologist, Kline/GeneDoctor, Carlton/Fixer); adds entity.enchanted_locked, player_stats.permanent_penalties ledger, 8 cocktail items, VenomSlingEffect; summary in `summaries/tyrone-penthouse-npcs-final4-summary.txt`
+- `nigrl-ideas/brainstorm-penthouse-npc-tenth.txt` — 6 concepts for the 10th/final Penthouse NPC; top picks: Darnell (run-history tally mirror, A+), Sandman (blind ability-charge cost for sleep benefits, A), Lola (3 permanent movement techs, B+); summary in `summaries/brainstorm-penthouse-npc-tenth-summary.txt`
+- NOTE: Canonical in-game Penthouse NPCs (9 existing): Gun Dealer, Chef, Plug, La'Quisha, Precious, Rico, Soloman, Sage/Mixologist (drink on rocks), Dice/Craps Dealer. Deja/Kline/Carlton are designed but not yet implemented.
+- `nigrl-ideas/mutation-overhaul/mutation-overhaul-plan.txt` — FULL OVERHAUL V2: remove Huge tier, 80 mutations (20wG/20wB/20sG/20sB), upgrade system (re-roll = upgrade), 10 new effects, 5 new abilities; summary inside mutation-overhaul/ subdir
+- `nigrl-ideas/mutation-overhaul/rimworld-inspired-mutations.txt` — 20 additional mutation candidates (5wG/5wB/5sG/5sB); Rimworld Biotech inspired; full L1-L3 specs
+- `nigrl-ideas/mutation-overhaul/qud-rimworld-hybrid-mutations.txt` — 10 hybrid mutations (3wG/2wB/3sG/2sB); Qud verbs + Rimworld costs; Force Barricade/Body Jack/Glimmer Buildup/Evil Twin; NOTE: all mutation docs now live in mutation-overhaul/ subdir
 
 ## Key Engine/System Notes
 
@@ -129,9 +142,28 @@ mutation_count (run-wide), mutation_reroll_available/genome_locked_stat (per-flo
 adaptive_dr_bonus/scar_tissue_hits/last_mutation_was_good/mutation_streak (run-wide),
 irradiate_splash_radius, contamination_cloud_active, forced_strong_next/forced_huge_next,
 mutation_xp_multiplier (float), genome_splice_used (bool), forced_evolution_charges (per-floor)
+### Mutation Overhaul V2 — New Engine/PlayerStats State (mutation-overhaul-plan.txt)
+player_stats: ~65 bool/int flags (see doc), necrotic_fist_penalty(int), blocked_equip_slots(set), mut_fov_bonus(int), mut_gun_range_penalty(int), max_hp_penalty(int)
+engine per-floor: adrenaline_surge_used, turtle_neck_triggered, mut_first_hit_buffer, wall_crawler_inside, reflex_counter_pending, chitin_hit_streak, rad_absorb_bonus, slow_blink_combat_active, slow_blink_turns_remaining, phantom_hunger_counter, hyperactive_bladder_counter, parasitic_relationship_counter, sensory_safe_dir, hollow_echo_pending
+engine run-wide: redundant_organs_death_save_used, redundant_organs_death_saves_remaining, mutation_levels(dict[str,int]), degen_nervous_cooldown_bonus(int)
+Reversal types: "grant_ability","flag","speed","fov_bonus","slot_block","compound","ability_and_flag","stat_and_flag"
+Huge tier REMOVED. Strong threshold bumped to 150. 80 mutations total. Upgrade system: re-roll = upgrade (mutation_levels dict). Light Sensitivity REMOVED.
+New abilities: acid_spit (ADJACENT→LOS at L3), telekinetic_lash (SINGLE_LOS,3-5/floor), touch_of_frost/fire/shock (ADJACENT, INFINITE, cooldown-based)
+New effects: HardeningEffect, FeralRushEffect, CorrodedEffect, SpikedEffect, ExhaustedEffect, EnragedEffect, MetabolizedEffect
 wp_fortress_stacks (per-floor; clears on move), wp_crust_stacks (per-turn decay), wp_scab_charged (per-hit),
 wp_martyr_stacks (run-persistent), wp_oath_pool: float (run-persistent), wp_inversion_prevented_dmg (per-floor),
 wp_tincan_hits_remaining (per-floor), wp_room_first_hit (per-room), wp_kiln_regen_bonus, wp_last_armor_value
+### Consecrate Ability Designs — New Engine State (per-floor unless noted)
+dungeon.rad_tiles: dict[tuple, tuple] = {(x,y): (turns_remaining, mode_str)} — mode strings:
+  "ironseal"|"flensing"|"cyclone"|"vigil"|"judgment"
+  NOTE: original L3-L6 doc used dict[tuple,int]; consecrate-ability-designs.txt upgrades to tuple format.
+ironseal_depth_map: dict[tuple,int] (pos->col_index), ironseal_hold_streak: int
+flensing_executed_ids: set[Entity], cyclone_stand_turns: int
+vigil_debuffed_entities: dict[entity,int], vigil_tile_occupancy: dict[tuple,int]
+judgment_triggered_ids: set[Entity], judgment_burst_count: int (RUN-WIDE; cap 5),
+judgment_xp_pending: int, player_stats.vigil_active: bool (refreshed each tick)
+New effects: CycloneSlowedEffect (id="cyclone_slowed", dur=1, energy_gain *=0.6)
+             ConsecratedGroundEffect (id="consecrated_ground", dur=1, modify_incoming_damage -= rad//40 cap 6)
 ### Ability-Granting Batch 2 — New Engine State (single-ability items)
 hoodoo_proxy_target_id (str|None; clears on entity death + floor change),
 parolee_id (str|None; clears on floor change; kill handler pays $25 payout),

@@ -185,6 +185,7 @@ class GameEngine:
         self.sdl_overlay = None
         Entity._on_damage_callback = self._on_entity_damaged
         Entity._on_heal_callback = self._on_entity_healed
+        Entity._engine_ref = self
 
         # --- Floor management ---
         self.current_floor = 0
@@ -268,6 +269,8 @@ class GameEngine:
         self.last_drink_id: str | None = None  # tracks last consumed drink (alcohol or soft_drink) for Purple Drank
         self.blue_drank_stacks: int = 0  # Blue Drank doubling stacks; next drink effect called 2^stacks times
         self.crack_hallucinations_active: bool = False  # Meth-Head L2: next consumable grants meth = item value
+        self.craps_state: dict | None = None  # ghetto craps minigame state (active during game only)
+        self.ezra_multiplier: str | None = None  # Ezra loot multiplier category key (Meth Lab only)
         self._drink_duration_multiplier: int = 1  # Red Drank: temporarily set to 2 during drink handling
         self._red_drank_free_action: bool = False  # Red Drank: set True to make drink not cost an action
 
@@ -349,6 +352,7 @@ class GameEngine:
         self.staff_firing: dict | None = None  # active staff info during GUN_TARGETING
         self.arcane_flux_active: bool = False  # Elementalist L3: charge preservation applies to cooldowns
         self.snipers_mark_target_id: str | None = None  # instance_id of marked target
+        self.enrichment_stacks: int = 0  # Nuclear Research L5: stacks for next bomb/mark
         self.dead_eye_swagger_gained: int = 0              # Gunplay L4: swagger gained this floor
         self.unfazed_swagger_gained: int = 0               # L Farming L3: swagger gained this floor
 
@@ -440,6 +444,7 @@ class GameEngine:
             MenuState.DEV_FLOOR_SELECT: self._handle_dev_floor_select_input,
             MenuState.DEV_SKILL_SELECT: self._handle_dev_skill_select_input,
             MenuState.ADJACENT_TILE_TARGETING: self._handle_adjacent_tile_targeting_input,
+            MenuState.CARDINAL_TARGETING: self._handle_cardinal_targeting_input,
             MenuState.DEEP_FRYER: self._handle_deep_fryer_input,
             MenuState.GUN_TARGETING: self._handle_gun_targeting_input,
             MenuState.LOOK_TARGETING: self._handle_look_targeting,
@@ -448,6 +453,18 @@ class GameEngine:
             MenuState.VENDING_MACHINE: self._handle_vending_machine_input,
             MenuState.MIDAS_BREW: self._handle_midas_brew_input,
             MenuState.SHOP_ITEM: self._handle_shop_item_input,
+            MenuState.GUN_DEALER: self._handle_gun_dealer_input,
+            MenuState.CHEF_SELECT_A: self._handle_chef_select_a_input,
+            MenuState.CHEF_SELECT_B: self._handle_chef_select_b_input,
+            MenuState.PLUG: self._handle_plug_input,
+            MenuState.SKILL_TRADER: self._handle_skill_trader_input,
+            MenuState.TATTOO_ARTIST: self._handle_tattoo_artist_input,
+            MenuState.PAWN_MAN: self._handle_pawn_man_input,
+            MenuState.ENCHANTER: self._handle_enchanter_input,
+            MenuState.MIXOLOGIST: self._handle_mixologist_input,
+            MenuState.CRAPS_ANTE: self._handle_craps_ante_input,
+            MenuState.CRAPS_GAME: self._handle_craps_game_input,
+            MenuState.EZRA: self._handle_ezra_input,
         }
 
     # ------------------------------------------------------------------
@@ -497,12 +514,34 @@ class GameEngine:
         self.event_bus.on("entity_died", self._on_kill_fireball_charge)
         self.event_bus.on("entity_died", self._on_kill_sangria_extend)
         self.event_bus.on("entity_died", self._on_kill_venom_pool)
+        self.event_bus.on("entity_died", self._on_summon_brood_mother)
         self.event_bus.on("entity_died", self._on_kill_staff_charge)
         self.event_bus.on("entity_died", self._on_kill_victory_rush)
         self.event_bus.on("entity_died", self._on_kill_berserk)
         self.event_bus.on("entity_died", self._on_kill_corpse_explosion)
         self.event_bus.on("entity_died", self._on_kill_curse_voodoo_drop)
         self.event_bus.on("entity_died", self._on_kill_scavengers_eye)
+        self.event_bus.on("entity_died", self._on_kill_gamma_aura)
+
+    def _on_kill_gamma_aura(self, entity, killer=None):
+        """Gamma Aura: enemy dying within 2 tiles with 50+ rad removes 25 player radiation."""
+        if entity.entity_type != "monster" or killer is not self.player:
+            return
+        has_gamma = any(getattr(e, 'id', '') == 'gamma_aura'
+                        for e in self.player.status_effects)
+        if not has_gamma:
+            return
+        dist = max(abs(entity.x - self.player.x), abs(entity.y - self.player.y))
+        if dist > 2:
+            return
+        if getattr(entity, 'radiation', 0) < 50:
+            return
+        from combat import remove_radiation
+        remove_radiation(self, self.player, 25)
+        self.messages.append([
+            ("Gamma purge! ", (120, 255, 80)),
+            ("-25 radiation.", (160, 255, 120)),
+        ])
 
     def _on_kill_scavengers_eye(self, entity, killer=None):
         """Scavenger's Eye (Kimchi): 50% chance on kill to drop a random lesser consumable."""
@@ -634,6 +673,50 @@ class GameEngine:
             (f"{entity.name}", (200, 200, 220)),
             ("'s venom pools on the ground!", (80, 200, 60)),
         ])
+
+    def _on_summon_brood_mother(self, entity, killer=None):
+        """Arachnigga L4 — Brood Mother: Spider Hatchlings split into 2 micro-spiders on death."""
+        if not getattr(entity, "is_summon", False):
+            return
+        if entity.ai_type != "spider_hatchling":
+            return
+        if self.skills.get("Arachnigga").level < 4:
+            return
+        # Don't split micro-spiders (prevent infinite recursion)
+        if getattr(entity, "_is_micro_spider", False):
+            return
+        from entity import Entity
+        from ai import get_initial_state
+        spawned = 0
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)]:
+            nx, ny = entity.x + dx, entity.y + dy
+            if self.dungeon.is_blocked(nx, ny):
+                continue
+            micro = Entity(
+                x=nx, y=ny,
+                char="s",
+                color=(120, 200, 80),
+                name="Micro-Spider",
+                entity_type="monster",
+                hp=1, max_hp=1,
+                power=1,
+                defense=0,
+                ai_type="spider_hatchling",
+                speed=80,
+                is_summon=True,
+                summon_lifetime=5,
+            )
+            micro._is_micro_spider = True
+            micro.ai_state = get_initial_state("spider_hatchling")
+            self.dungeon.add_entity(micro)
+            spawned += 1
+            if spawned >= 2:
+                break
+        if spawned:
+            self.messages.append([
+                ("Brood Mother! ", (180, 180, 255)),
+                (f"The hatchling splits into {spawned} micro-spiders!", (120, 200, 80)),
+            ])
 
     def _on_kill_staff_charge(self, entity, killer=None):
         """Any enemy death: +1 charge to all staves (equipped + inventory), cap 99."""
@@ -848,28 +931,68 @@ class GameEngine:
                 self._detonate_rad_bomb(crystal, monsters)
 
     def _detonate_rad_bomb(self, crystal, monsters):
-        """Explode a rad bomb crystal in a 5x5 square."""
+        """Explode a rad bomb crystal in a 5x5 square (or larger with Enrichment)."""
         from config import DUNGEON_WIDTH, DUNGEON_HEIGHT
         cx, cy = crystal.x, crystal.y
         damage = getattr(crystal, 'rad_bomb_damage', 20)
+        # Enrichment: consume stacks for bonus damage and radius
+        enrichment_stacks = getattr(self, 'enrichment_stacks', 0)
+        radius = 2  # default 5x5 (Chebyshev distance 2)
+        if enrichment_stacks > 0:
+            damage += enrichment_stacks * 4
+            radius += enrichment_stacks // 2
+            self.enrichment_stacks = 0
+            self.messages.append([
+                ("Enrichment consumed! ", (180, 255, 80)),
+                (f"+{enrichment_stacks * 4} damage, radius {radius * 2 + 1}x{radius * 2 + 1}", (160, 255, 120)),
+            ])
         self.dungeon.remove_entity(crystal)
+        size = radius * 2 + 1
         self.messages.append([
             ("RAD BOMB DETONATES! ", (120, 255, 80)),
-            (f"({damage} damage, 5x5 area)", (160, 255, 120)),
+            (f"({damage} damage, {size}x{size} area)", (160, 255, 120)),
         ])
+        # Pulse animation
+        if self.sdl_overlay:
+            tiles = [
+                (cx + ddx, cy + ddy)
+                for ddx in range(-radius, radius + 1)
+                for ddy in range(-radius, radius + 1)
+                if 0 <= cx + ddx < DUNGEON_WIDTH and 0 <= cy + ddy < DUNGEON_HEIGHT
+            ]
+            self.sdl_overlay.add_tile_flash_ripple(
+                tiles, cx, cy, color=(80, 255, 80), duration=0.6
+            )
         targets = [self.player] + [m for m in monsters if m.alive]
+        enemies_hit = 0
         for entity in targets:
             dx = abs(entity.x - cx)
             dy = abs(entity.y - cy)
-            if dx <= 2 and dy <= 2:
+            if dx <= radius and dy <= radius:
+                # Transfer enrichment stacks to Half-Life Mark if present
+                if enrichment_stacks > 0 and entity.entity_type == "monster":
+                    for eff in entity.status_effects:
+                        if getattr(eff, 'id', None) == 'half_life_mark' and not eff.triggered:
+                            eff.enrichment_stacks = enrichment_stacks
+                            break
                 entity.take_damage(damage)
                 if entity == self.player:
                     self._gain_catchin_fades_xp(damage)
                     self.messages.append(f"You take {damage} radiation blast damage!")
                 else:
+                    enemies_hit += 1
                     self.messages.append(f"The {entity.name} takes {damage} radiation blast damage!")
                 if not entity.alive:
                     self.event_bus.emit("entity_died", entity=entity, killer=self.player)
+        # Nuclear Research L6 "Nuclear Feedback": +10 rad per enemy hit
+        if enemies_hit > 0 and self.skills.get("Nuclear Research").level >= 6:
+            from combat import add_radiation
+            feedback_rad = enemies_hit * 10
+            add_radiation(self, self.player, feedback_rad, pierce_resistance=True)
+            self.messages.append([
+                ("Nuclear Feedback! ", (180, 255, 80)),
+                (f"+{feedback_rad} rad ({enemies_hit} enemies hit)", (160, 255, 120)),
+            ])
 
     def _tick_scrap_turrets(self, monsters):
         """Tick all scrap turrets. Shoot nearest enemy in range, decrement duration."""
@@ -1131,8 +1254,8 @@ class GameEngine:
         for inst in self.player_abilities:
             if inst.ability_id == "snipers_mark":
                 defn = ABILITY_REGISTRY.get("snipers_mark")
-                if defn and inst.charges < defn.max_charges:
-                    inst.charges += 1
+                if defn and inst.charges_remaining < defn.max_charges:
+                    inst.charges_remaining += 1
                     self.messages.append([
                         ("Sniper's Mark: ", (255, 100, 100)),
                         ("Target eliminated — charge refunded!", (200, 200, 200)),
@@ -1339,26 +1462,36 @@ class GameEngine:
         elif spray == "green":
             self.player_stats.tile_defense_bonus = 4
 
+    def _strip_sleeper_agent_buff(self):
+        """Remove the Sleeper Agent buff from the player if present."""
+        had = any(getattr(e, 'id', '') == 'sleeper_agent' for e in self.player.status_effects)
+        if had:
+            self.player.status_effects = [
+                e for e in self.player.status_effects
+                if getattr(e, 'id', '') != 'sleeper_agent'
+            ]
+            self.messages.append([
+                ("Sleeper Agent stacks lost!", (180, 80, 255)),
+            ])
+
     def _update_sleeper_stacks(self):
         """Update Sleeper Agent weapon stacks based on whether player moved."""
         weapon = self.equipment["weapon"]
-        if weapon is None:
-            return
-        wdefn = get_item_def(weapon.item_id)
-        if not wdefn or "sleeper_agent" not in wdefn.get("tags", []):
+        has_sleeper = (
+            weapon is not None
+            and "sleeper_agent" in get_item_def(weapon.item_id).get("tags", [])
+        )
+
+        # If the Sleeper Agent weapon isn't equipped, strip any lingering buff
+        if not has_sleeper:
+            self._strip_sleeper_agent_buff()
             return
 
         if getattr(self, '_player_moved_this_turn', False):
             old_stacks = getattr(weapon, "sleeper_stacks", 0)
             weapon.sleeper_stacks = 0
             if old_stacks > 0:
-                self.player.status_effects = [
-                    e for e in self.player.status_effects
-                    if getattr(e, 'id', '') != 'sleeper_agent'
-                ]
-                self.messages.append([
-                    ("Sleeper Agent stacks lost!", (180, 80, 255)),
-                ])
+                self._strip_sleeper_agent_buff()
         else:
             old_stacks = getattr(weapon, "sleeper_stacks", 0)
             if old_stacks < 10:
@@ -1652,6 +1785,11 @@ class GameEngine:
                     # Chemical Warfare L2: Toxic Frenzy — +1 speed per 10 tox (cap 500)
                     if self.skills.get("Chemical Warfare").level >= 2:
                         gain += min(self.player.toxicity, 500) // 10
+                    # Arachnigga L5: Spider's Nest — +30 speed on cobweb tiles
+                    if self.skills.get("Arachnigga").level >= 5:
+                        if any(getattr(h, 'hazard_type', None) == 'web'
+                               for h in self.dungeon.get_entities_at(entity.x, entity.y)):
+                            gain += 30
                 entity.energy += gain
 
             # 2. Process all monsters that have enough energy, highest energy first
@@ -1774,17 +1912,6 @@ class GameEngine:
                             (f"-{dmg} HP. {debuff_name} cleansed!", (200, 150, 150)),
                         ])
 
-            # Thinking Cap: consume 1 skill point, grant 2 real XP to a random unlocked skill
-            if self.hat is not None and "thinking_cap" in (get_item_def(self.hat.item_id) or {}).get("tags", []):
-                if self.skills.skill_points >= 1:
-                    unlocked = [s for s in self.skills.unlocked() if not s.is_maxed()]
-                    if unlocked:
-                        target_skill = random.choice(unlocked)
-                        self.skills.skill_points -= 1
-                        levels_gained = target_skill.add_real_exp(2)
-                        for lvl in range(target_skill.level - levels_gained + 1, target_skill.level + 1):
-                            self.messages.append(f"{target_skill.name} reached level {lvl}!")
-                            self._apply_perk(target_skill.name, lvl)
 
             # Tick ability cooldowns
             for key in list(self.ability_cooldowns):
@@ -1891,12 +2018,77 @@ class GameEngine:
                         self.event_bus.emit("entity_died", entity=entity, killer=self.player if entity != self.player else None)
 
             # 4b. Tick timed hazards (decrement duration, remove expired)
+            _brood_mother = self.skills.get("Arachnigga").level >= 4
             for hazard in list(self.dungeon.entities):
                 if getattr(hazard, "entity_type", None) != "hazard":
                     continue
                 hd = getattr(hazard, "hazard_duration", 0)
                 if hd > 0:
                     hazard.hazard_duration -= 1
+                    # Brood Mother: venom pools hatch a spiderling after 3 turns
+                    if (_brood_mother
+                            and getattr(hazard, "hazard_type", None) == "venom_pool"
+                            and not getattr(hazard, "_brood_hatched", False)):
+                        ticks_elapsed = getattr(hazard, "_brood_age", 0) + 1
+                        hazard._brood_age = ticks_elapsed
+                        if ticks_elapsed >= 3:
+                            hazard._brood_hatched = True
+                            # Spawn hatchling at pool tile if not blocked
+                            if not self.dungeon.is_blocked(hazard.x, hazard.y):
+                                from entity import Entity
+                                from ai import get_initial_state
+                                spider = Entity(
+                                    x=hazard.x, y=hazard.y,
+                                    char=chr(0xE004),
+                                    color=(255, 255, 255),
+                                    name="Spider Hatchling",
+                                    entity_type="monster",
+                                    hp=8, max_hp=8,
+                                    power=2,
+                                    defense=0,
+                                    ai_type="spider_hatchling",
+                                    speed=100,
+                                    is_summon=True,
+                                )
+                                spider.ai_state = get_initial_state("spider_hatchling")
+                                self.dungeon.add_entity(spider)
+                                self.messages.append([
+                                    ("Brood Mother! ", (180, 180, 255)),
+                                    ("A spiderling hatches from the venom pool!", (120, 200, 80)),
+                                ])
+                    # Spider's Nest eggs: hatch after 2 turns if enemy within 3 tiles
+                    if getattr(hazard, "hazard_type", None) == "spider_egg":
+                        egg_age = getattr(hazard, "_egg_age", 0) + 1
+                        hazard._egg_age = egg_age
+                        if egg_age >= 2:
+                            # Check for nearby enemies
+                            has_nearby = any(
+                                m.alive and not getattr(m, "is_summon", False)
+                                and max(abs(m.x - hazard.x), abs(m.y - hazard.y)) <= 3
+                                for m in self.dungeon.get_monsters()
+                            )
+                            if has_nearby and not self.dungeon.is_blocked(hazard.x, hazard.y):
+                                from entity import Entity
+                                from ai import get_initial_state
+                                spider = Entity(
+                                    x=hazard.x, y=hazard.y,
+                                    char=chr(0xE004),
+                                    color=(255, 255, 255),
+                                    name="Spider Hatchling",
+                                    entity_type="monster",
+                                    hp=8, max_hp=8,
+                                    power=2, defense=0,
+                                    ai_type="spider_hatchling",
+                                    speed=100,
+                                    is_summon=True,
+                                )
+                                spider.ai_state = get_initial_state("spider_hatchling")
+                                self.dungeon.add_entity(spider)
+                                self.dungeon.remove_entity(hazard)
+                                self.messages.append([
+                                    ("A spider egg hatches!", (120, 200, 80)),
+                                ])
+                                continue  # egg removed, skip duration check
                     if hazard.hazard_duration <= 0:
                         self.dungeon.remove_entity(hazard)
 
@@ -1930,6 +2122,56 @@ class GameEngine:
                     del self.dungeon.grease_tiles[pos]
                 for pos in self.dungeon.grease_tiles:
                     self.dungeon.grease_tiles[pos] -= 1
+
+            # 4d. Rad tile effects: irradiate enemies, tick player, award Decon XP
+            if self.dungeon.rad_tiles:
+                decon_level = self.skills.get("Decontamination").level
+                rad_true_dmg = 2 + decon_level // 2
+                for entity in [self.player] + monsters:
+                    if not entity.alive:
+                        continue
+                    pos = (entity.x, entity.y)
+                    if pos not in self.dungeon.rad_tiles:
+                        continue
+                    if entity == self.player:
+                        # Player gains +5 rad reduced by rad resistance
+                        combat.add_radiation(self, entity, 5, pierce_resistance=False)
+                        # Swagger stacking handled by ConsecratedGroundEffect
+                    else:
+                        # Enemies gain rad and take true damage
+                        rad_per_turn = 20 if decon_level >= 5 else 10
+                        combat.add_radiation(self, entity, rad_per_turn, from_player=True)
+                        true_dmg = rad_true_dmg
+                        # L5 Sanctified Discharge: ignite/shock procs, double dmg if both capped
+                        if decon_level >= 5:
+                            import random as _rng
+                            ignite_eff = next((e for e in entity.status_effects if getattr(e, 'id', '') == 'ignite'), None)
+                            shock_eff = next((e for e in entity.status_effects if getattr(e, 'id', '') == 'shocked'), None)
+                            ignite_stacks = ignite_eff.stacks if ignite_eff else 0
+                            shock_stacks = shock_eff.stacks if shock_eff else 0
+                            ignite_capped = ignite_stacks >= 10
+                            shock_capped = shock_stacks >= 10
+                            if ignite_capped and shock_capped:
+                                # Both capped: double true damage
+                                true_dmg *= 2
+                            else:
+                                if not ignite_capped and _rng.random() < 0.30:
+                                    effects.apply_effect(entity, self, "ignite", stacks=1, silent=True)
+                                if not shock_capped and _rng.random() < 0.30:
+                                    effects.apply_effect(entity, self, "shocked", stacks=1, silent=True)
+                        if true_dmg > 0:
+                            entity.take_damage(true_dmg)
+                            if not entity.alive:
+                                self.event_bus.emit("entity_died", entity=entity, killer=self.player)
+                        # 5 Decontamination XP per enemy on rad tiles
+                        bksmt = self.player_stats.effective_book_smarts
+                        self.skills.gain_potential_exp("Decontamination", 5, bksmt)
+                # Tick rad tile timers
+                expired = [pos for pos, t in self.dungeon.rad_tiles.items() if t <= 1]
+                for pos in expired:
+                    del self.dungeon.rad_tiles[pos]
+                for pos in self.dungeon.rad_tiles:
+                    self.dungeon.rad_tiles[pos] -= 1
 
             # 5. Radiation mutation check
             if self.player.alive:
@@ -2728,9 +2970,35 @@ class GameEngine:
             self._add_item_to_inventory("nutrient_producer")
             self.messages.append("  [Nutrient Producer] A strange device materializes in your inventory. Combine it with any consumable to produce RadBars!")
 
-        if name == "Emission":
-            self.grant_ability("emission")
-            self.messages.append("  [Emission] Irradiate all visible enemies with your radiation! (1/floor)")
+        if name == "Radiant":
+            self.player_stats.permanent_armor_bonus += 10
+            self.messages.append("  [Radiant] +10 Max Armor.")
+
+        if name == "Gamma Aura":
+            self.grant_ability("gamma_aura")
+            self.messages.append("  [Gamma Aura] Toggle: enemies within 2 tiles gain +5 rad/turn. 2x Decon XP. Irradiated kills purge 25 rad!")
+
+        if name == "Consecrate":
+            self.grant_ability("consecrate")
+            self.player_stats.rad_resistance += 15
+            self.player_stats.permanent_armor_bonus += 20
+            import effects
+            effects.apply_effect(self.player, self, "consecrated_ground", silent=True)
+            self.messages.append("  [Consecrate] +20 Max Armor. Lay irradiated ground zones! +15% Rad Resistance. (2/floor, 30t CD)")
+
+        if name == "Ironsoul Aura":
+            self.grant_ability("ironsoul_aura")
+            self.messages.append("  [Ironsoul Aura] Toggle: +1 DR per visible enemy, +2 FOV. Hits fuel rad. 25% melee: rad → armor.")
+
+        if name == "Sanctified Discharge":
+            self.player_stats.permanent_armor_bonus += 30
+            # Immediately add 2 bonus charges to current floor
+            self.grant_ability_charges("consecrate", 2, silent=True)
+            self.messages.append("  [Sanctified Discharge] +30 Max Armor. Consecrate: 4 charges, +20 rad/turn, Ignite + Shocked procs!")
+
+        if name == "Retribution Aura":
+            self.grant_ability("retribution_aura")
+            self.messages.append("  [Retribution Aura] Toggle: enemies that melee you take true damage. Drains rad per proc.")
 
         if name == "Sniper's Mark":
             self.grant_ability("snipers_mark")
@@ -2940,6 +3208,9 @@ class GameEngine:
             self.grant_ability("shed")
             self.messages.append("  [Shed] Sacrifice a good mutation to cleanse a debuff and regain radiation.")
 
+        if name == "Triple Helix":
+            self.messages.append("  [Triple Helix] 30% chance for a bonus mutation when you mutate!")
+
         if name == "Pure":
             self.player_stats.tox_resistance += 20
             self.messages.append("  [Pure] +20% tox resistance. Double XP from toxicity resisted.")
@@ -3090,6 +3361,95 @@ class GameEngine:
 
         if name == "Salvage Volley":
             self.messages.append("  [Salvage Volley] Destroying items fires 3 bonus turret shots. Turret kills drop Scrap!")
+
+    # ------------------------------------------------------------------
+    # Skill / Perk revocation system
+    # ------------------------------------------------------------------
+
+    # Special engine flags that certain perks set and need explicit reversal.
+    _PERK_ENGINE_REVOCATIONS: dict[str, tuple] = {
+        "Crit+":       ("crit_multiplier", -1),       # Beating L3
+        "Air Jordans":  ("move_cost_reduction", -10),   # Jaywalking L1
+        "Arcane Flux":  ("arcane_flux_active", False),  # Elementalist L3
+    }
+
+    def _revoke_perk(self, skill_name: str, level: int) -> None:
+        """Reverse the effects of a perk at the given skill level.
+
+        Handles:
+        - Stat bonuses (subtract from player_stats + _base, adjust HP for CON)
+        - Ability grants (revoke via revoke_ability)
+        - Special engine flags (lookup table)
+        - Passive perks require no action (they check skill.level at runtime)
+        - Item grants are NOT revoked (player may have used/dropped them)
+        """
+        from skills import get_perk
+        perk = get_perk(skill_name, level)
+        if not perk:
+            return
+        name = perk["name"]
+        effect = perk.get("effect") or {}
+
+        # Reverse stat bonuses
+        stat_keys = {k for k in effect if k != "ability"}
+        if stat_keys:
+            ps = self.player_stats
+            for stat in stat_keys:
+                amount = effect[stat]
+                ps.modify_base_stat(stat, -amount)
+                if stat == "constitution":
+                    self.player.max_hp = max(1, self.player.max_hp - 10 * amount)
+                    self.player.hp = min(self.player.hp, self.player.max_hp)
+
+        # Revoke ability
+        if "ability" in effect:
+            self.revoke_ability(effect["ability"])
+
+        # Special engine flags
+        if name in self._PERK_ENGINE_REVOCATIONS:
+            attr, value = self._PERK_ENGINE_REVOCATIONS[name]
+            if isinstance(value, bool):
+                setattr(self, attr, value)
+            else:
+                setattr(self, attr, getattr(self, attr, 0) + value)
+
+        self.messages.append([
+            ("Perk lost: ", (255, 100, 100)),
+            (name, (255, 200, 100)),
+            (f" ({skill_name} L{level})", (180, 180, 180)),
+        ])
+
+    def drain_skill_level(self, skill_name: str) -> bool:
+        """Remove 1 level from a skill, revoking the perk at that level.
+
+        Returns True if a level was drained, False if skill was already at 0.
+        """
+        skill = self.skills.get(skill_name)
+        if not skill or skill.level <= 0:
+            return False
+        old_level = skill.level
+        self._revoke_perk(skill_name, old_level)
+        skill.level -= 1
+        skill.real_exp = 0
+        return True
+
+    def boost_skill_level(self, skill_name: str, levels: int = 1) -> int:
+        """Grant free skill levels, applying perks for each.
+
+        Returns the number of levels actually gained (capped at MAX_LEVEL).
+        """
+        skill = self.skills.get(skill_name)
+        if not skill:
+            return 0
+        gained = 0
+        for _ in range(levels):
+            if skill.level >= 10:
+                break
+            skill.level += 1
+            skill.real_exp = 0
+            self._apply_perk(skill_name, skill.level)
+            gained += 1
+        return gained
 
     def _handle_log_input(self, action):
         """Handle input while the log menu is open. UP/DOWN scroll; anything else closes."""
@@ -3323,6 +3683,10 @@ class GameEngine:
                 if cryo_double and "cold" in defn.tags:
                     if defn.charge_type == ChargeType.PER_FLOOR:
                         inst.floor_charges_remaining = defn.max_charges * 2
+                # Decontamination L5 (Sanctified Discharge): consecrate gets 4 charges/floor
+                if inst.ability_id == "consecrate" and self.skills.get("Decontamination").level >= 5:
+                    if defn.charge_type == ChargeType.PER_FLOOR:
+                        inst.floor_charges_remaining = 4
                 # Blackkk Magic L4 (Dark Covenant): +3 per-floor charges for curse abilities
                 if dark_covenant and defn.is_curse:
                     if defn.charge_type in (ChargeType.PER_FLOOR, ChargeType.FLOOR_ONLY):
@@ -3358,6 +3722,11 @@ class GameEngine:
 
         # Reset temporary spell damage
         self.player_stats.temporary_spell_damage = 0
+
+        # Reapply persistent floor-duration effects from perks
+        if self.skills.get("Decontamination").level >= 3:
+            from effects import apply_effect
+            apply_effect(self.player, self, "consecrated_ground", silent=True)
 
         # Refill armor at floor start and reset chain armor tracker
         self.player.armor = self.player.max_armor
@@ -3948,6 +4317,9 @@ class GameEngine:
             elif target and getattr(target, "hazard_type", None) == "door":
                 self._try_unlock_door(target)
                 return True
+            elif target and target.entity_type == "npc" and getattr(target, "npc_subtype", None):
+                self._interact_npc(target)
+                return False  # no turn consumed — just opens menu
             return False  # pure wall — no turn consumed
 
         # Failsafe: explicitly check that no living monster occupies the destination
@@ -4293,6 +4665,1158 @@ class GameEngine:
             return False
 
         return False
+
+    # ------------------------------------------------------------------
+    # NPC interactions (penthouse service NPCs)
+    # ------------------------------------------------------------------
+
+    def _interact_npc(self, npc):
+        """Dispatch NPC bump interaction based on npc_subtype."""
+        subtype = npc.npc_subtype
+        if subtype == "gun_dealer":
+            self._open_gun_dealer(npc)
+        elif subtype == "chef":
+            self._open_chef(npc)
+        elif subtype == "plug":
+            self._open_plug(npc)
+        elif subtype == "skill_trader":
+            self._open_skill_trader(npc)
+        elif subtype == "tattoo_artist":
+            self._open_tattoo_artist(npc)
+        elif subtype == "pawn_man":
+            self._open_pawn_man(npc)
+        elif subtype == "enchanter":
+            self._open_enchanter(npc)
+        elif subtype == "mixologist":
+            self._open_mixologist(npc)
+        elif subtype == "craps_dealer":
+            self._open_craps(npc)
+        elif subtype == "ezra":
+            self._open_ezra(npc)
+
+    # ── Gun Dealer ──────────────────────────────────────────────────────
+
+    def _open_gun_dealer(self, npc):
+        stock = getattr(npc, "gun_stock", [])
+        if not stock:
+            self.messages.append([("Richard has nothing left.", (180, 180, 180))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.GUN_DEALER
+
+    def _handle_gun_dealer_input(self, action):
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        stock = getattr(self.npc_entity, "gun_stock", [])
+        if not stock:
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(stock)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            from items import get_item_def
+            gun_id = stock[self.npc_cursor]
+            self._add_item_to_inventory(gun_id)
+            defn = get_item_def(gun_id) or {}
+            name = defn.get("name", gun_id)
+            self.messages.append([
+                ("Richard hands you a", (200, 200, 200)),
+                (f"{name}", defn.get("color", (255, 255, 255))),
+                ("!", (200, 200, 200)),
+            ])
+            self.npc_entity.gun_stock = []
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    # ── Plug ────────────────────────────────────────────────────────────
+
+    def _open_plug(self, npc):
+        stock = getattr(npc, "strain_stock", [])
+        if not stock:
+            self.messages.append([("Peanut has nothing left.", (180, 180, 180))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.PLUG
+
+    def _handle_plug_input(self, action):
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        stock = getattr(self.npc_entity, "strain_stock", [])
+        if not stock:
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(stock)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            from items import get_strain_color
+            strain = stock[self.npc_cursor]
+            self._add_item_to_inventory("joint", strain=strain, quantity=5)
+            color = get_strain_color(strain)
+            self.messages.append([
+                ("Peanut hooks you up with 5", (200, 200, 200)),
+                (f"{strain}", color),
+                (" joints!", (200, 200, 200)),
+            ])
+            self.npc_entity.strain_stock = []
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    # ── Chef ────────────────────────────────────────────────────────────
+
+    def _open_chef(self, npc):
+        if getattr(npc, "chef_used", False):
+            self.messages.append([("Big Spoon has already cooked for you.", (180, 180, 180))])
+            return
+        # Check player has at least 2 food items
+        food_indices = self._get_food_indices()
+        if len(food_indices) < 2:
+            self.messages.append([("You need at least 2 food items for the Chef.", (255, 200, 100))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.chef_first_pick = None
+        self.menu_state = MenuState.CHEF_SELECT_A
+
+    def _get_food_indices(self):
+        """Return inventory indices of food items."""
+        from foods import FOOD_DEFS
+        indices = []
+        for i, item in enumerate(self.player.inventory):
+            food_id = getattr(item, "food_id", None) or getattr(item, "item_id", None)
+            if food_id and food_id in FOOD_DEFS:
+                indices.append(i)
+        return indices
+
+    def _handle_chef_select_a_input(self, action):
+        """Select first food for sandwich fusion."""
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            self.chef_first_pick = None
+            return False
+
+        food_indices = self._get_food_indices()
+        if not food_indices:
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(food_indices)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            idx = food_indices[self.npc_cursor]
+            self.chef_first_pick = idx
+            self.npc_cursor = 0
+            self.menu_state = MenuState.CHEF_SELECT_B
+            return False
+
+        return False
+
+    def _handle_chef_select_b_input(self, action):
+        """Select second food for sandwich fusion."""
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.CHEF_SELECT_A
+            self.npc_cursor = 0
+            self.chef_first_pick = None
+            return False
+
+        # Filter out the first pick
+        food_indices = [i for i in self._get_food_indices() if i != self.chef_first_pick]
+        if not food_indices:
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            self.chef_first_pick = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(food_indices)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            idx_b = food_indices[self.npc_cursor]
+            idx_a = self.chef_first_pick
+            self._create_sandwich(idx_a, idx_b)
+            self.npc_entity.chef_used = True
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            self.chef_first_pick = None
+            return False
+
+        return False
+
+    def _create_sandwich(self, idx_a, idx_b):
+        """Fuse two food items into a Sandwich with 5 charges."""
+        from foods import FOOD_DEFS
+        inv = self.player.inventory
+        item_a = inv[idx_a]
+        item_b = inv[idx_b]
+
+        food_id_a = getattr(item_a, "food_id", None) or getattr(item_a, "item_id", None)
+        food_id_b = getattr(item_b, "food_id", None) or getattr(item_b, "item_id", None)
+
+        def_a = FOOD_DEFS.get(food_id_a, {})
+        def_b = FOOD_DEFS.get(food_id_b, {})
+        name_a = def_a.get("name", food_id_a)
+        name_b = def_b.get("name", food_id_b)
+
+        # Remove both items (higher index first to avoid shifting)
+        for idx in sorted([idx_a, idx_b], reverse=True):
+            item = inv[idx]
+            if getattr(item, "quantity", 1) > 1:
+                item.quantity -= 1
+            else:
+                inv.pop(idx)
+
+        # Create sandwich: base is food_a, prefix "sandwich", stores second food
+        sandwich = Entity(
+            x=0, y=0,
+            char="f",
+            color=(255, 220, 130),
+            name="Sandwich",
+            entity_type="item",
+        )
+        sandwich.item_id = food_id_a
+        sandwich.food_id = food_id_a
+        sandwich.prefix = "sandwich"
+        sandwich.sandwich_food_id = food_id_b
+        sandwich.charges = 5
+        sandwich.max_charges = 5
+        sandwich.quantity = 1
+        sandwich.blocks_movement = False
+
+        inv.append(sandwich)
+
+        self.messages.append([
+            ("Big Spoon makes you a", (255, 200, 100)),
+            (f"{name_a} + {name_b} Sandwich", (255, 220, 130)),
+            (" (5 charges)!", (255, 200, 100)),
+        ])
+
+    # ── La'Quisha (Skill Trader) ────────────────────────────────────────
+
+    def _roll_skill_trade(self, npc):
+        """Roll a skill trade offer: drain 1 level from a trained skill, gain 2 in an untrained skill with potential XP."""
+        import random as _rng
+        trained = [s for s in self.skills.all() if s.level >= 1]
+        untrained = [s for s in self.skills.all() if s.level == 0 and s.potential_exp > 0]
+        if not trained or not untrained:
+            npc.trade_available = False
+            return
+        npc.trade_drain_skill = _rng.choice(trained).name
+        npc.trade_boost_skill = _rng.choice(untrained).name
+        npc.trade_rolled = True
+
+    def _open_skill_trader(self, npc):
+        if not getattr(npc, "trade_available", False):
+            self.messages.append([("La'Quisha has no deal for you.", (180, 180, 180))])
+            return
+        if not getattr(npc, "trade_rolled", False):
+            self._roll_skill_trade(npc)
+        if not getattr(npc, "trade_available", False):
+            self.messages.append([("La'Quisha can't find a trade that works.", (180, 180, 180))])
+            return
+        self.npc_entity = npc
+        self.menu_state = MenuState.SKILL_TRADER
+
+    def _handle_skill_trader_input(self, action):
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            npc = self.npc_entity
+            drain_name = npc.trade_drain_skill
+            boost_name = npc.trade_boost_skill
+            drain_skill = self.skills.get(drain_name)
+            old_level = drain_skill.level if drain_skill else 0
+
+            self.drain_skill_level(drain_name)
+            gained = self.boost_skill_level(boost_name, 2)
+
+            self.messages.append([
+                ("La'Quisha works her magic! ", (100, 160, 255)),
+                (f"{drain_name} L{old_level}→L{old_level - 1}", (255, 100, 100)),
+                (", ", (180, 180, 180)),
+                (f"{boost_name} L0→L{gained}", (100, 255, 100)),
+            ])
+            npc.trade_available = False
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    # ── Precious (Tattoo Artist) ────────────────────────────────────────
+
+    def _open_tattoo_artist(self, npc):
+        if getattr(npc, "tattoo_used", False):
+            self.messages.append([("Precious has already inked you.", (180, 180, 180))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.TATTOO_ARTIST
+
+    def _handle_tattoo_artist_input(self, action):
+        import random as _rng
+        atype = action.get("type")
+        stat_names = ["constitution", "strength", "book_smarts", "street_smarts", "tolerance"]
+
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(stat_names)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            boost_stat = stat_names[self.npc_cursor]
+            others = [s for s in stat_names if s != boost_stat]
+            drain_stat = _rng.choice(others)
+
+            ps = self.player_stats
+            ps.modify_base_stat(boost_stat, 5)
+            if boost_stat == "constitution":
+                self.player.max_hp += 50
+                self.player.heal(50)
+            ps.modify_base_stat(drain_stat, -5)
+            if drain_stat == "constitution":
+                self.player.max_hp = max(1, self.player.max_hp - 50)
+                self.player.hp = min(self.player.hp, self.player.max_hp)
+
+            boost_label = boost_stat.replace("_", " ").title()
+            drain_label = drain_stat.replace("_", " ").title()
+            self.messages.append([
+                ("Precious inks you up! ", (255, 80, 200)),
+                (f"+5 {boost_label}", (100, 255, 100)),
+                (", but ", (180, 180, 180)),
+                (f"-5 {drain_label}", (255, 100, 100)),
+                ("!", (180, 180, 180)),
+            ])
+            self.npc_entity.tattoo_used = True
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    # ── Rico (Pawn Man) ─────────────────────────────────────────────────
+
+    def _get_equipped_slots(self):
+        """Return list of (slot_key, item) for all equipped items."""
+        slots = []
+        if self.equipment.get("weapon"):
+            slots.append(("weapon", self.equipment["weapon"]))
+        if self.equipment.get("sidearm"):
+            slots.append(("sidearm", self.equipment["sidearm"]))
+        if self.neck:
+            slots.append(("neck", self.neck))
+        if self.feet:
+            slots.append(("feet", self.feet))
+        if self.hat:
+            slots.append(("hat", self.hat))
+        for i, r in enumerate(self.rings):
+            if r is not None:
+                slots.append((("ring", i), r))
+        return slots
+
+    def _get_pawn_inventory_indices(self):
+        """Return inventory indices of items Rico can trade (non-quest items)."""
+        from items import get_item_def
+        indices = []
+        for i, item in enumerate(self.player.inventory):
+            defn = get_item_def(item.item_id) if item.item_id else None
+            if defn is None:
+                continue
+            indices.append(i)
+        return indices
+
+    def _open_pawn_man(self, npc):
+        if getattr(npc, "pawn_used", False):
+            self.messages.append([("Rico's already done business with you.", (180, 180, 180))])
+            return
+        indices = self._get_pawn_inventory_indices()
+        if not indices:
+            self.messages.append([("You have nothing to trade.", (255, 200, 100))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.PAWN_MAN
+
+    def _handle_pawn_man_input(self, action):
+        import random as _rng
+        from items import get_item_def
+        atype = action.get("type")
+
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        indices = self._get_pawn_inventory_indices()
+        if not indices:
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(indices)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            idx = indices[self.npc_cursor]
+            old_item = self.player.inventory[idx]
+            old_name = old_item.name
+            old_color = old_item.color
+            old_defn = get_item_def(old_item.item_id) or {}
+
+            # Determine replacement category from the item's definition
+            cat = old_defn.get("category", "consumable")
+            subcat = old_defn.get("subcategory")
+            slot = old_defn.get("equip_slot")
+
+            new_item_id = self._pawn_pick_replacement_for_item(cat, subcat, slot)
+            if not new_item_id:
+                self.messages.append([("Rico can't find a replacement for that.", (255, 200, 100))])
+                return False
+
+            # Remove old item (1 from stack)
+            if getattr(old_item, "quantity", 1) > 1:
+                old_item.quantity -= 1
+            else:
+                self.player.inventory.pop(idx)
+
+            # Add new item
+            self._add_item_to_inventory(new_item_id)
+            new_defn = get_item_def(new_item_id) or {}
+            new_name = new_defn.get("name", new_item_id)
+            new_color = new_defn.get("color", (255, 255, 255))
+
+            self.messages.append([
+                ("Rico takes your ", (200, 180, 60)),
+                (old_name, old_color),
+                (" and hands you a ", (200, 180, 60)),
+                (new_name, new_color),
+                ("!", (200, 180, 60)),
+            ])
+            self.npc_entity.pawn_used = True
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    def _pawn_pick_replacement_for_item(self, cat, subcat, slot):
+        """Pick a random Meth Lab item matching the traded item's type."""
+        import random as _rng
+        from items import ITEM_DEFS, get_random_chain, get_random_hat
+
+        zone = "meth_lab"
+        # Equipment: match by subcategory or equip slot
+        if cat == "equipment":
+            if subcat == "weapon":
+                candidates = [
+                    iid for iid, defn in ITEM_DEFS.items()
+                    if defn.get("subcategory") == "weapon"
+                    and zone in defn.get("zones", [])
+                ]
+                return _rng.choice(candidates) if candidates else None
+            elif subcat == "gun":
+                candidates = [
+                    iid for iid, defn in ITEM_DEFS.items()
+                    if defn.get("subcategory") == "gun"
+                    and zone in defn.get("zones", [])
+                ]
+                return _rng.choice(candidates) if candidates else None
+            elif slot == "ring":
+                from loot import ZONE_EQUIPMENT_CONFIG
+                config = ZONE_EQUIPMENT_CONFIG.get(zone, {})
+                tier_wts = config.get("ring_tier_weights", [("minor", 1)])
+                tiers = [t[0] for t in tier_wts]
+                wts = [t[1] for t in tier_wts]
+                tier = _rng.choices(tiers, weights=wts, k=1)[0]
+                candidates = [
+                    iid for iid, defn in ITEM_DEFS.items()
+                    if tier in defn.get("tags", [])
+                    and zone in defn.get("zones", [])
+                ]
+                return _rng.choice(candidates) if candidates else None
+            elif slot == "neck":
+                return get_random_chain(zone)
+            elif slot == "feet":
+                candidates = [
+                    iid for iid, defn in ITEM_DEFS.items()
+                    if "jordans" in defn.get("tags", [])
+                    and zone in defn.get("zones", [])
+                ]
+                return _rng.choice(candidates) if candidates else None
+            elif slot == "hat":
+                return get_random_hat(zone)
+        # Non-equipment: match by category
+        candidates = [
+            iid for iid, defn in ITEM_DEFS.items()
+            if defn.get("category") == cat
+            and zone in defn.get("zones", [])
+            and defn.get("weight", 0) > 0
+        ]
+        return _rng.choice(candidates) if candidates else None
+
+    # ── Soloman (Enchanter) ────────────────────────────────────────────
+
+    def _open_enchanter(self, npc):
+        if getattr(npc, "enchanter_used", False):
+            self.messages.append([("Soloman: My work's already on you. Go use it.", (180, 180, 180))])
+            return
+        equipped = self._get_equipped_slots()
+        if not equipped:
+            self.messages.append([("You have nothing equipped to enchant.", (255, 200, 100))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.ENCHANTER
+
+    def _enchant_preview(self, slot_key, item):
+        """Return (effect_label, detail_str) describing what the enchantment does."""
+        from items import get_item_def
+        defn = get_item_def(item.item_id) or {}
+        if isinstance(slot_key, tuple):
+            cat = "ring"
+        else:
+            cat = slot_key
+
+        if cat == "weapon":
+            pb = defn.get("power_bonus", 0)
+            if pb:
+                new_pb = max(1, round(pb * 1.5))
+                return ("Damage", f"+{pb}atk -> +{new_pb}atk (x1.5)")
+            else:
+                bd = defn.get("base_damage")
+                if bd and isinstance(bd, int):
+                    bonus = max(1, bd // 2)
+                    return ("Damage", f"+{bonus}atk added (half base)")
+                return ("Damage", "x1.5 power")
+        elif cat == "sidearm":
+            bd = defn.get("base_damage")
+            if bd and isinstance(bd, (list, tuple)) and len(bd) == 2:
+                new_min = max(1, round(bd[0] * 1.5))
+                new_max = max(1, round(bd[1] * 1.5))
+                return ("Gun Damage", f"({bd[0]}-{bd[1]}) -> ({new_min}-{new_max})")
+            return ("Gun Damage", "x1.5 damage")
+        elif cat == "hat":
+            sb = defn.get("stat_bonus", {})
+            if sb:
+                parts = []
+                for stat, val in sb.items():
+                    sn = stat[:3].upper()
+                    parts.append(f"+{val+2} {sn}")
+                return ("Stats", ", ".join(parts) + " (+2 each)")
+            return ("Stats", "+2 SWG, +2 STS")
+        elif cat == "neck":
+            return ("Armor", "+40 max armor")
+        elif cat == "feet":
+            return ("Speed", "+20 energy/tick")
+        elif cat == "ring":
+            sb = defn.get("stat_bonus", {})
+            if sb:
+                parts = []
+                for stat, val in sb.items():
+                    sn = stat[:3].upper()
+                    parts.append(f"+{val*2} {sn}")
+                return ("Stats", ", ".join(parts) + " (doubled)")
+            return ("Stats", "+1 to all stats")
+        return ("???", "unknown slot")
+
+    def _apply_enchantment(self, slot_key, item):
+        """Apply the enchantment to the item entity and mark it locked."""
+        from items import get_item_def
+        from inventory_mgr import _refresh_ring_stat_bonuses
+        defn = get_item_def(item.item_id) or {}
+        if isinstance(slot_key, tuple):
+            cat = "ring"
+        else:
+            cat = slot_key
+
+        item.enchanted_locked = True
+
+        if cat == "weapon":
+            pb = defn.get("power_bonus", 0)
+            if pb:
+                extra = max(1, round(pb * 1.5)) - pb
+            else:
+                bd = defn.get("base_damage")
+                if bd and isinstance(bd, int):
+                    extra = max(1, bd // 2)
+                else:
+                    extra = max(1, round(self.player.power * 0.5))
+            item.enchant_power_bonus = extra
+            # Double break_hits for fragile weapons
+            bh = defn.get("break_hits", 0)
+            if bh > 0:
+                item.enchant_break_hits = bh  # extra break_hits to add
+        elif cat == "sidearm":
+            bd = defn.get("base_damage", (1, 1))
+            if isinstance(bd, (list, tuple)) and len(bd) == 2:
+                extra_min = max(1, round(bd[0] * 1.5)) - bd[0]
+                extra_max = max(1, round(bd[1] * 1.5)) - bd[1]
+            else:
+                extra_min, extra_max = 1, 1
+            item.enchant_damage_bonus = (extra_min, extra_max)
+        elif cat == "hat":
+            sb = defn.get("stat_bonus", {})
+            if sb:
+                item.enchant_stat_bonus = {stat: 2 for stat in sb}
+            else:
+                item.enchant_stat_bonus = {"swagger": 2, "street_smarts": 2}
+            _refresh_ring_stat_bonuses(self)
+        elif cat == "neck":
+            item.enchant_armor_bonus = 40
+            _refresh_ring_stat_bonuses(self)
+        elif cat == "feet":
+            item.enchant_speed_bonus = 20
+            _refresh_ring_stat_bonuses(self)
+        elif cat == "ring":
+            sb = defn.get("stat_bonus", {})
+            if sb:
+                item.enchant_stat_bonus = {stat: val for stat, val in sb.items()}
+            else:
+                item.enchant_stat_bonus = {
+                    "constitution": 1, "strength": 1, "book_smarts": 1,
+                    "street_smarts": 1, "tolerance": 1, "swagger": 1,
+                }
+            _refresh_ring_stat_bonuses(self)
+
+    def _handle_enchanter_input(self, action):
+        from items import get_item_def
+        atype = action.get("type")
+
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        equipped = self._get_equipped_slots()
+        if not equipped:
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(equipped)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            slot_key, item = equipped[self.npc_cursor]
+            # Block enchanting items that are already enchanted
+            if getattr(item, "enchanted_locked", False):
+                self.messages.append([("That item is already enchanted.", (255, 200, 100))])
+                return False
+
+            self._apply_enchantment(slot_key, item)
+
+            self.messages.append([
+                ("Soloman: ", (255, 215, 80)),
+                (f"Now that's a {item.name}.", (200, 200, 200)),
+            ])
+            self.npc_entity.enchanter_used = True
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    # ── Sage (Mixologist) ───────────────────────────────────────────────
+
+    def _get_alcohol_indices(self):
+        """Return inventory indices of alcoholic drink items only."""
+        from items import get_item_def
+        indices = []
+        for i, item in enumerate(self.player.inventory):
+            defn = get_item_def(item.item_id) if item.item_id else None
+            if defn:
+                eff = defn.get("use_effect") or {}
+                if eff.get("type") == "alcohol":
+                    indices.append(i)
+        return indices
+
+    def _open_mixologist(self, npc):
+        if getattr(npc, "mixologist_used", False):
+            self.messages.append([("Sage: Already made you one. Enjoy it.", (180, 180, 180))])
+            return
+        drink_indices = self._get_alcohol_indices()
+        if not drink_indices:
+            self.messages.append([("You don't have any drinks.", (255, 200, 100))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.MIXOLOGIST
+
+    def _handle_mixologist_input(self, action):
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        drink_indices = self._get_alcohol_indices()
+        if not drink_indices:
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(drink_indices)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            idx = drink_indices[self.npc_cursor]
+            item = self.player.inventory[idx]
+            old_name = item.name
+
+            # Split stack if quantity > 1
+            if getattr(item, "quantity", 1) > 1:
+                item.quantity -= 1
+                from entity import Entity
+                rocks_item = Entity(
+                    x=0, y=0,
+                    char=item.char,
+                    color=(180, 220, 255),
+                    name=f"{old_name} On the Rocks",
+                    entity_type="item",
+                    item_id=item.item_id,
+                )
+                rocks_item.on_the_rocks = True
+                rocks_item.charges = 3
+                rocks_item.max_charges = 3
+                rocks_item.quantity = 1
+                self.player.inventory.append(rocks_item)
+            else:
+                # Modify in place
+                item.on_the_rocks = True
+                item.charges = 3
+                item.max_charges = 3
+                item.name = f"{old_name} On the Rocks"
+                item.color = (180, 220, 255)
+                rocks_item = item
+
+            self.messages.append([
+                ("Sage: ", (180, 120, 220)),
+                (f"*shakes* {rocks_item.name}. ", (180, 220, 255)),
+                ("Three sips. No hangover.", (200, 200, 200)),
+            ])
+            self.npc_entity.mixologist_used = True
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    # ── Mama Ezra (Loot Multiplier) ────────────────────────────────────
+
+    _EZRA_CHOICES = [
+        ("weed_product", "Weed", (100, 200, 50)),
+        ("drinks", "Alcohol", (200, 150, 50)),
+        ("food", "Food", (255, 200, 100)),
+        ("meth_consumable", "Meth", (100, 200, 255)),
+    ]
+
+    def _open_ezra(self, npc):
+        if getattr(npc, "ezra_used", False):
+            self.messages.append([("Mama Ezra: I already read you, child.", (160, 80, 200))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.EZRA
+
+    def _handle_ezra_input(self, action):
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(self._EZRA_CHOICES)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            key, label, color = self._EZRA_CHOICES[self.npc_cursor]
+            self.ezra_multiplier = key
+            import loot as _loot
+            _loot.ezra_multiplier_category = key
+            self.messages.append([
+                ("Mama Ezra: ", (160, 80, 200)),
+                ("I see ", (200, 180, 220)),
+                (label.lower(), color),
+                (" in your future... lots of it.", (200, 180, 220)),
+            ])
+            self.npc_entity.ezra_used = True
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        return False
+
+    # ── Dice (Craps Dealer) ─────────────────────────────────────────────
+
+    _CRAPS_ANTES = [5, 10, 25]
+
+    _CRAPS_TALK_PLAYER_CRAPS = [
+        "Ha! Pay up.", "That's tough.", "Ooh, craps!",
+        "You hate to see it.", "Unlucky.",
+    ]
+    _CRAPS_TALK_NPC_CRAPS = [
+        "...aight.", "That ain't happen.", "Whatever.",
+        "Don't even look at me.", "Nah.",
+    ]
+    _CRAPS_TALK_PLAYER_POINT = [
+        "Lucky.", "Don't get comfortable.", "Aight, aight.",
+    ]
+    _CRAPS_TALK_NPC_POINT = [
+        "That's how it's done.", "Easy money.", "Let's go.",
+    ]
+    _CRAPS_TALK_NOTHING = [
+        "Brick.", "Nothin'.", "Dead roll.", "Next.", "Nada.",
+    ]
+    _CRAPS_TALK_PLAYER_WIN = [
+        "...run that back.", "You got lucky.", "Aight, you nice.",
+    ]
+    _CRAPS_TALK_NPC_WIN = [
+        "I'll take that.", "Too easy.", "Better luck next time.",
+    ]
+
+    def _open_craps(self, npc):
+        if getattr(npc, "craps_consec_losses", 0) >= 3:
+            self.messages.append([(f"{npc.name}: Nah, you got me heated. I'm done.", (255, 50, 50))])
+            return
+        if self.cash < 5:
+            self.messages.append([("You can't even afford the minimum ante.", (255, 200, 100))])
+            return
+        self.npc_entity = npc
+        self.npc_cursor = 0
+        self.menu_state = MenuState.CRAPS_ANTE
+
+    def _handle_craps_ante_input(self, action):
+        atype = action.get("type")
+        if atype == "close_menu":
+            self.menu_state = MenuState.NONE
+            self.npc_entity = None
+            return False
+
+        if atype == "move":
+            dy = action.get("dy", 0)
+            if dy:
+                self.npc_cursor = (self.npc_cursor + dy) % len(self._CRAPS_ANTES)
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            ante = self._CRAPS_ANTES[self.npc_cursor]
+            if self.cash < ante:
+                self.messages.append(f"Not enough cash! Need ${ante}, have ${self.cash}.")
+                return False
+            self.cash -= ante
+            self.craps_state = {
+                "ante": ante,
+                "pot": ante * 2,
+                "player_points": 0,
+                "npc_points": 0,
+                "player_doubles": 0,
+                "npc_doubles": 0,
+                "turn": None,
+                "phase": "roll_first",
+                "challenge_for": None,
+                "challenge_rolls_left": 0,
+                "log": [("Ante: $%d each. Pot: $%d." % (ante, ante * 2), (255, 215, 0))],
+                "result": None,
+                "npc_name": self.npc_entity.name if self.npc_entity else "Deshawn",
+                "step": "player_init",
+                "init_player_roll": None,
+                "init_npc_roll": None,
+                "_reroll": False,
+            }
+            self.menu_state = MenuState.CRAPS_GAME
+            return False
+
+        return False
+
+    def _handle_craps_game_input(self, action):
+        atype = action.get("type")
+        cs = self.craps_state
+        if not cs:
+            self.menu_state = MenuState.NONE
+            return False
+
+        if atype == "close_menu":
+            if cs["phase"] == "done":
+                self.menu_state = MenuState.NONE
+                self.npc_entity = None
+                self.craps_state = None
+                return False
+            # Forfeit
+            cs["log"].append(("You walk away. Forfeit.", (255, 150, 50)))
+            cs["result"] = "lose"
+            cs["phase"] = "done"
+            self._craps_finish()
+            return False
+
+        if atype in ("confirm_target", "item_use"):
+            if cs["phase"] == "done":
+                self.menu_state = MenuState.NONE
+                self.npc_entity = None
+                self.craps_state = None
+                return False
+            self._craps_advance()
+            return False
+
+        return False
+
+    def _craps_advance(self):
+        import random as _rng
+        cs = self.craps_state
+        npc = cs["npc_name"]
+
+        # ── Phase: roll_first (determine who goes first) ──
+        if cs["phase"] == "roll_first":
+            if cs["step"] == "player_init":
+                d1, d2 = _rng.randint(1, 6), _rng.randint(1, 6)
+                cs["init_player_roll"] = (d1, d2, d1 + d2)
+                cs["log"].append((f"You roll: [{d1}] [{d2}] = {d1+d2}", (200, 255, 200)))
+                cs["step"] = "npc_init"
+            elif cs["step"] == "npc_init":
+                d1, d2 = _rng.randint(1, 6), _rng.randint(1, 6)
+                cs["init_npc_roll"] = (d1, d2, d1 + d2)
+                cs["log"].append((f"{npc} rolls: [{d1}] [{d2}] = {d1+d2}", (255, 180, 180)))
+                cs["step"] = "reveal"
+            elif cs["step"] == "reveal":
+                pt = cs["init_player_roll"][2]
+                nt = cs["init_npc_roll"][2]
+                if pt > nt:
+                    cs["turn"] = "player"
+                    cs["log"].append(("You go first!", (100, 255, 100)))
+                elif nt > pt:
+                    cs["turn"] = "npc"
+                    cs["log"].append((f"{npc} goes first!", (255, 100, 100)))
+                else:
+                    cs["log"].append(("Tie! Re-rolling...", (255, 255, 100)))
+                    cs["step"] = "player_init"
+                    cs["init_player_roll"] = None
+                    cs["init_npc_roll"] = None
+                    return
+                cs["phase"] = "playing"
+                cs["step"] = "rolling"
+            return
+
+        # ── Phase: playing / challenge ──
+        if cs["step"] == "rolling":
+            d1, d2 = _rng.randint(1, 6), _rng.randint(1, 6)
+            self._craps_evaluate_roll(d1, d2)
+            if cs["phase"] == "done":
+                return
+            if cs.get("_reroll"):
+                cs["_reroll"] = False
+                return  # same player rolls again
+            # Advance turn
+            if cs["phase"] == "challenge":
+                cs["challenge_rolls_left"] -= 1
+                if cs["challenge_rolls_left"] <= 0:
+                    # Challenge survived
+                    winner = cs["challenge_for"]
+                    if winner == "player":
+                        cs["log"].append(("Challenge survived! You win!", (100, 255, 100)))
+                        cs["result"] = "win"
+                    else:
+                        cs["log"].append((f"Challenge survived! {npc} wins!", (255, 80, 80)))
+                        cs["result"] = "lose"
+                    cs["phase"] = "done"
+                    self._craps_finish()
+                    return
+            cs["turn"] = "npc" if cs["turn"] == "player" else "player"
+            # step stays "rolling" — next Enter rolls for the other player
+
+    def _craps_evaluate_roll(self, d1, d2):
+        import random as _rng
+        cs = self.craps_state
+        total = d1 + d2
+        is_player = cs["turn"] == "player"
+        npc = cs["npc_name"]
+        roller = "You" if is_player else npc
+        doubles_key = "player_doubles" if is_player else "npc_doubles"
+        points_key = "player_points" if is_player else "npc_points"
+
+        cs["log"].append((f"{roller} roll: [{d1}] [{d2}] = {total}", (200, 255, 200) if is_player else (255, 180, 180)))
+
+        # Check doubles
+        if d1 == d2:
+            cs[doubles_key] += 1
+            if cs[doubles_key] >= 3:
+                who = "You're" if is_player else f"{npc} is"
+                cs["log"].append((f"Three doubles! {who} out!", (255, 80, 80)))
+                cs["log"].append((_rng.choice([f"{npc}: Three doubles?! OUT!" if is_player else f"{npc}: ...three doubles. I'm out."]), (255, 50, 50)))
+                cs["result"] = "lose" if is_player else "win"
+                cs["phase"] = "done"
+                self._craps_finish()
+                return
+            cs["log"].append(("Doubles! Re-roll.", (255, 255, 100)))
+            cs["_reroll"] = True
+            return
+        else:
+            cs[doubles_key] = 0
+
+        cs["_reroll"] = False
+
+        # 7 or 11 = point
+        if total in (7, 11):
+            # In challenge: opponent's 7/11 cancels the challenger's 2nd point
+            if cs["phase"] == "challenge" and cs["turn"] != cs["challenge_for"]:
+                challenged_key = "player_points" if cs["challenge_for"] == "player" else "npc_points"
+                cs[challenged_key] = 1
+                who_lost = "Your" if cs["challenge_for"] == "player" else f"{npc}'s"
+                cs["log"].append(("Point!", (100, 255, 100) if is_player else (255, 100, 100)))
+                cs["log"].append((f"{who_lost} 2nd point cancelled!", (255, 150, 50)))
+                if cs["challenge_for"] == "player":
+                    cs["log"].append((_rng.choice([f"{npc}: Nah, that point's gone!", f"{npc}: Get that outta here!"]), (255, 50, 50)))
+                else:
+                    cs["log"].append((_rng.choice([f"{npc}: NO! My point!", f"{npc}: ...you serious right now?"]), (255, 50, 50)))
+                cs["challenge_for"] = None
+                cs["phase"] = "playing"
+                return
+
+            cs[points_key] += 1
+            cs["log"].append(("Point!", (100, 255, 100) if is_player else (255, 100, 100)))
+            talk = _rng.choice(self._CRAPS_TALK_PLAYER_POINT if is_player else self._CRAPS_TALK_NPC_POINT)
+            cs["log"].append((f"{npc}: {talk}", (255, 50, 50)))
+
+            if cs[points_key] >= 2:
+                cs["phase"] = "challenge"
+                cs["challenge_for"] = cs["turn"]
+                cs["challenge_rolls_left"] = 2
+                who = "You have" if is_player else f"{npc} has"
+                cs["log"].append((f"{who} 2 points! Challenge round!", (255, 200, 50)))
+                cs["log"].append((f"{npc}: Hold up — challenge round!", (255, 150, 50)))
+            return
+
+        # 2 = Snake Eyes
+        if total == 2:
+            penalty = cs["ante"]
+            cs["log"].append(("Snake Eyes!", (255, 80, 80)))
+            talk = _rng.choice(self._CRAPS_TALK_PLAYER_CRAPS if is_player else self._CRAPS_TALK_NPC_CRAPS)
+            cs["log"].append((f"{npc}: {talk}", (255, 50, 50)))
+            self._craps_pay_penalty(is_player, penalty)
+            return
+
+        # 3 = Ace Deuce
+        if total == 3:
+            penalty = (cs["ante"] + 1) // 2
+            cs["log"].append(("Ace Deuce!", (255, 80, 80)))
+            talk = _rng.choice(self._CRAPS_TALK_PLAYER_CRAPS if is_player else self._CRAPS_TALK_NPC_CRAPS)
+            cs["log"].append((f"{npc}: {talk}", (255, 50, 50)))
+            self._craps_pay_penalty(is_player, penalty)
+            return
+
+        # 12 = Boxcars
+        if total == 12:
+            penalty = cs["ante"]
+            cs["log"].append(("Boxcars!", (255, 80, 80)))
+            talk = _rng.choice(self._CRAPS_TALK_PLAYER_CRAPS if is_player else self._CRAPS_TALK_NPC_CRAPS)
+            cs["log"].append((f"{npc}: {talk}", (255, 50, 50)))
+            self._craps_pay_penalty(is_player, penalty)
+            return
+
+        # 4, 5, 6, 8, 9, 10 = nothing
+        talk = _rng.choice(self._CRAPS_TALK_NOTHING)
+        cs["log"].append((talk, (100, 100, 100)))
+
+    def _craps_pay_penalty(self, is_player, penalty):
+        cs = self.craps_state
+        if is_player:
+            if self.cash < penalty:
+                cs["log"].append(("You can't afford the penalty! You lose!", (255, 50, 50)))
+                cs["result"] = "lose"
+                cs["phase"] = "done"
+                self._craps_finish()
+                return
+            self.cash -= penalty
+            cs["pot"] += penalty
+            cs["log"].append((f"You pay ${penalty} into the pot. (Pot: ${cs['pot']})", (255, 180, 100)))
+        else:
+            # NPC has infinite bankroll
+            cs["pot"] += penalty
+            cs["log"].append((f"{cs['npc_name']} pays ${penalty} into the pot. (Pot: ${cs['pot']})", (200, 200, 200)))
+
+    def _craps_finish(self):
+        cs = self.craps_state
+        import random as _rng
+        if cs["result"] == "win":
+            winnings = cs["pot"]
+            self.cash += winnings
+            cs["log"].append((f"You collect ${winnings}!", (255, 255, 100)))
+            talk = _rng.choice(self._CRAPS_TALK_PLAYER_WIN)
+            cs["log"].append((f"{npc}: {talk}", (255, 50, 50)))
+            self.messages.append([
+                ("Won ", (100, 255, 100)),
+                (f"${winnings}", (255, 255, 100)),
+                (" at craps!", (100, 255, 100)),
+            ])
+            if self.npc_entity:
+                self.npc_entity.craps_consec_losses = getattr(self.npc_entity, "craps_consec_losses", 0) + 1
+        else:
+            talk = _rng.choice(self._CRAPS_TALK_NPC_WIN)
+            cs["log"].append((f"{npc}: {talk}", (255, 50, 50)))
+            self.messages.append([
+                ("Lost at craps. Pot goes to ", (255, 100, 100)),
+                (cs["npc_name"], (255, 50, 50)),
+                (".", (255, 100, 100)),
+            ])
+            if self.npc_entity:
+                self.npc_entity.craps_consec_losses = 0
 
     # ------------------------------------------------------------------
     # Combat
@@ -4778,6 +6302,9 @@ class GameEngine:
 
     def _handle_adjacent_tile_targeting_input(self, action) -> bool:
         return spells._handle_adjacent_tile_targeting_input(self, action)
+
+    def _handle_cardinal_targeting_input(self, action) -> bool:
+        return spells._handle_cardinal_targeting_input(self, action)
 
     def _pickup_items_at(self, x: int, y: int):
         return item_effects._pickup_items_at(self, x, y)

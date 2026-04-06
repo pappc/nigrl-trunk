@@ -1,0 +1,2034 @@
+MUTATION SYSTEM OVERHAUL — DESIGN PLAN (EXPANDED TO 80 MUTATIONS)
+===================================================================
+NIGRL Roguelike — gritty urban setting (Crack Den / Meth Lab)
+Design goal: Replace number-soup mutations with mechanically unique identities
+Inspired by: Caves of Qud physical/mental mutation design philosophy
+
+Author note: Every mutation in this document does something. No "+1 STR" entries.
+The mutation you roll should change how you play, not just tune your stats.
+
+Version 2: Expanded from 36 to 80 mutations. Upgrade system added. New tox/rad
+interaction mutations. Touch spell mutations. More proc-based effects.
+
+
+TABLE OF CONTENTS
+-----------------
+I.    System Overview — Two Tiers, Thresholds, Polarity
+II.   Upgrade System — Re-rolling mutations you already have
+III.  Weak Good Mutations (20 entries)
+IV.   Weak Bad Mutations (20 entries)
+V.    Strong Good Mutations (20 entries)
+VI.   Strong Bad Mutations (20 entries)
+VII.  Reversal (Shed ability) — updated for new mutation types
+VIII. Scarred Tissue interaction
+IX.   New Engine / PlayerStats Fields Needed
+X.    Implementation Notes by File
+XI.   Balance Benchmarks
+XII.  Mutation Skill Tree — how perks interact with the overhaul
+XIII. Design Scratchpad — cut ideas, future directions
+
+
+================================================================
+I. SYSTEM OVERVIEW
+================================================================
+
+TWO TIERS (removing "huge"):
+  Weak  — threshold 75+ rad, costs 50 rad, grants 100 Mutation XP
+  Strong — threshold 150+ rad, costs 125 rad, grants 250 Mutation XP
+
+Rationale for removing "huge": The existing "huge" tier was just stat
+extremes (+-5 all stats, lose equipment slot). With the new system, Strong
+mutations already carry equipment slot consequences as part of their design
+identity. A third tier added no meaningful new design space.
+
+Thresholds adjusted from current code values:
+  Old: weak 75, strong 125, huge 250
+  New: weak 75, strong 150 (bump +25 to give more weak window)
+
+Tier selection: if rad >= 150, choose randomly between weak and strong.
+If rad < 150, always weak. (Same pattern as existing code — just remove huge.)
+
+POLARITY:
+  Keep 67% bad / 33% good as the base rate.
+  Favorable Odds (Mutation L3) and Five Loco drink still push this toward 50%.
+
+PERMANENCE:
+  All mutations are permanent. No expiry.
+  Exception: some mutations grant permanent access to abilities that cost a
+  resource per use — they are permanent grants but not free every turn.
+
+MUTATION CAP:
+  Player can accumulate any number of mutations, but a NEW flag is introduced:
+    engine.mutation_count (run-wide int; already planned in branching trees doc)
+  This count gates escalating hazards (see Section XII — Freak Magnet perk) and
+  informs flavor text ("You are barely human anymore.").
+
+REVERSAL:
+  The Shed ability (Mutation L4) removes a random good mutation and undoes it.
+  Many new mutations have unique reversal logic (see Section VII).
+
+RAD COST DEDUCTION:
+  Stays in combat.py's add_radiation() pathway. No change.
+
+FOV MUTATION NOTE:
+  This document contains 4 FOV-affecting mutations (Compound Eyes, Photosensitivity,
+  Myopia, Eyeless). This is already the maximum recommended. All 44 new mutations
+  in this expansion touch zero FOV. A future revision should consolidate or remove
+  Photosensitivity and Myopia to reduce FOV clutter — see Section XIII.
+
+
+================================================================
+II. UPGRADE SYSTEM — RE-ROLLING A MUTATION YOU ALREADY HAVE
+================================================================
+
+CORE RULE:
+  When the mutation roller would grant a mutation the player already has,
+  that mutation UPGRADES to the next level instead of granting a duplicate.
+
+  Upgrades are tracked per-mutation in:
+    engine.mutation_levels: dict[str, int]
+  where the key is a snake_case mutation id string and the value is the
+  current level (starts at 1 when first acquired; upgrades push to 2, 3, etc.)
+
+  When a mutation reaches its cap level, re-rolling it has no effect (no
+  duplicate, no upgrade, the roll is simply wasted). This can happen rarely.
+
+UPGRADE PRINCIPLES:
+  - Good mutations get STRONGER on upgrade.
+  - Bad mutations get WORSE on upgrade.
+  - Upgrades should be mechanically interesting when possible, not just +1 stat.
+  - Simple mutations that can't meaningfully evolve fall back to small stat bonuses.
+  - Cap levels vary: typically 3 for weak, 3 for strong (can be 2 or 4 in edge cases).
+
+UPGRADE FORMAT IN THIS DOCUMENT:
+  Each mutation entry includes an "Upgrade" block showing what each level does.
+  Level 1 is the base acquisition. Level 2+ are upgrades.
+  Example:
+    Upgrade: L1 (base) → L2 (improved) → L3 (peak, capped)
+
+SAVE SYSTEM:
+  mutation_levels dict serializes as a JSON object (string keys, int values).
+  Default for any missing key is 1 (or 0 if not acquired — only acquired
+  mutations appear in the dict).
+
+INTERACTION WITH SHED:
+  Shedding a mutation removes it entirely and resets its level to 0 (removes
+  the key from mutation_levels). Re-acquiring it later starts at L1 again.
+
+INTERACTION WITH TRIPLE HELIX:
+  If Triple Helix grants a bonus mutation that is the same as the triggered
+  mutation, BOTH roll upgrades (the original trigger + the bonus). This can
+  jump a mutation from L1 to L3 in one event. Intended — it's a rare jackpot.
+
+INTERACTION WITH SCARRED TISSUE:
+  Upgrading a bad mutation still counts as a bad mutation event — Scarred
+  Tissue fires and grants +1 to a random stat. The upgrade makes it worse,
+  the Scarred Tissue consolation-prizes you. Intentional tension.
+
+
+================================================================
+III. WEAK GOOD MUTATIONS (20)
+================================================================
+
+Each entry format:
+  NAME — flavor tagline
+  Effect: mechanically specific description
+  Upgrade: level-by-level progression and cap
+  Reversal type: what Shed does
+  System hooks: which code systems are touched
+  --
+
+--- ORIGINAL 10 (CARRIED FORWARD WITH UPGRADES ADDED) ---
+
+1. HARDENED DERMIS — "Your skin doesn't bruise like it used to."
+   Effect: Gain +2 permanent DR. You take 1 less damage from the first melee
+   hit you receive on each floor (a "first hit buffer" that resets on
+   floor change — tracked in engine.mut_first_hit_buffer: bool per floor).
+   Upgrade:
+     L1: +2 DR, first-hit buffer absorbs 1 dmg.
+     L2: +4 DR total (+2 more), first-hit buffer absorbs 3 dmg.
+     L3: +6 DR total (+2 more), first-hit buffer absorbs 5 dmg. Cap.
+   Reversal: Remove all accumulated DR from this mutation, remove mut_first_hit_buffer.
+   System hooks: player_stats.permanent_dr, engine per-floor flag.
+
+2. ADRENALINE GLANDS — "Fight-or-flight, mostly fight."
+   Effect: When your HP drops below 40%, gain Adrenaline Surge: +30 speed,
+   +2 melee damage for 15 turns. This can only trigger once per floor.
+   (Tracked: engine.adrenaline_surge_used: bool, reset per floor.)
+   Upgrade:
+     L1: HP < 40%, +30 speed, +2 melee dmg, 15t, 1/floor.
+     L2: HP < 50% threshold (higher trigger window), +30 speed, +4 melee dmg, 20t.
+     L3: HP < 50%, +40 speed, +6 melee dmg, 25t, effect now triggers TWICE per floor. Cap.
+   Reversal: Remove the trigger entirely; effect never fires again.
+   System hooks: AdrenalineSurgeEffect, combat.py HP loss path.
+
+3. TAPEWORM SYMBIOTE — "It hurts. But you're hungry less often."
+   Effect: Food items heal +3 HP on top of their normal effect.
+   Upgrade:
+     L1: +3 food heal bonus.
+     L2: +6 food heal bonus. Drugs (strains) also grant +1 HP when used.
+     L3: +9 food heal bonus. Drugs grant +2 HP. Food effects that normally have
+         a chance to fail (like a bad roll on strains) cannot proc their negative
+         outcomes for you — the worm filters them. Cap.
+   Note: L3 strain-filtering only applies to incidental negative strain rolls
+   (not to intentionally bad strains like self-damaging ones). Specifically:
+   if a strain effect roll would produce a "bad roll" outcome (roll < threshold),
+   re-roll once. Take the second roll regardless.
+   Reversal: Remove the bonus heal, strain HP bonus, and strain re-roll.
+   System hooks: player_stats.tapeworm_active, item_effects.py food heal path,
+   item_effects.py strain dispatch (L3 re-roll logic).
+
+4. COMPOUND EYES — "Everything is on fire. Also you can see all of it."
+   Effect: FOV radius permanently increased by +3.
+   Upgrade:
+     L1: +3 FOV.
+     L2: +5 FOV total (+2 more). You can see through your own venom clouds
+         and Chemical Warfare effects without blocking your LOS.
+     L3: +7 FOV total (+2 more). In addition, once per floor, when an enemy
+         moves outside your FOV, you're notified of their direction via the
+         message log ("Something moves to the northeast."). Cap.
+   Note: L3 directional alert fires at most once per floor to avoid log spam.
+   Reversal: Subtract mut_fov_bonus back to 0, remove extras.
+   System hooks: dungeon.py compute_fov(), player_stats.mut_fov_bonus.
+
+5. ACID SPIT — "You wheeze yellow phlegm that melts faces."
+   Effect: Grants the Acid Spit ability (INFINITE charges, ADJACENT target).
+   Deal 8 + (mutation_count // 3) acid damage to one adjacent enemy. Applies
+   the "wet" status effect. No cost. Cooldown: 5 turns.
+   Upgrade:
+     L1: 8 + (count//3) dmg, ADJACENT, 5t cooldown, applies wet.
+     L2: 10 + (count//3) dmg, ADJACENT, cooldown drops to 3 turns.
+         Also applies "corroded" debuff (new: -1 defense for 5 turns;
+         tracked as CorrodedEffect in effects.py).
+     L3: 12 + (count//3) dmg, ADJACENT, 2t cooldown. Range expands to
+         SINGLE_ENEMY_LOS (any visible enemy, not just adjacent). Corroded still applies. Cap.
+   Note: L3 changes the ability's target_type. This requires updating the
+   AbilityDef in ABILITY_REGISTRY when L3 is reached — store the current
+   ability level in mutation_levels and check it on ability execution.
+   Reversal: Revoke "acid_spit" entirely.
+   System hooks: ABILITY_REGISTRY "acid_spit", apply_effect "wet"/"corroded".
+
+6. EXTRA JOINTS — "Three elbows, and all of them crack."
+   Effect: Movement speed permanently increases by +20. When you attack a
+   stunned enemy, you gain 1 free movement step immediately after the attack.
+   Upgrade:
+     L1: +20 speed, free step on stunned kill.
+     L2: +30 speed total (+10 more), free step triggers on ANY stunned enemy attack
+         (not just kills).
+     L3: +40 speed total (+10 more), free step after any stunned enemy attack AND
+         you can chain up to 2 free steps per turn total (the first from a stunned
+         hit, the second if a second stunned enemy is adjacent and you move to them).
+         Cap.
+   Reversal: Remove all speed from this mutation, remove extra_joints_active.
+   System hooks: player_stats.briskness, engine.py melee attack path.
+
+7. SUBDERMAL TOOLKIT — "Your fingers know how to break things open."
+   Effect: Crates and vending machines always yield their maximum loot roll.
+   You can smash a crate as a free action when you walk onto its tile.
+   Upgrade:
+     L1: Max loot from crates, free crate smash.
+     L2: Also applies to vending machines (walking into them is free action).
+         Additionally, you can pick locks on any locked doors (future content
+         hook) — for now, enemy corpses always drop their maximum possible gold.
+     L3: Every floor, one random crate on the map is marked "jackpot" (only you
+         can detect it — shown as a slightly brighter ASCII char on your screen).
+         Jackpot crates always drop 2 items instead of 1. Cap.
+   Note: L3 "jackpot" crate — mark one random crate entity per floor as
+   subdermal_jackpot: bool on the crate entity itself. Render as slightly
+   different char (use '+' instead of '#' for the crate char).
+   Reversal: Remove player_stats.subdermal_toolkit, clear any jackpot flags.
+   System hooks: hazards.py crate interaction, inventory_mgr.py loot roll path.
+
+8. REDUNDANT ORGANS — "You have two of something you didn't before."
+   Effect: HoT effects tick TWICE per turn. First time you die on any floor
+   in the entire run, survive with 1 HP instead.
+   Upgrade:
+     L1: HoT double-tick; one-time death save (run-wide).
+     L2: HoT triple-tick (three ticks per turn). Death save still one-time.
+         Additionally, all heal amounts (food, drinks, HoT) are increased by 10%.
+     L3: HoT ticks FOUR times per turn. Heal +20% instead of +10%.
+         Death save now triggers TWICE across the full run (second use tracked
+         as redundant_organs_death_saves_remaining: int, default 2 at L3). Cap.
+   Note: L2 and L3 flat heal bonuses stack with Tapeworm Symbiote's bonus.
+   Reversal: Remove HoT multi-tick (reset to 1 tick), remove death save(s),
+   remove heal bonus.
+   System hooks: effects.py HoT tick path, engine.py player death check.
+
+9. NEURAL STATIC — "Your brain hums. Enemies get a headache."
+   Effect: All enemies within 3 tiles of you have their crit chance reduced
+   by 10 (minimum 0). This is an aura applied passively each turn.
+   Upgrade:
+     L1: -10 crit to enemies within 3 tiles.
+     L2: -15 crit to enemies within 5 tiles.
+     L3: -20 crit within 5 tiles. Additionally, enemies that crit you anyway
+         (if they have naturally very high crit rates) are briefly stunned for
+         1 turn after landing the crit (neural feedback). This stun is flagged
+         as neural_feedback_stun: bool on the attacker entity temporarily. Cap.
+   Reversal: Remove neural_static_active flag.
+   System hooks: combat.py enemy attack resolution.
+
+10. VENOM NODES — "Something's been added to your saliva."
+    Effect: Melee attacks always apply 1 stack of venom on hit (no chance roll).
+    Upgrade:
+      L1: 1 venom stack on every melee hit.
+      L2: 2 venom stacks on every melee hit. Additionally, venom from this
+          mutation lasts 1 extra turn per stack (effect duration +1).
+      L3: 3 venom stacks on every melee hit. Venom from this mutation now ticks
+          for 2 damage per stack instead of 1 (stored in the VenomEffect as an
+          upgraded_venom: bool flag). Cap.
+    Note: L3 upgraded venom only applies to stacks from this mutation. Weapon
+    venom stacks remain at 1 dmg/stack/turn. Track which stacks are upgraded
+    via the venom application source — simplest implementation: L3 venom
+    nodes just apply a separate "venom_upgraded" effect that stacks independently.
+    Reversal: Remove venom_nodes_active flag and ability to apply.
+    System hooks: combat.py melee hit resolution, effects.py VenomEffect.
+
+--- NEW 10 (NUMBERS 11-20) ---
+
+11. TOUCH OF FROST — "Your hands are always cold. Now they share it."
+    Effect: Grants the Touch of Frost ability (INFINITE charges, ADJACENT target,
+    3-turn cooldown). Melee-touch attack: deal 4 damage and apply 2 stacks of
+    chill to the target. Chill stacks slow the enemy and eventually freeze.
+    Upgrade:
+      L1: 4 dmg, 2 chill stacks, 3t cooldown.
+      L2: 6 dmg, 3 chill stacks, 2t cooldown. Enemies killed while chilled
+          shatter — their corpse deals 2 cold damage to all adjacent enemies.
+      L3: 8 dmg, 4 chill stacks, 1t cooldown. Frozen enemies (at chill cap)
+          take +50% damage from your next melee attack (the cold crack bonus,
+          tracked on the frozen entity as touch_frost_crack: bool). Cap.
+    Reversal: Revoke "touch_of_frost" ability.
+    System hooks: ABILITY_REGISTRY "touch_of_frost", effects.py ChillEffect,
+    combat.py kill path (L2 shatter), combat.py melee hit on frozen (L3 crack bonus).
+
+12. TOUCH OF FIRE — "Your hands run hot. Dangerously."
+    Effect: Grants the Touch of Fire ability (INFINITE charges, ADJACENT target,
+    3-turn cooldown). Melee-touch attack: deal 5 damage and apply 2 stacks of
+    ignite to the target. Ignite is a fire DoT.
+    Upgrade:
+      L1: 5 dmg, 2 ignite stacks, 3t cooldown.
+      L2: 7 dmg, 3 ignite stacks, 2t cooldown. Touch of Fire also deals 1
+          splash damage to all OTHER enemies adjacent to you when used (the heat
+          radiates outward from you). Does not ignite splash targets.
+      L3: 9 dmg, 4 ignite stacks, 1t cooldown. Enemies ignited by this ability
+          spread 1 ignite stack to adjacent enemies when they move (fire spreads
+          on contact). The spread fires once per tick of their movement. Cap.
+    Reversal: Revoke "touch_of_fire" ability.
+    System hooks: ABILITY_REGISTRY "touch_of_fire", effects.py IgniteEffect,
+    engine.py movement of ignited entities (L3 spread).
+
+13. TOUCH OF SHOCK — "Static electricity, but personal."
+    Effect: Grants the Touch of Shock ability (INFINITE charges, ADJACENT target,
+    4-turn cooldown). Melee-touch attack: deal 3 damage and apply 2 stacks of
+    shocked to the target. Shocked increases damage taken.
+    Upgrade:
+      L1: 3 dmg, 2 shocked stacks, 4t cooldown.
+      L2: 5 dmg, 3 shocked stacks, 3t cooldown. Enemies with 4+ shocked stacks
+          take double damage from Touch of Shock itself (resonance damage).
+      L3: 7 dmg, 4 shocked stacks, 2t cooldown. Enemies stunned from shocked
+          overload (5+ stacks) deal 2 damage to all adjacent entities when the
+          stun fires (electric discharge on shock overload). Cap.
+    Reversal: Revoke "touch_of_shock" ability.
+    System hooks: ABILITY_REGISTRY "touch_of_shock", effects.py ShockedEffect,
+    combat.py stun-from-shocked path (L3 discharge).
+
+14. IRON GUT — "You can eat anything. Anything."
+    Effect: Using drugs (strains) never deals self-damage, even on bad rolls.
+    Additionally, when you consume a drug, you gain 3 temporary HP that lasts
+    5 turns (TempHP_IronGut, stacks up to one active instance — refreshes on
+    next drug use). Does not interact with food, only strains.
+    Upgrade:
+      L1: No strain self-damage; +3 temp HP on drug use (lasts 5 turns).
+      L2: No strain self-damage; +6 temp HP on drug use (lasts 8 turns).
+          Tolerance gains from drug use are doubled (Munching XP per use × 2).
+      L3: No strain self-damage; +10 temp HP on drug use (lasts 12 turns).
+          Tolerance gains doubled. Additionally, strains that roll "bad" outcomes
+          (below threshold) are converted to "neutral" outcomes — no beneficial
+          effect but also no penalty. Cap.
+    Note: L3 "neutral" conversion means the 1-39 bad range on strain rolls
+    produces a "you feel nothing unusual" message instead of a penalty.
+    Reversal: Remove iron_gut_active flag. Remove temp HP if currently active.
+    System hooks: player_stats.iron_gut_active, item_effects.py strain dispatch
+    (block self-damage, apply temp HP, L3 bad-roll conversion).
+
+15. SCAR TISSUE BUILDUP — "You stop bleeding where you used to bleed."
+    Effect: You gain 10% resistance to bleed and venom effects (they still
+    apply but their damage is reduced by 10%). Additionally, your melee hits
+    have a 20% chance to apply 1 stack of bleed to the target even without a
+    bleed weapon. Flavor: your scarred, ragged fists tear enemy skin.
+    Upgrade:
+      L1: 10% bleed/venom resistance; 20% on-hit bleed chance (1 stack).
+      L2: 20% resistance; 30% on-hit bleed chance (2 stacks).
+      L3: 30% resistance; 40% on-hit bleed chance (2 stacks, longer duration:
+          bleed from this mutation lasts 8 turns instead of 5). Cap.
+    Note: This bleed is independent of weapon on_hit_bleed. They stack.
+    Reversal: Remove scar_tissue_buildup_active flag.
+    System hooks: player_stats.scar_tissue_buildup_active, combat.py melee hit
+    (chance bleed apply), effects.py bleed damage (check resistance flag).
+
+16. PHEROMONE GLAND — "You're more attractive than before. In a bad way."
+    Effect: Dark humor. Enemies within 4 tiles are compelled to target you
+    before other valid targets (if an enemy is in range of multiple entities,
+    it prioritizes you). HOWEVER, enemies within 2 tiles of you suffer -2
+    to their effective melee power (pheromones confuse them on impact).
+    Upgrade:
+      L1: Pheromone attraction (4 tiles priority), -2 enemy power at <= 2 tiles.
+      L2: Attraction range stays 4 tiles. Enemy power penalty increases to -4
+          within 2 tiles. Enemies that miss you due to the confusion have a
+          15% chance to waste their action (they attack the air instead).
+      L3: -6 enemy power within 2 tiles. Enemies within 1 tile have a 25% chance
+          to skip their attack entirely (completely confused by the scent). Cap.
+    Note: The targeting priority is implemented in ai.py: if pheromone_gland_active
+    and player is within 4 tiles, set target to player even if another entity
+    is closer. The power penalty is in combat.py enemy attack resolution.
+    Reversal: Remove pheromone_gland_active flag.
+    System hooks: player_stats.pheromone_gland_active, ai.py target selection,
+    combat.py enemy melee power calculation.
+
+17. RAD ABSORPTION — "The radiation. You're... processing it now."
+    Effect: Each time you gain radiation, you convert 10% of the gained amount
+    into bonus melee damage for your next attack (rounded down, minimum 1, capped
+    at +10). This bonus resets after the next melee hit fires.
+    Flavor: the rad spikes through your fists on impact.
+    Upgrade:
+      L1: 10% of rad gain → melee damage bonus, cap +10, resets on hit.
+      L2: 20% conversion, cap +15. The bonus also applies to Touch of Frost/Fire/Shock
+          abilities (if you have them).
+      L3: 30% conversion, cap +20. When the bonus fires, you also irradiate the
+          target for 5 rad (minor contamination on impact). Cap.
+    Tracking: engine.rad_absorb_bonus: int (resets to 0 after any melee attack).
+    Note: This mutation makes radiation into a melee resource instead of pure hazard.
+    Reversal: Remove rad_absorb_active flag, clear rad_absorb_bonus.
+    System hooks: player_stats.rad_absorb_active, combat.py add_radiation() for
+    conversion calculation, combat.py player melee hit (consume bonus + L3 irradiate).
+
+18. CHITINOUS HIDE — "Something grew between your shoulder blades."
+    Effect: Gain +1 permanent DR. Whenever you receive 3 or more consecutive melee
+    hits in a single floor combat (tracked as chitin_hit_streak: int per floor),
+    you gain 1 stack of Hardening (new: HardeningEffect, +1 DR per stack, max 5
+    stacks, expires when combat ends — tracked as no enemies in LOS for 5 turns).
+    Upgrade:
+      L1: +1 DR base; Hardening stacks start at 3-hit threshold; max 5 stacks.
+      L2: +2 DR base. Hardening starts at 2-hit threshold. Max 7 stacks.
+      L3: +3 DR base. Hardening starts on 1st consecutive hit (every hit stacks
+          it). Max 10 stacks. Hardening stacks take 1 extra turn to fade (10t
+          no-combat timer instead of 5t). Cap.
+    Tracking: engine.chitin_hit_streak: int (increments on melee hit received,
+    resets to 0 if player makes a melee attack that lands without taking a hit
+    that turn — i.e., player hits first in that turn).
+    Reversal: Remove chitinous_hide_active, remove DR, clear any Hardening stacks.
+    System hooks: player_stats.permanent_dr, effects.py HardeningEffect,
+    combat.py incoming melee (streak tracking, apply effect).
+
+19. LEECHING STRIKE — "You pull something out of them when you hit."
+    Effect: Melee hits on enemies with 3 or more active negative status effects
+    (venom, bleed, chill, shocked, ignite, corroded, wet — any combination)
+    grant you 2 HP per hit (capped at your max HP). This is a small leech on
+    debuffed targets. Not regen — only fires when conditions are met and you
+    actively hit.
+    Upgrade:
+      L1: 2 HP leech on hitting enemies with 3+ debuffs.
+      L2: 3 HP leech; threshold drops to 2+ debuffs.
+      L3: 4 HP leech; threshold drops to 1+ debuff (any debuffed target triggers it).
+          Additionally, if the target dies from a hit that triggers leech, the
+          leech amount doubles (8 HP on kill while target is debuffed). Cap.
+    Reversal: Remove leeching_strike_active flag.
+    System hooks: player_stats.leeching_strike_active, combat.py melee hit
+    resolution (count negative effects on target, apply heal if threshold met).
+
+20. BURST CAPILLARIES — "When you bleed, things get messy for everyone."
+    Effect: When YOU take bleeding damage (from any bleed effect), blood sprays
+    outward — each bleeding tick has a 40% chance to apply 1 bleed stack to any
+    enemy adjacent to you. Flavor: your blood, under pressure from the mutation,
+    sprays outward on every bleed tick.
+    Upgrade:
+      L1: 40% per bleed tick → spray 1 bleed stack to adjacent enemies.
+      L2: 60% per tick, spray 2 stacks to adjacent enemies. Range extends to 2 tiles.
+      L3: 80% per tick, spray 3 stacks. Range 2 tiles. Enemies hit by blood spray
+          take 1 direct damage in addition to the bleed stack. Cap.
+    Note: This turns a bad status (being bled) into a weapon. Synergizes with
+    Second Skin of Thorns (which makes you take self-damage on attack, potentially
+    combined with a bleed weapon to self-apply bleed). Classic NIGRL risk/reward.
+    Reversal: Remove burst_capillaries_active flag.
+    System hooks: player_stats.burst_capillaries_active, effects.py BleedEffect.tick()
+    on player (spray check), combat.py entity adjacency helper.
+
+
+================================================================
+IV. WEAK BAD MUTATIONS (20)
+================================================================
+
+Design principle: Bad mutations should change how you play, not just hurt you.
+Even purely negative mutations should create interesting decisions.
+
+--- ORIGINAL 10 (CARRIED FORWARD WITH UPGRADES ADDED) ---
+
+1. ROTTEN TEETH — "They just come out now."
+   Effect: Food items take 1 additional turn to eat (2 turns of energy instead
+   of 1). Food heals 3 less HP (minimum 1).
+   Upgrade (gets worse):
+     L1: +1 turn eating; -3 food heal.
+     L2: +2 turns eating; -5 food heal (minimum 1). Eating any food now makes
+         a loud noise (enemies within 5 tiles are alerted by the crunching).
+     L3: +3 turns eating; -7 food heal (minimum 1). The noise alert radius
+         extends to 8 tiles. Food items also have a 15% chance to deal 1 dmg
+         to you on consumption (biting yourself). Cap.
+   Reversal: Remove all penalties, remove noise-alert behavior.
+   System hooks: rotten_teeth_level: int, foods.py eating duration, item_effects.py
+   food heal, engine.py eat-action enemy alert trigger.
+
+2. PHOTOSENSITIVITY — "Direct light burns. Not metaphorically."
+   Effect: FOV radius reduced by -2. Edge-of-FOV tiles flicker (every other turn
+   they don't update).
+   Upgrade (gets worse):
+     L1: -2 FOV, edge flicker.
+     L2: -4 FOV total. Flicker extends to the outer 2 tiles of FOV. Additionally,
+         being within 3 tiles of a fire hazard causes 1 damage per turn (light pain).
+     L3: -6 FOV total. Flicker on outer 3 tiles. Fire proximity damage increases
+         to 2/turn at 2 tiles, 3/turn at 1 tile. Cap.
+   Note: This is the weakest FOV mutation at L1, but L3 becomes genuinely harsh.
+   Reversal: Remove all fov_penalty, remove fire proximity behavior, remove flicker.
+   System hooks: player_stats.photosensitivity_level: int, dungeon.py compute_fov,
+   render.py FOV update, engine.py per-turn fire proximity check.
+
+3. REACTIVE SKIN — "Touch anything and it's gonna be a whole thing."
+   Effect: Grease tiles deal 3 damage per step. Fire tiles deal +50% more damage.
+   Upgrade (gets worse):
+     L1: Grease 3 dmg/step; fire +50%.
+     L2: Grease 5 dmg/step; fire +100%. Also: venom from enemies applies 1 extra
+         stack beyond their normal amount (skin absorbs more).
+     L3: Grease 7 dmg/step; fire +150%. Venom +2 extra stacks. Additionally,
+         the wet status effect (normally neutral) causes 1 damage per tick on you
+         specifically (wet + reactive skin = chemical irritation). Cap.
+   Reversal: Remove reactive_skin flag and all its conditional checks.
+   System hooks: reactive_skin_level: int, engine.py tile-damage resolution.
+
+4. VESTIGIAL LIMB — "Your left arm is just vibes now."
+   Effect: -1 melee power permanently.
+   Upgrade (gets worse):
+     L1: -1 melee power.
+     L2: -2 melee power total. You now have a 10% chance per turn to drop your
+         equipped weapon (it lands at your feet; you can pick it back up next turn).
+     L3: -3 melee power total. Weapon drop chance rises to 20%. Dropped weapons
+         have a 10% chance to be kicked away to a random adjacent tile (harder
+         to recover in a fight). Cap.
+   Reversal: Remove power penalty (vestigial_limb_penalty: int), remove drop logic.
+   System hooks: combat.py player power calculation, engine.py player turn start
+   (weapon drop check).
+
+5. LEAKING EYES — "They water constantly. At the worst times."
+   Effect: -1 permanent street_smarts. Crits deal no bonus damage against
+   enemies with bleed or venom effects active.
+   Upgrade (gets worse):
+     L1: -1 STS, no crit bonus vs bleeding/venom targets.
+     L2: -2 STS total. The no-crit-bonus extends to ALL debuffed targets
+         (any negative effect on them, not just bleed/venom).
+     L3: -3 STS total. Your crits now have a 20% chance to MISS entirely
+         (the water in your eyes causes you to over-commit the strike).
+         Crit misses still consume the crit roll — they just deal 0 damage. Cap.
+   Reversal: Remove STS penalty and crit restriction flags.
+   System hooks: leaking_eyes_level: int, player_stats.modify_base_stat,
+   combat.py crit resolution.
+
+6. TWITCHY NERVES — "Your hands have opinions you didn't ask for."
+   Effect: 15% chance per melee attack to miss entirely. Gun accuracy -10%.
+   Upgrade (gets worse):
+     L1: 15% miss melee; -10 gun accuracy.
+     L2: 20% miss melee; -20 gun accuracy. Your ability cooldowns are also
+         extended by +1 turn (mutation of the nervous system destabilizes timing).
+     L3: 25% miss melee; -30 gun accuracy; ability cooldowns +2. Additionally,
+         on a melee miss, there is a 20% chance you stumble and skip your next
+         turn (tripped over your own feet). Cap.
+   Reversal: Remove all miss chance, gun accuracy penalty, cooldown extension.
+   System hooks: twitchy_nerves_level: int, combat.py melee miss roll,
+   gun_system.py accuracy, abilities.py cooldown resolution.
+
+7. HOLLOW BONES — "Light as a feather. Fragile as one too."
+   Effect: +15 speed (you're lighter), +2 incoming melee damage.
+   Upgrade (gets worse):
+     L1: +15 speed; +2 incoming melee damage.
+     L2: +15 speed (no more speed gain). Incoming melee damage increases to +4.
+         Additionally, knockback effects move you 1 extra tile (hollow bones
+         means you fly further).
+     L3: +15 speed total (stays). Incoming melee +6. Knockback +2 extra tiles.
+         Additionally, falling-hazard damage (future content hook, currently
+         any damage that bypasses armor) is doubled for you. Cap.
+   Note: The speed upside stays flat at +15 across upgrades. Only the downsides worsen.
+   Reversal: Remove +15 speed, remove incoming damage bonuses, remove knockback.
+   System hooks: hollow_bones_level: int, combat.py incoming damage path,
+   engine.py knockback resolution.
+
+8. CHEMICAL SENSITIVITY — "A whiff of anything and you're on the floor."
+   Effect: All toxicity you gain is increased by 50%.
+   Upgrade (gets worse):
+     L1: +50% tox gain.
+     L2: +100% tox gain (double). Additionally, all tox-based status effects
+         that would apply to enemies (from your abilities) also apply 1 tox tick
+         to you per enemy affected — your own poison seeps back.
+     L3: +150% tox gain. Self-tox from abilities. Additionally, the tox
+         damage multiplier formula is doubled for you specifically:
+         instead of 1.0 + (tox/100)^0.6, it becomes 1.0 + (tox/80)^0.6. Cap.
+   Reversal: Remove chem_sensitivity and all its multiplier adjustments.
+   System hooks: chem_sensitivity_level: int, combat.py add_toxicity().
+
+9. TERRITORIAL MARKING — "You pee on things. Enemies smell it."
+   Effect: Any enemy within 5 tiles of you always knows your position and
+   begins chasing, regardless of LOS or darkness.
+   Upgrade (gets worse):
+     L1: Detection within 5 tiles, ignore LOS.
+     L2: Detection range expands to 7 tiles. Additionally, enemies that detect
+         you via territorial marking deal +1 damage on first hit (aggression
+         boost from the scent).
+     L3: Detection range 9 tiles. Enemies within 3 tiles become permanently
+         enraged (EnragedEffect, duration=floor, +2 damage and +15 speed, cannot
+         be feared/confused while enraged). Cap.
+   Reversal: Remove territorial_marking flag and level.
+   System hooks: territorial_marking_level: int, ai.py state transitions,
+   combat.py aggression bonus (L2), effects.py EnragedEffect (L3).
+
+10. MYOPIA — "Everything past arm's reach is a blur."
+    Effect: FOV reduced by -3. Gun targeting range reduced by -3 tiles.
+    Upgrade (gets worse):
+      L1: -3 FOV, -3 gun range.
+      L2: -5 FOV total, -5 gun range. Additionally, enemies that you can't
+          currently see (outside FOV) deal +1 damage when they first enter FOV
+          and attack (ambush bonus for them — you didn't see them coming).
+      L3: -7 FOV total, -7 gun range. Ambush bonus increases to +3 damage.
+          Additionally, any enemy that successfully hits you from outside your
+          previous turn's FOV gets a free second attack immediately (your
+          reaction time is that bad). Cap.
+    Reversal: Remove FOV penalty and gun range penalty, remove ambush logic.
+    System hooks: myopia_level: int, dungeon.py compute_fov,
+    gun_system.py range check, combat.py attack resolution.
+
+--- NEW 10 (NUMBERS 11-20) ---
+
+11. POROUS MEMBRANE — "Your skin soaks things up. Not always things you want."
+    Effect: Every time you step into a tile where an enemy died this floor
+    (corpse tiles — tracked as dungeon.corpse_tiles: set of (x,y) positions),
+    you gain 5 tox. Flavor: your mutated skin absorbs environmental contamination.
+    Upgrade (gets worse):
+      L1: +5 tox per corpse tile step.
+      L2: +10 tox per corpse tile step. Also: stepping into grease tiles adds
+          +3 tox on top of any existing grease damage.
+      L3: +15 tox per corpse tile step. Grease +5 tox. Additionally, tox removal
+          items (antidotes, certain foods) are 30% less effective on you — your
+          skin keeps absorbing even as you try to purge. Cap.
+    Note: dungeon.corpse_tiles: set[tuple] — add enemy death position to this set;
+    check on player movement resolution. Cleared per floor.
+    Reversal: Remove porous_membrane_active flag.
+    System hooks: dungeon.corpse_tiles (new field), engine.py player movement
+    (tile-entry check), item_effects.py tox-removal path (L3 reduced efficacy).
+
+12. HYPERACTIVE BLADDER — "You leak radiation. Involuntarily."
+    Effect: Every 15 turns, you leak a small rad burst — you gain 5 rad and
+    all entities (enemies and player) within 2 tiles gain 3 rad. Flavor: your
+    body cannot contain the radiation properly and vents it outward.
+    The player rad gain from this cannot trigger a mutation (it's self-leaking
+    radiation being released, not absorbed — add a flag to add_radiation() calls
+    from this specific source: pierce_resistance=False, no_mutation_trigger=True).
+    Upgrade (gets worse):
+      L1: Every 15t: self +5 rad, nearby +3 rad, 2-tile radius.
+      L2: Every 12t: self +8 rad, nearby +5 rad, 3-tile radius.
+      L3: Every 10t: self +12 rad, nearby +8 rad, 4-tile radius. Additionally,
+          the rad burst produces a brief visual pulse (render flash) and counts
+          as "alerting" enemies in the radius who were not already CHASING. Cap.
+    Note: The "no_mutation_trigger" flag prevents exploiting this to farm mutations
+    intentionally via waiting.
+    Reversal: Remove hyperactive_bladder_active flag.
+    System hooks: player_stats.hyperactive_bladder_active, engine.py per-turn tick
+    (counter, burst logic), combat.py add_radiation() (new param no_mutation_trigger).
+
+13. SPINAL SPUR — "Something grew out of your spine. It catches on doorways."
+    Effect: Moving through narrow corridors (1-tile-wide passages — defined as
+    tiles where both perpendicular tiles are walls) costs 2 energy instead of 1
+    (you have to turn sideways and shimmy). In open rooms, movement is normal.
+    Additionally, -1 permanent dodge chance.
+    Upgrade (gets worse):
+      L1: Corridor movement costs 2 energy; -1 dodge.
+      L2: Corridor movement costs 3 energy; -2 dodge. Also: you cannot pick up
+          items while in a corridor (too cramped to crouch). Items in corridors
+          must be picked up when you exit to an open area (item sits there).
+      L3: Corridor movement costs 4 energy; -3 dodge; no corridor item pickup.
+          Additionally, enemies in corridors deal +2 damage to you (can't maneuver
+          to dodge in tight spaces). Cap.
+    Note: "Corridor check" — tile x,y is a corridor if both (x-1,y) and (x+1,y)
+    are walls OR both (x,y-1) and (x,y+1) are walls.
+    Reversal: Remove spinal_spur_active flag.
+    System hooks: player_stats.spinal_spur_active, engine.py movement cost check,
+    inventory_mgr.py pickup (L2 corridor block).
+
+14. SUPPURATING WOUNDS — "Your wounds don't close. They just get interesting."
+    Effect: Any bleed effect applied to you lasts 3 extra turns (bleed duration +3).
+    Additionally, bleed on you deals 1 extra damage per tick (instead of 1,
+    you take 2 per bleed stack per tick). Your blood pressure is too high.
+    Upgrade (gets worse):
+      L1: Bleed duration +3, bleed damage +1/stack/tick.
+      L2: Bleed duration +5, bleed damage +2/stack/tick.
+      L3: Bleed duration +7, bleed damage +3/stack/tick. Additionally, when you
+          take bleed damage from this mutation's enhanced bleed, 30% of that damage
+          bypasses all DR and armor (raw seeping damage). Cap.
+    Reversal: Remove suppurating_wounds_active flag.
+    System hooks: player_stats.suppurating_wounds_active, effects.py BleedEffect
+    (check flag on player to extend duration and increase damage per tick).
+
+15. PHANTOM HUNGER — "You're full. You're also starving. Simultaneously."
+    Effect: There is no Hunger system yet, so this mutation creates its own:
+    every 30 turns, you lose 4 HP. This cannot be prevented, only healed after.
+    Flavor: the mutation creates a false hunger signal that taxes your body.
+    No food item cures this — it's neurological, not caloric.
+    Upgrade (gets worse):
+      L1: -4 HP every 30 turns.
+      L2: -6 HP every 25 turns.
+      L3: -10 HP every 20 turns. Additionally, the HP loss has a 20% chance to
+          also apply 1 stack of confused (for 3 turns) — starvation hallucinations. Cap.
+    Note: The timer is tracked in engine.phantom_hunger_counter: int, resets
+    at 0 each time it fires. This is distinct from Paranoid System's autoimmune
+    damage (different source, different counter, they stack).
+    Reversal: Remove phantom_hunger_active flag, clear counter.
+    System hooks: player_stats.phantom_hunger_active, engine.py per-turn tick,
+    effects.py ConfusedEffect (L3 hallucination).
+
+16. EXCESSIVE PERSPIRATION — "You sweat through everything. Armor included."
+    Effect: All DR and armor you have is reduced by 1 (minimum 0). Your sweat
+    corrodes your own protective layers. This applies additively — if you have
+    3 DR, you effectively have 2 DR due to this mutation.
+    Upgrade (gets worse):
+      L1: Effective DR -1.
+      L2: Effective DR -2. Your sweat also creates a grease trail —
+          every 5 tiles you move, you leave a grease tile behind (at your previous
+          position). Enemies can slip on this too, but so can you.
+      L3: Effective DR -3. Grease trail every 3 tiles. Additionally, your sweat
+          smell alerts enemies within 4 tiles (passive territorial_marking
+          lite — enemies detect you but do not automatically chase, they
+          are just "alerted" to WANDERING state if previously IDLE). Cap.
+    Note: The grease trail uses the existing dungeon.grease_tiles dict.
+    Reversal: Remove excessive_perspiration_active, remove DR debuff, stop trail.
+    System hooks: player_stats.excessive_perspiration_active, combat.py DR calc
+    (subtract perspiration penalty), engine.py movement (grease trail counter).
+
+17. LOPSIDED GROWTH — "One side of you is bigger. The other side knows it."
+    Effect: Your body is asymmetrical. You have a 20% chance per melee hit
+    to stumble (your larger side throws off your balance) — when you stumble, you
+    move one tile in a random direction after your attack, regardless of what's
+    there (pushed by your own momentum). If you stumble into a wall, take 1 damage.
+    Upgrade (gets worse):
+      L1: 20% stumble chance.
+      L2: 30% stumble chance. On stumble into a wall: 3 damage (more momentum).
+      L3: 40% stumble chance. Wall damage 5. Additionally, when you stumble, any
+          items in your inventory have a 10% chance to drop to the ground at your
+          original position (the jolt dislodges things). Cap.
+    Reversal: Remove lopsided_growth_active flag.
+    System hooks: player_stats.lopsided_growth_active, engine.py melee attack
+    resolution (stumble roll, random move), inventory_mgr.py drop check (L3).
+
+18. SLOW BLINK — "Your eyelids work at their own pace."
+    Effect: Your reaction time is slower. You cannot use items, abilities, or
+    guns on the first turn of any combat encounter (defined as: the first turn
+    an enemy enters CHASING state toward you). This represents you blinking
+    at the wrong moment and missing your window. Melee attacks are still allowed
+    that first turn.
+    Upgrade (gets worse):
+      L1: No items/abilities/guns on combat start (first turn only).
+      L2: Lockout extends to the first 2 turns of any combat encounter.
+      L3: Lockout extends to 3 turns. Additionally, once per floor, an enemy
+          will successfully perform a "surprise attack" against you — the first
+          enemy to enter CHASING state gets a free extra action before you can
+          respond (they attack you once before the lockout even starts). Cap.
+    Note: "Combat start" is tracked via engine.slow_blink_combat_active: bool,
+    set True when first enemy transitions to CHASING, cleared after N turns.
+    engine.slow_blink_turns_remaining: int tracks turns left in lockout.
+    Reversal: Remove slow_blink_active flag.
+    System hooks: player_stats.slow_blink_active, engine.py action validation
+    (block abilities/items/guns during lockout), ai.py CHASING transition
+    (trigger lockout start).
+
+19. INVOLUNTARY BIOLUMINESCENCE — "You glow. Faintly. Enough."
+    Effect: You emit a faint bioluminescent glow. All enemies on the floor always
+    know your exact position regardless of walls or distance (like Territorial
+    Marking, but through walls — you literally glow). Darkness offers you no cover.
+    HOWEVER, enemies that enter your LOS take 0 extra damage — this is purely
+    a detection mutation, no combat benefit.
+    Upgrade (gets worse):
+      L1: All enemies always know your position. No combat downside beyond detection.
+      L2: All enemies know your position. Additionally, enemies that detect you via
+          glow are immune to the "confused" and "fear" effects (your bright form
+          snaps them out of it).
+      L3: All enemies know your position. Immune to confuse/fear.
+          Additionally, your glow removes the benefit of any darkness you would
+          otherwise use: certain abilities and effects that grant bonuses "while
+          undetected" (future content hook) are permanently disabled. For now,
+          enemies that detect you via glow gain +1 to their melee attack (enraged
+          by the illuminated target). Cap.
+    Reversal: Remove bioluminescence_active flag.
+    System hooks: player_stats.bioluminescence_active, ai.py detection logic
+    (override visibility check), effects.py confuse/fear block (L2).
+
+20. DEGENERATING NERVOUS SYSTEM — "Your reflexes are going. You can feel it."
+    Effect: Every time you receive a mutation (any mutation, any tier),
+    this mutation worsens: the cooldown on all your abilities increases by +1 turn.
+    This is cumulative. Starting penalty: +1. No hard cap — this mutation
+    literally gets worse every time you mutate. (This is the only mutation
+    with an uncapped upgrade.)
+    Upgrade (gets worse, continuously):
+      L1: +1 to all ability cooldowns. Increases by +1 for each subsequent
+          mutation acquired (including upgrades to existing mutations).
+      No cap. The more you mutate, the more your abilities slow down.
+      Engine tracks this as engine.degen_nervous_cooldown_bonus: int.
+    Note: This is intentionally severe. It directly punishes mutation-heavy builds
+    and forces a choice: keep mutating (power) vs. ability usability.
+    Reversal: Remove the flag and reset degen_nervous_cooldown_bonus to 0.
+    System hooks: player_stats.degen_nervous_active, abilities.py cooldown
+    computation (add engine.degen_nervous_cooldown_bonus), engine.py/mutations.py
+    mutation event handler (increment counter).
+
+
+================================================================
+V. STRONG GOOD MUTATIONS (20)
+================================================================
+
+Strong mutations are build-defining. They open up new gameplay styles,
+block equipment slots, or interact with the world in ways weak mutations don't.
+
+--- ORIGINAL 8 (CARRIED FORWARD WITH UPGRADES ADDED) ---
+
+1. CARAPACE — "A shell's grown on your back. No jacket fits anymore."
+   Equipment constraint: Cannot equip items in the "hat" slot.
+   Passive benefit: +5 permanent DR. 50% less damage from behind (attacker not
+   in FOV at time of hit). Cannot be knocked back.
+   Upgrade:
+     L1: +5 DR, 50% behind-hit DR reduction, knockback immune, hat blocked.
+     L2: +8 DR total (+3 more). Behind-hit reduction increases to 75%.
+         Additionally, enemies that attack you from behind take 3 reflected damage
+         (your shell spikes them on contact).
+     L3: +12 DR total (+4 more). Behind-hit reduction is 90% (near-immunity).
+         Shell spike reflect increases to 5. Additionally, you gain 2 temp HP at
+         the start of each floor (the shell regenerates slightly — not per-turn
+         regen, just a floor-start bonus). Cap.
+   Reversal: Restore hat slot, remove all DR from this mutation, remove
+   behind-hit reduction, remove knockback immunity, remove spikes/temp HP.
+   System hooks: carapace_level: int, player_stats.carapace_active,
+   combat.py knockback/behind-hit/reflect path.
+
+2. PSYCHIC BROADCAST — "Your headache is now everyone else's problem."
+   Effect: Enemies within 5 tiles take 2 + (mutation_count // 5) psi damage
+   per turn, bypassing armor.
+   Upgrade:
+     L1: 2 + count//5 psi dmg, 5-tile radius, every turn.
+     L2: 3 + count//5 psi dmg, 5-tile radius. Additionally, enemies that die
+         from Psychic Broadcast damage (rather than a melee/gun kill) emit a
+         psychic scream that applies "confused" for 3 turns to all other enemies
+         within 2 tiles of their death position.
+     L3: 4 + count//5 psi dmg, 6-tile radius. Psychic death screams extend to 4
+         tiles and additionally apply 2 stacks of shocked. Cap.
+   Reversal: Remove psychic_broadcast_active flag.
+   System hooks: engine.py player tick, combat.py raw damage path,
+   combat.py entity_died handler (L2/L3 scream).
+
+3. BONE SPURS — "Your knuckles have grown points. Sharp ones."
+   Effect: 30% on melee hit to apply "lacerated" (3 stacks bleed, 5 turns).
+   Melee kills spray 3 damage to 4 cardinal tiles.
+   Upgrade:
+     L1: 30% bleed chance; 3 dmg kill spray (4 cardinal).
+     L2: 45% bleed chance; 5 dmg kill spray (8 directions — 4 cardinal + 4 diagonal).
+     L3: 60% bleed chance (now reliable). 7 dmg kill spray (8 directions).
+         Additionally, any bleed you apply via Bone Spurs or melee has 1 extra
+         stack duration (6 turns instead of 5). Cap.
+   Reversal: Remove bone_spurs_active flag.
+   System hooks: combat.py melee hit (bleed proc), combat.py entity_died (spray).
+
+4. TELEKINETIC LASH — "Objects jump into your hand on command."
+   Effect: Grants ability "Telekinetic Lash" (3 charges/floor, SINGLE_ENEMY_LOS).
+   Pull a visible enemy toward you; deal 4 + (mutation_count // 2) impact damage.
+   If path crosses another enemy, both take 3 collision damage and lash stops.
+   Does not work on bosses.
+   Upgrade:
+     L1: 3/floor, pull range 6, 4 + count//2 impact, 3 collision.
+     L2: 4/floor, pull range 8, 6 + count//2 impact, 5 collision. Additionally,
+         after a successful lash, the target is stunned for 1 turn.
+     L3: 5/floor, pull range unlimited (any visible enemy), 8 + count//2 impact,
+         7 collision. Stun on pull lasts 2 turns. Additionally, you can lash
+         objects (crates, vending machines) — pulling them to an adjacent tile
+         as a free action once per floor. Cap.
+   Reversal: Revoke "telekinetic_lash" ability.
+   System hooks: ABILITY_REGISTRY "telekinetic_lash", engine.py movement/collision.
+
+5. REDUNDANT BRAIN — "A second lobe grew. It's calmer than the first."
+   Effect: Immune to confuse, fear, distracted. When immunity blocks an
+   enemy effect, gain a free reflex counterattack.
+   Upgrade:
+     L1: Confuse/fear/distracted immunity; reflex attack when blocked.
+     L2: Immunity extended to also block "slowed" and "stun" effects sourced
+         from enemies (not self-inflicted). Reflex attack gains +3 damage.
+     L3: All enemy-applied control effects are blocked. Reflex attack
+         additionally applies 2 stacks of shocked to the attacker. Cap.
+   Note: L3 "all control effects" means any effect with category=debuff that
+   targets the player and has a behavioral modifier (modify_movement, skip_turn,
+   ability_block). Pure damage debuffs (venom, bleed) are NOT blocked.
+   Reversal: Remove redundant_brain_level, remove all immunities, remove reflex logic.
+   System hooks: effects.py apply() on debuffs (check redundant_brain),
+   engine.py reflex counter path.
+
+6. TURTLE NECK — "Your head retracts on instinct."
+   Equipment constraint: Cannot equip neck slot.
+   When HP crosses below 50% threshold: auto-retract (50% DR for 3 turns, 1/floor).
+   +15% tox resistance, +15% rad resistance permanently.
+   Upgrade:
+     L1: Neck blocked; 50% DR 3t retract 1/floor; +15% tox/rad resist.
+     L2: 75% DR on retract, 4 turns. Resistances increase to +25%.
+         Retract now also briefly stuns the attacking enemy for 1 turn (snap reflex).
+     L3: 90% DR on retract, 5 turns. Resistances +40%. Retract stuns attacker 2 turns.
+         Additionally, retract now triggers TWICE per floor (second trigger tracked
+         as turtle_neck_retract_uses: int per floor). Cap.
+   Reversal: Remove neck slot block, remove resistances, remove retract trigger.
+   System hooks: turtle_neck_level: int, combat.py incoming damage path,
+   TurtleRetractEffect, engine.py equip check.
+
+7. WALL CRAWLER — "You can traverse vertical surfaces like they're horizontal."
+   Effect: Move through wall tiles. Cannot attack inside. Enemies can't see you
+   inside a wall. Ejected after 1 consecutive turn inside.
+   Upgrade:
+     L1: Pass through walls, 1-turn limit, invisible inside, no attacks inside.
+     L2: 2-turn limit inside walls (you can stay 2 consecutive turns). Enemies
+         within 2 tiles of where you exit a wall are briefly confused for 2 turns
+         (disoriented by your sudden emergence).
+     L3: 3-turn limit. Confusion on exit extends to 3 tiles, 3 turns. Additionally,
+         while inside a wall, you regenerate 1 HP at the end of each turn inside
+         (the wall compresses the mutation's healing factor). This is the ONLY
+         allowed per-turn regen in the game and is strictly gated to wall-interior
+         tiles. Cap.
+   Note: L3 wall HP restore is not passive regen — it requires active wall-occupancy.
+   Reversal: Remove wall_crawler_level, remove all wall movement logic.
+   System hooks: wall_crawler_level: int, engine.py movement, dungeon.py passability.
+
+8. EYELESS — "You don't need them. You feel vibrations now."
+   Equipment constraint: Cannot equip hat slot.
+   FOV reduced to 4 tiles but gain SONAR (all enemies visible as '?' through walls).
+   Immune to flash/blind. 25% incoming gun miss passive.
+   Upgrade:
+     L1: -4 FOV floor (raw FOV = 4 regardless of other bonuses), sonar,
+         hat blocked, 25% gun miss.
+     L2: FOV penalty reduced to -3 (raw FOV = 5). Sonar now also shows enemy
+         HP as a number next to their '?' marker. Gun miss increases to 35%.
+     L3: FOV = 6. Sonar shows HP AND current AIState (IDLE/CHASING/FLEEING shown
+         as I/C/F next to the '?'). Gun miss 40%. Additionally, sonar can
+         now detect items on the floor (shown as '!' through walls). Cap.
+   Reversal: Remove eyeless_level, restore FOV, remove sonar, remove gun miss.
+   System hooks: eyeless_level: int, dungeon.py compute_fov,
+   render.py entity/item display, gun_system.py incoming ranged.
+
+--- NEW 12 (NUMBERS 9-20) ---
+
+9. IRRADIATED BLOOD — "Your circulatory system is a reactor core now."
+   Effect: When you take melee damage that reduces your HP, any enemy within
+   2 tiles is irradiated for 8 + (mutation_count) rad. This is a blood-splatter
+   radiation aura — your blood is radioactive and getting close is dangerous.
+   Equipment constraint: None.
+   Upgrade:
+     L1: Melee damage taken → 8+count rad splash, 2-tile radius.
+     L2: 12+count rad splash, 3-tile radius. Also: enemies with 75+ rad
+         (from any source) within range take bonus 3 psi damage per turn
+         from your psychic blood pressure (add to the irradiated_blood_active
+         check in engine.py per-turn player tick).
+     L3: 16+count rad splash, 4-tile radius. Bonus damage to irradiated enemies
+         increases to 5/turn. Additionally, once per floor, when you take damage
+         that would kill you (reduce HP to 0 or below) but you survive (via death
+         save or other), the irradiated blood explodes in a 5-tile radius for
+         20 rad instantly. Cap.
+   Reversal: Remove irradiated_blood_active flag.
+   System hooks: player_stats.irradiated_blood_active, combat.py incoming
+   melee damage path (splash rad call), engine.py per-turn (irradiated bonus dmg).
+
+10. TOXIC VEINS — "Your blood is wrong. More wrong than before."
+    Effect: When you take melee damage, any adjacent enemy (1 tile) takes 3 tox
+    (from the blood spray). Passive reactive tox-splash on being hit.
+    No equipment constraint.
+    Upgrade:
+      L1: Melee hit taken → 3 tox to 1-tile adjacent enemies.
+      L2: 5 tox spray, 2-tile radius.
+      L3: 8 tox spray, 2-tile radius. Additionally, the tox spray now also applies
+          to enemies hit by MISSED attacks against you — when an enemy swings and
+          misses, the near-miss still sprays 3 tox. Cap.
+    Reversal: Remove toxic_veins_active flag.
+    System hooks: player_stats.toxic_veins_active, combat.py incoming melee
+    hit path and miss path (L3).
+
+11. SCAVENGER METABOLISM — "You process filth into fuel."
+    Effect: When you kill an enemy, you absorb 5 tox from their corpse — but
+    each tox gained this way heals you for 0.5 HP (rounded down, so 5 tox = 2 HP).
+    This is the only form of on-kill healing in the game for this mutation.
+    The tox gain is real and goes through add_toxicity() normally.
+    No equipment constraint.
+    Upgrade:
+      L1: Kill → absorb 5 tox → heal 2 HP (0.5 per tox point, rounded).
+      L2: Kill → absorb 8 tox → heal 4 HP. Additionally, if the killed enemy had
+          any tox applied to them (was toxified), you absorb their tox instead
+          of the base 5 (absorb 50% of their current tox at time of death).
+      L3: Kill → absorb 12 tox → heal 6 HP. L2 enemy-tox absorption stays but
+          at 75% of their tox. Additionally, your first tox-absorb kill per floor
+          also grants +1 book_smarts temporarily (learning from the contamination)
+          for 10 turns. Cap.
+    Note: This creates a playstyle of intentionally toxifying enemies then
+    killing them to soak up their tox as HP. Chemical Warfare synergy.
+    Reversal: Remove scavenger_metabolism_active flag.
+    System hooks: player_stats.scavenger_metabolism_active, combat.py entity_died
+    handler (absorb tox, apply heal), item_effects.py (L3 stat temp buff).
+
+12. VESTIGIAL WINGS — "They don't fly. But they cushion the landing."
+    Effect: You take 0 damage from grease tiles (hover slightly). Fire tiles
+    deal 50% less damage to you. Flavor: a leathery membrane has grown along
+    your arms, not functional for flight but providing slight levitation.
+    No equipment constraint.
+    Upgrade:
+      L1: Grease tiles: 0 damage; fire tiles: 50% less damage.
+      L2: Grease tiles: still 0 dmg. Fire: 75% less damage. Additionally,
+          knockback effects move you 1 fewer tile (you glide to a stop).
+      L3: Grease: 0 dmg. Fire: 90% less damage (near immune). Knockback -2 tiles
+          (minimum 0 displacement). Additionally, once per floor, you can glide
+          over a single wall tile as a special free move (different from Wall
+          Crawler — this is just one tile, no duration, but completely free). Cap.
+    Note: L3 glide is a completely separate mechanic from Wall Crawler. It doesn't
+    set wall_crawler_inside — the glide is instantaneous, arriving at the other side.
+    Reversal: Remove vestigial_wings_active flag.
+    System hooks: player_stats.vestigial_wings_active, engine.py tile damage resolution,
+    engine.py knockback, L3 glide action.
+
+13. HEMORRHAGIC AURA — "You bleed. You make THEM bleed too."
+    Effect: All melee attacks you make have a 35% chance to cause your wounds to
+    re-open momentarily, dealing 2 self-damage (non-lethal, capped at 1 HP minimum).
+    BUT: that self-bleed applies 1 stack of bleed to the enemy you're attacking
+    as well — your blood pressure is so extreme it transfers the bleed.
+    Thematically: you bleed ONTO them.
+    Upgrade:
+      L1: 35% on-attack: 2 self-damage (min 1 HP); apply 1 bleed stack to target.
+      L2: 50% on-attack: 3 self-damage; 2 bleed stacks to target. Additionally,
+          the self-damage from this mutation cannot be reduced by DR or armor
+          (it's internal). Self-damage min 1 HP still applies.
+      L3: 65% on-attack: 4 self-damage; 3 bleed stacks. Self-damage bypasses DR.
+          Additionally, bleed stacks from this mutation last 3 extra turns. Cap.
+    Note: Synergy with Burst Capillaries (weak good). Player bleeds → sprays
+    bleed on nearby enemies. Hemorrhagic Aura makes self-damage more likely,
+    amplifying Burst Capillaries. Intentional build potential.
+    Reversal: Remove hemorrhagic_aura_active flag.
+    System hooks: player_stats.hemorrhagic_aura_active, combat.py player melee
+    attack resolution (proc check, self-damage, enemy bleed).
+
+14. MUSCLE MEMORY OVERRIDE — "Your body knows what to do. You don't get a vote."
+    Effect: When you take a melee hit, there is a 30% chance you automatically
+    counterattack immediately (before your next turn, as a free interrupt action).
+    This counterattack deals your normal melee damage. You can't control it —
+    it fires at the attacker regardless of whether you wanted to. If the
+    counterattack kills the enemy, you don't also attack on your next turn
+    (only the interrupt fires that turn).
+    Upgrade:
+      L1: 30% counterattack on being hit, full melee damage.
+      L2: 40% counterattack. The counterattack also applies any on-hit effects
+          from your weapon (venom, bleed, etc.).
+      L3: 50% counterattack. Counterattack applies on-hit effects. Additionally,
+          counterattacks cannot miss (even if twitchy_nerves is active, the
+          muscle memory overrides the nerve failure). Cap.
+    Reversal: Remove muscle_memory_override_active flag.
+    System hooks: player_stats.muscle_memory_override_active, combat.py incoming
+    melee damage path (proc check, trigger free attack).
+
+15. SPIKED EXTRUSION — "The bumps under your skin have gotten more... pointy."
+    Effect: Whenever an enemy deals melee damage to you, they take 2 thorns
+    damage (bypasses their armor). Additionally, if the same enemy hits you
+    3 times in a single floor combat, they gain 1 stack of "spiked" (a new
+    minor effect: the spikes have worked their way into the enemy's weapon
+    hand, applying a stacking -1 melee power per stack, max 5 stacks,
+    duration: until combat ends with that enemy).
+    Upgrade:
+      L1: 2 thorns on hit; spiked debuff at 3 hits (−1 power/stack, max 5).
+      L2: 3 thorns on hit; spiked at 2 hits. Max spiked stacks increase to 8.
+      L3: 4 thorns on hit; spiked on 1st hit (every hit stacks it). Max 12 stacks.
+          Additionally, enemies with 5+ spiked stacks bleed from their own weapon
+          (2-turn duration 1-stack bleed applied to the attacker on each subsequent
+          hit). Cap.
+    Reversal: Remove spiked_extrusion_active flag.
+    System hooks: player_stats.spiked_extrusion_active, combat.py incoming melee
+    (thorns path, spiked stack tracking), effects.py SpikeedEffect (new).
+
+16. PSIONIC ECHO — "You think. They feel it."
+    Effect: When you use any ability (from ABILITY_REGISTRY), the ability's
+    execution is "echoed" — one random visible enemy within 6 tiles takes
+    3 + (mutation_count // 4) psychic damage (bypasses armor) from the mental
+    resonance of your ability use. This is passive; you don't aim it.
+    No equipment constraint.
+    Upgrade:
+      L1: Ability use → 3+count//4 psi dmg to 1 random visible enemy (6 tiles).
+      L2: 5+count//4 psi dmg; now hits 2 random visible enemies.
+      L3: 7+count//4 psi dmg; hits 3 random visible enemies. Additionally, if
+          you have Psychic Broadcast, the echo damage is added to each tick's
+          broadcast damage (they synergize). Cap.
+    Reversal: Remove psionic_echo_active flag.
+    System hooks: player_stats.psionic_echo_active, abilities.py execute()
+    path (fire echo after ability fires).
+
+17. LEATHERY HIDE — "Your skin doesn't just absorb hits anymore. It eats them."
+    Effect: Bleed, venom, and corroded effects applied to you deal 30% less damage
+    per tick. Your skin's texture disrupts the delivery mechanism of these effects.
+    No equipment constraint. No slot blocked.
+    Upgrade:
+      L1: 30% reduction to bleed/venom/corroded tick damage.
+      L2: 50% reduction. Additionally, fire (ignite) ticks also deal 30% less
+          damage to you (leathery hide is somewhat heat resistant).
+      L3: 60% reduction to bleed/venom/corroded. Ignite 50% reduction.
+          Additionally, shocked stacks applied to you are always 1 less than
+          the amount the attacker intended (minimum 0). Cap.
+    Reversal: Remove leathery_hide_active flag.
+    System hooks: player_stats.leathery_hide_active, effects.py BleedEffect.tick(),
+    VenomEffect.tick(), CorrodedEffect.tick(), IgniteEffect.tick() (check flag).
+
+18. FERAL INSTINCTS — "The higher brain went on vacation. Permanently."
+    Effect: When you kill an enemy with a melee attack (no abilities, no guns —
+    raw melee), you gain a Feral Rush buff: +25 speed, +2 melee power for 8 turns.
+    This buff refreshes on each melee kill (killing again restarts the 8 turns).
+    No equipment constraint.
+    Upgrade:
+      L1: Melee kill → Feral Rush (+25 speed, +2 power, 8t, refreshes on kill).
+      L2: Feral Rush becomes +35 speed, +4 power, 10t.
+          Additionally, during Feral Rush, your crits become MEGA_CRITs
+          (deal × MEGA_CRIT_MULTIPLIER instead of × 2). Existing MEGA_CRIT_MULTIPLIER
+          constant = 4 in config.py.
+      L3: Feral Rush +45 speed, +6 power, 12t. Mega-crit during Feral Rush.
+          Additionally, the first melee attack after Feral Rush expires (within
+          3 turns of expiry) deals +50% damage — the final burst before the
+          adrenaline fades. Cap.
+    Reversal: Remove feral_instincts_active flag. Remove any active Feral Rush buff.
+    System hooks: player_stats.feral_instincts_active, FeralRushEffect (new),
+    combat.py melee kill path, combat.py crit resolution (check feral rush active).
+
+19. HOLLOW ECHO RESONANCE — "When you're hit, the vibrations go somewhere useful."
+    Effect: When you take melee damage, the kinetic impact resonates through your
+    mutated bone structure and is partially redirected. 20% of any melee damage
+    you take is converted into temporary bonus melee damage for your NEXT melee
+    attack (add 20% of incoming damage to a tracked bonus; resets after the
+    next melee attack fires). Capped at +15.
+    No equipment constraint.
+    Upgrade:
+      L1: 20% of incoming melee → bonus for next melee attack (cap +15).
+      L2: 30% conversion, cap +20.
+      L3: 40% conversion, cap +25. Additionally, if the redirected bonus is
+          at full cap when you attack, the attack also stuns the target for 1 turn
+          (so much force concentrated). Cap.
+    Reversal: Remove hollow_echo_active flag, clear any pending bonus.
+    System hooks: player_stats.hollow_echo_active, engine.hollow_echo_pending: int,
+    combat.py incoming damage (accumulate bonus), combat.py outgoing melee (consume bonus).
+
+20. SECOND STOMACH — "It processes things differently than the first one."
+    Equipment constraint: Cannot equip neck slot (the growth is internal but
+    visible enough that neck items don't fit).
+    Effect: Consumable items (strains, drinks) have their effects doubled in
+    intensity but halved in duration. A strain that grants +30 speed for 20 turns
+    instead grants +60 speed for 10 turns. Food is unaffected.
+    Upgrade:
+      L1: Consumable effects ×2 intensity, ÷2 duration. Neck slot blocked.
+      L2: ×2.5 intensity, ÷2 duration. Additionally, consuming a drug or drink
+          grants 1 stack of Metabolized (a buff: +1 CON-equivalent bonus for 8 turns,
+          stackable up to 3 stacks, representing the rapid metabolization boost).
+      L3: ×3 intensity, ÷2 duration. Metabolized stacks up to 5. Additionally,
+          strains that would produce negative effects (bad rolls) instead produce
+          the neutral version of their effect (no benefit but no harm — similar
+          to Iron Gut's L3 but specifically for drinks and strains combined). Cap.
+    Note: "Doubled intensity" means numeric values only — damage amounts, stat bonuses,
+    speed bonuses. Not durations of sub-effects (e.g., bleed stacks applied by a strain
+    don't increase). Duration halving is strict: round up (10 turns becomes 5 turns, 3 turns becomes 2).
+    Reversal: Remove second_stomach_active, restore neck slot.
+    System hooks: player_stats.second_stomach_active, engine.py equip check
+    (block neck slot), item_effects.py strain/drink dispatch (intensity × and duration ÷).
+
+
+================================================================
+VI. STRONG BAD MUTATIONS (20)
+================================================================
+
+Strong bad mutations are run-altering constraints. They should feel like
+a new mode, not just a penalty.
+
+--- ORIGINAL 7 (CARRIED FORWARD; LIGHT SENSITIVITY IS REMOVED) ---
+
+NOTE: Light Sensitivity (previously Strong Bad #3) is REMOVED from this revision.
+Its "fire proximity damage" mechanic is now distributed across Photosensitivity (Weak Bad,
+upgraded) and Reactive Skin (Weak Bad, upgraded), making it redundant. Its slot
+is filled by new mutation #9 in this section.
+
+1. SECOND SKIN OF THORNS — "Your flesh is now hostile terrain."
+   Equipment constraint: Cannot equip neck slot.
+   Effect: Enemies that melee you take 3 reflected damage (bypasses enemy defense).
+   You deal 1 self-damage per melee attack thrown (minimum 1 HP to survive).
+   Upgrade (gets worse):
+     L1: 3 thorns; 1 self-damage on attack; neck blocked.
+     L2: 5 thorns; 2 self-damage on attack. Additionally, your self-damage on
+         attack also applies 1 stack of bleed to yourself (your own spines draw blood).
+     L3: 7 thorns; 3 self-damage; self-bleed on every attack. Additionally,
+         if you attack 3 times in a single turn (via speed bonuses that allow
+         multiple actions), the third attack deals 5 self-damage instead of 3
+         (escalating self-injury). Cap.
+   Reversal: Remove thorns, self-damage, neck block.
+   System hooks: thorns_level: int, combat.py incoming/outgoing melee.
+
+2. HOLLOW STOMACH — "No matter how much you eat, the hole gets bigger."
+   Effect: Food items restore 50% of their normal HP heal.
+   Upgrade (gets worse):
+     L1: Food heal ×0.5.
+     L2: Food heal ×0.3. Additionally, food items that normally apply buffs
+         (speed boost, stat bonuses) have their buff duration halved.
+     L3: Food heal ×0.1 (nearly useless). Buff duration halved. Additionally,
+         strains and drinks that would heal you also only heal at 50% (the hollow
+         stomach extends to all consumable healing, not just food). Cap.
+   Reversal: Remove hollow_stomach flag and level.
+   System hooks: hollow_stomach_level: int, item_effects.py food/drink/strain
+   heal dispatch.
+
+3. PARANOID SYSTEM — "Your immune system is trying to kill you now."
+   Effect: Every 10 turns, lose 1 HP (autoimmune damage, bypasses armor/DR).
+   HoT effects tick 50% less frequently.
+   Upgrade (gets worse):
+     L1: -1 HP every 10 turns; HoT at 50% frequency.
+     L2: -2 HP every 10 turns; HoT at 25% frequency. Additionally, all incoming
+         healing (food, HoT, leech) is reduced by 1 (minimum 0 healing — you
+         can still apply effects but heal 0 HP). Not capped at 1, this stacks
+         with Hollow Stomach.
+     L3: -3 HP every 10 turns; HoT at 25% frequency; all healing -2 HP (min 0).
+         Additionally, negative status effects on you last 2 extra turns (the
+         immune system overreacts and keeps the infection site inflamed). Cap.
+   Reversal: Remove paranoid_system_level.
+   System hooks: paranoid_system_level: int, engine.py per-turn, effects.py HoT,
+   item_effects.py healing path.
+
+4. EXTRA MOUTH — "A second set of teeth opened up on your shoulder."
+   Equipment constraint: Cannot equip hat slot.
+   Effect: 20% chance per consumable pickup to devour it (item consumed for 0 effect).
+   Upgrade (gets worse):
+     L1: 20% devour on pickup; hat blocked.
+     L2: 35% devour on pickup. The extra mouth also occasionally activates in
+         combat — 10% per turn during combat (when enemies are in LOS): you
+         consume 1 random item from your inventory (chosen randomly, with priority
+         to consumables but could be anything).
+     L3: 50% devour on pickup. 20% combat-consume per turn. Additionally,
+         the extra mouth is now loud — whenever it devours something (pickup or
+         combat), enemies within 4 tiles are alerted by the chewing sounds. Cap.
+   Reversal: Remove extra_mouth_level, restore hat slot.
+   System hooks: extra_mouth_level: int, inventory_mgr.py pickup path,
+   engine.py per-turn combat check.
+
+5. NECROTIC FISTS — "Your hands are rotting off. Slowly."
+   Effect: Melee power -1 now, -1 per new mutation acquired, cap -6.
+   Upgrade (gets worse):
+     L1 (initial): -1 melee power; increments by -1 per mutation, cap -6.
+     NOTE: Necrotic Fists does not upgrade via re-roll — it self-escalates.
+     Re-rolling Necrotic Fists when at cap has no effect (wasted roll).
+     The mutation_levels dict tracks this at L1 (capped, no further upgrade).
+     Cap: -6 total penalty.
+   Reversal: Remove penalty entirely (reset to 0).
+   System hooks: player_stats.necrotic_fist_penalty: int, combat.py player power,
+   engine.py/mutations.py mutation event (increment penalty).
+
+6. FREAK MAGNET — "They can smell what you are."
+   Effect: 3+ total mutations → 1 extra strong enemy per floor. Faction enemies
+   30% more hostile on sight.
+   Upgrade (gets worse):
+     L1: 3+ mutations → +1 enemy per floor; faction 30% hostility.
+     L2: 2+ mutations threshold (triggers sooner) → +2 enemies per floor.
+         Faction enemies are automatically hostile at any reputation tier.
+     L3: 1+ mutation threshold → +3 enemies per floor (always active from first
+         mutation). Faction enemies gain +2 attack and +15 speed against you
+         specifically. Cap.
+   Reversal: Remove freak_magnet_level.
+   System hooks: freak_magnet_level: int, zone_generators.py spawn, ai.py faction.
+
+7. DISSOCIATIVE EPISODES — "Sometimes you just... leave for a bit."
+   Effect: Every 25 turns, 40% chance for 4-turn episode: random movement,
+   no abilities or guns. Can still melee attack adjacent enemies.
+   Upgrade (gets worse):
+     L1: 25-turn timer; 40% episode chance; 4-turn duration.
+     L2: 20-turn timer; 55% episode chance; 5-turn duration.
+     L3: 15-turn timer; 70% episode chance; 6-turn duration. Additionally, during
+         an episode you have a 20% chance per turn to throw a random item from
+         your inventory (chosen randomly) in a random direction (dropped in an
+         adjacent random tile). Cap.
+   Reversal: Remove dissociation_counter, remove effect if active.
+   System hooks: dissociation_level: int, engine.py player tick,
+   DissociativeEpisodeEffect.
+
+--- NEW 13 (NUMBERS 8-20) ---
+
+8. GLANDULAR OVERLOAD — "Everything your body secretes is wrong now."
+   Effect: Whenever you use a drug (strain) or drink, you gain 10 tox in addition
+   to any other effects. This is the mutation's "gland" adding contaminants to
+   your system on every consumption. Tox gain is real (not pierce_resistance
+   exempt) and can trigger Chemical Sensitivity if you have it.
+   Upgrade (gets worse):
+     L1: +10 tox per drug/drink.
+     L2: +20 tox per drug/drink. Additionally, food items now also add +5 tox
+         (the gland has spread to your digestive system generally).
+     L3: +30 tox per drug/drink; +10 tox per food. Additionally, the tox from
+         this mutation is always considered a "spike" — it is added at double the
+         base effect of any tox-triggered threshold (i.e., tox_enemies() calls
+         from game events check if this tox push crosses 100/200/300/400/500
+         and message-log each threshold crossing to remind the player). Cap.
+   Reversal: Remove glandular_overload_level.
+   System hooks: glandular_overload_level: int, item_effects.py consumable
+   dispatch (add tox after any drug/drink/food use).
+
+9. PARASITIC RELATIONSHIP — "It keeps you alive. It keeps you alive for its purposes."
+   Effect: A parasite has bonded to your nervous system. Every 20 turns, the
+   parasite demands a "feeding" — you automatically consume one random food item
+   from your inventory (if any exist). If no food exists in your inventory, you
+   lose 5 HP instead. You have no control over which food is consumed.
+   Upgrade (gets worse):
+     L1: Every 20t: consume 1 random food item or lose 5 HP.
+     L2: Every 15t: consume 1 random food OR drink OR lose 8 HP.
+     L3: Every 10t: consume 1 random item of any type or lose 12 HP. Cap.
+   Note: At L3 the parasite will consume weapons, ammo, rings — anything. The
+   randomness is total. "Any type" means items from the full inventory list
+   excluding equipped items.
+   Reversal: Remove parasitic_relationship_active flag.
+   System hooks: player_stats.parasitic_relationship_active, engine.py per-turn
+   tick (counter, consume logic), inventory_mgr.py random removal helper.
+
+10. INVERTED DIGESTION — "Your body absorbs the wrong part of everything."
+    Effect: All tox you gain is converted to a small HP loss at a ratio of
+    10 tox → 1 HP. This conversion happens as a secondary effect AFTER the
+    normal tox is added. Separately, any healing you receive that would push you
+    above max HP instead grants 5 tox (over-heal toxifies you). Flavor:
+    your body's processing is backwards.
+    Upgrade (gets worse):
+      L1: 10 tox → 1 HP loss (on top of tox); over-heal → 5 tox.
+      L2: 5 tox → 1 HP loss; over-heal → 10 tox.
+      L3: 3 tox → 1 HP loss; over-heal → 15 tox. Additionally, tox-removal
+          items (antidotes, etc.) only work at 50% efficiency on you (your
+          inverted digestion absorbs the cure). Cap.
+    Note: The HP loss from tox conversion is a secondary damage step applied
+    in combat.py after add_toxicity() runs — not part of the tox formula itself.
+    tracked as inverted_digestion_hp_loss(amount): int.
+    Reversal: Remove inverted_digestion_active flag.
+    System hooks: player_stats.inverted_digestion_active, combat.py add_toxicity()
+    (secondary HP hit), engine.py or item_effects.py heal path (over-heal check).
+
+11. RADIATION SPONGE — "You attract it. You just don't do anything useful with it."
+    Effect: You gain +50% more radiation from all sources (environmental rad,
+    enemy rad attacks, rad items). Your body is particularly susceptible to
+    ionizing radiation.
+    Upgrade (gets worse):
+      L1: +50% rad gain from all sources.
+      L2: +100% rad gain. Additionally, the mutation chance per rad tick is
+          doubled (you're more likely to mutate when irradiated, and that includes
+          getting more bad mutations).
+      L3: +150% rad gain. Mutation chance doubled. Additionally, once per floor,
+          when your radiation exceeds 200, you automatically trigger a mutation
+          roll (bypassing the normal per-tick chance) — forced exposure event. Cap.
+    Note: L2 mutation chance doubling means the 0.1% per 50 rad baseline becomes
+    0.2% per 50 rad. L3 auto-trigger happens at most once per floor.
+    Reversal: Remove radiation_sponge_level.
+    System hooks: radiation_sponge_level: int, combat.py add_radiation() (multiplier),
+    mutations.py check_mutation() (chance doubling), engine.py per-turn (L3 threshold).
+
+12. HEMORRHAGING CONSTITUTION — "The strong get stronger. You just bleed."
+    Equipment constraint: Cannot equip neck slot.
+    Effect: Every time you deal melee damage to an enemy, you take 1 damage
+    to yourself (internal hemorrhage from overexertion). This cannot kill you
+    (minimum 1 HP). Your body cannot sustain the exertion of violence.
+    Upgrade (gets worse):
+      L1: 1 self-damage per melee attack (min 1 HP); neck blocked.
+      L2: 2 self-damage per melee attack. Additionally, if you attack 3 or
+          more enemies in a single floor visit, you gain 1 stack of "exhausted"
+          (new: ExhaustedEffect, −10 speed per stack, duration 5t, stacks up to 5).
+      L3: 3 self-damage per melee attack. Exhausted starts after 2 enemies attacked.
+          Exhausted stacks up to 8. Additionally, using a gun also triggers 1
+          self-damage (the recoil). Cap.
+    Note: Different from Second Skin of Thorns (which triggers on melee HIT
+    connecting against you). This triggers on every swing you throw.
+    Reversal: Remove hemorrhaging_constitution_active, restore neck slot.
+    System hooks: player_stats.hemorrhaging_constitution_active, combat.py
+    player outgoing attack path (self-damage), effects.py ExhaustedEffect (new).
+
+13. SENSORY OVERLOAD — "Everything is too loud. The silence is deafening too."
+    Effect: Your input sensitivity is malfunctioning. At the start of each floor,
+    determine a random "safe move direction" (N/S/E/W). Moving in any OTHER
+    cardinal direction for that floor has a 15% chance per move to trigger
+    sensory overload — you skip your next turn and the message log shows
+    "Overstimulated." Diagonal moves are unaffected (they always involve the
+    safe axis at least partially). The safe direction rerolls each new floor.
+    Upgrade (gets worse):
+      L1: 15% skip-turn on non-safe direction moves.
+      L2: 25% skip chance. Diagonals now also affected if neither component
+          direction matches the safe direction.
+      L3: 35% skip chance (all directions affected, safe direction just has
+          0% chance). Additionally, whenever you skip a turn from overload,
+          enemies in LOS get a free attack opportunity (if in melee range,
+          they attack; otherwise they advance one tile). Cap.
+    Note: The "safe direction" is stored as engine.sensory_safe_dir: str
+    (one of 'n','s','e','w'), rerolled in floor_transition().
+    Reversal: Remove sensory_overload_active flag.
+    System hooks: player_stats.sensory_overload_active, engine.py movement
+    resolution (direction check, skip chance), engine.py floor_transition (safe dir roll).
+
+14. ACCELERATED AGING — "The mutations burn through you faster than radiation does."
+    Effect: Your maximum HP decreases by 1 every time you gain a mutation
+    (any tier, any polarity, including upgrades). Cap: maximum HP cannot go below
+    25% of your original max HP (30 + CON*10). This is permanent — no floor
+    resets. Flavor: the constant cellular restructuring burns through your
+    longevity.
+    Upgrade (gets worse):
+      L1: -1 max HP per mutation acquired (after this one). Cap at 25% of base max HP.
+      NOTE: Like Necrotic Fists, this self-escalates and doesn't upgrade via re-roll.
+      Re-rolling at cap: wasted roll.
+      mutation_levels tracks at L1 (capped progression, no further upgrade level).
+    Reversal: Remove accelerated_aging_active. Restore max HP to original value.
+    System hooks: player_stats.accelerated_aging_active, player_stats.max_hp_penalty
+    (new field: total HP lost to aging), engine.py/mutations.py mutation event
+    (apply_accelerated_aging() call after any mutation fires).
+
+15. DEGENERATING MARROW — "Your bones ache. Then they ache more."
+    Effect: Your melee power is reduced by 1 every 10 floors. Since there
+    are currently 8 floors total (4 Crack Den + 4 Meth Lab), this means you
+    could lose up to 0 power from floor effects in current content — BUT this
+    mutation also directly applies a -1 penalty on acquisition and a -1 penalty
+    every time a new zone is entered (floor 1 of a new zone). So in practice:
+    -1 on acquisition, -1 on entering Meth Lab zone = -2 total through the
+    current game.
+    Additionally, your effective tolerance permanently decreases by 1 (you
+    metabolize drugs slower as your marrow deteriorates).
+    Upgrade (gets worse):
+      L1: -1 power on acquisition; -1 power on zone change; -1 effective tolerance.
+      L2: Same zone-change penalty. Additionally, your speed decreases by 5
+          for each zone entered after acquiring this mutation.
+      L3: Zone-change penalty increases to -2 power AND -10 speed. Additionally,
+          at the start of each floor (not zone, each floor), you have a 10% chance
+          for a "marrow flare" — lose 3 HP and skip your first action. Cap.
+    Reversal: Remove degenerating_marrow_level. Restore all power/speed/tolerance
+    penalties from this mutation.
+    System hooks: degenerating_marrow_level: int, engine.py zone_transition hook,
+    engine.py floor_start hook, player_stats.
+
+16. LEAKY MIND — "Thoughts go places they shouldn't. Enemies pick up the signal."
+    Effect: Any time you use an ability (from ABILITY_REGISTRY), all enemies
+    within 8 tiles immediately switch to CHASING state (they pick up the mental
+    broadcast of ability use). This is distinct from Territorial Marking — it's
+    not always active, only triggered by abilities. Using no abilities is a valid
+    counterplay.
+    Upgrade (gets worse):
+      L1: Ability use → all enemies within 8 tiles switch to CHASING.
+      L2: Radius extends to 12 tiles. Additionally, enemies alerted this way
+          gain +2 attack for 5 turns (rage from the mental intrusion).
+      L3: Radius: entire floor (all enemies on floor). Rage bonus increases to
+          +4 attack. Additionally, the alert also applies to enemies in FLEEING
+          state — they stop fleeing and return to CHASING. Cap.
+    Reversal: Remove leaky_mind_active flag.
+    System hooks: player_stats.leaky_mind_active, abilities.py execute() (post-fire
+    enemy alert loop).
+
+17. BONE BRITTLENESS — "One good hit and something goes crunch."
+    Effect: When you take a hit that exceeds 15 damage in a single blow (after
+    armor and DR), there is a 40% chance of a "fracture" event — you take an
+    additional 3 bonus damage that bypasses armor (the fracture itself), and
+    you are slowed (SlowEffect, −20 speed) for 5 turns.
+    Upgrade (gets worse):
+      L1: 15-dmg threshold; 40% fracture; +3 bypass dmg; -20 speed 5t.
+      L2: 12-dmg threshold; 55% fracture; +5 bypass dmg; -25 speed 5t. The slow
+          now also extends ability cooldowns by +2 turns while active.
+      L3: 10-dmg threshold; 70% fracture; +7 bypass dmg; -30 speed 6t. Cooldown
+          extension +4 turns. Additionally, during a slow from a fracture, you
+          cannot pick up items (too much pain to bend down). Cap.
+    Reversal: Remove bone_brittleness_active flag.
+    System hooks: player_stats.bone_brittleness_active, combat.py incoming
+    damage path (threshold check, fracture proc), effects.py SlowEffect
+    (extend cooldowns during active L2/L3).
+
+18. GRAVITY SENSITIVITY — "Gravity is doing something different to you today."
+    Effect: Your movement costs 25% more energy (every move costs 125 energy
+    instead of 100 — you're heavier in some gravitational sense, or your
+    mutation makes you feel like you are). Additionally, picking up items costs
+    1 energy (normally free — bending down is an effort now).
+    Upgrade (gets worse):
+      L1: Movement costs 125 energy; item pickup costs 1 energy.
+      L2: Movement costs 150 energy; pickup costs 5 energy. Additionally,
+          knockback effects push you 2 extra tiles (more susceptible to force).
+      L3: Movement costs 175 energy; pickup costs 10 energy; knockback +3 tiles.
+          Additionally, abilities that target you for teleport/pull effects (like
+          Telekinetic Lash if the player ever faces such things from enemies) are
+          1.5× as effective on you. Cap.
+    Note: Gravity Sensitivity + Extra Joints (weak good +40 speed at L3) is
+    an interesting balance — the extra joints might offset some of the movement
+    cost but not all of it.
+    Reversal: Remove gravity_sensitivity_active flag and movement cost modifier.
+    System hooks: player_stats.gravity_sensitivity_active, engine.py move action
+    (energy cost modifier), inventory_mgr.py item pickup (energy cost).
+
+19. PERMEABLE SKULL — "Things get in. They don't get organized correctly."
+    Effect: Enemy abilities that would normally be blocked by Redundant Brain
+    immunity or any future crowd-control immunity items penetrate through anyway.
+    Additionally, all crowd-control effects (confuse, fear, stun, slow) applied
+    to you last 2 extra turns. Your skull doesn't protect the brain from impact.
+    If you don't have Redundant Brain, the +2 turn duration penalty still applies.
+    Upgrade (gets worse):
+      L1: Crowd-control immunity bypass; CC effects last +2 turns.
+      L2: CC effects last +4 turns. Additionally, when you are stunned, you
+          also take 1 damage per turn while stunned (panic damage).
+      L3: CC effects last +6 turns. Stun panic damage increases to 3/turn.
+          Additionally, the fear effect, when applied, causes you to run for
+          an extra direction even after it expires — 1 additional turn of
+          fear-movement happens post-expiry (phantom fear). Cap.
+    Reversal: Remove permeable_skull_active flag.
+    System hooks: player_stats.permeable_skull_active, effects.py apply() for
+    all CC effects (bypass immunity check, extend duration).
+
+20. FISSION HEART — "It beats once. Then it irradiates everything within five feet."
+    Effect: Your heart has partially fissioned. On every combat turn (turn where
+    you deal melee damage or take melee damage), your heart pulses and emits
+    20 rad to YOU and 5 rad to all enemies within 3 tiles. This happens after
+    the combat action resolves. The self-rad is real and can trigger mutations.
+    Flavor: the cost of having a nuclear heart.
+    Upgrade (gets worse):
+      L1: Combat turn → you gain 20 rad; enemies within 3 tiles gain 5 rad.
+      L2: You gain 30 rad; enemies gain 10 rad; radius expands to 4 tiles.
+      L3: You gain 40 rad; enemies gain 15 rad; radius 5 tiles. Additionally,
+          the pulse fires every turn regardless of combat (not just on attack/take-damage
+          turns) — passive continuous irradiation. Cap.
+    Note: At L3 this is the strongest self-rad mutation in the game. Combined
+    with Radiation Sponge (strong bad), a player would self-irradiate at an
+    extreme rate. This creates volatile mutation cascades. Intentional risk.
+    Reversal: Remove fission_heart_active flag.
+    System hooks: player_stats.fission_heart_active, engine.py per-turn (L3)
+    or combat.py (L1/L2) post-combat hook (pulse logic).
+
+
+================================================================
+VII. REVERSAL (SHED ABILITY) — UPDATED LOGIC
+================================================================
+
+The Shed ability (Mutation L4) remains unchanged in concept:
+  - Pick a random GOOD mutation from mutation_log
+  - Undo it (call reversal logic)
+  - Remove a random debuff
+  - Refund half the tier's rad cost
+
+Also: Shedding a mutation resets engine.mutation_levels[mutation_id] to 0
+(removes the key from the dict).
+
+New reversal types needed (beyond existing all_stats/single_stat/resistance/
+skill_points/skill_level/briskness/dr/lose_slot/lose_5_skills):
+
+  "grant_ability": revoke the named ability via engine.revoke_ability(ability_id)
+  "flag": set player_stats.{flag_name} = False
+  "speed": reverse a permanent speed delta on engine.player.speed
+  "fov_bonus": subtract from player_stats.mut_fov_bonus
+  "power_penalty": add back the lost power to engine.player.power baseline
+  "slot_block": remove the named slot from blocked_equip_slots
+    (new: player_stats.blocked_equip_slots: set[str])
+  "compound": list of sub-reversals, each processed in order
+  "ability_and_flag": shorthand for revoke ability + clear flag in one step
+  "stat_and_flag": shorthand for stat reversal + clear flag
+
+These reversal types extend the undo_mutation() function in mutations.py.
+The reversal dict for compound mutations looks like:
+  {"type": "compound", "steps": [{"type": "flag", "flag": "carapace_active"},
+                                   {"type": "dr", "amount": 5},
+                                   {"type": "slot_block", "slot": "hat"}]}
+
+Save system note: All new player_stats flags (booleans) and
+player_stats.blocked_equip_slots (set) must be added to save_system.py
+serialization. Use JSON-serializable types (list for set).
+
+UPGRADE REVERSAL RULE:
+  When Shed removes a mutation, the full effect of ALL its upgrade levels is
+  reversed in one step. The reversal functions must check mutation_levels[id]
+  to know how much to undo.
+  Example: Hardened Dermis at L3 has granted +6 DR. Shed must remove 6 DR,
+  not 2 DR. The reversal dict for leveled mutations should use
+  {"type": "compound", "steps": [dynamically computed from mutation_levels[id]]}.
+  In practice: mutations.py undo_mutation() fetches the mutation's current level
+  from mutation_levels, then calls the reversal logic scaled to that level.
+
+
+================================================================
+VIII. SCARRED TISSUE INTERACTION
+================================================================
+
+Scarred Tissue (Mutation L1): "Bad mutations also grant +1 to a random stat."
+This perk fires apply_scarred_tissue() in mutations.py after any bad mutation.
+
+With the new system, all 20 bad weak and 20 bad strong mutations are still
+"bad" polarity. Scarred Tissue fires on all of them, including upgrades.
+Upgrading a bad mutation counts as a bad-mutation event — you get your +1 stat
+consolation even as the mutation worsens.
+
+Special interaction — Degenerating Nervous System (Weak Bad #20):
+  Acquiring any mutation (good or bad) increments the degen counter. Scarred
+  Tissue fires and grants +1 stat on bad mutations, but the nervous system
+  immediately adds 1 more turn to all ability cooldowns. Every bad mutation
+  is now a triple-effect: bad mutation, +1 stat from Scarred Tissue, +1 ability
+  cooldown from Degen Nervous System. This is hell in the best possible way.
+
+Special interaction — Accelerated Aging (Strong Bad #14):
+  Scarred Tissue fires on Accelerated Aging acquisition (+1 stat). But every
+  subsequent mutation now also removes 1 max HP. Scarred Tissue still fires on
+  each bad mutation — you get +1 stat and lose 1 max HP simultaneously. The
+  tradeoff is sharp.
+
+Special interaction — Fission Heart (Strong Bad #20):
+  Scarred Tissue fires. Player gets +1 stat. But now every combat turn irradiates
+  you, which can trigger more mutations, which trigger more Scarred Tissue procs,
+  which is its own chaotic cascade. High mutation builds become radiation-fueled
+  stat engines with increasingly dangerous side effects.
+
+Existing Mutation skill perks (L1-L5) continue to work as designed:
+  L1 Scarred Tissue — bad mutation → +1 random stat (fires on upgrades too)
+  L2 Unstable — 20% on melee hit: Unstable buff (unchanged)
+  L3 Favorable Odds — +50% good mutation multiplier (unchanged)
+  L4 Shed — reversal logic extended (see Section VII)
+  L5 Triple Helix — 30% bonus mutation on any mutation (can trigger upgrade +2 levels)
+
+
+================================================================
+IX. NEW ENGINE / PLAYERSTATS FIELDS NEEDED
+================================================================
+
+--- PlayerStats additions (all Bool default False unless noted) ---
+
+ORIGINAL FLAGS (carried forward):
+  tapeworm_active, redundant_organs, redundant_organs_death_save_used,
+  extra_joints_active, subdermal_toolkit, neural_static_active,
+  venom_nodes_active, carapace_active, redundant_brain, wall_crawler_active,
+  eyeless_active, psychic_broadcast_active, bone_spurs_active,
+  turtle_neck_active, reactive_skin, rotten_teeth, photosensitivity,
+  twitchy_nerves, hollow_bones, chem_sensitivity, territorial_marking,
+  leaking_eyes, paranoid_system, hollow_stomach, freak_magnet,
+  necrotic_fist_penalty: int = 0
+
+NEW FLAGS (expanded system):
+  # Weak Good new flags:
+  iron_gut_active: bool = False
+  scar_tissue_buildup_active: bool = False
+  pheromone_gland_active: bool = False
+  rad_absorb_active: bool = False
+  chitinous_hide_active: bool = False
+  leeching_strike_active: bool = False
+  burst_capillaries_active: bool = False
+
+  # Weak Bad new flags:
+  porous_membrane_active: bool = False
+  hyperactive_bladder_active: bool = False
+  spinal_spur_active: bool = False
+  suppurating_wounds_active: bool = False
+  phantom_hunger_active: bool = False
+  excessive_perspiration_active: bool = False
+  lopsided_growth_active: bool = False
+  slow_blink_active: bool = False
+  bioluminescence_active: bool = False
+  degen_nervous_active: bool = False
+
+  # Strong Good new flags:
+  irradiated_blood_active: bool = False
+  toxic_veins_active: bool = False
+  scavenger_metabolism_active: bool = False
+  vestigial_wings_active: bool = False
+  hemorrhagic_aura_active: bool = False
+  muscle_memory_override_active: bool = False
+  spiked_extrusion_active: bool = False
+  psionic_echo_active: bool = False
+  leathery_hide_active: bool = False
+  feral_instincts_active: bool = False
+  hollow_echo_active: bool = False
+  second_stomach_active: bool = False
+
+  # Strong Bad new flags:
+  glandular_overload_level: int = 0     # use int for level, not bool
+  parasitic_relationship_active: bool = False
+  inverted_digestion_active: bool = False
+  radiation_sponge_level: int = 0
+  hemorrhaging_constitution_active: bool = False
+  sensory_overload_active: bool = False
+  accelerated_aging_active: bool = False
+  degenerating_marrow_level: int = 0
+  leaky_mind_active: bool = False
+  bone_brittleness_active: bool = False
+  gravity_sensitivity_active: bool = False
+  permeable_skull_active: bool = False
+  fission_heart_active: bool = False
+
+  # Numeric values:
+  mut_fov_bonus: int = 0
+  mut_gun_range_penalty: int = 0
+  blocked_equip_slots: set[str] = field(default_factory=set)
+  max_hp_penalty: int = 0       # tracks total HP lost to Accelerated Aging
+
+--- Engine fields (per-floor unless noted) ---
+
+NEW:
+  mutation_levels: dict[str, int] = {}     # RUN-WIDE; key=mutation_id, val=level
+
+  # Per-floor:
+  adrenaline_surge_used: bool = False
+  turtle_neck_triggered: bool = False
+  mut_first_hit_buffer: bool = True
+  wall_crawler_inside: bool = False
+  reflex_counter_pending: bool = False
+  chitin_hit_streak: int = 0
+  rad_absorb_bonus: int = 0
+  slow_blink_combat_active: bool = False
+  slow_blink_turns_remaining: int = 0
+  phantom_hunger_counter: int = 0
+  hyperactive_bladder_counter: int = 0
+  parasitic_relationship_counter: int = 0
+  sensory_safe_dir: str = 'n'    # rerolled each floor
+  hollow_echo_pending: int = 0
+
+  # Per-turn:
+  dissociation_counter: int = 0
+  degen_nervous_cooldown_bonus: int = 0   # RUN-WIDE; increments per mutation
+
+  # Run-wide:
+  redundant_organs_death_save_used: bool = False
+  redundant_organs_death_saves_remaining: int = 0   # L3 Redundant Organs
+
+
+================================================================
+X. IMPLEMENTATION NOTES BY FILE
+================================================================
+
+mutations.py:
+  - Remove "huge" tier. Update RAD_THRESHOLDS, RAD_COSTS, MUTATION_TABLES.
+  - Replace old mutation tables with 20-entry tables for each category.
+  - Each mutation apply_fn must set mutation_levels[mutation_id] and check
+    if already acquired (for upgrade handling). If level >= cap, return early.
+  - Each mutation must return a reversal dict (see Section VII).
+  - Upgrade logic: apply_fn checks mutation_levels[id]; if > 1, apply upgrade
+    effects on top of existing (flags already set, just adjust numeric values).
+  - For mutations that self-escalate (Necrotic Fists, Accelerated Aging): the
+    increment hook fires in the PARENT mutation event handler after any mutation
+    fires (not in the mutation's own apply_fn, to avoid double-counting).
+  - Degenerating Nervous System: after any mutation event, increment
+    degen_nervous_cooldown_bonus by 1 if degen_nervous_active.
+  - Add necrotic_fist increment hook: after each _apply_and_log_mutation(),
+    if necrotic_fist_penalty < 6 and player has Necrotic Fists, increment.
+  - Accelerated Aging: after each _apply_and_log_mutation(), if accelerated_aging,
+    reduce max HP by 1 (floor of 25% of base_max_hp).
+
+stats.py (PlayerStats):
+  - Add all new bool flags with default False.
+  - Add all new int fields with default 0.
+  - blocked_equip_slots: set (serialized as list).
+
+effects.py:
+  - AdrenalineSurgeEffect (id="adrenaline_surge", duration variable, +speed bonus,
+    +melee dmg bonus; level-dependent values from mutation_levels).
+  - TurtleRetractEffect (id="turtle_retract", duration variable; level-dep DR).
+  - DissociativeEpisodeEffect (id="dissociative_episode", duration variable;
+    extends confuse; blocks ability and gun).
+  - HardeningEffect (id="hardening", expires when no enemies in LOS for 5/10t;
+    each stack +1 DR; max stacks level-dependent).
+  - FeralRushEffect (id="feral_rush", duration variable; +speed, +melee, optional
+    mega-crit at L2; L3 post-expiry burst window tracked as feral_post_burst_timer).
+  - CorrodedEffect (id="corroded", duration=5; -1 def per stack, max 5 stacks).
+  - SpikeedEffect (typo: rename to SpikedEffect; id="spiked"; stacks; -1 melee/stack).
+  - ExhaustedEffect (id="exhausted"; −10 speed per stack, max 5/8 stacks, dur 5t).
+  - EnragedEffect (id="enraged"; floor_duration=True; +2 damage, +15 speed; immune
+    to fear/confuse while active).
+  - MetabolizedEffect (id="metabolized"; stacks; +1 CON-equivalent bonus, 8t/stack).
+
+combat.py:
+  - New melee hit resolution checks:
+    venom_nodes_active: 1-3 venom stacks (level-dep); upgraded venom if L3.
+    twitchy_nerves: 15-25% miss chance (level-dep).
+    bone_spurs_active: 30-60% bleed proc (level-dep); 3-7 damage kill spray.
+    hollow_bones: +2/4/6 incoming dmg (level-dep).
+    leaking_eyes: no crit bonus on debuffed targets (level-dep extension).
+    reactive_skin: grease/fire/venom/wet damage modifiers (level-dep).
+    neural_static_active: enemy crit -10/-15/-20 within 3/5 tiles (level-dep).
+    carapace: behind-hit 50/75/90% DR, reflect spikes, knockback immune (level-dep).
+    second_skin_thorns: 3/5/7 reflect; 1/2/3 self-damage; self-bleed L2/L3.
+    necrotic_fist_penalty: apply as negative to player power floor.
+    mut_first_hit_buffer: first melee hit per floor blocks 1/3/5 dmg (level-dep).
+    scar_tissue_buildup_active: 20-40% bleed on hit; bleed dmg resistance.
+    leeching_strike_active: HP heal on hitting debuffed enemies.
+    burst_capillaries_active: bleed spray when player takes bleed damage.
+    irradiated_blood_active: rad splash on taking melee damage.
+    toxic_veins_active: tox spray on being melee'd (including misses at L3).
+    hemorrhagic_aura_active: 35-65% self-damage + enemy bleed on every attack.
+    muscle_memory_override_active: 30-50% counterattack on being hit.
+    spiked_extrusion_active: thorns + spiked debuff stacks.
+    hollow_echo_active: accumulate bonus from incoming; consume on outgoing.
+    bone_brittleness_active: fracture proc on high-damage hits.
+    gravity_sensitivity_active: (handled in engine.py movement cost, not combat).
+    hemorrhaging_constitution_active: self-damage on every melee attack thrown.
+    scavenger_metabolism_active: on kill, absorb tox and heal.
+    fission_heart_active: post-combat rad pulse (L1/L2).
+  - add_toxicity():
+    chem_sensitivity: ×1.5/2.0/2.5 multiplier (level-dep).
+    porous_membrane_active: +5/10/15 tox per corpse tile step.
+    glandular_overload: +10/20/30 tox per drug/drink (in item_effects.py).
+    inverted_digestion: secondary HP loss per tox point added.
+  - add_radiation():
+    radiation_sponge: ×1.5/2.0/2.5 rad gain multiplier.
+    hyperactive_bladder: (handled in engine.py per-turn counter).
+    rad_absorb_active: convert % of gained rad to melee bonus (in combat.py).
+
+engine.py:
+  - Movement: wall_crawler check; vestigial_wings grease immunity; gravity cost.
+  - Equip validation: blocked_equip_slots check.
+  - Per-turn player tick:
+    psychic_broadcast_active: psi AOE damage.
+    paranoid_system: autoimmune counter.
+    dissociation_counter: episode check.
+    adrenaline_surge check.
+    phantom_hunger_counter: HP loss.
+    hyperactive_bladder_counter: rad burst.
+    parasitic_relationship_counter: consume item or HP loss.
+    fission_heart_active L3: continuous rad pulse.
+    slow_blink_turns_remaining: decrement lockout.
+    psionic_echo: trigger on ability use (call in ability execute path).
+    leaky_mind_active: alert enemies on ability use (also in ability path).
+  - Melee kill path: bone_spurs spray; feral_instincts buff; extra_joints free step;
+    scavenger_metabolism tox+heal.
+  - Mutation event (post-apply): increment necrotic_fist if active;
+    reduce max_hp if accelerated_aging; increment degen_nervous_cooldown_bonus;
+    increment freak_magnet escalation.
+  - Floor start: reset per-floor flags; roll sensory_safe_dir; re-apply
+    any HardeningEffect cleanup; set mut_first_hit_buffer True;
+    award L3 Carapace temp HP.
+  - Death check: redundant_organs death save logic.
+  - Counterattack: muscle_memory_override free attack; redundant_brain reflex attack.
+
+ai.py:
+  - territorial_marking: detection override (level-dep range 5/7/9 tiles);
+    L3 EnragedEffect on nearby enemies.
+  - bioluminescence_active: similar to territorial_marking but through walls.
+  - pheromone_gland: ai.py target selection priority.
+  - eyeless: player-in-wall invisibility; sonar render data.
+  - leaky_mind: after ability fires, iterate all enemies within range and
+    set to CHASING.
+  - freak_magnet: faction hostility override (level-dep).
+
+dungeon.py:
+  - compute_fov(): apply mut_fov_bonus (additive, can be negative).
+  - Add corpse_tiles: set[tuple] = set() per floor; add enemy death position.
+
+render.py:
+  - eyeless sonar: render all enemies as '?' (with HP at L2, HP+state at L3).
+  - photosensitivity flicker: every other turn, skip far FOV edge update.
+  - L3 Subdermal Toolkit jackpot crate: render as '+' instead of '#'.
+
+gun_system.py:
+  - twitchy_nerves: apply -10/-20/-30 to gun accuracy (level-dep).
+  - mut_gun_range_penalty: reduce max cursor range.
+  - DissociativeEpisodeEffect: block gun firing.
+  - eyeless: incoming 25/35/40% gun miss (level-dep).
+
+inventory_mgr.py:
+  - extra_mouth: level-dep % devour chance on pickup; L2 combat consume.
+  - subdermal_toolkit: max crate loot; jackpot crate on floor; L2 vending.
+  - parasitic_relationship: random item consumption helper.
+  - gravity_sensitivity: energy cost on pickup.
+  - spinal_spur L2: block pickup in corridors.
+
+item_effects.py:
+  - tapeworm_active: +3/6/9 food heal (level-dep); L2 strain HP; L3 re-roll.
+  - iron_gut_active: no strain self-damage; temp HP on drug; L3 neutral bad rolls.
+  - hollow_stomach: ×0.5/0.3/0.1 food heal (level-dep); L3 extends to drinks.
+  - rotten_teeth: +1/2/3 turns eating; -3/5/7 heal (level-dep); L2 noise alert.
+  - paranoid_system: HoT frequency check; heal reduction (L2/L3).
+  - glandular_overload: +10/20/30 tox per consumable (level-dep).
+  - second_stomach: intensity ×2/2.5/3, duration ÷2 on strain/drink.
+  - inverted_digestion: over-heal → tox conversion.
+  - scavenger_metabolism: (handled in combat.py kill path).
+
+abilities.py:
+  - "acid_spit": ADJACENT→SINGLE_LOS at L3; damage/cooldown level-dep.
+  - "telekinetic_lash": charge count, range, damage, stun all level-dep.
+  - "touch_of_frost": damage/stacks/cooldown level-dep; L2 shatter; L3 crack bonus.
+  - "touch_of_fire": damage/stacks/cooldown; L2 splash; L3 spread.
+  - "touch_of_shock": damage/stacks/cooldown; L2 resonance; L3 discharge.
+  - DissociativeEpisodeEffect: block ability use.
+  - twitchy_nerves L2: +1 turn to all cooldowns (add to execute path).
+  - psionic_echo: post-execute hook fires echo damage.
+  - leaky_mind: post-execute hook alerts enemies.
+
+zone_generators.py:
+  - freak_magnet: level-dep extra enemy count (1/2/3) at lower mutation thresholds.
+
+save_system.py:
+  - All new PlayerStats bool fields: serialize/deserialize.
+  - blocked_equip_slots: serialize as list, deserialize as set.
+  - mutation_levels: dict, serialize as JSON object.
+  - All new int fields: with defaults.
+  - Engine per-floor reset flags: included in save state.
+  - degen_nervous_cooldown_bonus: run-wide, must persist.
+  - sensory_safe_dir: per-floor (rerolled on load/floor transition).
+
+
+================================================================
+XI. BALANCE BENCHMARKS
+================================================================
+
+Reference values from MEMORY and current code:
+  Player HP: 30 + CON*10. At CON 10: 130 HP.
+  Typical floor 1-2 enemy damage: 4-8 per hit.
+  Swagger defense: int((swagger-8)/2). Default 0.
+  Strong enemy (floor 3-4): ~60-80 HP, 8-12 damage.
+  Rad thresholds for mutation: 75 (weak) / 150 (strong).
+
+Weak Good power targets (L1 = "slightly better than +1 stat"):
+  - Touch of Frost/Fire/Shock: 3-8 damage + elemental status, ADJACENT, 1-4t cooldown.
+    At L1 these add roughly 1-3 DPS over time. Similar to +1 STR. Fine.
+  - Leeching Strike (2 HP leech on 3+ debuff hits): good synergy with debuff builds,
+    minimal impact in isolation. Won't be active early game. Weak-tier correct.
+  - Burst Capillaries (40% bleed spray on bleed ticks): dependent on already having
+    bleed applied to yourself. Conditional — weak-tier appropriate.
+  - Iron Gut (no strain self-damage, +3 temp HP): very build-specific. Drug-heavy
+    players love it, melee-only players don't care. Weak-tier correct.
+
+Weak Bad pain targets (L1 = "annoying but survivable"):
+  - Porous Membrane (+5 tox per corpse step): In Crack Den with moderate kill
+    counts, player might step on 5-10 corpse tiles per floor. That's 25-50 tox.
+    Annoying but manageable. Meth Lab: much worse (more corpses). Monitor.
+  - Phantom Hunger (-4 HP every 30 turns): roughly 0.13 DPS. On a 100-turn floor,
+    that's 13 HP. At default 130 HP, that's 10%. Fine for weak tier.
+  - Slow Blink (no items/abilities/guns for 1 turn on combat start): pure combat
+    nuisance. 1-turn lockout is forgiving. Weak-tier appropriate.
+  - Involuntary Bioluminescence (all enemies always know position): similar to
+    territorial marking but through walls. This is strong for weak tier — reconsider
+    if playtesting shows it's effectively run-ending on Meth Lab stealth floors.
+
+Strong Good power targets (build-defining, worth 125 rad and 250 mutation XP):
+  - Irradiated Blood (rad splash when hit): turns "taking hits" into "irradiating
+    nearby enemies." Good survivability tool in tight corridors. Strong-tier correct.
+  - Feral Instincts (melee kill → Feral Rush, +45 speed/+6 power at L3): very
+    powerful in clear-room scenarios. Limited in 1v1. Strong-tier correct.
+  - Scavenger Metabolism (on kill: absorb tox + heal): heals ~4 HP per kill at L2.
+    In a 20-enemy floor this is 80 HP of healing over the floor. Significant.
+    Balanced by being all-tox-source: you gain real tox from each kill.
+  - Second Stomach (×3 intensity, ÷2 duration at L3): this is potentially very
+    powerful for speed strains (triple speed, half duration). The neck slot cost
+    is meaningful. May need monitoring for drug-rush builds.
+
+Strong Bad pain targets (run-altering but not run-ending):
+  - Fission Heart (L3: 40 self-rad + 15 enemy rad per turn): at L3, this is
+    ~2.4 self-rad per average turn (if player acts every ~17 ticks). In a 100-turn
+    floor, approximately 240 rad accumulated. This alone would trigger 2-3 mutations
+    per floor. Combined with Radiation Sponge: devastating. Run-altering at L3. Good.
+  - Degenerating Marrow (-2 power total + -10 speed + marrow flares at L3): the
+    power penalty is moderate (-2 on floor 4 enemies is -6.6% damage reduction).
+    The speed penalty matters more. Strong-tier appropriate.
+  - Accelerated Aging (-1 max HP per mutation, cap 25% of base): at max mutations
+    (say 10 mutations on a CON 8 build: base 110 HP), cap = 27 HP (25% of 110).
+    Player could lose up to 83 HP of max HP from mutations alone. This is severe
+    late-game. Strong-tier correct. Intended to discourage spam mutation builds.
+
+Notable interactions to monitor:
+  - Fission Heart + Radiation Sponge: self-rad at 2.5× rate. Extremely volatile.
+    Creates mutation cascades. Keep but note as "high-risk combo" in flavor.
+  - Degenerating Nervous System + any ability-heavy build: ability cooldowns
+    +1 per mutation. After 8 mutations, all abilities cost 8 extra turns. Very
+    punishing for spell-based builds. Specifically hard-counters Nuclear Research
+    (radiation-focused spell tree).
+  - Second Stomach + Swamp Gas strain (Meth Lab): tox gain ×3 intensity from
+    Second Stomach means Swamp Gas gives ×3 tox. Very fast tox accumulation.
+    Combined with Chemical Sensitivity: potentially 450%+ of base tox gain.
+    This is fine — the player knows the risk. Flag in flavor text.
+  - Leeching Strike + Bone Spurs: hitting an enemy applies bleed (30%+), creating
+    the condition for Leeching Strike to trigger (enemy has 1 debuff). Easy
+    threshold. Intentional synergy between two separate mutations.
+  - Muscle Memory Override + Twitchy Nerves: counterattacks from MMO cannot miss
+    at L3 MMO. Twitchy Nerves L3 applies 25% miss to YOUR attacks, but not
+    counterattacks (specifically noted). This creates asymmetry: reactive attacks
+    are reliable, proactive attacks are not. Interesting play pattern.
+
+
+================================================================
+XII. MUTATION SKILL TREE — PERK INTERACTIONS WITH OVERHAUL
+================================================================
+
+L1 — Scarred Tissue: fires on all 20 new bad mutations, including upgrades.
+
+L2 — Unstable: 20% on melee hit to gain Unstable buff (+5 rad, +2 dmg, irradiate).
+  With venom_nodes_active (all levels) every melee hit also applies venom.
+  With Feral Instincts active (FeralRush), melee hits are more frequent →
+  more Unstable procs. No conflicts.
+
+L3 — Favorable Odds: raises good% from 33% to ~50%. With 20 good/20 bad in each
+  tier (40 good, 40 bad total), Favorable Odds shifts the coin. Still meaningful.
+
+L4 — Shed: reversal logic extended (see Section VII). ALL new mutations must
+  have valid reversal dicts. Upgrade scaling must be reversed at the correct level
+  (e.g., Hardened Dermis at L3 reverses 6 DR, not 2). The undo_mutation()
+  function fetches mutation_levels[id] before reversing.
+
+L5 — Triple Helix: 30% chance for bonus mutation after any mutation. With level
+  system, this can jump a mutation from L1 to L3 if the same mutation is rolled
+  twice consecutively (original trigger + bonus both upgrade the same mutation).
+  In edge case: player has Carapace L1 and rolls Carapace → L2. Triple Helix
+  bonus rolls Carapace again → L3. Player has full Carapace in one event.
+  This is a rare jackpot. Intended. Hat slot remains blocked throughout.
+
+Future L6+ Mutation perk ideas (not in scope, noted for later):
+  - "Directed Mutation": Once per floor, choose polarity (good/bad) for next roll.
+  - "Splice": Merge two weak mutations into one randomly selected strong mutation.
+  - "Stable Genome": All future mutation upgrades apply at L+2 instead of L+1
+    (skip levels; reach cap faster but fewer total mutation events).
+
+
+================================================================
+XIII. DESIGN SCRATCHPAD — CUT IDEAS AND FUTURE DIRECTIONS
+================================================================
+
+FOV MUTATION AUDIT:
+  Current FOV mutations: Compound Eyes (+3/5/7 FOV), Photosensitivity (-2/4/6 FOV),
+  Myopia (-3/5/7 FOV), Eyeless (raw FOV 4/5/6 + sonar). That is FOUR FOV mutations.
+  Recommended future action: Remove or redesign Photosensitivity and Myopia in a
+  future revision to reduce FOV-touching mutations from 4 to 2 (Compound Eyes + Eyeless).
+  The mechanical space of "+/- FOV" is thin and these mutations are less interesting
+  than their effect description suggests. Consider replacing:
+    Photosensitivity → something that modifies what you can DO at distance, not just see.
+    Myopia → something that creates a movement or targeting constraint, not just range.
+  For this revision, they are kept as-is per the "keep existing 10" rule.
+
+CUT: "Regrowth" — heal 1 HP per turn passively. Cut per project rules: no passive
+  per-turn regen. Players exploit by waiting.
+
+CUT: "Telepathy" — gave perfect knowledge of enemy intentions (next action).
+  Cut because NIGRL's AI is simple enough that this is not interesting —
+  most enemies just chase and attack. Revisit if AI gets action queues.
+
+CUT: Third eye / psychic variants — too sci-fi. Neural Static kept because
+  it's passive and invisible. Psionic Echo kept because it's tied to ability use.
+
+CUT (from new strong good ideas): "Bone Wings" — flight over grease/fire.
+  Replaced by Vestigial Wings (partial flight only) which is more thematically
+  appropriate and doesn't negate entire hazard systems.
+
+CUT (from new strong bad ideas): "Permanent Blindness" — -10 FOV, sonar only.
+  Too similar to Eyeless. Cut.
+
+CUT (from new weak bad ideas): "Static Electricity" — 20% chance to drop
+  metal weapons when hit. Too punishing + item-interaction complexity is high
+  for weak tier. Replaced by Lopsided Growth (stumble mechanic, cleaner).
+
+FUTURE: "Mutation synergy" system — if a player has 3+ mutations from the
+  same "theme" (body mutations: Carapace + Bone Spurs + Hardened Dermis),
+  they unlock a special bonus passive. This would be a Mutation L6+ perk.
+
+FUTURE: Monster-specific mutations. The monster mutation system (already in
+  mutations.py) could be overhauled similarly — replace stat-only mutations
+  with behavioral ones (Sticky Tendons = monster grapples player on hit,
+  Explosive Death = monster detonates when killed).
+
+FUTURE: Mutation cooldown display — when acid_spit is on cooldown, show
+  remaining turns in the ability list. Current ability system doesn't show
+  cooldowns. This is a render.py / menu_state.py concern.
+
+FUTURE: Named mutation combinations. If a player ends up with Fission Heart
+  + Irradiated Blood + Rad Absorption simultaneously, the mutation log could
+  display "Nuclear Physiology (3-part)" as a special achievement flavor tag.
+  No mechanical difference — purely cosmetic/flavor.
+
+BALANCE FLAG: Bioluminescence (Weak Bad) may be effectively stronger than
+  some Strong Bad mutations. If playtesting shows it's consistently more
+  run-ending than Freak Magnet (which has hard numbers), consider bumping it
+  to Strong Bad and replacing it with a genuinely weak detection-range tweak.
+
+BALANCE FLAG: Second Stomach (Strong Good, neck blocked) is potentially
+  very powerful for movement-speed drug builds. If speed strains become
+  meta-defining in combination with this, consider capping the intensity
+  multiplier at ×2 for speed values specifically, keeping ×3 for other stats.

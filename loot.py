@@ -15,6 +15,11 @@ import random
 from items import ITEM_DEFS, get_random_chain, get_random_hat
 from foods import FOOD_DEFS
 
+# Ezra Multiplier: set by engine when Mama Ezra NPC is used.
+# Category key (e.g. "weed_product", "drinks", "food", "meth_consumable") or None.
+# When set and zone is meth_lab, the weight of this category is doubled.
+ezra_multiplier_category: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # Zone floor budgets
@@ -561,10 +566,20 @@ def pick_random_consumable(zone: str, player_stats=None) -> tuple:
 
     Resolves drinks and food sub-tables. No skill weighting applied.
     Falls back to ('joint', None) if the zone has no consumable table.
+    Applies Ezra Multiplier (2x weight) for the chosen category in meth_lab zone.
     """
     table = ZONE_CONSUMABLE_TABLES.get(zone, [])
     if not table:
         return ("joint", None)
+
+    # Apply Ezra Multiplier for meth_lab zone
+    if zone == "meth_lab" and ezra_multiplier_category:
+        table = list(table)  # shallow copy to avoid mutating the original
+        for i, entry in enumerate(table):
+            if entry[0] == ezra_multiplier_category or (
+                ezra_multiplier_category == "drinks" and entry[0] == "meth_lab_drink"
+            ):
+                table[i] = (entry[0], entry[1] * 2, *entry[2:])
 
     item_id = _weighted_pick(table, None, use_skill_weighting=False)
 

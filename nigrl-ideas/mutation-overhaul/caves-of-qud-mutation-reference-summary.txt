@@ -1,0 +1,41 @@
+CAVES OF QUD MUTATION REFERENCE - SUMMARY
+==========================================
+
+Full reference document: nigrl-ideas/caves-of-qud-mutation-reference.txt
+
+WHAT IT COVERS:
+- 24 Physical Mutations with mechanics, scaling, costs, cooldowns
+- 24 Mental Mutations with mechanics, scaling, costs, cooldowns
+- Morphotypes (Chimera, Esper), Physical Defects, Mental Defects
+- 6 key design patterns extracted for NIGRL adaptation
+- 5 concrete mutation categories proposed for NIGRL (Combat, Mobility,
+  Defense, Utility, Defect) with 20+ specific mutation concepts
+
+KEY DESIGN PATTERNS:
+1. Equipment Slot Tradeoffs (Carapace blocks body armor but gives DR)
+2. New Gameplay Verbs (every mutation = new thing you can DO)
+3. Environment Interaction (fire/ice/acid/electricity interact with terrain)
+4. Scaling Beyond Numbers (level thresholds unlock new capabilities)
+5. Power-Has-A-Cost (Esper Glimmer attracts assassins)
+6. Defects as Meaningful Choices (not just stat debuffs)
+
+MOST NOTABLE MUTATIONS FOR NIGRL INSPIRATION:
+- Carapace: Iconic tradeoff (+DR, blocks equipment slot)
+- Burrowing Claws: Terrain destruction (dig through walls)
+- Domination: Possess enemy bodies (play as them)
+- Precognition: Snapshot/revert game state (undo button)
+- Temporal Fugue: Create AI-controlled copies of yourself
+- Force Wall: Create terrain barriers tactically
+- Mass Mind: Power scales with number of nearby creatures
+- Corrosive Gas: Physics-based gas that corrodes equipment
+- Electrical Generation: Chain lightning through water/metal
+
+PROPOSED NIGRL CATEGORIES:
+A. Combat (Acid Spit, Toxic Nova, Bone Spurs, Adrenal Surge)
+B. Mobility (Phase Shift, Long Legs, Gecko Grip, Tunnel Digger)
+C. Defense (Chitinous Shell, Rubber Skin, Kill-Regen, Adrenaline Glands)
+D. Utility (Echolocation, Pheromone Cloud, Radiation Sense, Toxic Metabolism)
+E. Defects (Bioluminescent, Brittle Bones, Hemophilia, Paranoid, Unstable)
+
+IMPLEMENTATION: Use Effect subclasses + AbilityDef grants. Existing tier
+system (weak/strong/huge) maps to mutation power level.

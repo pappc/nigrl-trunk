@@ -92,8 +92,8 @@ def create_acid_pool(x: int, y: int, duration: int = 15, damage_per_turn: int = 
     )
 
 
-def create_rad_bomb_crystal(x: int, y: int, damage: int = 20) -> Entity:
-    """A rad bomb crystal. Blocks movement. Detonates after 3 turns in a 5x5 square."""
+def create_rad_bomb_crystal(x: int, y: int, damage: int = 20, fuse: int = 3) -> Entity:
+    """A rad bomb crystal. Blocks movement. Detonates after fuse turns in a 5x5 square."""
     crystal = Entity(
         x=x, y=y,
         char="*",
@@ -102,7 +102,7 @@ def create_rad_bomb_crystal(x: int, y: int, damage: int = 20) -> Entity:
         entity_type="hazard",
         hazard_type="rad_bomb_crystal",
         blocks_movement=True,
-        hazard_duration=3,
+        hazard_duration=fuse,
     )
     crystal.rad_bomb_damage = damage
     return crystal
@@ -176,4 +176,19 @@ def create_web(x: int, y: int) -> Entity:
         entity_type="hazard",
         hazard_type="web",
         blocks_movement=False,
+    )
+
+
+def create_spider_egg(x: int, y: int) -> Entity:
+    """Spider egg from Spider's Nest. Hatches into a Spider Hatchling after 2 turns
+    if any enemy is within 3 tiles, otherwise sits dormant."""
+    return Entity(
+        x=x, y=y,
+        char="o",
+        color=(180, 180, 120),
+        name="Spider Egg",
+        entity_type="hazard",
+        hazard_type="spider_egg",
+        blocks_movement=False,
+        hazard_duration=99,  # doesn't expire on its own; hatched by tick logic
     )

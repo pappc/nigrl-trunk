@@ -710,25 +710,20 @@ def _gain_melee_xp(engine, skill_name: str, damage: int) -> None:
 def _gain_spell_xp(engine, ability_id: str) -> None:
     """Award Smartsness XP when a spell is activated and its charge is consumed.
 
-    XP calculation: 20 * floor_skill_mult * zone_skill_mult
-    - floor_skill_mult: 1.0 + (current_floor * 0.5) [floors 1,2,3,4... get 1.0, 1.5, 2.0, 2.5...]
-    - zone_skill_mult: From ZONE_SMARTSNESS_MULT (crack_den = 2.0)
+    XP calculation: 15 * zone_skill_mult
+    - zone_skill_mult: From ZONE_SMARTSNESS_MULT (crack_den = 1.0, meth_lab = 2.0)
     """
     # Check if this is a spell
     defn = ABILITY_REGISTRY.get(ability_id)
     if defn is None or not defn.is_spell:
         return
 
-    # Calculate floor multiplier: 1.0 + (current_floor * 0.5)
-    # current_floor is 0-indexed, so floor 0 (1st floor) -> 1.0, floor 1 (2nd floor) -> 1.5, etc.
-    floor_mult = 1.0 + (engine.current_floor * 0.5)
-
     # Get zone multiplier
     zone = engine._get_zone_info()[0]
     zone_mult = ZONE_SMARTSNESS_MULT.get(zone, 1.0)
 
-    # Calculate base XP: 20 * floor_skill_mult * zone_skill_mult
-    base_xp = 20 * floor_mult * zone_mult
+    # Calculate base XP: 15 * zone_skill_mult
+    base_xp = 15 * zone_mult
     adjusted_xp = round(base_xp * engine.player_stats.xp_multiplier)
 
     # Check if skill is newly unlocked

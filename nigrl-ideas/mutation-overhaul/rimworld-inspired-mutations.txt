@@ -1,0 +1,1180 @@
+RIMWORLD-INSPIRED MUTATIONS — ADDITIONAL CANDIDATES (20)
+==========================================================
+NIGRL Roguelike — gritty urban setting (Crack Den / Meth Lab)
+Design goal: 20 additional mutations for cherry-picking into the 80-mutation
+overhaul plan. Inspired by Rimworld Biotech's gene design philosophy, adapted
+to NIGRL's urban body-horror aesthetic. Every mutation changes how you play.
+
+Author note: These mutations supplement mutation-overhaul-plan.txt.
+Do not add any entry that duplicates the existing 80. Each mutation below
+is a candidate for its named category only. Select freely and append to
+the master document.
+
+Rimworld design lessons applied:
+  - Behavioral dependencies (Kill Thirst, drug dependencies)
+  - Environmental inversion (turning negatives into personal positives)
+  - Hard constraints ("cannot do X") over stat nerfs
+  - Biological ranged weapons (new gameplay verbs)
+  - Vulnerability stories (immortal vs. fire; strong vs. corridor)
+  - One unique ability beats five stat modifiers
+
+Upgrade principles carried from main doc:
+  - Good mutations get STRONGER on upgrade.
+  - Bad mutations get WORSE on upgrade.
+  - Typical cap: L3. Self-escalating mutations have no re-roll upgrade.
+  - All mutations permanent; Shed removes entirely and resets level to 0.
+  - Scarred Tissue fires on bad mutation upgrades (consolation +1 stat).
+
+
+TABLE OF CONTENTS
+-----------------
+I.   Weak Good Mutations (5 entries: A–E)
+II.  Weak Bad Mutations (5 entries: F–J)
+III. Strong Good Mutations (5 entries: K–O)
+IV.  Strong Bad Mutations (5 entries: P–T)
+V.   Implementation Notes — New Engine/PlayerStats Fields
+VI.  New Effects Required
+VII. New Abilities Required
+VIII.Balance Notes
+
+
+================================================================
+I. WEAK GOOD MUTATIONS (5)
+================================================================
+
+Design principle: Weak good mutations grant a new tool or a small niche
+identity. They should be immediately useful without being build-defining.
+
+--
+
+A. FROG LEGS — "Your hamstrings snapped into something else. Longer."
+   Effect: Grants the Leap ability (INFINITE charges, self-targeting).
+   When activated, select a destination tile within 4 tiles in any
+   direction (including diagonal). The player moves directly to that tile,
+   bypassing all entities and terrain in between (walls excluded —
+   destination tile must be open floor). Cooldown: 6 turns. The leap
+   ignores grease tile penalties on landing. If an enemy occupies a tile
+   adjacent to the landing spot, that enemy is knocked back 1 tile
+   (stumbled by the impact) and stunned for 1 turn.
+   Upgrade:
+     L1: Leap range 4 tiles; landing knockback 1 tile; stun 1t; 6t cooldown.
+     L2: Leap range 5 tiles; landing knockback extends to 1-tile radius
+         (all adjacent enemies knocked and stunned, not just one). Cooldown
+         reduces to 5 turns.
+     L3: Leap range 6 tiles. Landing in the same tile as a standing enemy
+         (i.e., directly on their space) is now valid — you kick through them
+         for 6 + (mutation_count // 2) damage and land in the next open tile
+         in the same direction (like a bowling ball). Standard knockback/stun
+         still applies to surrounding enemies. Cooldown 4 turns. Cap.
+   Implementation notes:
+     - Ability id: "frog_legs_leap". TargetType: ADJACENT_TILE (reuse for
+       short-range movement targeting — player selects floor tile). If the
+       current ADJACENT_TILE targeting doesn't support range > 1, may need
+       a new TargetType: RANGED_TILE or allow ADJACENT_TILE with a range
+       parameter. Alternatively implement as SINGLE_ENEMY_LOS-adjacent
+       logic but for floor tiles.
+     - Knockback logic: reuse existing knockback helper in combat.py.
+     - StunEffect (already exists) applied to adjacent entities.
+     - L3 "land-on-enemy" requires collision check before movement resolves.
+     - "Destination tile must be open floor" — check dungeon.is_blocked() at
+       destination, plus not a wall tile.
+     - Grease immunity on landing: skip dungeon.grease_tiles check for the
+       landing step only.
+   Reversal: Revoke "frog_legs_leap" ability.
+   System hooks: ABILITY_REGISTRY "frog_legs_leap", spells.py movement
+   execution, combat.py knockback/stun helpers, dungeon.py tile/entity
+   checks.
+   Rimworld inspiration: Longjump Legs — a hard terrain-traversal ability
+   that grants a new movement verb (not just +speed).
+
+--
+
+B. SPINE QUIVER — "There's something along your back. It's sharp. It aims."
+   Effect: Grants the Spine Shot ability (3 charges/floor, SINGLE_ENEMY_LOS).
+   Fire a biological bone-spur projectile at a visible enemy within 8 tiles.
+   Deals 5 + (mutation_count // 3) piercing damage, ignoring 2 points of
+   the target's DR. Applies 1 stack of bleed (3 turns). No ammo required —
+   this is your body. Cannot be disarmed.
+   Upgrade:
+     L1: 3/floor; 5 + count//3 dmg; DR bypass 2; 1 bleed stack.
+     L2: 4/floor; 7 + count//3 dmg; DR bypass 3; 2 bleed stacks.
+         Additionally, if the target is already bleeding when hit by Spine
+         Shot, the projectile lodges in the wound — target is slowed
+         (SlowEffect, 3 turns) in addition to bleed.
+     L3: 5/floor; 9 + count//3 dmg; DR bypass 4; 3 bleed stacks.
+         The slow on-bleed-target upgrade is retained. Additionally, Spine
+         Shot now bounces once to a second visible enemy within 3 tiles of
+         the primary target for 50% of the damage (round down). The bounce
+         does NOT apply bleed or slow — just raw damage. Cap.
+   Note: "Cannot be disarmed" is flavor only — there is no disarm system.
+   The important point is it does not require any item in inventory.
+   Reversal: Revoke "spine_shot" ability.
+   System hooks: ABILITY_REGISTRY "spine_shot", spells.py execute (LOS
+   targeting, DR bypass logic, bleed application), effects.py SlowEffect
+   (already exists or create), spells.py L3 bounce resolver (find nearest
+   second visible target within 3 tiles of primary).
+   Rimworld inspiration: Piercing Spine — a biological ranged weapon that
+   creates a new "gun without ammo" gameplay verb.
+
+--
+
+C. TOXIC METABOLISM — "Your body eats the poison. Then it runs on it."
+   Effect: While you have 10 or more current toxicity, gain a speed bonus
+   equal to (current_tox // 20) * 10, capped at +30. This bonus is
+   recalculated every turn. It is NOT a separate effect — it is a direct
+   speed modification applied during the energy tick, similar to how
+   existing status effect speed mods work. The bonus only applies if tox
+   >= 10; drops to 0 instantly when tox falls below 10.
+   Upgrade:
+     L1: Speed bonus = (tox // 20) * 10, cap +30, threshold tox >= 10.
+     L2: Speed formula improves: (tox // 15) * 10, cap +40.
+         Additionally, at 50+ tox you shrug off 1 point of venom damage
+         per venom tick (the metabolism processes some of it — this is NOT
+         tox removal, just venom damage reduction by 1 per tick while tox >= 50).
+     L3: Speed formula: (tox // 10) * 10, cap +50. Venom dmg reduction
+         stays at 1/tick (no further increase). Additionally, when you
+         naturally lose toxicity (via effects, foods, zone transitions that
+         decay tox), you gain a brief Catharsis burst: +2 melee power for
+         5 turns (triggers once per floor per tox-loss event, max 1 stack).
+         Cap.
+   Note: This creates an interesting tension with Chemical Sensitivity
+   (Weak Bad — amplifies tox gain), Porous Membrane (Weak Bad), and Meth
+   Lab zone toxicity. A player who willingly stacks tox for speed is
+   making a real tradeoff. It does NOT turn tox into a resource you drain;
+   tox still damages you normally. The speed benefit comes from riding the
+   tox line dangerously.
+   Reversal: Remove toxic_metabolism_active flag; speed bonus immediately
+   drops to 0.
+   System hooks: player_stats.toxic_metabolism_active,
+   engine.py energy distribution (or combat.py speed-calc path) to apply
+   the dynamic bonus each tick, effects.py VenomEffect.tick() for L2
+   damage reduction, item_effects.py/engine.py tox-loss events for L3
+   catharsis trigger.
+   Rimworld inspiration: Pollution Rush — turning a universal negative
+   (toxicity buildup) into a personal performance boost.
+
+--
+
+D. BLOOD MEMORY — "Every body you drop teaches your hands something new."
+   Effect: Killing an enemy grants Blood Memory Surge for 12 turns.
+   During the surge, all skill XP gained is doubled (multiplier applies to
+   all skill XP sources: melee hits, gun kills, item use, etc.).
+   Stacks: multiple kills within the 12-turn window do NOT extend duration
+   — they reset it to 12 turns remaining.
+   Upgrade:
+     L1: Kill → Blood Memory Surge: skill XP ×2 for 12 turns (reset on kill,
+         not stack).
+     L2: Surge now lasts 18 turns. Additionally, killing an enemy WHILE the
+         surge is already active grants 1 bonus Skill Point (directly added,
+         bypassing the potential/real conversion system). This can happen at
+         most once per floor to prevent SP farming.
+     L3: Surge lasts 24 turns. The L2 bonus SP on-kill-during-surge now
+         applies up to 2 times per floor instead of once. Additionally, each
+         kill during a surge permanently grants +0.5 bonus to the XP multiplier
+         for whichever skill is currently closest to its next unlock
+         threshold — capped at a maximum of +2 accumulated across the run.
+         (This represents your body memorizing specific technique pathways.)
+         Cap.
+   Note: Blood Memory Surge is a named effect (BloodMemorySurgeEffect) with
+   modify_xp_gain() hook — or alternatively implement as a flag on engine
+   with duration tracked. The "closest to threshold" bonus at L3 is computed
+   at kill-time by scanning player skills for max(potential_exp / threshold).
+   Reversal: Remove blood_memory_active flag; if L2/L3 bonus SP was granted,
+   it is NOT reclaimed (already spent into the progression system).
+   System hooks: player_stats.blood_memory_active, combat.py entity_died
+   handler (grant/refresh surge), xp_progression.py XP gain (check flag,
+   apply multiplier), skills.py SP grant (L2 direct SP bonus), engine.py
+   blood_memory_turns_remaining: int (per-floor reset), blood_memory_bonus_sp_given
+   (int, per-floor counter, max 1 then 2 at L3).
+   Rimworld inspiration: Fast Learner / Learning rate genes — accelerated
+   skill growth tied to active performance rather than passive time.
+
+--
+
+E. COAGULATION GLANDS — "You bleed less than you should. Noticeably less."
+   Effect: Grants the Clot ability (2 charges/floor, SELF target).
+   On activation: instantly heal 8 HP. Cannot overheal past max HP. This
+   ability is a biological emergency response — it is immediate, requires
+   no food or item, and costs no resource other than the charge. The heal
+   is NOT a HoT — it fires instantly. Note: this is explicitly charge-gated
+   (not per-turn regen) to comply with no-passive-regen design rule.
+   Upgrade:
+     L1: 2/floor; instant heal 8 HP.
+     L2: 2/floor; instant heal 12 HP. Additionally, if the Clot is used
+         while you have an active bleed effect, the bleed is immediately
+         removed (the coagulation gland purges it). If no bleed is present,
+         the heal fires normally.
+     L3: 3/floor; instant heal 16 HP. Bleed purge is retained (L2).
+         Additionally, using Clot while below 30% HP doubles its heal
+         (32 HP at the 30% threshold) — an emergency overdrive.
+         The double-heal also triggers if any bleed was just purged
+         regardless of HP threshold. Cap.
+   Note: 3/floor at L3 with 32 HP potential (on low HP) is significant
+   but gated behind both the threshold AND the floor charge limit. In the
+   Meth Lab zone, where you're taking consistent tox damage, this becomes
+   a genuine survival tool vs. luxury.
+   Reversal: Revoke "coagulation_clot" ability.
+   System hooks: ABILITY_REGISTRY "coagulation_clot", ChargeType.PER_FLOOR,
+   spells.py execute (instant heal, bleed purge check, L3 threshold double).
+   Rimworld inspiration: Coagulate — a biological self-heal ability that
+   makes the player feel resilient rather than reliant on external items.
+
+
+================================================================
+II. WEAK BAD MUTATIONS (5)
+================================================================
+
+Design principle: Weak bad mutations should create behavioral constraints
+that alter your play pattern. Ideally they produce interesting decisions,
+not just punishment. The best ones make you avoid things that other builds
+would do freely.
+
+--
+
+F. NARCOLEPTIC FITS — "It comes on without warning. You just go down."
+   Effect: Every 25 turns, there is a 30% chance of a Narcoleptic Fit.
+   When a fit triggers: the player is stunned for 3 turns (cannot act,
+   cannot use abilities or items). The stun is identical to an enemy stun
+   but applied by the mutation system. A message is displayed: "A wave of
+   crushing fatigue hits you." The timer resets to 25 turns after each
+   check (whether or not the fit fires).
+   Upgrade (gets worse):
+     L1: Every 25 turns, 30% fit chance, 3-turn stun.
+     L2: Every 20 turns, 40% fit chance, 4-turn stun. Additionally, if a
+         fit triggers while you are in melee range of an enemy, that enemy
+         immediately gets a free extra attack against you (they capitalize
+         on your moment of unconsciousness).
+     L3: Every 15 turns, 50% fit chance, 5-turn stun. The free enemy attack
+         on fit-in-melee is retained. Additionally, if you are below 50% HP
+         when a fit triggers, the stun duration is doubled (10 turns). Cap.
+   Note: The 25-turn timer is tracked as engine.narcoleptic_counter: int
+   (per-floor; resets on each floor). The check fires during the player's
+   turn, before their action resolves, meaning they see the stun hit before
+   they can act. This is brutal but predictable — the player learns to
+   manage the timer.
+   Reversal: Remove narcoleptic_fits_active flag, remove stun logic, clear
+   narcoleptic_counter.
+   System hooks: player_stats.narcoleptic_fits_active, engine.py
+   player-turn-start (narcoleptic_counter increment, fit check, apply stun),
+   effects.py StunEffect (standard; already exists), ai.py free-attack path
+   (reuse existing "enemy gets a free attack" hook from Slow Blink L3).
+   Rimworld inspiration: Very Sleepy / Narcoleptic gene — random loss of
+   player agency that creates genuine fear during combat, especially when
+   outnumbered.
+
+--
+
+G. PYROPHOBIC NERVES — "Fire is wrong. Your body understands this on a
+   primal level it refuses to negotiate."
+   Effect: When there is any fire entity (hazard_type="fire") within 5 tiles
+   of the player, a FearEffect is applied (identical to enemy-induced fear —
+   the player is compelled to move away on their turn). Unlike enemy fear
+   which has a direction target, Pyrophobic fear movement always picks the
+   direction maximizing distance from the nearest fire tile. The FearEffect
+   lasts as long as fire remains within 5 tiles + 1 extra turn after moving
+   out of range (the nerves need a moment to calm). Additionally, the player
+   takes 1 extra fire damage from any fire-based source (ignite ticks, fire
+   hazard damage, etc.).
+   Upgrade (gets worse):
+     L1: Fire within 5 tiles → forced-flee movement; +1 fire damage from all
+         sources.
+     L2: Fire detection radius increases to 7 tiles. +2 fire damage from
+         sources. Additionally, when fear triggers (entering fire radius for
+         the first time per encounter), the player also has a 30% chance to
+         drop their currently equipped weapon item (it clatters to the floor
+         from the spasm — reachable and re-equippable).
+     L3: Fire detection radius 9 tiles. +3 fire damage. Weapon drop chance
+         increases to 50%. Additionally, any ignite status effect applied to
+         YOU has its tick count doubled (the nerves amplify the sensation —
+         your own body's inflammation is experienced as catastrophic). Cap.
+   Note: The forced movement on pyrophobic nerves is the existing FearEffect
+   repurposed. The fire proximity check runs in engine.py on the player turn.
+   The weapon drop (L2/L3) drops the currently equipped weapon to the floor
+   under the player as if manually unequipped and dropped — uses existing
+   drop-item logic. Player can walk back and pick it up. The ignite duration
+   doubling at L3 means an ignite that would last 4 ticks lasts 8 ticks.
+   Reversal: Remove pyrophobic_nerves_active flag, remove fire damage bonus.
+   System hooks: player_stats.pyrophobic_nerves_active, engine.py player
+   turn-start (fire proximity scan, apply FearEffect if fire in radius),
+   effects.py FearEffect direction logic (maximize distance from fire tile
+   instead of enemy tile), effects.py IgniteEffect.apply() for L3 duration
+   doubling, combat.py fire damage (add bonus), inventory_mgr.py unequip/drop
+   path (L2/L3 weapon drop).
+   Rimworld inspiration: Fire Terror (Sanguophage) — a fundamental
+   vulnerability that turns a common environmental hazard into a personal
+   horror story, even for a powerful character.
+
+--
+
+H. PIG HANDS — "The fingers fused. You can still hold things. Sort of."
+   Effect: You cannot equip rings. All 5 ring slots are blocked.
+   Additionally, using an item (strains, food, drinks) from inventory has a
+   20% chance to fumble — the item is used and consumed normally, but its
+   primary effect is cut to 50% intensity (fumbled dose, sloppy application).
+   Fumbling does NOT cause the item to drop or be wasted — just degraded.
+   Upgrade (gets worse):
+     L1: Ring slots all blocked; 20% fumble on item use (50% effect).
+     L2: Ring slots blocked. Fumble chance increases to 30%. Additionally,
+         equipping or unequipping weapons and armor now costs 2 extra turns
+         of energy (the hands struggle with clasps and grips — simulated
+         by the equip action costing extra energy).
+     L3: Ring slots blocked. Fumble chance 40%. Equip/unequip energy cost
+         remains at 2 extra turns. Additionally, the fumble now also applies
+         to ability items — activated abilities that cost charges have a 15%
+         chance to fire but consume the charge without dealing their effect
+         (the pig hands fail to execute the gesture properly). Cap.
+   Note: Ring slot blocking is the most impactful part for most builds.
+   The fumble interacts interestingly with Second Stomach (Strong Good —
+   which amplifies item intensity) and Iron Gut (Weak Good — which
+   negates strain bad outcomes). At L2, equip/unequip energy cost can be
+   simulated by adding extra energy cost to the equip action in
+   inventory_mgr.py.
+   Reversal: Unblock all 5 ring slots, remove fumble logic, remove equip cost.
+   System hooks: player_stats.pig_hands_active, engine.py equip check (block
+   ring slots), item_effects.py item use dispatch (fumble roll, cut intensity
+   if fumbled), abilities.py execute path (L3 gesture-fail roll), inventory_mgr.py
+   equip/unequip energy cost.
+   Rimworld inspiration: Pig Hands / Reduced Manipulation — blocking a key
+   equipment slot is a stronger design statement than "-30% item effectiveness."
+   A player can build around no rings in one run; they can't build around
+   diminishing everything slightly.
+
+--
+
+I. NOISE BLEED — "Everything you do tears something. The sound is the proof."
+   Effect: Every melee attack you make generates a loud crack of bone and
+   cartilage. All enemies within 6 tiles who are in IDLE or WANDERING state
+   immediately transition to WANDERING (alerted), and enemies in WANDERING
+   state within 6 tiles immediately transition to CHASING (they heard it).
+   Enemies already in CHASING are unaffected. This alert fires on every
+   melee attack, not just kills.
+   Upgrade (gets worse):
+     L1: Melee attack → 6-tile alert (IDLE→WANDERING, WANDERING→CHASING).
+     L2: Alert radius increases to 8 tiles. Additionally, the noise now
+         also triggers on ability use (any ability activation, not just melee),
+         so using Touch of Frost or Clot also alerts enemies in range.
+     L3: Alert radius 10 tiles. Ability-alert is retained. Additionally, the
+         cracking noise is so extreme that enemies with CHASING state within
+         4 tiles gain a brief Enraged buff for 2 turns (+2 melee power,
+         from EnragedEffect already defined in main doc — they hear you
+         struggling and focus). Cap.
+   Note: This mutation transforms "stay quiet" into a genuine strategic
+   constraint. In the Crack Den (4 floors, dense enemy packs), pulling
+   multiple WANDERING enemies every attack fundamentally changes engagement
+   style. The alert uses existing ai.py state transition logic — just
+   trigger the same transitions the player's FOV entry would.
+   Reversal: Remove noise_bleed_active flag.
+   System hooks: player_stats.noise_bleed_active, combat.py player melee
+   attack path (post-attack: scan radius, trigger state transitions),
+   spells.py ability execute (L2: post-ability scan), ai.py state transition
+   (EnragedEffect application for L3), effects.py EnragedEffect (already in main doc).
+   Rimworld inspiration: Roaring Voice — actions that should be quiet are
+   constantly broadcasting your location, fundamentally altering stealth
+   and engagement planning.
+
+--
+
+J. GENOME DRIFT — "Something in you is un-writing itself. One gene at a time."
+   Effect: Each time the player descends to a new floor (zone transitions and
+   floor-within-zone descents), one random stat among the six (CON, STR,
+   BKS, STS, TOL, SWG) is permanently decreased by 1. This uses the same
+   permanent stat modification system as other mutations (modifies _base
+   stat). Stats cannot drift below 4 (hard floor — prevents numerical
+   impossibilities).
+   Upgrade (gets worse):
+     L1: -1 to 1 random stat per floor descent. Hard floor at 4.
+     L2: -1 to 1 random stat per floor descent (same). Additionally, stats
+         at 5 or below from drift also suffer a functional penalty for that
+         specific stat (e.g., CON at 4 means you lose 10 max HP beyond the
+         normal formula, STR at 4 means -1 additional melee power, etc.).
+         These functional penalties are tracked separately and accumulate.
+     L3: -1 to 1 random stat per floor descent. Additionally, once per
+         run (not per floor), if any stat reaches 4 (the hard floor), a
+         one-time Cascade triggers: EVERY stat drops by 1 simultaneously
+         (the genome collapses further). After the Cascade, the hard floor
+         for all stats lowers to 3 instead of 4. The Cascade can only
+         happen once per run. Cap.
+   Note: At L1, this is 1 stat per floor × 8 floors = -8 stat points
+   spread across 6 stats over a full run. Average each stat loses ~1.3
+   points. Meaningful but not catastrophic. At L3, the Cascade is a
+   dramatic climax event that the player both fears and is fascinated by.
+   Track drift penalties with genome_drift_penalties: dict[str, int] in
+   engine (per-run, maps stat name to accumulated extra penalty).
+   The functional penalties at L2 are implemented as permanent additional
+   modifiers in stats.py effective_* properties (read from the penalty dict).
+   Reversal: Remove genome_drift_active flag. The stat reductions are NOT
+   reversed (they are permanent _base changes). The functional penalties
+   dict is cleared (L2). The Cascade trigger flag is cleared (L3).
+   Note on reversal fairness: Shedding Genome Drift is extremely valuable
+   precisely because it stops future degradation, but past losses are kept.
+   This is intentional — the mutation rots you while you have it.
+   System hooks: player_stats.genome_drift_active, engine.py floor descent
+   handler (stat decrement via same path as permanent stat mutations), stats.py
+   effective_* properties (L2 functional penalties from genome_drift_penalties
+   dict), engine.genome_drift_penalties: dict (run-wide), engine.genome_drift_cascade_used:
+   bool (run-wide).
+   Rimworld inspiration: Aging degradation / Cell instability genes — a
+   slow-burn permanent decay that makes every floor descent slightly dreadful.
+
+
+================================================================
+III. STRONG GOOD MUTATIONS (5)
+================================================================
+
+Design principle: Strong good mutations are build-defining. They should
+create a distinct playstyle identity and come with a meaningful cost
+(equipment constraint, HP cost, per-use charge, or behavioral limitation).
+
+--
+
+K. UNSTOPPABLE MASS — "When you move, you keep moving. Physics catches up later."
+   Effect: Complete immunity to knockback. You cannot be pushed, displaced, or
+   stumbled by any source (knockback abilities, Lopsided Growth, etc.).
+   Additionally, you are immune to the SlowEffect (speed reduction status).
+   Passive: once per floor, if you move through the same tile as an enemy
+   (i.e., you attempt to walk into an occupied enemy tile and the standard
+   move-attack would trigger), you instead Charge Through — the enemy is
+   displaced to the nearest open tile behind them (1 tile) and takes
+   4 + (STR // 2) impact damage, and you continue your movement into their
+   vacated tile. This is NOT an attack action — it is part of your move.
+   The move still costs normal movement energy. You do NOT stop moving on
+   a Charge Through.
+   Upgrade:
+     L1: Knockback immune; slow immune; 1/floor Charge Through (4 + STR//2
+         impact, displace to nearest open tile).
+     L2: 2/floor Charge Through. Impact damage increases to 6 + STR//2.
+         Additionally, enemies you Charge Through are stunned for 2 turns
+         (not just displaced). Knockback/slow immunity retained.
+     L3: Charge Through uses per floor becomes 3. Impact damage 8 + STR//2.
+         Stun retained. Additionally, enemies ADJACENT to the Charge Through
+         path (the tiles on either side of your movement line) take 3 splash
+         impact damage from the pressure wave. Cap.
+   Note: Charge Through must check that the tile behind the enemy is open
+   floor. If no open tile is available behind them, the Charge Through
+   instead pushes the enemy into the nearest open adjacent tile and deals
+   double damage (2 × normal impact) — they hit a wall.
+   Reversal: Remove unstoppable_mass_active flag, remove all immunities,
+   remove Charge Through behavior.
+   System hooks: player_stats.unstoppable_mass_active, combat.py knockback
+   path (block if flag set), effects.py SlowEffect.apply() (block if flag
+   set), engine.py movement handler (Charge Through check per move — consume
+   charge, displace enemy, deal damage), engine.unstoppable_charge_uses: int
+   (per-floor counter), combat.py splash damage resolver (L3 adjacency check).
+   Rimworld inspiration: Robust + Unstoppable combo — a body built to ignore
+   consequences, creating a "just walk through them" fantasy that rewards
+   aggressive positioning.
+
+--
+
+L. HEMOGENIC GLAND — "Something opened up in your neck. It's hungry."
+   Equipment constraint: Cannot equip neck slot.
+   Effect: Grants the Blood Drain ability (ADJACENT target, INFINITE charges,
+   cooldown 8 turns). On activation: deal 0 damage but drain from the
+   adjacent target, healing yourself for 10 HP + (mutation_count // 3).
+   The target takes no combat damage but is drained of vitality — they
+   receive the WetEffect (representing blood-loss, flavor: they're
+   weakened and clammy) for 5 turns. The drain cannot be used on enemies
+   at full HP — only enemies below 80% HP are valid targets (you need an
+   opening in their defenses to feed). Bosses are immune to the drain heal
+   but still take the Wet status.
+   Upgrade:
+     L1: Neck blocked; Blood Drain: heals 10 + count//3 HP; Wet 5t; 80% HP
+         threshold; 8t cooldown.
+     L2: Heal increases to 15 + count//3. Wet 6t. Threshold raises to 90%
+         HP (easier to use — they only need to be slightly hurt). Cooldown
+         reduces to 6 turns. Additionally, if the target has 3 or more active
+         negative status effects, the Blood Drain also heals 5 HP bonus
+         (the corruption in their blood is extra nourishing).
+     L3: Heal 20 + count//3. Wet 8t. Threshold 90%. Cooldown 5t.
+         Bonus heal for debuffed targets is retained. Additionally, killing
+         an enemy within 2 turns of draining them triggers Feeding Frenzy:
+         grant 15 temp HP (not capped by max HP — this is temp HP on top of
+         max HP, absorbed first as per NIGRL damage rules). Feeding Frenzy
+         can trigger at most once per floor. Cap.
+   Note: No neck slot + a drain that requires the enemy to be damaged first
+   means this mutation rewards sustained combat management, not opening burst.
+   It explicitly does NOT grant per-turn regen. The heal fires once, on use,
+   gated by a cooldown and an HP threshold.
+   Reversal: Revoke "blood_drain" ability; restore neck slot.
+   System hooks: ABILITY_REGISTRY "blood_drain", engine.py equip check (block
+   neck slot), spells.py execute (target HP% check, instant heal, Wet apply,
+   boss immune logic), effects.py WetEffect (already exists), engine.hemogenic_frenzy_used:
+   bool (per-floor), combat.py entity_died (check if blood_drain was used on
+   target recently — hemogenic_drain_turns_remaining: dict[entity_id, int]).
+   Rimworld inspiration: Sanguophage Bloodfeed — a thematic drain ability that
+   heals the player from enemies, with natural constraints that prevent it from
+   being free infinite sustain.
+
+--
+
+M. PSYCHIC AMPLIFIER — "Your thoughts hit harder. So does everything else."
+   Effect: All ability damage is increased by 50% (multiplied after all other
+   modifiers). All ability cooldowns are reduced by 1 turn (minimum 1). Each
+   time an ability is activated, you take 3 HP damage (the neural strain of
+   amplified psionic output). This HP cost bypasses all DR and cannot be
+   prevented by any effect — it is metabolic self-harm, not incoming damage.
+   Upgrade:
+     L1: All ability damage ×1.5; all cooldowns -1; 3 HP per ability use
+         (bypasses DR, unblockable).
+     L2: Ability damage ×1.75; cooldowns -2 (minimum 1). HP cost per
+         ability use increases to 5 HP. Additionally, abilities that already
+         have a secondary effect (status effects applied, knockback, etc.)
+         have the secondary effect's potency increased by 1 tier
+         (e.g., if the ability applies 2 stacks of shocked, it now applies
+         3 stacks).
+     L3: Ability damage ×2.0; cooldowns -2 (same as L2 — cap at -2 reduction).
+         HP cost per use 8 HP. Secondary effects +1 tier is retained.
+         Additionally, if you use two different abilities in the same turn
+         (possible with speed bonuses giving extra actions), the second
+         ability costs 0 HP but its damage is reduced by 25%. Meant to
+         reward ability combos while capping the cascade cost somewhat. Cap.
+   Note: The HP cost is implemented as a direct self_damage call after the
+   ability execute() fires, using a dedicated "psionic_strain" damage type
+   that bypasses DR. This is NOT an Effect — it's a synchronous fire-and-
+   forget damage event. The cooldown reduction stacks with all other sources.
+   If a cooldown would be reduced below 1, it is clamped at 1.
+   Reversal: Remove psychic_amplifier_active flag; remove the ability damage
+   multiplier, cooldown reduction, and HP cost hooks. Existing cooldowns are
+   NOT retroactively extended.
+   System hooks: player_stats.psychic_amplifier_active, spells.py execute()
+   (apply ×1.5/1.75/2.0 damage multiplier, trigger HP cost after execute,
+   secondary effect tier bonus at L2/L3), abilities.py cooldown calculation
+   (subtract 1 or 2 based on level), engine.py turn (track second-ability-
+   same-turn flag for L3 discount: engine.psychic_amp_second_this_turn: bool).
+   Rimworld inspiration: Psychically Sensitive / Super Psychically Sensitive
+   — amplified mental output at physical cost. The HP cost per use makes
+   reckless ability spam genuinely dangerous.
+
+--
+
+N. DEATHLESS CORE — "That's not how dying works anymore. Not for you."
+   Effect: ONCE PER RUN: When the player would die (HP reaches 0 or below),
+   instead of triggering permadeath, enter Regenerative Coma for 3 turns.
+   During Regenerative Coma:
+   - Player cannot act, cannot use abilities, cannot use items.
+   - All incoming damage is reduced to 0 (the body is physically shut down
+     — it has nothing left to take damage from).
+   - After 3 turns, revive at 25% max HP.
+   - At revival, one random skill loses 1 level (the coma scrambles the
+     neural pathways — the player feels the loss as a dull wrongness).
+     If the player has no skill at level > 1, no level is lost (grace clause
+     for new characters).
+   Tracked by: engine.deathless_core_used: bool (run-wide; set True when
+   triggered, never resets — once per run, no exceptions).
+   Upgrade:
+     L1: 1/run death save; Regenerative Coma 3 turns; revive at 25% HP;
+         lose 1 random skill level.
+     L2: 1/run death save; Coma 2 turns; revive at 35% HP; lose 1 skill level.
+         Additionally, at L2, the revival triggers a brief Surge: +3 to all
+         stats for 10 turns (the body overcorrects coming out of coma).
+     L3: 1/run death save; Coma 1 turn; revive at 50% HP; lose 1 skill level.
+         The Surge is retained (+3 all stats, 10t). Additionally, at L3,
+         the random skill level loss is replaced by a choice: the player sees
+         a prompt asking them to pick which skill to lose the level in (3
+         options shown). This transforms the cost from pure bad luck into a
+         difficult decision. Cap.
+   Note: Regenerative Coma MUST be implemented as a high-priority intercept
+   in the death pathway (in engine.py's entity_died or combat.py's damage
+   application), before any save deletion logic runs. The coma state is tracked
+   as engine.deathless_coma_active: bool and engine.deathless_coma_turns: int
+   (per-run, but functionally per-event — resets to 0 after revival). Incoming
+   damage of 0 means the damage calculation still fires, the DR-after-armor
+   reduction still fires, but the final HP subtraction is overridden to 0.
+   Reversal: Remove deathless_core_level; remove the death intercept hook.
+   If deathless_core_used is already True, removing the mutation has no
+   practical effect (the save is already spent). The Surge effect, if active,
+   expires naturally.
+   System hooks: combat.py damage path (intercept at hp <= 0 check),
+   engine.py entity_died (override for player death), engine.deathless_core_used:
+   bool (run-wide), engine.deathless_coma_active: bool, engine.deathless_coma_turns: int,
+   effects.py new temporary all-stat buff (AllStatSurgeEffect, 10t, +3 all stats),
+   xp_progression.py or skills.py skill-level-down function, menu_state.py
+   new prompt for L3 choice (or inline message system).
+   Rimworld inspiration: Deathless (Archite gene) — a fundamental bypass of
+   permadeath as a mechanic. In NIGRL, a permadeath game, this is the most
+   powerful possible mutation, appropriately wrapped in costs (skill loss) and
+   constraints (once per run, coma window).
+
+--
+
+O. ADAPTIVE IMMUNITY — "Your body takes notes. Bad experiences become policy."
+   Effect: Each unique status effect type that is successfully applied to you
+   (venom, bleed, ignite, chill, shocked, corroded, wet — each counts as one
+   unique type) grants a permanent stacking resistance to that effect type.
+   Each application of a new-to-you effect type grants 10% resistance to that
+   type. Each subsequent application of the SAME type (after the first grants
+   resistance) adds 5% more resistance, capped per type at 30%.
+   Resistances granted: reduced tick damage for damage-over-time effects;
+   reduced duration for behavioral effects (chill slow, stun).
+   Tracking: engine.adaptive_immunity_resistances: dict[str, int] — key is
+   effect type name, value is current % resistance (0-30 per type).
+   Upgrade:
+     L1: New effect type → 10% resistance. Repeat exposure → +5% (cap 30%/type).
+         Duration/damage reduction as described.
+     L2: New effect type → 15% resistance. Repeat exposure → +5% (cap 40%/type).
+         Additionally, when a resistance reaches its cap (40% at L2), you gain
+         a 1-time charge of immunity to that specific effect type that you can
+         "spend" — the next application of that capped effect is fully blocked
+         and negated (immune charge auto-fires). This charge regenerates once
+         per floor. Tracked: engine.adaptive_immunity_charges: dict[str, bool].
+     L3: New effect type → 20% resistance. Repeat exposure → +5% (cap 50%/type).
+         Immunity charges retained (regenerate 1/floor per capped type).
+         Additionally, at L3, once you have any 4 different effect types at cap
+         resistance, you gain a passive aura: enemies within 2 tiles of you
+         take 1 less damage from ALL their own damage-over-time effects
+         (your immune field interferes with their biology). This aura is
+         passive and perpetual (not per-turn energy, just a damage modifier).
+         Cap.
+   Note: Resistances for DoT effects = damage reduction per tick. For
+   behavioral effects = duration multiplier (e.g., 30% resistance means
+   chill lasts 70% of its normal duration, rounded up). The adaptive_immunity_resistances
+   dict is run-wide (persists across floors). This mutation rewards playing
+   through bad status application rather than avoiding it, which is a meaningful
+   behavioral shift.
+   Reversal: Remove adaptive_immunity_active flag, clear adaptive_immunity_resistances
+   dict, clear adaptive_immunity_charges dict.
+   System hooks: player_stats.adaptive_immunity_active, effects.py apply()
+   (for any effect applied to player: check flag, update resistances dict,
+   check for charge grant at L2/L3 cap), effects.py tick() (reduce damage/duration
+   per resistance value), engine.adaptive_immunity_resistances: dict (run-wide),
+   engine.adaptive_immunity_charges: dict (per-floor reset).
+   Rimworld inspiration: Immunity spectrum / Robust immune system — the body
+   adapting to adversity over time. The asymmetry between good runners (who
+   avoid status effects) and bad runs (who get hit constantly but build up
+   immunity) creates interesting run-to-run variation.
+
+
+================================================================
+IV. STRONG BAD MUTATIONS (5)
+================================================================
+
+Design principle: Strong bad mutations are run-defining constraints. Each
+one should feel like it imposes a new game rule that fundamentally changes
+how you approach every encounter. They are NOT just penalties — they are
+alternative game modes.
+
+--
+
+P. KILL THIRST — "There's a thing behind your eyes that wants to watch
+   something stop moving."
+   Equipment constraint: Cannot equip feet slot (claws have replaced your
+   feet — shoes no longer fit the anatomy).
+   Effect: A Kill Counter is introduced (engine.kill_thirst_counter: int,
+   counts UP from 0 each turn, resets to 0 on enemy kill). If the counter
+   reaches 20 without a kill, escalating penalties begin:
+     - Counter 20-29: Frustrated (−1 effective STR, −10 speed). Message: "The
+       thirst is building."
+     - Counter 30-39: Starved (−2 STR, −20 speed, −1 CON equivalent HP loss
+       at the 30-turn mark — one-time HP deduction, not per-turn).
+     - Counter 40+: Feral Depletion (−3 STR, −30 speed, lose 5 HP per 10
+       additional turns of no kill). Message: "You're barely functional."
+   On kill: counter resets to 0. All penalties immediately clear.
+   Kill Satiety buff fires: +3 STR, +30 speed, +2 CON (temp HP: 10 HP),
+   for 15 turns. Message: "The thirst is satisfied. For now."
+   Upgrade (gets worse):
+     L1: Counter threshold 20 turns. Satiety: +3 STR, +30 speed, 10 temp HP, 15t.
+         Feet slot blocked.
+     L2: Counter threshold drops to 15 turns (the thirst grows more urgent).
+         Satiety buff is unchanged (same reward). The Frustration penalty now
+         also applies confuse (ConsumedEffect, 2 turns) when crossing the 15-turn
+         threshold (the mind starts slipping). Feet slot blocked.
+     L3: Counter threshold drops to 12 turns. Satiety unchanged.
+         The Frustration penalty now also forces a random melee attack against
+         the nearest entity (including other enemies, i.e., friendly fire is
+         possible) when crossing the threshold — the player lashes out
+         involuntarily. Feral Depletion (40+) still applies. Cap.
+   Note: Kill Satiety is a named buff implemented as KillSatietyEffect
+   (duration 15t, +3 STR / +30 speed / +10 temp HP via apply(), clear all
+   on expire()). The involuntary attack at L3 uses the standard melee attack
+   path pointed at the nearest entity (measured by Chebyshev distance),
+   and yes, it can hit another enemy (which counts as a kill and resets the
+   counter — perverse but satisfying).
+   Reversal: Remove kill_thirst_active flag, restore feet slot, clear counter,
+   clear any active penalty effects, clear Satiety buff if active.
+   System hooks: player_stats.kill_thirst_active, engine.py player turn-end
+   (counter increment, threshold checks, penalty application), combat.py
+   entity_died (counter reset, Satiety buff grant), engine.kill_thirst_counter:
+   int (per-floor reset would be too lenient — run-wide), inventory_mgr.py
+   equip check (block feet slot), effects.py KillSatietyEffect (new),
+   effects.py ConsumedEffect (confuse at L2 threshold), combat.py random melee
+   path (L3 involuntary attack).
+   Rimworld inspiration: Kill Thirst + Kill Satiety — the dependency mechanic
+   that makes the satisfaction of killing feel earned and dangerous at once.
+   The feet slot constraint is visual and mechanical flavor: you literally walk
+   on claws now.
+
+--
+
+Q. SUBSTANCE DEPENDENCY — "You thought it was a choice. It stopped being a
+   choice around floor two."
+   Effect: A Craving Counter is introduced (engine.substance_dep_counter: int,
+   counts UP from 0 per turn, resets on any strain use). If the counter reaches
+   30 without strain use, withdrawal begins:
+     - Counter 30-44: Shaking (−1 to ALL stats). Message: "Your hands won't
+       stop shaking."
+     - Counter 45-59: Craving (−2 to ALL stats, -10 speed). Message: "You
+       need something. Anything."
+     - Counter 60+: Collapse (−3 to ALL stats, -20 speed, 1 HP per 10 extra
+       turns — same escalation as Kill Thirst). Message: "You're falling apart."
+   On ANY strain use: counter resets to 0. All penalties immediately clear.
+   Satiated buff fires: +2 to ALL stats, +10 speed for 10 turns. The dependency
+   feeds the power — using strains feels rewarding because it IS rewarding.
+   Upgrade (gets worse):
+     L1: Counter threshold 30 turns. Satiated: +2 all stats, +10 speed, 10t.
+     L2: Counter threshold drops to 22 turns. Satiated buff unchanged.
+         The Shaking penalty now also drains 1 Skill Point from the player's
+         pool (not a permanent loss — removes 1 unspent SP if available, then
+         has no extra effect if SP pool is empty). The desperation makes it
+         hard to focus on growth.
+     L3: Counter threshold drops to 15 turns (you need a hit every 15 turns).
+         Satiated buff unchanged. The SP drain is retained at L2.
+         Additionally, at Collapse level, the player has a 20% chance per
+         turn to involuntarily use and consume a random strain from inventory
+         (if one exists) — the body self-medicates. If no strains in inventory
+         at Collapse, this does not trigger. Cap.
+   Note: The Satiated buff is a positive reinforcement loop — using strains
+   is NOW mechanically good for you because of this mutation. This is
+   Rimworld's drug dependency design directly adapted: the dependency amplifies
+   the drug rather than just punishing its absence.
+   At L3 threshold of 15 turns, this mutation demands a consistent strain
+   supply. Combined with Rolling skill tree (which generates strain resources)
+   or the Plug NPC in the Penthouse, this can be managed. Without supply
+   management, Collapse is frequent.
+   Reversal: Remove substance_dep_active flag, clear counter, clear all active
+   penalty effects, clear Satiated buff if active.
+   System hooks: player_stats.substance_dep_active, engine.py player turn-end
+   (counter increment, threshold checks, penalties), item_effects.py strain
+   dispatch (counter reset, Satiated buff), effects.py SatiatedEffect (new:
+   +2 all stats, +10 speed, 10t), engine.substance_dep_counter: int (run-wide),
+   skills.py SP drain (L2: check unspent SP, decrement by 1), engine.py
+   inventory scan for L3 auto-use (random strain pickup + apply effects).
+   Rimworld inspiration: Drug dependency (Go-juice Hussars) — the drug becomes
+   both your power source and your leash. Supply management becomes a core
+   run strategy.
+
+--
+
+R. PSYCHIC DEAFNESS — "The frequencies that make thought possible went quiet.
+   You're alone in here. It's peaceful. It's also terrifying."
+   Effect: You are immune to ALL crowd control effects regardless of their
+   source. No enemy can stun, confuse, fear, slow, or disorient you. You
+   are completely CC-immune.
+   However: You cannot use ANY ability from ABILITY_REGISTRY. All abilities
+   are disabled — not just ones with mind/psionic tags, ALL of them. The
+   psychic deafness that shields you from CC also cuts off your access to
+   the neural architecture that executes abilities. You can still attack,
+   use items, use guns, equip gear. Abilities are simply gone.
+   No equipment constraint.
+   Upgrade (gets worse):
+     L1: Full CC immunity. All abilities disabled.
+     L2: CC immunity retained. All abilities disabled. Additionally, the
+         deafness now also prevents strains that have ability-granting effects
+         (e.g., strains that grant Rad Nova charges, etc.) from granting their
+         ability component — the strain's stat effects still apply, the ability
+         charges are simply not granted (they vanish into the silence).
+     L3: CC immunity retained. All abilities disabled. Strain-ability block
+         retained. Additionally, you cannot equip ability-granting unique items
+         (items with grants_ability field) — they do nothing in your hands
+         because the receiver is offline. If you have such items equipped when
+         L3 is acquired (via upgrade), their ability effect is immediately
+         suspended until the mutation is shed. Cap.
+   Note: This is the "hard constraint" design from Rimworld in its purest form.
+   CC immunity is incredibly powerful in NIGRL (enemies have stuns, fear,
+   confuse, slowed — now all useless against you). The ability lockout is
+   the brutal price. The player must decide: am I an ability-dependent build?
+   If yes, Psychic Deafness is a run-ender. If not, it's a legitimate power.
+   This mutation explicitly rewards builds that focus on weapons, items, and
+   movement over ability use.
+   Reversal: Remove psychic_deafness_active flag; re-enable all abilities.
+   The strain-ability block (L2) and equipment suspension (L3) are also lifted.
+   System hooks: player_stats.psychic_deafness_active, effects.py apply()
+   (block any effect with a CC category if flag set), abilities.py execute()
+   or spells.py dispatch (block ability use if flag set), item_effects.py
+   strain dispatch (block ability-grant portion at L2), inventory_mgr.py equip
+   (block grants_ability items at L3).
+   Rimworld inspiration: Psychically Deaf — not "-20% psi ability power" but
+   "no psi" entirely. A hard binary that creates a distinct identity and forces
+   a real tradeoff.
+
+--
+
+S. PYROKINETIC LEAK — "You're not setting things on fire. Things near you just
+   get hot. You can't turn it off."
+   Effect: Every 5 turns, one random floor tile within 2 tiles of the player
+   becomes a fire hazard (entity_type="hazard", hazard_type="fire") at that
+   tile's location. This fire spawns automatically — no player action, no
+   control. The player cannot choose which tile.
+   Additionally: While the player is standing on or adjacent to a fire hazard,
+   they heal 1 HP per fire tile in that radius (Chebyshev distance 1) per turn
+   they remain adjacent. This healing is NOT per-turn regen — it only fires if
+   fire is actively adjacent. (The mutation converts environmental fire to
+   sustain, creating a feedback loop: you're making fire, fire heals you.)
+   Fire heals a maximum of 3 HP per turn regardless of how many fire tiles
+   are adjacent (aggregate cap).
+   Upgrade (gets worse):
+     L1: 1 fire tile spawns every 5 turns within 2 tiles. Heal 1 HP/adjacent
+         fire tile per turn (max 3 HP/turn while adjacent to fire).
+     L2: 1 fire tile every 4 turns. Spawn radius stays at 2 tiles. The heal
+         is retained. Additionally, the fires you spawn now persist 5 turns
+         longer than normal fire hazards (normal fire expires in X turns; yours
+         expire in X+5). More fire, longer lasting, harder to avoid.
+     L3: 2 fire tiles every 4 turns. Spawn radius increases to 3 tiles.
+         The heal is retained. The extended duration is retained.
+         Additionally, enemies that die while standing on a fire tile you
+         spawned (tracked by fire ownership — engine.player_owned_fires: set
+         of entity ids) have a 30% chance to explode in a 1-tile-radius burst
+         of 4 fire damage. Cap.
+   Note: The fire you spawn is identical to crate/torch fire — enemies take
+   normal fire damage standing on it, corridors can be blocked, items on the
+   floor can be destroyed (same rules as existing fire hazard). This means
+   the player is constantly creating environmental chaos they must also manage.
+   The healing creates the "I'm burning everything around me, including myself,
+   but I'm sustained by the flames" fantasy.
+   No "you are immune to fire damage" — this mutation does not protect you from
+   fire. It HEALS you near fire. There is a subtle difference when taking ignite
+   damage vs. gaining heal from fire tiles.
+   Reversal: Remove pyrokinetic_leak_active flag. Existing fires continue to
+   burn normally until they expire naturally (they are real hazard entities in
+   the dungeon, not removed on shed).
+   System hooks: player_stats.pyrokinetic_leak_active, engine.py player turn-end
+   (fire spawn counter: engine.pyrokinetic_counter: int per floor; spawn fire
+   via hazards.create_fire() on random eligible tile near player),
+   engine.py player turn-start (fire-adjacency heal: scan Chebyshev 1 for fire
+   hazards, apply heal up to cap), hazards.py fire entity (ownership tracking:
+   add player_owned: bool field to fire entity, or track in engine.player_owned_fires
+   set), combat.py entity_died (L3 explosion check for owned fires).
+   Rimworld inspiration: Fire Spew + Cremator environmental interaction — a
+   power you cannot turn off that reshapes every environment you enter. The
+   corridors of the Crack Den become a fire hazard maze of your own making.
+
+--
+
+T. HULKING FRAME — "You grew. Not in the good way. In the way where doorframes
+   are now your enemy."
+   Equipment constraint: Cannot equip hat slot (head too large for any headgear).
+   Effect: Permanent +4 melee power. Permanent +20 max HP (added to HP formula;
+   does NOT heal you when acquired — you get the max HP, not the HP itself).
+   However: Movement through corridor tiles (tiles where the dungeon generator
+   determined width = 1, tracked as dungeon.corridor_tiles: set of (x,y) tuples)
+   costs triple the normal movement energy (300 instead of 100). You fill the
+   corridor completely. Enemies attacking you in a corridor tile deal +3 bonus
+   damage (you can't dodge in tight spaces — flat bypass, not a DR reduction).
+   Upgrade (gets worse):
+     L1: Hat slot blocked; +4 melee power; +20 max HP; corridor moves ×3 energy;
+         +3 enemy damage bonus when you're in corridor.
+     L2: Penalties intensify: corridor moves ×4 energy. Enemy damage bonus in
+         corridor increases to +5. The +4 power and +20 HP are unchanged.
+         Additionally, you cannot voluntarily move through a corridor tile if
+         there is an enemy directly on the other side of it (the frame blocks
+         you — you literally cannot squeeze past them). You must clear the
+         path. (This means the player cannot retreat through corridors past
+         enemies.)
+     L3: Corridor moves ×5 energy. Enemy damage bonus in corridor +7.
+         The blocking behavior is retained. Additionally, in rooms (non-corridor
+         tiles), your hulking frame generates a Presence aura: enemies that
+         start their turn within 2 tiles of you in a room suffer -2 morale
+         (flavor: they are physically intimidated). Mechanically this applies
+         a 1-turn FearEffect (immediate flee impulse) on a 35% chance per enemy
+         per turn while within range. Cap.
+   Note: corridor_tiles set must be populated during zone generation. Room-type
+   tiles already tracked (Rect, L, U, T, Hall, Oct, Cross, Diamond, Cavern,
+   Pillar, Circle are all room types — Hall type tiles may need reclassification
+   as corridor vs. room depending on width). An alternative approach: define
+   corridor tiles as any floor tile that has exactly 2 or fewer floor neighbors
+   (cardinal), which is a simpler check without requiring a pre-built set.
+   The energy cost for corridor movement is best added as a check in engine.py's
+   handle_move() — if player is moving to a corridor tile (or is currently on
+   a corridor tile), multiply movement energy cost by 3/4/5.
+   The +20 max HP is permanent — add to player_stats.max_hp_bonus: int field
+   (already proposed in main doc for other mutations).
+   Reversal: Restore hat slot; remove +4 melee power; remove +20 max HP from
+   max_hp_bonus (DOES reduce max HP, possibly killing the player if currently
+   above the new max HP); remove corridor energy penalty; remove corridor damage
+   bonus; remove Presence aura.
+   System hooks: player_stats.hulking_frame_active, player_stats.max_hp_bonus
+   (already in main doc), engine.py handle_move() (corridor tile check, energy
+   multiply, enemy-blocking check at L2), combat.py incoming damage from
+   enemies (add corridor flat bonus if player on corridor tile), ai.py enemy
+   turn (L3 presence fear: check range to player in room tile, apply FearEffect),
+   dungeon.py or zone_generators.py (corridor_tiles set population), inventory_mgr.py
+   equip check (block hat slot).
+   Rimworld inspiration: Body type genes + Dirtmole corridor limitations —
+   turning size into a liability in specific terrain while remaining dominant in
+   open space. The fantasy: you're a monster in rooms, a liability in hallways.
+
+
+================================================================
+V. IMPLEMENTATION NOTES — NEW ENGINE/PLAYERSTAT FIELDS
+================================================================
+
+New engine fields (run-wide unless noted):
+  narcoleptic_counter: int — per floor; counts turns between narcoleptic checks
+  narcoleptic_fits_active: bool — (can live on player_stats or engine)
+  kill_thirst_counter: int — run-wide; counts turns since last kill
+  substance_dep_counter: int — run-wide; counts turns since last strain use
+  blood_memory_turns_remaining: int — per floor; tracks surge duration
+  blood_memory_bonus_sp_given: int — per floor; tracks SP bonus uses (max 1→2)
+  adaptive_immunity_resistances: dict[str, int] — run-wide; key=effect id, val=pct
+  adaptive_immunity_charges: dict[str, bool] — per floor; key=effect id, val=available
+  pyrokinetic_counter: int — per floor; counts turns until next fire spawn
+  player_owned_fires: set — per floor; entity ids of fires spawned by mutation
+  deathless_core_used: bool — run-wide; cannot reset
+  deathless_coma_active: bool — per run-event (cleared on revival)
+  deathless_coma_turns: int — per run-event
+  unstoppable_charge_uses: int — per floor
+  hemogenic_drain_turns_remaining: dict[entity_id, int] — per floor (for Feeding Frenzy window)
+  hemogenic_frenzy_used: bool — per floor
+  psychic_amp_second_this_turn: bool — per turn (flag for L3 discount)
+  genome_drift_penalties: dict[str, int] — run-wide; maps stat name to extra penalty
+  genome_drift_cascade_used: bool — run-wide
+
+New player_stats flags:
+  frog_legs_active: bool
+  spine_quiver_active: bool
+  toxic_metabolism_active: bool
+  blood_memory_active: bool
+  coagulation_glands_active: bool
+  narcoleptic_fits_active: bool
+  pyrophobic_nerves_active: bool
+  pig_hands_active: bool
+  noise_bleed_active: bool
+  genome_drift_active: bool
+  unstoppable_mass_active: bool
+  hemogenic_gland_active: bool
+  psychic_amplifier_active: bool
+  deathless_core_level: int
+  adaptive_immunity_active: bool
+  kill_thirst_active: bool
+  substance_dep_active: bool
+  psychic_deafness_active: bool
+  pyrokinetic_leak_active: bool
+  hulking_frame_active: bool
+  hulking_frame_max_hp_bonus: int  (tracks the +20 for clean reversal)
+
+Note: hulking_frame_max_hp_bonus is separate from the general max_hp_penalty
+field proposed in the main doc. Both should coexist in stats.py.
+
+
+================================================================
+VI. NEW EFFECTS REQUIRED
+================================================================
+
+BloodMemorySurgeEffect
+  - Duration: 12/18/24 turns (level-dependent, set on grant)
+  - Category: buff
+  - Hooks: modify_xp_gain() multiplier ×2 (implementation-dependent on whether
+    XP gain has a hook — may need to add one to effects.py, or check flag
+    inline in xp_progression.py)
+  - apply(): message "Blood Memory surges through your hands."
+  - expire(): message "The muscle memory fades."
+  - Notes: Refresh (reset duration) on kill, not stack.
+
+KillSatietyEffect
+  - Duration: 15 turns
+  - Category: buff
+  - apply(): +3 STR, +30 speed, grant 10 temp HP; message "Satisfied."
+  - expire(): remove +3 STR, +30 speed; temp HP expires naturally
+  - Notes: temp HP already supported via entity.temp_hp field
+
+SatiatedEffect (Substance Dependency)
+  - Duration: 10 turns
+  - Category: buff
+  - apply(): +2 to all six stats, +10 speed
+  - expire(): remove those bonuses
+  - Notes: Standard temporary stat modification pattern
+
+AllStatSurgeEffect (Deathless Core revival)
+  - Duration: 10 turns
+  - Category: buff
+  - apply(): +3 to all six stats
+  - expire(): remove +3 all stats
+  - Notes: Fires immediately on revival from coma
+
+HemogenicFeedEffect (Blood Drain Wet application)
+  - Already handled by existing WetEffect — no new effect needed for the
+    drain itself. The Feeding Frenzy temp HP uses entity.temp_hp directly.
+
+NOTE: All new effects follow existing pattern: @register decorator,
+Effect subclass, category=buff/debuff, priority field. See effects.py.
+
+
+================================================================
+VII. NEW ABILITIES REQUIRED
+================================================================
+
+"frog_legs_leap"
+  - TargetType: ADJACENT_TILE (or new RANGED_TILE if range > 1 is needed)
+  - ChargeType: INFINITE
+  - Cooldown: 6 / 5 / 4 turns (level-dependent)
+  - execute(): move player to target tile, bypassing intervening entities
+    (not walls); knockback + stun on landing adjacents; L3 land-on-enemy path
+  - Notes: Will require spells.py to support tile-targeted movement ability
+    that is distinct from standard movement
+
+"spine_shot"
+  - TargetType: SINGLE_ENEMY_LOS
+  - ChargeType: PER_FLOOR
+  - Charges: 3 / 4 / 5 (level-dependent)
+  - execute(): ranged attack with DR bypass; bleed stacks; L2 slow on bleeding
+    target; L3 bounce to second visible target within 3 tiles
+  - Notes: Follow pattern of existing ranged abilities (Telekinetic Lash)
+
+"coagulation_clot"
+  - TargetType: SELF
+  - ChargeType: PER_FLOOR
+  - Charges: 2 / 2 / 3 (level-dependent)
+  - execute(): instant heal 8/12/16 HP; bleed purge at L2+; L3 double heal
+    below 30% HP or if bleed was purged
+  - Notes: Simplest of the three; self-heal pattern already exists
+
+"blood_drain"
+  - TargetType: ADJACENT
+  - ChargeType: INFINITE
+  - Cooldown: 8 / 6 / 5 turns (level-dependent)
+  - execute(): check target HP% threshold; instant heal; apply WetEffect;
+    boss partial immunity; L3 Feeding Frenzy window check
+  - Notes: HP threshold check is new to spells.py — add target_hp_pct_check
+    as a parameter or inline the check in execute
+
+All new ability entries go in ABILITY_REGISTRY in abilities.py.
+Level-dependent behavior is implemented via checking engine.mutation_levels
+["mutation_id"] inside the execute() callable, following the same pattern
+as existing level-dependent mutations (Acid Spit L3 target type change).
+
+
+================================================================
+VIII. BALANCE NOTES
+================================================================
+
+WEAK GOOD BALANCE:
+  Frog Legs — Range-4 leap is strong; 6-turn cooldown is the constraint.
+    At L3, landing-on-enemy bounce is the most complex — ensure destination
+    tile check is strict (no OOB, must be open floor in direction of travel).
+    Consider: bosses immune to landing-on-enemy bounce (they can't be
+    bowled through).
+  Spine Quiver — 3/floor is relatively conservative. At L3, 5/floor with
+    bounce + 3 bleed is meaningful ranged output. Watch interaction with
+    Bone Spurs (both apply bleed — stacking is fine, potentially very
+    high bleed counts on single targets). Bleed count cap may be needed.
+  Toxic Metabolism — Speed bonus caps at +30/40/50 which is considerable.
+    At full tox (200-300 range), L3 formula gives high values. The cap
+    prevents abuse. Primary check: does this make Chemical Sensitivity (Weak
+    Bad) into a good mutation if combined? Answer: yes, and that is
+    intentional. The synergy creates a risky build identity.
+  Blood Memory — Surge reset on kill means it's essentially always active
+    in active combat. It is mostly a combat-XP accelerator; value is that
+    it accelerates progression, not that it deals more damage. L2 bonus SP
+    once per floor is powerful but floor-gated. Watch: Blood Memory + Feral
+    Instincts (Strong Good, kill → FeralRush) creates a very aggressive
+    kill-chain build.
+  Coagulation Glands — 8 HP / 2 per floor is equivalent to a small food
+    item twice per floor. L3 double-heal at low HP (32 HP) is a near-
+    death bailout tool. This is not overpowered given Strong Bad mutations
+    that can bring max HP down (Accelerated Aging, Genome Drift).
+
+WEAK BAD BALANCE:
+  Narcoleptic Fits — 30% chance every 25 turns is roughly one fit per 3
+    floors on average. L3 (50% every 15t, doubled at low HP) is severe.
+    The primary check: does this make certain floor types unplayable? In
+    the Crack Den, the density means a 5-turn stun near multiple enemies
+    is often lethal. Intentionally brutal.
+  Pyrophobic Nerves — Fire hazards currently spawn in room index 1 on every
+    floor. The Crack Den has regular fire. This mutation is moderately
+    impactful in Crack Den, increasingly painful in Meth Lab (where fire
+    abilities exist). L2 weapon drop (50%) is the most dangerous upgrade:
+    losing your weapon in active combat is a genuine emergency.
+  Pig Hands — Ring slot blocking is 5 slots of 0 benefit. This is the
+    correct severity for Weak Bad. The 40% fumble at L3 is noticeable but
+    not run-ending since items still trigger (just at 50% effect). Key
+    check: interaction with Substance Dependency (Strong Bad) — fumbled
+    strain use at low-effect could fail to reset the craving counter. The
+    fumble does NOT affect the timing or reset logic of Substance Dependency
+    (the strain is still "used" — counter resets normally). Just the effect is halved.
+  Noise Bleed — The alert radius of 10 tiles at L3 means every melee attack
+    is a floor-wide announcement. This fundamentally changes engagement from
+    "clear room by room" to "always fighting everything." In a Crack Den run
+    this is consistently severe. Main concern: does this stack with
+    Territorial Marking (Weak Bad, which already alerts enemies passively)?
+    Answer: yes, they stack, and having both is genuinely run-ending.
+    That's an edge case, not a balance problem — extremely unlucky polarity.
+  Genome Drift — At 8 floors (4 Crack Den + 4 Meth Lab), L1 results in
+    8 stat decrements across 6 stats. Roughly -1.3 per stat on average.
+    Manageable but meaningful. At L3 Cascade, if any stat bottoms out,
+    -1 to all stats simultaneously is dramatic. Hard floor at 3 (L3) means
+    no stat can reach 0 or negative. Key synergy check: Genome Drift +
+    Deathless Core — the drift erodes your combat potential over the run
+    while the core gives you a safety net. Thematically appropriate.
+
+STRONG GOOD BALANCE:
+  Unstoppable Mass — CC immunity to knockback + slow is powerful; the
+    Charge Through is a fun once-or-twice-per-floor bonus. The key check:
+    does knockback immunity break any existing enemy design? Review
+    enemies that use knockback as primary offense (if any have knockback as
+    part of their special_attacks — the immunity just blocks the displacement,
+    full damage still applies).
+  Hemogenic Gland — Neck blocked, requires damaged target, 8-turn cooldown.
+    At L3, 20 + count//3 HP with 5/floor Feeding Frenzy temp HP is
+    substantial healing gated behind both the neck slot loss and the target
+    requirement. Main concern: does the 90% HP threshold (L2+) allow use
+    too freely? The cooldown prevents spam. Acceptable for Strong Good tier.
+  Psychic Amplifier — Ability damage ×2.0 with 8 HP unblockable per use at
+    L3 is the most dangerous combination. The HP cost means heavy ability
+    users can kill themselves with their own abilities in large pull situations.
+    This should be specifically called out: if the player has < 8 HP, using
+    any ability will be lethal to themselves at L3. The game should warn but
+    not prevent. The warning is part of the design.
+  Deathless Core — The most powerful mutation in NIGRL (bypasses permadeath,
+    once). Correctly balanced: skill level loss, 3-turn coma window (can be
+    killed during coma if... actually, the coma reduces ALL incoming damage
+    to 0, so they CANNOT be killed during coma). This is intentional. The
+    coma is a guaranteed escape from any near-death situation, paid for by
+    skill regression and a 1-turn to 3-turn pause. The main playtesting
+    concern is L3's choice UI — the menu during coma must not allow enemies
+    to continue attacking mid-choice. The 0-damage-during-coma mechanic
+    handles this by protecting the player while the choice resolves.
+  Adaptive Immunity — The resistance caps are reasonable (30/40/50% per
+    type). The immunity charges at L2+ are the most powerful element —
+    one full-block per type per floor is strong against venom/bleed builds.
+    At L3, the 2-tile aura requiring 4 capped resistances is a high bar
+    (requires taking 4 different effect types enough times to cap). Likely
+    only achievable in Meth Lab zone where tox/rad/corroded/wet are common.
+
+STRONG BAD BALANCE:
+  Kill Thirst — The 20-turn threshold is generous in Crack Den (enemies are
+    everywhere); it is dangerous in Meth Lab corridor runs where enemies
+    are more spread out. The Satiety buff (+3 STR, +30 speed) is deliberately
+    good — the mutation should feel like a reward when the thirst is satisfied
+    and a nightmare when it isn't. Feet slot blocking means no foot-slot
+    boots, which in current NIGRL means no boots at all (the only foot
+    equippable). This is meaningful for builds relying on foot items.
+  Substance Dependency — At L3 (15-turn threshold), this requires a strain
+    every 15 turns. The Crack Den has 4 floors; with ~60-100 turns per floor
+    (estimate), that's 4-7 strains needed per floor. This is tighter than the
+    normal strain availability. The design intent is that Rolling skill tree
+    (which generates strain resources) or Plug NPC strain purchases become
+    near-mandatory. This is the "go-juice Hussar" design: the dependency
+    defines your resource management strategy.
+  Psychic Deafness — The most binary Strong Bad mutation: full CC immunity
+    against all-abilities-disabled. This is deliberately polarizing. For an
+    ability-light build (melee weapon + gun + items only), this is a free
+    CC immunity. For a spell/ability build, it is a run-redefining catastrophe.
+    There is no middle ground. That's the point.
+  Pyrokinetic Leak — Fire spawning every 4 turns (L3) with 5+5 persistence
+    means a long run will have the floor increasingly covered in fire you
+    spawned. This fire damages the player too (via existing hazard damage
+    logic). The healing offset (max 3 HP/turn near fire) may not keep pace
+    with fire damage if several fires overlap in a corridor. This is
+    intentional — the mutation is a controlled chaos engine. Main concern:
+    fire blocking pathways could strand the player in Crack Den rooms. The
+    fire spawns randomly within 2-3 tiles, so corridors will eventually be
+    blocked. This is intended but means the player must keep moving.
+  Hulking Frame — +4 power and +20 max HP is legitimately strong for Strong
+    Bad tier. The corridor punishment is severe: at L3, ×5 energy per
+    corridor step means corridor traversal costs 5 turns of energy. In
+    dense Crack Den maps (predominantly corridor-based generation), this
+    mutation can halve your effective action rate. That is the correct level
+    of severity for a mutation that gives +4 power and +20 max HP.
+    Presence aura at L3 in rooms is a strong crowd control buff (35% fear
+    per enemy per turn in rooms). This rewards positioning in open areas,
+    making the corridor penalty feel like a positional tradeoff rather than
+    a pure penalty.

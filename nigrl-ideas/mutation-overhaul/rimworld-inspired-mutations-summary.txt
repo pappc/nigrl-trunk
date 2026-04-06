@@ -1,0 +1,250 @@
+SUMMARY: rimworld-inspired-mutations.txt (20 Additional Mutation Candidates)
+=============================================================================
+
+CONCEPT: 20 additional mutations for cherry-picking into the 80-mutation
+overhaul plan (mutation-overhaul-plan.txt). Inspired by Rimworld Biotech gene
+design philosophy: behavioral dependencies, environmental inversion, hard
+constraints, biological ranged weapons, vulnerability stories. All 20 are
+fully specified with L1/L2/L3 upgrade paths, reversal logic, system hooks,
+and balance notes.
+
+DISTRIBUTION: 5 Weak Good / 5 Weak Bad / 5 Strong Good / 5 Strong Bad.
+Format exactly matches mutation-overhaul-plan.txt entries.
+
+--- WEAK GOOD (5 candidates) ---
+
+A. FROG LEGS — "Your hamstrings snapped into something else. Longer."
+   Grants "frog_legs_leap" ability (INFINITE, ADJACENT_TILE, 6/5/4t cooldown).
+   Leap 4/5/6 tiles through entities; landing knockback + stun adjacents.
+   L3: land directly on enemy (bowl through them) for damage.
+   Reversal: revoke ability. Hooks: ABILITY_REGISTRY, spells.py, combat.py knockback.
+   Inspiration: Longjump Legs.
+
+B. SPINE QUIVER — "There's something along your back. It's sharp. It aims."
+   Grants "spine_shot" (3/4/5 per floor, SINGLE_ENEMY_LOS).
+   5/7/9 + count//3 dmg; DR bypass 2/3/4; 1/2/3 bleed stacks.
+   L2: slow on already-bleeding targets. L3: bounce to second target at 50% dmg.
+   Reversal: revoke ability. Hooks: ABILITY_REGISTRY, spells.py, effects.py SlowEffect.
+   Inspiration: Piercing Spine.
+
+C. TOXIC METABOLISM — "Your body eats the poison. Then it runs on it."
+   While tox >= 10: speed bonus = (tox // 20/15/10) × 10, cap +30/40/50.
+   L2: also reduce venom tick damage by 1 while tox >= 50.
+   L3: tox-loss events grant Catharsis: +2 melee power 5t (1/floor per event).
+   Reversal: remove flag; speed drops immediately. Hooks: engine.py tick,
+   effects.py VenomEffect.tick(), item_effects.py tox-loss path.
+   Inspiration: Pollution Rush.
+
+D. BLOOD MEMORY — "Every body you drop teaches your hands something new."
+   Kill → Blood Memory Surge (reset on kill, not stack): XP ×2 for 12/18/24t.
+   L2: bonus 1 SP on kill-during-surge (1/floor). L3: 2 SP/floor;
+   +0.5 XP multiplier to skill nearest unlock (cap +2 run-wide).
+   Reversal: remove flag; granted SP not reclaimed. Hooks: combat.py entity_died,
+   xp_progression.py, skills.py SP grant, effects.py BloodMemorySurgeEffect.
+   Inspiration: Fast Learner genes.
+
+E. COAGULATION GLANDS — "You bleed less than you should. Noticeably less."
+   Grants "coagulation_clot" (2/2/3 per floor, SELF). Instant heal 8/12/16 HP.
+   L2: if bleed active on use → purge bleed AND heal. L3: double heal below 30%
+   HP or if bleed purged (32 HP). NOT per-turn regen.
+   Reversal: revoke ability. Hooks: ABILITY_REGISTRY, ChargeType.PER_FLOOR, spells.py.
+   Inspiration: Coagulate.
+
+--- WEAK BAD (5 candidates) ---
+
+F. NARCOLEPTIC FITS — "It comes on without warning. You just go down."
+   Every 25/20/15 turns: 30/40/50% chance of Narcoleptic Fit → 3/4/5t stun.
+   L2: enemy gets free attack when fit triggers in melee range.
+   L3: stun doubles (10t) if below 50% HP.
+   Reversal: remove flag, clear counter. Hooks: engine.py turn-start,
+   effects.py StunEffect, engine.narcoleptic_counter (per-floor).
+   Inspiration: Very Sleepy / Narcoleptic gene.
+
+G. PYROPHOBIC NERVES — "Fire is wrong. Your body understands this."
+   Fire within 5/7/9 tiles → FearEffect (flee from fire); +1/2/3 fire damage from all sources.
+   L2: 30% weapon drop on threshold crossing. L3: weapon drop 50%;
+   ignite duration on player doubled.
+   Reversal: remove flag, remove fire damage bonus. Hooks: engine.py turn-start
+   (fire proximity scan), effects.py FearEffect direction logic, IgniteEffect.apply(),
+   inventory_mgr.py drop path.
+   Inspiration: Fire Terror (Sanguophage).
+
+H. PIG HANDS — "The fingers fused. You can still hold things. Sort of."
+   All 5 ring slots blocked. 20/30/40% fumble on item use → effect at 50% intensity.
+   L2: equip/unequip costs +2 energy turns. L3: abilities have 15% gesture-fail
+   chance (charge consumed, no effect).
+   Reversal: unblock ring slots, remove fumble logic. Hooks: player_stats,
+   engine.py equip check, item_effects.py, abilities.py execute.
+   Inspiration: Pig Hands / Reduced Manipulation.
+
+I. NOISE BLEED — "Everything you do tears something. The sound is the proof."
+   Every melee attack → alert all enemies within 6/8/10 tiles (IDLE→WANDERing,
+   WANDERING→CHASING). L2: also triggers on any ability activation.
+   L3: Enraged (+2 power) on CHASING enemies within 4 tiles for 2 turns.
+   Reversal: remove flag. Hooks: combat.py melee path, spells.py execute (L2),
+   ai.py EnragedEffect, effects.py EnragedEffect (already in main doc).
+   Inspiration: Roaring Voice.
+
+J. GENOME DRIFT — "Something in you is un-writing itself. One gene at a time."
+   Each floor descent: -1 to 1 random stat (hard floor at 4/4/3).
+   L2: stats at 5 or below gain functional penalties (tracked in genome_drift_penalties dict).
+   L3: once-per-run Cascade if any stat bottoms — ALL stats -1 simultaneously.
+   Reversal: stop future drift; past losses permanent. Hooks: engine.py floor descent,
+   stats.py effective_* (L2 penalties), engine.genome_drift_penalties: dict,
+   engine.genome_drift_cascade_used: bool.
+   Inspiration: Aging / cell instability genes.
+
+--- STRONG GOOD (5 candidates) ---
+
+K. UNSTOPPABLE MASS — "When you move, you keep moving."
+   Full knockback immunity. Full SlowEffect immunity.
+   1/2/3 per floor Charge Through: walk through enemy tile → displace to nearest
+   open tile behind, deal 4/6/8 + STR//2 impact + stun 2t (L2+).
+   L3: 3 splash damage to enemies adjacent to Charge Through path (pressure wave).
+   Reversal: remove flag, all immunities, Charge Through. Hooks: combat.py knockback,
+   effects.py SlowEffect.apply(), engine.py handle_move(), engine.unstoppable_charge_uses.
+   Inspiration: Robust + Unstoppable combo.
+
+L. HEMOGENIC GLAND — "Something opened up in your neck. It's hungry."
+   NECK BLOCKED. Grants "blood_drain" (ADJACENT, INFINITE, 8/6/5t cooldown).
+   Drain adjacent enemy (below 80/90/90% HP): heal 10/15/20 + count//3 HP;
+   apply Wet 5/6/8t. Bosses immune to heal, not Wet.
+   L2: +5 HP bonus if target has 3+ debuffs. L3: kill within 2t of drain →
+   Feeding Frenzy: 15 temp HP (1/floor).
+   Reversal: revoke ability, restore neck slot. Hooks: ABILITY_REGISTRY, spells.py,
+   engine.hemogenic_drain_turns_remaining dict, engine.hemogenic_frenzy_used.
+   Inspiration: Sanguophage Bloodfeed.
+
+M. PSYCHIC AMPLIFIER — "Your thoughts hit harder. So does everything else."
+   All ability damage ×1.5/1.75/2.0. All cooldowns -1/-2/-2 turns.
+   Each ability use costs 3/5/8 HP (unblockable, bypasses DR).
+   L2: secondary effects +1 tier (bleed stacks, shock stacks, etc.).
+   L3: second ability same turn costs 0 HP but damage -25%.
+   Reversal: remove flag, remove multipliers and HP cost hooks. Hooks: spells.py
+   execute(), abilities.py cooldown calc, engine.psychic_amp_second_this_turn.
+   Inspiration: Super Psychically Sensitive.
+
+N. DEATHLESS CORE — "That's not how dying works anymore. Not for you."
+   ONCE PER RUN: death → Regenerative Coma (3/2/1 turns; all incoming dmg = 0).
+   Revive at 25/35/50% HP; lose 1 random skill level.
+   L2: revival Surge (+3 all stats, 10t). L3: choose which skill to lose (3-option menu).
+   Reversal: remove flag, remove death intercept. Past coma use not reclaimed.
+   Hooks: combat.py HP <= 0 intercept, engine.deathless_core_used: bool,
+   engine.deathless_coma_active/turns, effects.py AllStatSurgeEffect, skills.py level-down.
+   Inspiration: Deathless (Archite gene).
+
+O. ADAPTIVE IMMUNITY — "Your body takes notes. Bad experiences become policy."
+   Each unique status effect type applied to player → +10/15/20% permanent resistance to it.
+   Repeat exposures → +5% more (cap 30/40/50% per type).
+   L2: hitting cap on a type → 1 immunity charge (full block, 1/floor).
+   L3: 4+ types at cap → 2-tile aura: enemies' own DoT effects deal -1 dmg/tick.
+   Reversal: remove flag, clear resistances dict, clear charges dict.
+   Hooks: effects.py apply() (update resistances), effects.py tick() (apply reduction),
+   engine.adaptive_immunity_resistances/charges dicts.
+   Inspiration: Immunity spectrum / Robust immune system genes.
+
+--- STRONG BAD (5 candidates) ---
+
+P. KILL THIRST — "There's a thing behind your eyes that wants to watch something stop moving."
+   FEET SLOT BLOCKED (claws replaced your feet).
+   Kill Counter resets to 0 on kill; counts up each turn.
+   20t→ Frustrated (-1 STR, -10 speed). 30t→ Starved (-2 STR, -20 speed, -1 CON HP).
+   40t→ Feral Depletion (-3 STR, -30 speed, 5 HP/10t).
+   Kill → counter reset + Kill Satiety: +3 STR, +30 speed, 10 temp HP, 15t.
+   L2: threshold drops to 15t; Frustration crossing adds ConsumedEffect (confuse 2t).
+   L3: threshold 12t; Frustration crossing → involuntary attack on nearest entity.
+   Reversal: remove flag, restore feet, clear counter, clear penalties and Satiety.
+   Hooks: engine.kill_thirst_counter (run-wide), engine.py turn-end, combat.py entity_died,
+   effects.py KillSatietyEffect, inventory_mgr.py equip check (feet).
+   Inspiration: Kill Thirst + Kill Satiety.
+
+Q. SUBSTANCE DEPENDENCY — "You thought it was a choice."
+   Craving Counter resets on any strain use; counts up each turn.
+   30t→ Shaking (-1 all stats). 45t→ Craving (-2 all stats, -10 speed).
+   60t→ Collapse (-3 all stats, -20 speed, 1 HP/10t extra).
+   Strain use → counter reset + Satiated: +2 all stats, +10 speed, 10t.
+   L2: threshold drops to 22t; Shaking also drains 1 unspent SP.
+   L3: threshold 15t; SP drain retained; at Collapse, 20% auto-use random strain/turn
+   (if any in inventory).
+   Reversal: remove flag, clear counter, clear penalties and Satiated buff.
+   Hooks: engine.substance_dep_counter (run-wide), engine.py turn-end,
+   item_effects.py strain dispatch, effects.py SatiatedEffect, skills.py SP drain.
+   Inspiration: Drug dependency (Go-juice Hussars).
+
+R. PSYCHIC DEAFNESS — "The frequencies that make thought possible went quiet."
+   Full CC immunity (stun, confuse, fear, slow, disorient — all enemy-sourced CC blocked).
+   ALL abilities in ABILITY_REGISTRY disabled.
+   L2: strains cannot grant their ability components (stat effects still apply).
+   L3: cannot equip items with grants_ability field.
+   Reversal: remove flag, re-enable all abilities, lift strain/item restrictions.
+   Hooks: effects.py apply() (CC block), spells.py dispatch (block ability use),
+   item_effects.py strain dispatch (L2 ability portion block), inventory_mgr.py equip (L3).
+   Inspiration: Psychically Deaf.
+
+S. PYROKINETIC LEAK — "You're not setting things on fire. Things near you just get hot."
+   Every 5/5/4 turns: spawn 1/1/2 random fire hazard(s) within 2/2/3 tiles.
+   While adjacent to own fire: heal 1 HP per adjacent fire tile (max 3 HP/turn).
+   L2: player-spawned fires last 5 extra turns (vs. base fire duration).
+   L3: enemies dying on owned fire tile → 30% explosion (1-tile radius, 4 dmg).
+   Reversal: remove flag; existing fires burn out naturally.
+   Hooks: engine.py turn-end (pyrokinetic_counter, spawn via hazards.create_fire()),
+   engine.py turn-start (fire-adjacency heal), hazards.py (player_owned flag on fire),
+   combat.py entity_died (L3 explosion).
+   Inspiration: Fire Spew + cremator environmental interaction.
+
+T. HULKING FRAME — "You grew. Not in the good way."
+   HAT SLOT BLOCKED. +4 melee power. +20 max HP (not a heal on acquisition).
+   Corridor movement costs ×3/4/5 energy. Enemies deal +3/5/7 bonus dmg to
+   player in corridor tiles.
+   L2: cannot voluntarily move through corridor tile if enemy is on the far side.
+   L3: room presence aura (2-tile radius): 35% FearEffect per enemy per turn.
+   Reversal: restore hat slot; remove +4 power; remove +20 max HP from
+   hulking_frame_max_hp_bonus (may reduce player below current HP — can cause death);
+   remove corridor penalties.
+   Hooks: player_stats.hulking_frame_max_hp_bonus, engine.py handle_move()
+   (energy multiply, L2 block), combat.py (corridor damage bonus), ai.py (L3 fear aura),
+   dungeon.py/zone_generators.py (corridor_tiles set), inventory_mgr.py equip (hat).
+   Inspiration: Body type genes + Dirtmole corridor limitations.
+
+--- NEW ENGINE STATE (CUMULATIVE, appended to existing list) ---
+narcoleptic_counter (per floor), kill_thirst_counter (run-wide),
+substance_dep_counter (run-wide), blood_memory_turns_remaining (per floor),
+blood_memory_bonus_sp_given (per floor), adaptive_immunity_resistances: dict (run-wide),
+adaptive_immunity_charges: dict (per floor), pyrokinetic_counter (per floor),
+player_owned_fires: set (per floor), deathless_core_used: bool (run-wide),
+deathless_coma_active: bool, deathless_coma_turns: int, unstoppable_charge_uses (per floor),
+hemogenic_drain_turns_remaining: dict (per floor), hemogenic_frenzy_used (per floor),
+psychic_amp_second_this_turn: bool (per turn), genome_drift_penalties: dict (run-wide),
+genome_drift_cascade_used: bool (run-wide).
+
+--- NEW PLAYERSTATS FLAGS ---
+frog_legs, spine_quiver, toxic_metabolism, blood_memory, coagulation_glands (all _active bool)
+narcoleptic_fits, pyrophobic_nerves, pig_hands, noise_bleed, genome_drift (all _active bool)
+unstoppable_mass, hemogenic_gland, psychic_amplifier, deathless_core_level (int),
+adaptive_immunity (all _active bool or _level int as appropriate)
+kill_thirst, substance_dep, psychic_deafness, pyrokinetic_leak, hulking_frame (all _active bool)
+hulking_frame_max_hp_bonus: int (tracks the +20 for clean reversal)
+
+--- NEW EFFECTS ---
+BloodMemorySurgeEffect (buff; XP ×2; 12/18/24t; refresh on kill)
+KillSatietyEffect (buff; +3 STR/+30 speed/10 temp HP; 15t)
+SatiatedEffect (buff; +2 all stats/+10 speed; 10t)
+AllStatSurgeEffect (buff; +3 all stats; 10t; Deathless revival)
+
+--- NEW ABILITIES ---
+"frog_legs_leap" — ADJACENT_TILE/RANGED_TILE, INFINITE, 6/5/4t cooldown
+"spine_shot" — SINGLE_ENEMY_LOS, PER_FLOOR, 3/4/5 charges
+"coagulation_clot" — SELF, PER_FLOOR, 2/2/3 charges
+"blood_drain" — ADJACENT, INFINITE, 8/6/5t cooldown
+
+--- BALANCE FLAGS ---
+- Toxic Metabolism + Chemical Sensitivity synergy is intentional (risky tox-stack build).
+- Psychic Amplifier L3 (×2.0 dmg, 8 HP cost): player below 8 HP cannot safely use any
+  ability. FATAL if they try. Game should NOT prevent it — player must be warned.
+- Deathless Core coma window: all incoming damage = 0 during coma. Player CANNOT die
+  during coma. L3 choice menu must resolve before enemies act again.
+- Genome Drift + Deathless Core: natural thematic pair for an attrition build.
+- Hulking Frame reversal can kill the player (max HP removal may exceed current HP).
+  This is intentional and should trigger a special death message.
+- Kill Thirst threshold 12t (L3) makes it tighter than Substance Dependency 15t (L3);
+  combined in one run: both feed on kill events (kill resets Kill Thirst but not Dep).

@@ -186,9 +186,9 @@ ZONE_JAYWALK_MULT = {
 
 # Smartsness skill XP zone multipliers (zone_key -> float)
 ZONE_SMARTSNESS_MULT = {
-    "crack_den": 2.0,
+    "crack_den": 1.0,
     "tyrones_penthouse": 1.0,
-    "meth_lab": 2.5,
+    "meth_lab": 2.0,
 }
 
 # Per-zone visual color schemes for map rendering.
@@ -240,9 +240,11 @@ def get_zone_colors(zone: str) -> dict:
     """Get the color scheme for a zone, falling back to crack_den defaults."""
     return ZONE_COLORS.get(zone, _DEFAULT_ZONE_COLORS)
 
-# Inventory key labels — 18 lowercase letters available for item selection.
-# Excludes: a (Abilities), c (char sheet), d (drop), e (equipment),
-#           f (fire gun), q (quit), r (reach/entity targeting), s (skills)
+# Inventory key labels — lowercase + uppercase letters available for item selection.
+# Lowercase excludes: a (Abilities), c (char sheet), d (drop), e (equipment),
+#                     f (fire gun), r (reach/entity targeting), s (skills)
+# Uppercase excludes: B (bestiary), D (destroy), E (status effects), F (swap gun),
+#                     L (log), P (perks), R (reload)
 # Pages scrolled via PgUp/PgDown, Shift+Up/Down, or backslash.
-INVENTORY_KEYS = "bghijklmnoptuvwxyz"
-INVENTORY_PAGE_SIZE = 18
+INVENTORY_KEYS = "bghijklmnopqtuvwxyz" + "ACGHIJKMNOQSTUVWXYZ"
+INVENTORY_PAGE_SIZE = len(INVENTORY_KEYS)  # 38

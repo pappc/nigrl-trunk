@@ -357,6 +357,10 @@ def _compute_player_attack_power(engine):
     else:
         atk_power = engine.player.power
 
+    # Enchantment power bonus (Soloman)
+    if weapon:
+        atk_power += getattr(weapon, "enchant_power_bonus", 0)
+
     # Ring power bonuses
     for ring in engine.rings:
         if ring is not None:
@@ -456,6 +460,7 @@ def _compute_player_max_armor(engine):
         defn = get_item_def(engine.neck.item_id)
         if defn:
             max_armor += defn.get("armor_bonus", 0)
+        max_armor += getattr(engine.neck, "enchant_armor_bonus", 0)
     if engine.feet is not None:
         defn = get_item_def(engine.feet.item_id)
         if defn:
@@ -721,10 +726,15 @@ def add_radiation(engine, entity, amount: int, pierce_resistance: bool = False,
     if from_player and entity is not engine.player and gain > 0:
         bksmt = engine.player_stats.effective_book_smarts
         engine.skills.gain_potential_exp("Nuclear Research", max(1, gain // 2), bksmt)
-    # Decontamination XP: 1 per point of radiation resisted
+    # Decontamination XP: 1 per point of radiation resisted (2x with Gamma Aura)
     if entity is engine.player and resisted > 0:
         bksmt = engine.player_stats.effective_book_smarts
-        engine.skills.gain_potential_exp("Decontamination", resisted, bksmt)
+        xp = resisted
+        has_gamma = any(getattr(e, 'id', '') == 'gamma_aura'
+                        for e in entity.status_effects)
+        if has_gamma:
+            xp *= 2
+        engine.skills.gain_potential_exp("Decontamination", xp, bksmt)
 
 
 def remove_radiation(engine, entity, amount: int):
@@ -881,6 +891,10 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
             swash = next((e for e in attacker.status_effects if getattr(e, 'id', '') == 'swashbuckling'), None)
             if swash:
                 atk_power += swash.stacks
+        # Bonus damage from target radiation (e.g. Uranium Isotope: +ceil(rad/20))
+        rad_div = wdefn.get("bonus_dmg_from_target_rad") if wdefn else None
+        if rad_div and hasattr(defender, 'radiation') and defender.radiation > 0:
+            atk_power += math.ceil(defender.radiation / rad_div)
         # Liquid Courage (Drinking L4): +3% crit per active drink stack
         _lc_crit_bonus = 0
         if engine.skills.get("Drinking").level >= 4:
@@ -940,6 +954,11 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
         # Purge Infection debuff: -50% melee damage
         if any(getattr(e, 'id', '') == 'purge_infection' for e in attacker.status_effects):
             damage = max(MIN_DAMAGE, damage // 2)
+        # Purity + Zombie Rage: Purity caps melee damage to 1
+        has_purity = any(getattr(e, 'id', '') == 'purity_stacks' for e in attacker.status_effects)
+        has_zombie_rage = any(getattr(e, 'id', '') == 'zombie_rage' for e in attacker.status_effects)
+        if has_purity and has_zombie_rage:
+            damage = 1
     # Cryomancy L3 (Chill Out): chilled attackers deal 10% less melee damage per stack (cap 50%)
     if attacker != engine.player and defender == engine.player:
         if engine.skills.get("Cryomancy").level >= 3:
@@ -1247,7 +1266,7 @@ def handle_attack(engine, attacker, defender, _windfury_eligible=True, force_cri
                         engine.revoke_ability(granted)
 
                 # Weapon durability break (fixed hit count, e.g. Crooked Baseball Bat)
-                break_hits = wdefn.get("break_hits", 0)
+                break_hits = wdefn.get("break_hits", 0) + getattr(weapon, "enchant_break_hits", 0)
                 if break_hits > 0:
                     hits_used = getattr(weapon, '_break_hits_used', 0) + 1
                     weapon._break_hits_used = hits_used
@@ -1502,6 +1521,10 @@ def handle_monster_attack(engine, monster):
                 _apply_monster_hit_effect(engine, hit_eff, monster=monster)
             # Immaculate (WP L6): melee hit while Bastion active → 3 Purity stacks
             _immaculate_on_melee_hit(engine)
+            # Ironsoul Aura: visible enemy hit grants +10 rad
+            _ironsoul_on_hit(engine, monster)
+            # Retribution Aura: attacker takes true damage
+            _retribution_on_hit(engine, monster)
             if not player.alive:
                 engine.event_bus.emit("entity_died", entity=player, killer=monster)
             return
@@ -1582,6 +1605,10 @@ def handle_monster_attack(engine, monster):
 
     # Immaculate (WP L6): melee hit while Bastion active → 3 Purity stacks
     _immaculate_on_melee_hit(engine)
+    # Ironsoul Aura: visible enemy hit grants +10 rad
+    _ironsoul_on_hit(engine, monster)
+    # Retribution Aura: attacker takes true damage
+    _retribution_on_hit(engine, monster)
 
     if not player.alive:
         engine.event_bus.emit("entity_died", entity=player, killer=monster)
@@ -1607,6 +1634,39 @@ def _immaculate_on_melee_hit(engine):
     else:
         from effects import apply_effect
         apply_effect(engine.player, engine, "purity_stacks", stacks=3, duration=20)
+
+
+def _ironsoul_on_hit(engine, monster):
+    """Ironsoul Aura: hits from visible enemies grant +10 rad to player."""
+    has_ironsoul = any(getattr(e, 'id', '') == 'ironsoul_aura'
+                       for e in engine.player.status_effects)
+    if not has_ironsoul:
+        return
+    if engine.dungeon.visible[monster.y][monster.x]:
+        add_radiation(engine, engine.player, 10, pierce_resistance=True)
+
+
+def _retribution_on_hit(engine, monster):
+    """Retribution Aura: enemies that melee you take true damage, drain 5 rad."""
+    has_retribution = any(getattr(e, 'id', '') == 'retribution_aura'
+                          for e in engine.player.status_effects)
+    if not has_retribution:
+        return
+    player = engine.player
+    if player.radiation <= 0 or not monster.alive:
+        return
+    decon_level = engine.skills.get("Decontamination").level
+    retrib_dmg = min(30, player.radiation // 20 + decon_level)
+    if retrib_dmg <= 0:
+        return
+    monster.take_damage(retrib_dmg)
+    remove_radiation(engine, player, 5)
+    engine.messages.append([
+        ("Retribution! ", (255, 220, 80)),
+        (f"{monster.name} takes {retrib_dmg} true damage. (-5 rad)", (240, 200, 100)),
+    ])
+    if not monster.alive:
+        engine.event_bus.emit("entity_died", entity=monster, killer=player)
 
 
 def _apply_monster_hit_effect(engine, effect, monster=None):

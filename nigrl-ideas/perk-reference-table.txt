@@ -1,4 +1,4 @@
-NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
+NIGRL - Complete Perk Reference Table (Updated 2026-04-03)
 ===========================================================
 
 ### Smoking (4 perks)
@@ -36,13 +36,12 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 | 3 | Curse of COVID | Single target curse. Each turn applies 20 rad or tox (capped 150). 50% to stack, 25% to spread. 3/floor |
 | 4 | Dark Covenant | All curses gain +3 charges per floor (6 total). Cursed enemies have 25% chance to drop a Voodoo Doll on death |
 
-### Smartsness (5 perks)
+### Smartsness (4 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | +2 BKS | +2 Book Smarts |
-| 2 | Spell Retention | +2 BKS. 15% chance when casting a spell to not consume the charge |
+| 2 | Spell Retention | +1 BKS. 15% chance when casting a spell to not consume the charge |
 | 3 | Arcane Intelligence | On Smartsness XP gain: 25% chance to gain +2 Arcane Intelligence stacks (+1 spell damage per stack, 20 turns) |
-| 4 | Spell Echo | +2 BKS. 15% chance on spell cast: spell fires again at same target for 50% damage, no charge consumed. Echo can chain. Retargets if target dies. Not channeled spells |
+| 4 | Spell Echo | +1 BKS. 15% chance on spell cast: spell fires again at same target for 50% damage, no charge consumed. Echo can chain. Retargets if target dies. Not channeled spells |
 | 5 | Spellweaver | +3 BKS. Casting a different spell than your last within 5 turns deals +30% damage. Chain indefinitely by alternating spells |
 
 ### Stabbing (5 perks)
@@ -54,12 +53,15 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 | 4 | +4 STS, +4 STR | +4 Street Smarts, +4 Strength |
 | 5 | Lunge | Moving into tile with enemy directly ahead auto-crits for free |
 
-### Beating (3 perks)
+### Beating (6 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
 | 1 | +3 STR | +3 Strength |
 | 2 | Bash | Grants Bash ability (always crits, knockback 4 tiles. Wall hit = STR dmg, enemy collision = both take STR dmg. 10t cooldown) |
 | 3 | Crit+ | +1 crit damage multiplier on all melee attacks |
+| 4 | Aftershock | +2 STR. Landing a critical hit with a blunt weapon grants Aftershock (15t): next 3 attacks deal +Beating level×2 bonus damage and have 30% chance to stun (1 turn) |
+| 5 | Overkill | +2 STR. Killing an enemy with a blunt weapon splashes excess damage to all enemies within radius 2. If the splash kills, it chains. No chain limit |
+| 6 | Colossus | +3 STR, +3 CON. Toggle between two stances (free action, 5t cooldown). Wrecking: +40% melee damage, can't dodge, -2 DR. Fortress: +4 DR, 30% counter-attack for STR damage + 1t stun, -25% melee damage |
 
 ### Smacking (4 perks)
 | Lvl | Perk | Effect |
@@ -67,7 +69,7 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 | 1 | Bitch Slap | Grants Bitch Slap ability (adjacent, STR dmg; vs females: 10 + 2xSTR. 25t cooldown) |
 | 2 | +3 STR, +3 CON | +3 Strength, +3 Constitution |
 | 3 | Black Eye | Unarmed attacks: 10% chance to apply Black Eye (2t stun then 10t dazed wandering) |
-| 4 | Victory Rush | Gain 1 charge. On beating kill: +1 charge (max 1). Activate (free): next melee rolls crit twice (advantage) and heals 25% dmg dealt. 20t |
+| 4 | Victory Rush | Gain 1 charge. On kill: +1 charge (max 1). Activate (free): next melee rolls crit twice (advantage) and heals 25% dmg dealt. 20t |
 
 ### Slashing (5 perks)
 | Lvl | Perk | Effect |
@@ -130,7 +132,7 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 ### Dismantling (6 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Scrapper's Eye | +2 BKS, +2 CON. Destroying items heals 10% of item value (min 3 HP) |
+| 1 | Scrapper's Eye | +2 CON. Destroying items heals 10% of item value (min 3 HP) |
 | 2 | Chop Shop | +2 SWG, +2 STS. Destroying item grants +5 armor and +$20 cash. 20% chance to gain Scrap |
 | 3 | Nigga Armor | +2 SWG, +2 STS. Gain Nigga Armor stack on destroy (-1 DR, 30t) |
 | 4 | Salvage Insight | +2 CON. 10% chance on destroy to gain +1 random stat permanently |
@@ -140,7 +142,7 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 ### Abandoning (4 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | +2 All Stats | +2 to all 6 stats |
+| 1 | +1 All Stats | +1 to all 6 stats |
 | 2 | Anotha Motha | Receive 5 extra item drops when descending |
 | 3 | Left Behind | +1 all stats. On descend, gain +1 DR per item left on floor (until next floor) |
 | 4 | Milk From The Store | +1 all stats. Grants ability: double all stats for 10 turns (3/floor) |
@@ -152,57 +154,63 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 | 2 | Crack Hallucinations | 1/floor. Next consumable grants meth = item value + Meth-Head XP |
 | 3 | Tweaker | +10 speed per 25 meth (max +100 at 250 meth) |
 
-### Chemical Warfare (3 perks)
+### Chemical Warfare (5 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Toxic Harvest | 50t cooldown. For 10 turns, kills grant +5 toxicity and refresh the buff |
-| 2 | Toxic Resilience | +5 TOL, +3 CON, -30% Toxicity Resistance. Embrace the poison |
-| 3 | Acid Meltdown | 100t cooldown. Cost: 25 tox. 20 turns: halve move cost. Kills explode into 3x3 acid pools |
+| 1 | Toxic Harvest | 50t cooldown. For 10 turns, kills grant +25 toxicity and refresh the buff |
+| 2 | Toxic Frenzy | +2 TOL. +1% melee and gun damage per 10 toxicity (cap 500 tox, max +50%). +1 speed per 10 toxicity (cap +50). The poison fuels your fury |
+| 3 | Acid Meltdown | 50t cooldown. Cost: 25 tox. 10 turns: halve move cost. Kills explode into 3x3 acid pools |
+| 4 | Toxic Slingshot | 10t cooldown. Cost: 50 tox. Conjure a toxic slingshot in sidearm (requires empty slot). 20 ammo, 30 turn duration. Damage scales with CW level. Applies toxicity on hit. Grants Scattershot (cone AOE) |
+| 5 | Toxic Shell | 3/floor. Consume 1/10th of your toxicity as a barrier (temp HP). When temp HP hits 0, nova (radius 4): deals tox/5 + CW×5 + STS/3 damage, applies tox_consumed/2 toxicity to enemies |
 
-### White Power (4 perks)
+### White Power (6 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Bleached | +4 Swagger, +20% toxicity resistance |
-| 2 | White Out | 3/floor. Gain 25 tox. +8 Swagger, -25% damage dealt for 50 turns |
-| 3 | Pure | +4 Swagger. Double XP from toxicity resisted |
-| 4 | Whitewash | +4 CON. 1/floor: consume half your toxicity and gain it as temporary HP |
+| 1 | Reject the Poison | +20% toxicity resistance. Toxicity resisted builds Purity stacks (max 50, 20t, refreshes). When Purity expires: heal for stacks, overflow as temp HP (cap 50) |
+| 2 | Bastion | +2 Swagger. Toggle (5/floor): ON costs 1 charge + 10 tox. OFF is free. While ON: -25% damage taken, -20% damage dealt |
+| 3 | Pure | +4 Swagger, +20% toxicity resistance. Double XP from toxicity resisted |
+| 4 | Whitewash | +4 CON. 1/floor: consume half your toxicity. Heals first, overflow as temp HP |
+| 5 | Absolution | 3/floor. 15 turns: gain 5 tox/turn. All toxicity you lose deals that amount as damage to 2 random enemies within 4 tiles |
+| 6 | Immaculate | +2 Swagger. Purity stack cap → 100, temp HP cap → 100. Purity stacks accumulate 2x faster while Bastion is active. Taking a melee hit while Bastion is active grants 3 Purity stacks |
 
-### Mutation (4 perks)
+### Mutation (5 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
 | 1 | Scarred Tissue | Bad mutations also grant +1 to a random stat permanently |
 | 2 | Unstable | 20% on melee hit: gain Unstable buff (20t, +5 rad, +2 melee/gun dmg, hits irradiate enemies 10 rad) |
 | 3 | Favorable Odds | +50% good mutation multiplier |
 | 4 | Shed | Unlimited. Sacrifice a random good mutation (undone). Cleanses a random debuff. Refunds half the tier's rad threshold |
+| 5 | Triple Helix | 30% chance when you mutate to fire a bonus mutation (same tier, rerolls polarity/effect, no extra rad cost) |
 
-### Nuclear Research (4 perks)
+### Nuclear Research (6 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
 | 1 | Irradiated Intellect | +3 BKS. Radiation gained increased by BKS% of amount |
-| 2 | Rad Bomb | Grants Rad Bomb ability (place crystal within 2, detonates 3t, 5x5, 15+BKS/2 dmg, 3/floor, costs 25 rad). Passive: can't mutate below 150 rad. At 100+ rad, charge refunded |
+| 2 | Rad Bomb | Place crystal within 2 tiles, detonates 3t, 5x5, 15+BKS/2 dmg. 3/floor, costs 25 rad. At 100+ rad, charge refunded. Passive: can't mutate below 150 rad |
 | 3 | Nutrient Producer | Gain Nutrient Producer tool (combine with consumable to make RadBar) |
-| 4 | Isotope Junkie | Using any consumable grants +5 radiation (pierces resistance). Rad Bomb upgraded to 20+BKS dmg |
+| 4 | Half-Life Mark | Mark a visible enemy (costs 20 rad). At 40% HP it detonates: 15+BKS dmg in 3x3, irradiates hit enemies 30 rad. 2/floor. At 200+ rad, charge not consumed. Passive: can't mutate below 250 rad |
+| 5 | Enrichment | Spend 25 rad for an Enrichment stack (max 5). Next Rad Bomb or Half-Life detonation consumes stacks: +4 dmg/stack, +1 blast radius per 2 stacks. Rad Bomb hitting marked enemy transfers stacks. Passive: Rad Bomb range +3 (to 5), fuse +1 (to 4) |
+| 6 | Nuclear Feedback | Each enemy hit by a Rad Bomb or Half-Life detonation grants +10 radiation (pierces resistance). Passive: can't mutate below 400 rad |
 
-### Decontamination (3 perks)
+### Decontamination (6 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Radiant | +30% Rad Resistance, +2 TOL, +2 STR |
-| 2 | Emission | Grants Emission ability (set all visible enemies' rad to yours, 1/floor) |
-| 3 | Fallout | +2 STR. 20% chance on dealing damage to irradiate target (+100 rad) |
+| 1 | Radiant | +10 Max Armor. +30% Rad Resistance, +2 TOL, +2 STR |
+| 2 | Gamma Aura | +3 STR. Toggle aura (one Decon aura at a time): enemies within 2 tiles gain +5 rad/turn. 2x Decontamination XP from resisted radiation. Nearby enemy dying with 50+ rad removes 25 of your radiation |
+| 3 | Consecrate | +20 Max Armor, +15% Rad Resistance. 2/floor, 30t CD. Lay a 5x3 rad zone (20t). Enemies: +10 rad/turn, true dmg. Standing in zone: +1 Swagger/turn (cap 5). Low rad = chance to preserve charge |
+| 4 | Ironsoul Aura | +2 SWG. Toggle aura: +1 DR per visible enemy in FOV (cap 5), +2 FOV radius. Hits from visible enemies grant +10 rad. 25% on melee hit: lose damage dealt in radiation, gain it as armor |
+| 5 | Sanctified Discharge | +30 Max Armor. Consecrate upgraded: 4 charges/floor, +20 rad/turn. 30% chance/turn: +1 Ignite stack, +1 Shocked stack (independent, cap 10 each). Both capped: double true damage |
+| 6 | Retribution Aura | +2 STS. Toggle aura: enemies that melee you take rad/20 + Decon level true damage (cap 30). Drains 5 rad per proc |
 
-### Gatting (3 perks)
+### Gunplay (6 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Locked In | Fast mode: consecutive shots on same target deal +1 stacking dmg. Resets on switch/melee/ability |
-| 2 | Doin' It Sideways | Fast mode: -10% accuracy (min 5%), -10 energy cost per shot (min 10) |
-| 3 | Gun Crit | Guns can now crit. Chance scales with Street Smarts |
-
-### Sniping (3 perks)
-| Lvl | Perk | Effect |
-|-----|------|--------|
-| 1 | Sniper's Mark | Grants Sniper's Mark ability (mark enemy +10% dmg taken, 1/floor, refund on kill) |
-| 2 | Dead Eye | Killing enemy with accurate shot grants +1 Swagger for rest of floor |
-| 3 | Mega Crit | +2 STS. Unlocks gun crits. Accurate mode crits can mega crit for 4x damage |
+| 1 | Locked In | Consecutive gun shots on same target deal +1 stacking dmg. Resets on target switch, melee, or ability use |
+| 2 | Sniper's Mark | Mark a visible enemy (+10% dmg taken, rounds up). 1/floor. Charge refunded on marked target's death |
+| 3 | Doin' It Sideways | -10% accuracy (min 5%), -10 energy cost per shot (min 10) |
+| 4 | Dead Eye | Killing an enemy with a gun shot grants +1 Swagger for rest of floor |
+| 5 | Gun Crit | Guns can now crit. Chance scales with Street Smarts |
+| 6 | Mega Crit | +2 STS. Gun crits can crit again for 4x damage |
 
 ### Drive-By (1 perk)
 | Lvl | Perk | Effect |
@@ -224,12 +232,14 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 | 3 | Unfazed | 25% chance when taking damage to gain +1 Swagger for rest of floor. Stacks |
 | 4 | Armor Up | 35% chance when hit while you have armor to block the hit (dmg reduced to 1) |
 
-### Arachnigga (3 perks)
+### Arachnigga (5 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
 | 1 | Web Trail | Immune to webs. Activate: 5 turns of leaving cobwebs behind you. 3/floor |
 | 2 | Summon Spider | Summon Spider Hatchling on adjacent tile. Guards then chases and bites. 5/floor |
 | 3 | Toxic Bite | Bite adjacent enemy for STS dmg + 2 Venom stacks (10t). Enemies dying with Venom leave a Venom Pool hazard (15t). 6/floor |
+| 4 | Brood Mother | Spider Hatchlings split into 2 Micro-Spiders on death (1 HP, 1 power, 80 speed, 5t lifespan). Venom Pools hatch a spiderling after 3 turns |
+| 5 | Spider's Nest | +30 speed on cobweb tiles. Activate: 7x7 cobweb area, 20% per tile = spider egg (hatches 2t near enemies). Caught enemies cocooned 3t (immobile, venom bursts on break, spawns micro-spider). 2/floor |
 
 ### Graffiti (3 perks)
 | Lvl | Perk | Effect |
@@ -260,7 +270,7 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 ### Electrodynamics (5 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Charged Up | +10 Speed, +2 BKS, +2 SWG |
+| 1 | Charged Up | +10 Speed, +2 SWG |
 | 2 | Volt Dash | Grants Volt Dash (blink within 5 radius, 1-(10+5xElectro) dmg along line + adjacent, +1 Shock, 4/floor) |
 | 3 | Discharge | Grants Discharge (channel 6t: alternating shock wave +1 Shocked r7 / lightning pulse 1-(10+10xElectro) r5, 25t cooldown) |
 | 4 | Surge | Lightning spell hits have 50% chance to grant Surge (+10 speed/stack, 20t, stacks & refreshes) |
@@ -269,29 +279,35 @@ NIGRL - Complete Perk Reference Table (Updated 2026-04-02)
 ### Elementalist (3 perks)
 | Lvl | Perk | Effect |
 |-----|------|--------|
-| 1 | Elemental Staves | +3 BKS. Receive staff matching highest elemental skill (Pyromania/Cryomancy/Electrodynamics, random on tie). Staves fire bolts (F key, range 4, 5+BKS/3 dmg, +1 element debuff). Req 12 BKS |
+| 1 | Elemental Staves | +1 BKS. Receive staff matching highest elemental skill (Pyromania/Cryomancy/Electrodynamics, random on tie). Staves fire bolts (F key, range 4, 5+BKS/3 dmg, +1 element debuff). Req 12 BKS |
 | 2 | Chromatic Orb | Grants Chromatic Orb (targeted projectile, random fire/cold/lightning, dmg = skill level x 6, 3 stacks of debuff, 20t cooldown) |
 | 3 | Arcane Flux | +10% spell charge preservation. Charge preservation (Muffin, Blue Paint, etc.) now also negates cooldowns on spells |
 
 ===========================================================
-34 skills, 121 defined perks (rest are placeholders up to level 10)
+33 skills, 147 defined perks (rest are placeholders up to level 10)
 
-Changes from previous version (2026-03-29):
-- Smartsness: Completely reworked. L2 Spell Retention, L3 Arcane Intelligence (spell damage stacks), L4 Spell Echo, L5 Spellweaver
-- Blackkk Magic: Added L4 Dark Covenant (+3 curse charges/floor, Voodoo Doll drops)
-- Jaywalking: Added L4 Shortcut, L5 Loitering, L6 Momentum. L1 Air Jordans corrected to -10 energy
-- Deep-Frying: Added L4 Hot Pot (CON + DeepFrying*2 splash on melee after eating)
-- Drinking: L3 changed from Slow Metabolism to Hair of the Dog (30% reapply on expiry). Added L4 Liquid Courage
-- Beating L2 Bash: Corrected description (always crits + knockback, not stun)
-- Glow Up renamed to Decontamination (matches code)
-- Stabbing L1 Gouge: Corrected cooldown (12t, not 7t). Fixed description (stun, not bleed)
-- Beating L3 Crit+: Clarified as +1 crit damage multiplier (not crit chance)
-- Total perks: 106 -> 115
-- Infected: Added L4 Corpse Explosion (rage kills explode, chain escalating infection, Infection Nova at 100)
-- Infected: Added L5 Hunger (Purge grants heal-on-hit buff, Zombie Stare upgraded to 90° cone, +2 STR/CON)
-- Infected: Added L6 Outbreak (7x7 area mark, 30% damage echo between linked enemies, combos with Corpse Explosion)
-- Dismantling: Added L5 Scrap Turret (destroy item loads charge, place turret that shoots enemies, blocks movement, AI attacks it)
-- Dismantling: Added L6 Salvage Volley (destroy fires 3 turret shots, turret kills drop Scrap item)
-- Total perks: 115 -> 120
-- Mutation: L1 changed from Mutagen to Scarred Tissue. Mutagen removed. Total perks stays at 120
-- Mutation: Added L4 Shed (sacrifice good mutation, cleanse debuff, refund rad). Total perks: 120 -> 121
+Changes from previous version (2026-04-02 session):
+- Gatting + Sniping merged into single Gunplay skill (6 perks: Locked In, Sniper's Mark, Doin' It Sideways, Dead Eye, Gun Crit, Mega Crit). 34 → 33 skills
+- White Power: Complete rework. L1 Bleached → Reject the Poison (Purity stacks mechanic). L2 White Out → Bastion (toggle damage reduction). L3 Pure added +20% tox resist. L5 Absolution (NEW: tox-to-damage aura). L6 Immaculate (NEW: Purity/Bastion synergy)
+- Nuclear Research: L4 Isotope Junkie → Half-Life Mark (mark enemy, detonates at 40% HP, mutation protection). L5 Enrichment (NEW: rad-to-power stacking, cross-ability synergy). L6 Nuclear Feedback (NEW: detonation grants radiation, mutation floor 400 rad)
+- Chemical Warfare: L1 Toxic Harvest now +25 tox (was +5). L2 Toxic Resilience → Toxic Frenzy (+1% dmg per 10 tox, +1 speed per 10 tox). L3 Acid Meltdown: 50t CD (was 100t), 10t duration (was 20t). L4 Toxic Slingshot (NEW: conjured toxic gun). L5 Toxic Shell (NEW: tox barrier → nova on break)
+- Decontamination: L2 Emission description expanded (irradiated enemies take rad//50 dmg/tick). L3 Fallout → Consecrate (5x3 rad zone, +SWG/turn, +15% rad resist)
+- Beating: L4 Aftershock (NEW: crit with blunt → 3 bonus hits). L5 Overkill (NEW: excess damage splashes, chains). L6 Colossus (NEW: toggle Wrecking/Fortress stances)
+- Smartsness: L1 +2 BKS removed (now placeholder). L2 Spell Retention +1 BKS (was +2). L4 Spell Echo +1 BKS (was +2)
+- Abandoning: L1 +1 all stats (was +2)
+- Dismantling: L1 Scrapper's Eye lost +2 BKS (now +2 CON only)
+- Electrodynamics: L1 Charged Up lost +2 BKS (now +10 Speed, +2 SWG only)
+- Elementalist: L1 Elemental Staves +1 BKS (was +3)
+- Smacking: L4 Victory Rush corrected to "on kill" (was "on beating kill")
+- Total perks: 122 → 144
+
+Changes from previous version (2026-04-03 session):
+- Decontamination: Complete rework to paladin class fantasy with 3 swappable auras
+  - L1 Radiant: added +10 Max Armor
+  - L2 Emission → Gamma Aura (toggle irradiation aura, 2x Decon XP, kill purge 25 rad)
+  - L3 Consecrate: added +20 Max Armor
+  - L4 Ironsoul Aura (NEW: toggle DR/FOV aura, +10 rad on hit, 25% melee rad→armor proc)
+  - L5 Sanctified Discharge (NEW: Consecrate upgrade — 4 charges, +20 rad/turn, ignite/shock procs, +30 Max Armor)
+  - L6 Retribution Aura (NEW: toggle retribution aura, attackers take rad/20 + Decon level true damage)
+- Decontamination tree now grants +60 Max Armor across L1/L3/L5
+- Total perks: 144 → 147

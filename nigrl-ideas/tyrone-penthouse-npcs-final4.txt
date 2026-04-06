@@ -1,0 +1,897 @@
+================================================================================
+TYRONE'S PENTHOUSE — FINAL 4 NPC DESIGNS (COMPLETING THE POOL OF 10)
+================================================================================
+
+Context: These 4 NPCs complete the Penthouse NPC roster alongside the 6 already
+implemented (Gun Dealer, Chef, Plug, La'Quisha, Precious, Rico). Total after this
+batch: 10 one-time free service NPCs. Same interaction model throughout: bump NPC
+to open menu overlay, make one choice, NPC flags used for the rest of the run.
+
+The 4 NPCs designed here:
+  1. THE ENCHANTER  — weapon/item permanent enchantment with equip-lock tradeoff
+  2. THE MIXOLOGIST — drinks as transformation fuel, not just consumable pick
+  3. THE GENE DOCTOR — mutation system manipulation (unique to Meth Lab prep)
+  4. THE FIXER      — permanent debuff / negative status cleanse
+
+================================================================================
+NPC 1 — THE ENCHANTER: SOLOMAN
+================================================================================
+
+CONCEPT
+-------
+Soloman is a former jeweler who moved into slightly less legitimate enhancements.
+He takes a piece of your equipment and permanently supercharges it — but the process
+fuses the item to your body. You cannot unequip it for the rest of the run. The
+enchantment is powerful enough that giving up the ability to swap is a genuine
+tradeoff, not an obvious choice. Best items to enchant are already slot-defining
+investments (a unique weapon, a ring you plan to keep forever). Weakest lock is a
+ring you were going to keep anyway. Strongest lock is your weapon — 1.5x damage on
+your primary weapon is enormous, but you lose the flexibility to swap to a situational
+alternative for the entire Meth Lab.
+
+Works on unique items. One-time per run.
+
+CHAR / COLOR
+------------
+char = 'E'  (Enchanter)
+color = (255, 215, 80)   — deep gold, craftsmanship
+
+POSITION
+--------
+Northwest alcove, small room with a workbench hazard (char='_') in front of him.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "SOLOMAN'S ENCHANTMENT — ONE ITEM (PERMANENT LOCK)"
+
+  Soloman: "I can make something of yours untouchable. Permanently. Pick your piece."
+
+  STEP 1 — SELECT ITEM TO ENCHANT
+  Menu lists all currently equipped items across all slots:
+    [Weapon]     Serrated Shiv        (ATK +6, STR scaling)
+    [Sidearm]    .38 Special          (12/12 ammo, 8 dmg)
+    [Hat]        Fitted Cap           (+1 STS)
+    [Neck]       Gold Chain           (+1 SWG)
+    [Feet]       Air Forces           (+1 STS, +5% dodge)
+    [Ring 1]     Scholar's Band       (+2 BKS)
+    ... etc.
+
+  Player selects one slot. Only equipped items are shown — empty slots omitted.
+
+  STEP 2 — CONFIRMATION WITH ENCHANTMENT PREVIEW
+  After selection, a confirmation overlay appears that shows EXACTLY what the
+  enchantment will do AND that the item will be permanently locked:
+
+    "ENCHANT [Serrated Shiv]?"
+    "  Effect: Damage x 1.5 (permanent)"
+    "  Cost:   Item becomes LOCKED — cannot be unequipped this run"
+    "  [Y] Confirm    [N] Cancel"
+
+  Soloman: "Once I do this, it stays on you."
+
+  On confirm: apply enchantment (see Mechanical Specification), set lock flag on
+  the item entity. Message: "Soloman: Now that's a weapon."
+
+  On cancel: no effect. Player can re-bump to try again (step 1 repeats).
+  Once confirmed, engine flag sets and Soloman is done.
+
+  On second bump after confirmation: "Soloman: My work's already on you. Go use it."
+
+ENCHANTMENT EFFECTS BY SLOT
+----------------------------
+
+  WEAPON (melee or ranged medium/large):
+    Power bonus: item.power_bonus = round(item.power_bonus * 1.5)
+    If item has no power_bonus (power comes from base formula), add a flat
+    +power_bonus equal to half the item's calculated base power (floored).
+    STR scaling items: the scaling is unchanged; the bonus is on top.
+    Special rule for weapons with break_hits (fragile weapons): break_hits is
+    doubled (enchantment reinforces the weapon as well as sharpening it).
+
+  SIDEARM (gun):
+    Base damage: item.gun_damage = round(item.gun_damage * 1.5)
+    Mag size is unchanged. Fire mode is unchanged.
+    If item has gun_damage defined (all guns do): multiply it directly.
+    Wind-up guns (wind_up_gun=True): the wind-up damage is also multiplied by 1.5.
+
+  HAT:
+    All stat bonuses on the item increase by +2 each.
+    If the hat has no stat bonuses (cosmetic only), it instead grants +2 SWG and
+    +2 STS as new bonuses (Soloman improvises a street crown).
+
+  NECK (chain):
+    defense_bonus += 40.
+    If the chain already has a defense_bonus, add 40 to it.
+    If the chain has no defense_bonus (rare — purely stat-bonusing chains), the
+    +40 defense is added as a new field.
+
+  FEET (boots):
+    speed += 20 on the item entity.
+    Entity's actual speed is recalculated: engine.player.speed = BASE_SPEED +
+    all equipment speed bonuses. The +20 applies at that layer.
+    If boots already grant speed, this stacks additively.
+
+  RING:
+    Every stat bonus on the ring is doubled.
+    A +2 BKS ring becomes +4 BKS. A +1 STS / +1 CON ring becomes +2 STS / +2 CON.
+    Rings with no stat bonuses (purely ability-granting rings): instead gain
+    +1 to all stats (a flat power boost when doubling zero yields nothing).
+    Ability-granting rings: ability is unaffected — only stat bonuses double.
+
+LOCK MECHANIC
+-------------
+  - The enchanted item gains a new field: item_entity.enchanted_locked = True.
+  - In inventory_mgr.py, the unequip path checks: if item_entity.enchanted_locked
+    and not engine.game_over: block unequip, display message "This item is
+    permanently fused to you." (same red color as other block messages).
+  - Death (game_over = True): the lock is irrelevant — permadeath ends the run.
+  - Dropping an enchanted locked item from inventory is also blocked.
+  - The item still shows in the equipment menu normally; it simply cannot be
+    unequipped by any means (NPC trades, item destruction, etc.).
+  - Render the item with a special suffix in the equipment screen: "(Enchanted)"
+    in gold color to communicate the lock visually at a glance.
+
+UNIQUE ITEMS
+------------
+  Works identically. Unique items with elaborate on-hit effects or resource systems
+  benefit from the slot-appropriate enchantment in the same way. A unique weapon
+  gets x1.5 damage on top of all its special properties. A unique ring gets doubled
+  stat bonuses. The enchantment does not interact with or cancel ability grants.
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.soloman_used: bool = False; set True on first confirmation.
+  - enchanted_locked field: add to entity.py as entity.enchanted_locked: bool = False.
+    Serialized in save_system.py entity serialization block.
+  - Weapon enchantment: read current power_bonus from entity fields. If power_bonus
+    is 0 or None, derive base_power from the item's item_def (items.py lookup) and
+    set power_bonus = base_item_power // 2. Then multiply: power_bonus = round(
+    power_bonus * 1.5). Minimum result: 1.
+  - Gun enchantment: entity.gun_damage = round(entity.gun_damage * 1.5). Also
+    handle wind_up_per_turn: entity.wind_up_per_turn = round(wind_up_per_turn * 1.5)
+    if that field is present and nonzero.
+  - Hat +2 all stats: iterate over stat fields on the item's equip bonuses. Look up
+    the item_def's stat_bonus dict and add +2 to each key present. If empty, write
+    stat_bonus = {"swagger": 2, "street_smarts": 2} directly.
+  - Neck +40 defense: item_entity.defense_bonus = (item_entity.defense_bonus or 0) + 40.
+  - Feet +20 speed: item_entity.speed_bonus = (item_entity.speed_bonus or 0) + 20.
+    Then call engine._recalculate_player_speed() if such a function exists, or
+    inline: engine.player.speed = 100 + sum(speed bonuses from all equipped items).
+  - Ring doubling: iterate equipped ring's stat_bonus dict (as stored on entity or
+    item_def), double each value. For rings that store bonuses on player_stats directly
+    (ring_bonuses list), recalculate after doubling.
+
+BALANCE CONSIDERATIONS
+----------------------
+  The most powerful enchantments by scenario:
+
+  Best case (high ceiling):
+    - Weapon x1.5 on a unique weapon with STR scaling = multiplicative synergy with
+      STR investment. Potentially +4 to +6 extra damage per hit at late Crack Den
+      stats. This is strong but the Meth Lab has high-HP enemies — it is justified.
+    - Ring doubling on a +3 BKS ring = +6 BKS total, approaching the stat cap
+      contribution. Very powerful for spell builds. The lock is trivial since you
+      planned to keep the ring.
+
+  Worst case (acceptable floor):
+    - Neck +40 defense on an already good chain is meaningful (+40 DR in an
+      environment where enemies deal 8-15 damage is approximately 3-5 fewer damage
+      per hit). Worth locking.
+    - Feet +20 speed on boots with no other strong bonuses — less exciting than
+      other slots, but +20 speed is a significant turn-order advantage.
+
+  The lock is the equalizer. Players who are deeply committed to their kit will
+  find Soloman enormously valuable. Players who are still exploring their options
+  mid-run should hesitate. This creates legitimate decision tension.
+
+  One edge case to watch: locking the weapon slot before finding a better weapon
+  in the Meth Lab. Players should be warned this is a run-long commitment.
+  The confirmation screen's wording handles this ("cannot be unequipped this run").
+
+SYNERGIES
+---------
+  - Rico (Pawn Man): Rico trades your equipped item for a random Meth Lab item.
+    Since Rico removes the equipped item from the player, and the lock prevents
+    unequipping, the lock SHOULD also block Rico's trade for that specific slot.
+    Rico should check enchanted_locked before accepting the trade.
+    This interaction is intentional — Soloman and Rico are mutually exclusive for
+    the same slot.
+  - STR scaling weapons: Enchanting a weapon with STR scaling means the flat
+    power_bonus added by the enchantment stacks on top of the scaling. Players
+    with high STR who enchant a scaling weapon get the largest absolute damage gains.
+  - Unique items: Enchanting a unique weapon with an on_kill effect or on_hit effect
+    makes every proc of that effect hit harder (damage-based procs scale with the
+    underlying damage increase). Ability-granting uniques are unaffected since the
+    ability charge system is separate from damage.
+
+================================================================================
+NPC 2 — THE MIXOLOGIST: DEJA
+================================================================================
+
+CONCEPT
+-------
+Deja is the Penthouse's resident cocktail artist. She doesn't just hand out drinks —
+she takes two drinks the player already has in inventory and FUSES them into a custom
+cocktail that carries both drinks' effects simultaneously AND adds a bonus effect
+based on the specific combination. This parallels the Chef (food fusion) but is
+non-trivially different: the Chef always makes a Sandwich with both foods' effects,
+flat. Deja's cocktails have emergent third effects based on what you mix — a
+discovery mechanic. Players who know the combination matrix get more value; players
+who experiment learn the system.
+
+The emphasis is on the PLAYER bringing ingredients, not receiving a handout. Deja's
+cocktail is more powerful than either drink alone, but the player must have two
+drinks in inventory to use her. This creates meaningful inventory decisions:
+do you drink your reserves before the Penthouse, or save them for Deja?
+
+CHAR / COLOR
+------------
+char = 'D'  (Deja, mixologist)
+color = (200, 80, 200)   — vibrant purple, cocktail bar aesthetic
+
+POSITION
+--------
+North wall, east quadrant, behind a counter hazard (char='='). Adjacent to the
+Chef (whose counter is in the NE corner) but visually distinct by color.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "DEJA'S MIX — COMBINE TWO DRINKS (ONE-TIME)"
+
+  Deja: "Bring me two and I'll make something better than both."
+
+  If player has fewer than 2 drink items in inventory:
+    Deja: "You ain't got enough to work with. Come back with two drinks."
+    No menu opens. Engine flag is NOT set — player can return after acquiring drinks.
+    (This is the only Penthouse NPC that can be declined and re-approached without
+    penalty, specifically because the requirement is inventory-state dependent.)
+
+  If player has 2 or more drinks:
+
+    STEP 1 — SELECT FIRST DRINK
+    Title: "DEJA'S MIX — STEP 1: FIRST DRINK"
+    Lists all drink items in inventory (by name and count):
+      a) Malt Liquor         x2
+      b) Homemade Hennessy   x1
+      c) Steel Reserve       x1
+    Player selects one. That drink is flagged as "ingredient A."
+
+    STEP 2 — SELECT SECOND DRINK
+    Title: "DEJA'S MIX — STEP 2: SECOND DRINK"
+    Same list but ingredient A is now grayed out (not re-selectable).
+    If only 1 drink item with count > 1 is available, that same item can be used
+    twice (mixing two of the same drink is valid and produces a "double" cocktail).
+    Player selects ingredient B.
+
+    PREVIEW AND CONFIRM
+    After both selections, display the result:
+      "DEJA WILL MIX:"
+      "  [Malt Liquor] + [Steel Reserve]"
+      "  Result: IRON MALT"
+      "  Effects: STR buff + tox | +30 max HP for floor | Toughness buff (1 floor)"
+      "[Y] Mix it    [N] Reconsider (re-pick ingredients)"
+
+    Player confirms or goes back to re-pick.
+
+    On confirm: both source drinks are consumed from inventory (count -= 1 each;
+    remove entity if count reaches 0). A new item entity is created for the cocktail
+    and added to inventory. One cocktail per use. engine.deja_used = True.
+
+    Message: "Deja: *shakes* That's a special one. Don't waste it."
+
+  On second bump: "Deja: I made you one. You're done."
+
+THE COCKTAIL SYSTEM — COMBINATION MATRIX
+-----------------------------------------
+Cocktails are resolved by matching the two input drink item_ids against a
+COCKTAIL_MATRIX: dict[frozenset[str, str], str] where each value is a new
+item_id for a unique cocktail item. The matrix is order-independent (frozenset).
+
+The cocktail item is a new item defined in items.py with:
+  - category = "consumable"
+  - use_verb = "Drink"
+  - use_effect that applies both source drinks' effects + a bonus third effect
+  - zones: [] (only obtainable via Deja — never spawns naturally)
+  - weight: 0
+
+DEFINED COMBINATIONS AND THEIR COCKTAILS
+-----------------------------------------
+The matrix covers common/likely drink pairings. Uncovered combinations fall back
+to a DEFAULT_COCKTAIL that simply delivers both drinks' effects without a bonus.
+
+Named cocktail items (new item_ids to add to ITEM_DEFS):
+
+  1. "lean_special"  (Purple Drank + Malt Liquor)
+     Name: "Lean Special"
+     Effects: Purple Drank effects + STR buff + bonus: SlowedEffect on ALL enemies
+     in sight for 3 turns (Slow aura burst on drink — crowd control cocktail)
+     Flavor: "Two textures, one vibe."
+
+  2. "iron_malt"  (Malt Liquor + Steel Reserve)
+     Name: "Iron Malt"
+     Effects: STR buff + tox | CON buff + bleed slow + bonus: +30 flat max HP for
+     the current floor (floor_duration temp HP increase added to max)
+     Flavor: "Built different."
+
+  3. "black_out"  (Homemade Hennessy + any spirit with STR buff)
+     Name: "Black Out"
+     If second drink is Homemade Hennessy OR Malt Liquor OR Platinum Reserve:
+     item_id "black_out"
+     Effects: combined STR buffs (both apply sequentially) + bonus: all enemies
+     currently in the player's FOV have their AI state forced to WANDERING for 2
+     turns (they "lose" the player — a brief disengage tool)
+     Flavor: "They didn't see what you did last night. Neither did you."
+
+  4. "venom_sling"  (Virulent Vodka + Purple Drank)
+     Name: "Venom Sling"
+     Effects: on-hit tox transfer (Virulent Vodka) + Purple Drank slow + bonus:
+     each on-hit tox transfer now deals an additional 8 flat tox damage on top of
+     the transferred amount for the next 15 turns. Applied via a new
+     VenomSlingEffect (dur=15, floor_duration=False).
+     Flavor: "Sweet poison."
+
+  5. "rad_punch"  (any radiation-flavored drink + any STR drink)
+     Name: "Rad Punch"
+     Requires item_ids tagged with rad_on_drink=True (see below) combined with
+     a STR-buff drink. item_id "rad_punch"
+     Effects: STR buff + radiation gain + bonus: adds 50 radiation to player
+     immediately BUT also triggers the player's next mutation attempt as if
+     rad_level were 75 higher than it is (forced_weak_mutation_next = True, a
+     new engine flag). Flavor: "You'll feel it later."
+
+  6. "double_down"  (same drink + same drink — any two identical item_ids)
+     Name: "Double Down [drink name]"  (dynamic name based on source)
+     item_id "double_down" (generic)
+     Effects: source drink's effects applied TWICE in sequence + bonus: if the
+     drink had a duration buff, that duration is tripled.
+     Useful for players who stocked up on one drink type.
+     Flavor: "Nothing in moderation."
+
+  7. "midas_pour"  (Rainbow Rotgut + any drink)
+     Name: "Midas Pour"
+     Effects: Rainbow Rotgut effects (random stat reroll) + source drink effects
+     + bonus: the stat rerolled by Rainbow Rotgut is GUARANTEED to be a stat boost
+     (no negative outcome on that roll for this drink only).
+     Flavor: "Even the chaos cooperates tonight."
+
+  DEFAULT COCKTAIL (no matrix match):
+     Name: "House Mix"
+     item_id "house_mix" (generic fallback item with two dynamic effects)
+     Effects: both source drinks applied sequentially, no bonus third effect.
+     A guaranteed "at least as good as drinking both separately" floor.
+
+IMPLEMENTATION NOTES FOR COCKTAIL SYSTEM
+-----------------------------------------
+  - COCKTAIL_MATRIX lives as a module-level constant in item_effects.py or a new
+    cocktail_defs.py. Keys are frozenset({id_a, id_b}); values are result item_ids.
+  - "Same drink" check: frozenset({id, id}) == frozenset({id}) — Python frozenset
+    deduplicates. Handle by checking id_a == id_b explicitly before frozenset lookup,
+    and mapping to "double_down" result.
+  - The cocktail item entities are created via create_item_entity(cocktail_id) and
+    then potentially augmented with dynamic display (e.g., "Double Down Hennessy").
+  - VenomSlingEffect: new Effect subclass. Override on_player_melee_hit() to check
+    if the hit triggers tox transfer; if so, add_toxicity(target, engine, 8,
+    pierce_resistance=True) in addition to the normal transfer amount.
+  - forced_weak_mutation_next: new engine bool flag. In mutations.py tick loop,
+    before the normal threshold check, if this flag is True, add 75 to the
+    effective rad level for mutation roll only (do not permanently add rad), then
+    set flag False.
+  - rad-tagged drinks: drinks with radiation gain effects need a tag for the matrix
+    lookup. Add "rad_on_drink": True to relevant ITEM_DEFS (any drink that calls
+    add_radiation in its use_effect).
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.deja_used: bool = False
+  - DEJA_CAN_RETRY: unlike all other NPCs, if Deja says "not enough drinks" she
+    does NOT set deja_used. Only confirmation of a mix sets it.
+  - Inventory check on bump: count all entities in player inventory with
+    category == "consumable" and use_verb == "Drink" (or a "is_drink" tag in
+    ITEM_DEFS). Minimum 2 to open the menu.
+  - Consuming ingredients: inventory_mgr.consume_item(ingredient_a); consume_item
+    (ingredient_b). If ingredient_a == ingredient_b (same entity, count >= 2):
+    call consume_item twice on the same entity.
+  - Cocktail creation: create_item_entity(result_id), add to player inventory.
+  - "Double Down" result: create a "double_down" entity but mutate its display_name
+    to "Double Down [source_name]" before adding to inventory (engine.add_message
+    for flavor; display_name is ephemeral/not serialized separately).
+
+BALANCE CONSIDERATIONS
+----------------------
+  - Deja's power ceiling is high because the player invests two items. Getting a
+    Lean Special (mass slow on sight enemies) or Black Out (FOV disengage) is
+    genuinely powerful. But the player sacrificed two drinks that they could have
+    used independently.
+  - The requirement to HAVE two drinks means Deja rewards preparation. Players who
+    hoard drinks specifically for Deja are playing a deeper game. Players who
+    burned their drinks earlier simply can't use her.
+  - The default fallback (House Mix = both effects, no bonus) ensures Deja is never
+    a trap — you always get at least what you put in.
+  - Rad Punch is the most dangerous cocktail (forces a mutation), balanced by the
+    fact that it is opt-in (the player chose to mix a rad drink with a STR drink)
+    and mutations at this point in the run can be good or bad.
+
+SYNERGIES
+---------
+  - Plug (smoking NPC): Plug gives 5 joints. Joints are not drinks. No overlap.
+    The thematic parallel is: Plug gives a type-5 choice; Deja requires you bring
+    YOUR OWN two drinks. Skill expression rather than a handout.
+  - Chemical Warfare Spillover Aura (Swamp Gas strain): Venom Sling cocktail
+    amplifies on-hit tox transfer, which then interacts with Spillover Aura
+    for chain-tox kills. Strong Meth Lab combo for tox builds.
+  - Mutation system: Rad Punch gives players who are close to a mutation threshold
+    a push — useful if you want a specific mutation tier and are close.
+  - Chef (food NPC): Chef fuses two FOODS into a Sandwich (both food effects).
+    Deja fuses two DRINKS into a cocktail (both drink effects + bonus). Neither
+    overlaps the other. Together, a player can optimize both food and drink
+    consumption via Penthouse NPCs.
+
+================================================================================
+NPC 3 — THE GENE DOCTOR: PROFESSOR KLINE
+================================================================================
+
+CONCEPT
+-------
+Professor Kline is a disgraced academic who fled to the Penthouse after his
+unauthorized experiments were shut down. He offers a single free mutation
+consultation — a targeted intervention in the player's genetic profile. Specifically:
+he can either REROLL one of the player's existing mutations (bad or good), or
+TRIGGER a free guaranteed mutation at a tier of the player's choosing (if the
+player has enough radiation accumulated). This is the only in-game mechanism that
+gives the player agency over the mutation system, which is otherwise purely random.
+
+The design fills the mutation system gap in the Penthouse (no other NPC touches
+mutations). It is particularly relevant for Meth Lab prep — players entering with
+bad mutations from Crack Den radiation events can fix one, and players who want to
+turbocharge a mutation build can get a free guaranteed trigger.
+
+CHAR / COLOR
+------------
+char = 'K'  (Kline)
+color = (100, 220, 180)   — radioactive teal, science aesthetic
+
+POSITION
+--------
+East alcove, north side. A shelf hazard (char=']') beside him stacked with vials.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "PROFESSOR KLINE — GENETIC CONSULTATION (ONE-TIME)"
+
+  Kline: "Your genome is a mess. I can tidy one thing. Pick your problem."
+
+  MENU: TWO SERVICES
+  If the player HAS existing mutations (engine.mutations list is nonempty):
+    a) REROLL A MUTATION
+       "Remove one of your current mutations and replace it with a new random one
+        of the same tier."
+    b) INDUCE A MUTATION
+       "Spend radiation to trigger a guaranteed mutation at your chosen tier."
+       (Grayed out if player has 0 radiation)
+
+  If the player has NO mutations:
+    Only option b is shown (reroll requires something to reroll).
+
+  SERVICE A — REROLL A MUTATION:
+    Sub-menu lists all current mutations by name and tier:
+      a) Brittle Bones       [WEAK — BAD]
+      b) Accelerated Healing [STRONG — GOOD]
+      c) Skin Hardening      [WEAK — GOOD]
+
+    Player selects one mutation to reroll.
+    Confirmation: "Replace [Brittle Bones] with a random WEAK mutation? [Y/N]"
+
+    On confirm:
+      1. REMOVE the selected mutation entirely (reverse all stat effects it applied).
+      2. Run the normal mutation roll at the SAME TIER as the removed mutation,
+         but REROLL until the result is NOT the mutation just removed (no immediate
+         repeat). Result is applied immediately.
+      3. Display the new mutation name and description in a popup.
+      4. Message: "Kline: The sequence is cleaner now."
+
+    NOTE: The new mutation is random — it can be bad again. Kline cannot guarantee
+    a good outcome. He can only guarantee CHANGE. Players with a bad mutation can
+    get a different bad mutation. The expected value is neutral (same bad/good ratio
+    as the normal mutation table), but the player is taking agency over WHICH
+    mutation they remove.
+
+  SERVICE B — INDUCE A MUTATION:
+    Sub-menu asks which tier to trigger:
+      a) WEAK mutation      (costs 50 radiation to trigger — same as normal threshold)
+         "Available if player.radiation >= 50"
+      b) STRONG mutation    (costs 125 radiation)
+         "Available if player.radiation >= 125"
+      c) HUGE mutation      (costs 200 radiation)
+         "Available if player.radiation >= 200"
+
+    Locked options (insufficient radiation) are grayed out and show current rad:
+      c) HUGE mutation  — LOCKED (need 200 rad, you have 140)
+
+    On selection:
+      1. Deduct the radiation cost: remove_radiation(player, engine, cost).
+      2. Call the normal mutation trigger function at the specified tier directly
+         (bypassing the per-tick probability check).
+      3. The mutation is random — normal polarity table applies (67% bad / 33% good).
+      4. Display mutation popup immediately.
+      5. Message: "Kline: You'll feel that."
+
+    The radiation cost is IDENTICAL to the normal mutation cost. Kline is not
+    offering free mutations — he is offering GUARANTEED mutations NOW, removing
+    the RNG of "will this tick trigger?" Players who are close to a threshold
+    but want certainty use this option.
+
+  engine flag: engine.kline_used = True on either service completion.
+  On second bump: "Kline: I've done what I can. The rest is up to your cells."
+
+MUTATION REMOVAL LOGIC
+-----------------------
+  Mutations in NIGRL apply permanent stat/skill/equipment changes at the moment
+  of trigger. Removing a mutation must reverse those changes. This requires:
+
+  A. Each mutation entry in engine.mutations stores not just the mutation name but
+     the CONCRETE STAT DELTA it applied: {"name": "brittle_bones", "tier": "weak",
+     "polarity": "bad", "stat_deltas": {"constitution": -2}, "skill_deltas": {},
+     "equipment_changes": []}
+     If mutations are not currently stored with their deltas, Kline's reroll requires
+     a retroactive delta table: MUTATION_REVERSAL_TABLE: dict[str, dict] in
+     mutations.py that maps mutation_name -> reversal instructions.
+
+  B. Reversal process for reroll:
+     - Apply the negated stat_deltas (if mutation gave -2 CON, add +2 CON back).
+     - Reverse skill_deltas (if mutation gave +1 level to a skill, remove that level).
+     - Reverse equipment_changes if applicable.
+     - Recalculate HP if CON changed: player.max_hp = 30 + constitution * 10 +
+       iron_chin_bonus; clamp player.hp to new max.
+     - Remove the mutation from engine.mutations list.
+
+  C. Implementation path: The cleanest approach for implementation is to add
+     delta storage to mutations.py when a mutation fires (store what was applied
+     alongside the mutation entry). For Kline to work correctly, this storage
+     needs to be in place. The retroactive MUTATION_REVERSAL_TABLE is the fallback
+     if delta storage isn't added.
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.kline_used: bool = False
+  - engine.mutations: list[dict] — existing structure; add "stat_deltas" and
+    "skill_deltas" fields when mutations are applied (mutations.py apply step).
+  - Reroll: select mutation from list, call _reverse_mutation(engine, mutation_entry),
+    then call _trigger_mutation_at_tier(engine, tier=mutation_entry["tier"]) but
+    exclude the just-removed mutation from the result table for 1 roll.
+  - Induce: call remove_radiation(engine.player, engine, cost), then call
+    _trigger_mutation_at_tier(engine, tier=selected_tier) directly.
+  - _trigger_mutation_at_tier(engine, tier): this function should already exist
+    (or be easily extracted from) the normal mutations.py tick loop. If not, extract
+    the mutation selection + application block into a callable function.
+  - If no mutations exist and player has 0 radiation: Kline says "You're clean.
+    Nothing to work with." engine.kline_used is NOT set (like Deja's retry).
+
+BALANCE CONSIDERATIONS
+----------------------
+  The reroll has neutral expected value but high player-perceived value: eliminating
+  a specifically bad mutation (e.g., Brittle Bones, which reduces CON and effectively
+  loses 20 max HP) feels like a huge gain even if the replacement is mediocre. The
+  psychological benefit is real even when the mechanical EV is 0.
+
+  The induce option is the more mathematically significant offer: triggering a
+  guaranteed STRONG mutation (125 rad cost) early in the run compresses the ramp-up
+  timeline for mutation builds. Players running Mutation skill tree or Double Helix
+  strain get disproportionate value here since those builds already manage rad
+  intentionally.
+
+  The 67% bad / 33% good ratio is preserved in both services. Kline gives control
+  over timing and targeting, not over outcome quality. This keeps the mutation system
+  fundamentally chaotic while giving players one meaningful intervention.
+
+  Hard cap: one use per run. This prevents Kline from being used to fish for good
+  mutations repeatedly.
+
+SYNERGIES
+---------
+  - Double Helix strain (SWG/Mutation): the strain triggers mutations directly.
+    Kline's Induce on top of a Double Helix smoke is a double mutation window in one
+    Penthouse visit — a dedicated Mutation build can force 2 mutations here.
+  - Mutation skill tree: if the player has Mutation perks that improve mutation
+    polarity or give bonuses to good mutations, Kline's Induce is worth more
+    because the odds of a good outcome are higher (perks shift the baseline).
+  - Decontamination skill tree: if the player is trying to REMOVE radiation
+    strategically (managing rad levels), Kline's Induce lets them dump rad at a
+    known cost with a known mutation instead of waiting for a random tick trigger.
+  - Precious (Tattoo Artist): Precious might penalize a stat Kline just restored
+    via reroll reversal. Sequencing matters — visit Kline before Precious if you
+    are fixing a CON mutation, then visit Precious to boost something else.
+
+================================================================================
+NPC 4 — THE FIXER: CARLTON
+================================================================================
+
+CONCEPT
+-------
+Carlton is a smooth-talking man in a pressed shirt who has connections everywhere.
+He offers one free "fix" — the removal of a permanent or persistent negative
+condition on the player. Unlike standard cleansing (which handles turn-based status
+effects like poison or bleed), Carlton addresses STRUCTURAL problems: negative
+permanent stat debuffs, run-locked negative conditions, and most powerfully, the
+permanent lock on an enchanted item (with a steep cost). He is the last resort for
+players who made a decision they regret or who accumulated structural damage to
+their character.
+
+Carlton's service is intentionally rare-feeling: most runs, players won't need him.
+But in runs where something went badly wrong — a bad Precious outcome, an accidental
+Soloman enchant on the wrong item, or a stack of permanent debuffs from Meth Lab
+mutation bad luck — Carlton is invaluable.
+
+CHAR / COLOR
+------------
+char = 'C'  (Carlton)
+color = (220, 220, 180)   — off-white, clean shirt aesthetic
+
+POSITION
+--------
+South wall, center-west. Accessible from the main floor without going into an alcove.
+He is intentionally easy to find — players who need him are usually in trouble.
+
+INTERACTION FLOW
+----------------
+On first bump: menu titled "CARLTON'S FIX — ONE JOB (FREE)"
+
+  Carlton: "I can make one problem go away. What's the issue?"
+
+  Carlton's menu dynamically lists available fixes based on what is wrong with the
+  player's current run state. Categories:
+
+    CATEGORY A — ENCHANT UNLOCK (only shown if player has an enchanted locked item)
+      "Unlock [item name] — remove the permanent equipment lock."
+      Cost: player loses 30% of their current cash (rounded down).
+      Carlton: "My guy needs paying. That's the deal."
+
+      If confirmed: item_entity.enchanted_locked = False. Cash deducted immediately.
+      The item can now be unequipped normally. The enchantment effects REMAIN
+      (x1.5 damage, doubled ring stats, etc.) — Carlton frees the lock only,
+      not the power. This is intentional and important: Carlton is not a scam.
+      You keep the enchantment. You just regain the option to swap.
+
+    CATEGORY B — PERMANENT STAT RESTORE (only shown if player has negative permanent
+    stat deltas from sources other than character creation)
+      Sources that create negative permanent stats:
+        - Precious (Tattoo Artist) random penalty
+        - Mutation bad outcomes (CON/STR/etc. reductions)
+        - Any future system that applies permanent stat penalties
+      Carlton identifies ALL negative stat deltas currently applied from these
+      sources and presents them as a combined fix:
+      "Restore all permanently penalized stats to their Penthouse entry values."
+      Cost: none — this is his free service when no enchant unlock is needed.
+      Carlton: "Whatever they did to you, I can put it right."
+
+      On confirm: for each permanent stat penalty tracked in player_stats:
+        - Reverse the penalty (add back the absolute value of each negative delta).
+        - Recalculate HP if CON was involved.
+        - Recalculate all derived stats.
+      engine flag: engine.carlton_used = True.
+      Message: "Carlton: Back to where you should be."
+
+      IMPORTANT: Carlton cannot restore stat LOSSES from character creation or
+      normal leveling. He only reverses externally-applied permanent penalties.
+      This requires a new tracking structure: player_stats.permanent_penalties:
+      list[dict] — a ledger of externally-applied permanent stat changes, written
+      to whenever Precious, Kline, or any other NPC/system applies a permanent
+      negative stat. Carlton reads this ledger and reverses every entry.
+
+    CATEGORY C — GENERIC STRUCTURAL FIX (fallback if no A or B applies)
+      If the player has no enchanted locked items AND no tracked permanent penalties:
+      Carlton offers a minor but useful consolation:
+      "Clear all negative temporary status effects currently active."
+      Cost: none.
+      Carlton: "You're in better shape than you think. Let me clean you up."
+      Effect: removes all Effect entries on the player where category == "debuff"
+      and duration is not floor_duration=True (i.e., temporary debuffs only —
+      the kind that would clear anyway in a few turns but Carlton removes them now).
+      This includes: poison, bleed, chill, burn, shock, fear, stun (if active).
+      Does NOT remove floor_duration debuffs (those are structural to the floor).
+
+  PRIORITY ORDERING
+  -----------------
+  If multiple categories apply simultaneously:
+    Carlton shows ALL applicable options in the menu. Player picks one.
+    After one pick, Carlton is used (engine.carlton_used = True) and he is done.
+    This means: if the player has both an enchanted item AND permanent stat penalties,
+    they must choose which to fix. Carlton does not fix everything — he fixes ONE thing.
+
+  On second bump: "Carlton: I squared it away. That's all I do."
+
+PERMANENT PENALTY TRACKING
+----------------------------
+The player_stats.permanent_penalties ledger is the key new structure for Carlton
+to function. Schema for each entry:
+
+  {
+    "source": "precious_tattoo",   # which system applied it
+    "stat": "constitution",         # which stat was penalized
+    "amount": -1,                  # delta (negative value = penalty)
+    "applied_floor": 4             # diagnostic: which floor it was applied on
+  }
+
+This ledger must be:
+  - Written to by Precious when her random penalty fires.
+  - Written to by any mutation outcome that reduces a player stat permanently.
+  - Written to by any other future NPC (e.g., a bad trade deal) that applies a
+    permanent negative stat.
+  - Serialized in save_system.py alongside player_stats.
+  - NOT written to by character creation base stats (those are not "external" penalties).
+  - Read and reversed by Carlton's service B.
+
+If the permanent_penalties ledger is not yet implemented when Carlton is coded,
+Carlton defaults to showing only Category A (enchant unlock) and Category C
+(temp debuff clear). Category B requires the ledger. The ledger can be added
+incrementally — Carlton gracefully degrades without it.
+
+MECHANICAL SPECIFICATION
+------------------------
+  - engine.carlton_used: bool = False
+  - Category A (enchant unlock):
+    Check: any equipped item where entity.enchanted_locked == True.
+    Cash cost: int(engine.player.cash * 0.30).
+    Apply: engine.player.cash -= cost; item_entity.enchanted_locked = False.
+    The enchantment stat effects on the item are NOT reversed.
+  - Category B (stat restore):
+    Check: player_stats.permanent_penalties is nonempty.
+    Apply: for entry in player_stats.permanent_penalties:
+      setattr(player_stats, "_base_" + entry["stat"],
+              getattr(player_stats, "_base_" + entry["stat"]) - entry["amount"])
+    Then clear: player_stats.permanent_penalties = []
+    Recalculate HP: player.max_hp = 30 + effective_constitution * 10 + iron_chin_bonus;
+    player.hp = min(player.hp, player.max_hp).
+  - Category C (temp debuff clear):
+    For effect in list(entity.effects):
+      if effect.category == "debuff" and not effect.floor_duration:
+        effect.expire(entity, engine); entity.effects.remove(effect)
+  - Carlton can see MULTIPLE applicable categories at once. Show all in the menu.
+    Setting engine.carlton_used blocks future visits regardless of which was picked.
+
+BALANCE CONSIDERATIONS
+----------------------
+  Carlton's power level scales inversely with how well the player has been playing:
+  players who avoided Precious's stat penalty, never got a bad mutation, and didn't
+  over-commit with Soloman need Carlton only for the minor debuff clear (Category C),
+  which is almost trivially useful. Players who stacked bad decisions may find Carlton
+  is the single most powerful NPC in the Penthouse.
+
+  The 30% cash cost for Enchant Unlock is calibrated to sting without being fatal.
+  At the Penthouse transition, players typically have 100-500 cash. 30% is 30-150 cash.
+  This represents a real economy hit but not a run-ending loss. The value of freeing
+  a weapon slot is often worth it (access to Meth Lab weapons instead of being stuck
+  with a Crack Den locked weapon).
+
+  The stat restore (Category B) has no cost — because it only undoes externally
+  forced harm. If the player chose Precious's boost knowing the risk, Carlton undoes
+  the specific element they couldn't control (the random penalty). This is philosophically
+  consistent: Carlton doesn't undo the player's choices, he undoes forced outcomes.
+
+  Category C (temp debuff clear) is a nearly trivial service. Walking into the Meth
+  Lab without any debuffs active is worth approximately nothing — debuffs expire
+  naturally. Carlton's Category C is the consolation prize for players who have a
+  clean run and simply don't need his deeper services.
+
+SYNERGIES
+---------
+  - Soloman (Enchanter): The most direct synergy in the Penthouse. Lock an item with
+    Soloman for the Meth Lab power boost, then if you find a better item mid-Meth Lab
+    or want to adjust, Carlton's Category A unlocks it for 30% cash. The loop is:
+    Soloman buffs the item; Carlton can release the lock later if needed. Together
+    they form a two-phase power-management system.
+  - Precious (Tattoo Artist): Precious applies a random stat penalty. Carlton's
+    Category B reverses it. This makes Precious lower-risk if you know Carlton will
+    catch the worst outcomes. However, Carlton only fixes one thing per run — if you
+    use Carlton for Precious's penalty, you can't use him for Soloman's lock later.
+    The player must choose which problem is bigger.
+  - Mutation system (Professor Kline): Kline can reroll a bad mutation, which
+    reverses the mutation's stat damage directly. Carlton's stat restore would catch
+    the SAME damage. Using both on the same problem wastes one NPC. Players should
+    use Kline for mutation reversals and Carlton for Precious/Soloman fallout.
+  - Economy (cash management): Carlton's Enchant Unlock costs 30% cash. Players
+    using Tyrone's shop or buying faction rep from Smooth Carl should budget for
+    Carlton if they plan to use Soloman. Running all three (Soloman + Carlton + Shop)
+    is an expensive but powerful Penthouse visit.
+
+================================================================================
+ENGINE FLAGS SUMMARY — ALL 4 NEW NPCs
+================================================================================
+
+New engine flags (all bool, default False, persist run, never reset on floor change):
+  engine.soloman_used       — Enchanter enchantment/lock
+  engine.deja_used          — Mixologist cocktail mix (set on successful mix only;
+                               NOT set on "not enough drinks" gate check)
+  engine.kline_used         — Gene Doctor mutation service (set on successful
+                               service only; NOT set on "clean" no-op gate)
+  engine.carlton_used       — Fixer service completion
+
+New entity fields:
+  entity.enchanted_locked: bool = False  (serialized; add to entity.py)
+
+New player_stats fields:
+  player_stats.permanent_penalties: list[dict] = []  (serialized ledger for Carlton B)
+
+New item_ids (cocktails, add to ITEM_DEFS):
+  "lean_special", "iron_malt", "black_out", "venom_sling", "rad_punch",
+  "double_down", "midas_pour", "house_mix"
+
+New effect subclasses:
+  VenomSlingEffect (id="venom_sling_buff", dur=15, on_player_melee_hit hook;
+                    adds 8 flat tox per hit that triggered tox transfer)
+
+New engine flags (game mechanics, not NPC flags):
+  engine.forced_weak_mutation_next: bool = False  (Rad Punch cocktail; resets on use)
+
+================================================================================
+NPC LAYOUT — ALL 10 TOGETHER (REVISED)
+================================================================================
+
+With these 4 new NPCs added to the 6 existing ones, the full Penthouse roster is:
+
+  Existing 6:
+    Gun Dealer, Chef, Plug, La'Quisha, Precious, Rico
+
+  New 4:
+    Soloman (Enchanter), Deja (Mixologist), Professor Kline (Gene Doctor), Carlton (Fixer)
+
+Suggested placement (39x14 Penthouse floor):
+
+  NORTH WALL (counter-facing, goods/services row):
+    - Gun Dealer (existing)   — N center
+    - Chef (existing)         — NE, counter
+    - Deja (Mixologist)       — NW, counter  [replaces Delroy's slot from prev design]
+
+  EAST ALCOVES:
+    - La'Quisha (Skill Trader) — NE corner, table
+    - Professor Kline (Gene Doctor) — mid-E, shelf
+
+  WEST AREA / ALCOVES:
+    - Plug (existing)          — NW alcove
+    - Soloman (Enchanter)      — W wall, workbench
+
+  CENTER / SOUTH:
+    - Carlton (Fixer)          — S center, open floor (most accessible for triage)
+    - Rico (Pawn Man)          — SW, counter
+
+  SOUTH ALCOVE:
+    - Precious (Tattoo Artist) — SE alcove, chair
+
+  This clusters: NORTH = consumable enhancement (drinks/food/gun),
+  EAST = skill/gene manipulation, WEST = equipment power, SOUTH = body/triage.
+
+================================================================================
+PRIORITY ORDER FOR IMPLEMENTATION
+================================================================================
+
+  Tier 1 — Simplest (clear precedent, minimal new state):
+    Soloman (Enchanter) — stat field multiplication, one new entity flag; math is
+                          straightforward; the lock flag is simple boolean
+
+  Tier 2 — Moderate complexity:
+    Deja (Mixologist)   — cocktail matrix lookup + new item definitions; two-step
+                          menu with retry logic; new items need ITEM_DEFS entries
+    Carlton (Fixer)     — three-category dynamic menu; straightforward if permanent_
+                          penalties ledger is added; degrades gracefully without it
+
+  Tier 3 — Highest complexity:
+    Kline (Gene Doctor) — requires mutation reversal logic; delta storage in
+                          mutations.py; most technically demanding of the four
+
+================================================================================
+CROSS-NPC INTERACTIONS SUMMARY
+================================================================================
+
+  Soloman → Carlton:  Enchant an item (Soloman), unlock it later if needed (Carlton
+                       costs 30% cash). The two-NPC power loop.
+  Soloman → Rico:     Rico's trade is blocked for enchanted_locked items.
+                       Plan enchants AFTER Rico trades.
+  Precious → Carlton: Precious applies random stat penalty; Carlton's B reverses it.
+                       Use Carlton for Precious fallout OR Soloman unlock — not both.
+  Kline → Precious:   Kline rerolls a bad mutation (restores stats); then Precious
+                       boosts a stat. Sequence matters: Kline first.
+  Deja → Plug:        Deja requires owned drinks; Plug gives joints (not drinks).
+                       No overlap, no interaction.
+  Chef → Deja:        Chef fuses foods; Deja fuses drinks. Parallel systems, no
+                       conflict. A player can use both on separate consumables.
+
+================================================================================

@@ -1,0 +1,51 @@
+SUMMARY: tyrone-penthouse-npcs-new7.txt
+Brainstorm — 7 new one-time free service NPCs for Tyrone's Penthouse
+
+NPCs AT A GLANCE
+----------------
+1. Delroy (Bartender, 'B', amber) — Pick 1 of 5 curated drinks added to inventory;
+   mirrors Plug pattern but for alcohol; Virulent Vodka is the Meth Lab prep pick.
+
+2. La'Quisha (Skill Trader, 'L', cool blue) — 2-step menu: drain 1 level from a
+   leveled skill, inject enough XP (200) to bring an unleveled skill with potential_exp
+   to L1. Perk from drained level is lost. Hardest to implement (perk removal logic).
+
+3. Rico (Pawn Man, 'R', dirty gold) — Trade one equipped item for a random equippable
+   from the Meth Lab loot tables. Known item for unknown item; lateral power gamble.
+
+4. Precious (Tattoo Artist, 'P', magenta) — Pick one stat to +1 permanently; a random
+   DIFFERENT stat takes -1. Net 0 total; player picks the gain, RNG picks the loss.
+
+5. Dr. Pill (Pharmacist, '$', hospital green) — Y/N only; random ability drawn from
+   PHARMACY_POOL (~15 curated abilities); no preview before committing. Pure variance.
+
+6. Marcus (Fence, 'M', grey) — Pick 1 of 3 intel packages: faction report, threat
+   brief (which dangerous enemy is densest on floor 1), or supply line (loot bias).
+   Information only; always true; best paired with Smooth Carl.
+
+7. Big Jerome (Coach, 'J', gold) — Pick 1 of 3 permanent boosts: +15 max HP (Iron
+   Chin), +2 melee damage (Mean Hands), or +5% dodge (Ghost Step). No tradeoff —
+   the safety-valve NPC for underprepared players.
+
+KEY ENGINE FLAGS REQUIRED
+--------------------------
+engine.delroy_used, laquisha_used, rico_used, precious_used, drpill_used,
+marcus_used, jerome_coach_used  (all bool, False, never resets mid-run)
+
+KEY NEW PLAYERSTAT FIELDS
+--------------------------
+player_stats.iron_chin_bonus: int = 0  (added to max_hp formula; serialized)
+player_stats.melee_damage_bonus  (may already exist; if not, created by Jerome)
+
+PRIORITY ORDER
+--------------
+Tier 1 (simplest): Delroy, Big Jerome
+Tier 2 (moderate): Rico, Precious, Marcus
+Tier 3 (complex): Dr. Pill, La'Quisha
+
+NOTABLE CROSS-SYNERGIES
+------------------------
+- Precious + Jerome: Precious may penalize CON (-10 HP); Jerome Iron Chin offsets it
+- Marcus + Smooth Carl: Marcus tells which faction dominates; Carl sells that rep
+- La'Quisha + Cracksworth: Cracksworth levels a skill; La'Quisha trades it elsewhere
+- Delroy Virulent Vodka + Chemical Warfare Spillover: on-hit tox chain in Meth Lab

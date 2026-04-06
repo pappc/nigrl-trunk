@@ -11,6 +11,7 @@ class Entity:
 
     _on_damage_callback = None   # set by engine at init
     _on_heal_callback = None     # set by engine at init
+    _engine_ref = None           # set by engine at init
 
     def __init__(
         self,
@@ -205,6 +206,12 @@ class Entity:
         if self.hp <= 0:
             self.alive = False
             return True
+        # Half-Life Mark: check threshold after surviving damage
+        if Entity._engine_ref is not None:
+            for eff in list(self.status_effects):
+                if getattr(eff, 'id', None) == 'half_life_mark':
+                    eff.check_threshold(self, Entity._engine_ref)
+                    break
         return False
 
     def heal(self, amount):

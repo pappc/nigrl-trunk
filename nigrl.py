@@ -506,6 +506,9 @@ def main():
                 if choice == "continue":
                     from save_system import load_game
                     engine = load_game()
+                    if engine is None:
+                        # Corrupt save was deleted — fall back to new game
+                        engine = GameEngine(seed=_seed)
                 else:
                     engine = GameEngine(seed=_seed)
                 _seed = None
@@ -571,24 +574,38 @@ def main():
                         # Animation-only frames: render overlays at ~24fps
                         now = time.time()
                         if not _needs_render and (now - _last_anim_render) >= 0.042:
-                            # Only re-render SDL overlays, skip full console rebuild
+                            # Only re-render SDL overlays, reuse cached console texture
                             sdl_overlay.update_all_entity_overlays(engine)
-                            sdl_overlay.present(console)
+                            sdl_overlay.present(console, skip_console_render=True)
                             _last_anim_render = now
                         if not _needs_render:
                             time.sleep(0.005)
                             continue  # skip full render
                     else:
-                        # Block until input — no animation running
+                        # Block until first input, then drain all pending events
+                        _any_action = False
                         for event in tcod.event.wait():
                             if isinstance(event, tcod.event.Quit):
                                 engine.running = False
                                 running = False
                             else:
                                 action = handle_input(event)
-                                engine.process_action(action)
-                            break  # process one event, then render
-                        _needs_render = True
+                                if action:
+                                    engine.process_action(action)
+                                    _any_action = True
+                            break  # unblock after first event
+                        # Drain remaining queued events (KeyUp, repeats, etc.)
+                        for event in tcod.event.get():
+                            if isinstance(event, tcod.event.Quit):
+                                engine.running = False
+                                running = False
+                            else:
+                                action = handle_input(event)
+                                if action:
+                                    engine.process_action(action)
+                                    _any_action = True
+                        if _any_action:
+                            _needs_render = True
 
                     # --- RENDER (only when needed) ---
                     if not engine.running:

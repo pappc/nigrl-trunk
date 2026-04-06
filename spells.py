@@ -1720,6 +1720,12 @@ def _execute_ability(engine, index: int) -> bool:
         engine.messages.append(f"{defn.name}: choose a direction (arrow keys / numpad). [Esc] cancel.")
         return False
 
+    # CARDINAL targeting: pick a cardinal direction (N/S/E/W only)
+    if defn.target_type == TargetType.CARDINAL:
+        engine.menu_state = MenuState.CARDINAL_TARGETING
+        engine.messages.append(f"{defn.name}: choose a cardinal direction (↑↓←→). [Esc] cancel.")
+        return False
+
     # SINGLE_ENEMY_LOS / LINE_FROM_PLAYER: enter cursor targeting mode
     if defn.target_type in (TargetType.SINGLE_ENEMY_LOS, TargetType.LINE_FROM_PLAYER):
         engine.targeting_spell = {"type": "ability_cursor"}
@@ -1870,6 +1876,64 @@ def _handle_adjacent_tile_targeting_input(engine, action) -> bool:
         return fired
 
     return False
+
+
+def _handle_cardinal_targeting_input(engine, action) -> bool:
+    """Handle input while in CARDINAL_TARGETING state.
+    Only cardinal directions (no diagonals) accepted; Esc cancels."""
+    action_type = action.get("type")
+
+    if action_type == "close_menu":
+        engine.menu_state = MenuState.NONE
+        engine.targeting_ability_index = None
+        return False
+
+    if action_type == "move":
+        dx = action.get("dx", 0)
+        dy = action.get("dy", 0)
+        # Only allow cardinal directions (no diagonals, no zero)
+        if abs(dx) + abs(dy) != 1:
+            engine.messages.append("Choose a cardinal direction (↑↓←→).")
+            return False
+
+        engine.menu_state = MenuState.NONE
+        fired = _fire_cardinal_ability(engine, dx, dy)
+        return fired
+
+    return False
+
+
+def _fire_cardinal_ability(engine, dx: int, dy: int) -> bool:
+    """Fire the pending CARDINAL ability in the given direction."""
+    idx = engine.targeting_ability_index
+    if idx is None:
+        return False
+    inst = engine.player_abilities[idx]
+    defn = ABILITY_REGISTRY.get(inst.ability_id)
+    if defn is None or defn.execute_at is None:
+        return False
+
+    _spellweaver_before(engine, defn)
+    result = defn.execute_at(engine, dx, dy)
+    if result:
+        _spellweaver_after(engine, defn)
+        inst.consume(engine)
+        if defn.ability_id == "consecrate":
+            # Consecrate charge preservation: max(0, 100 - player_rad)% chance to keep charge
+            import random as _rng
+            preserve_chance = max(0, 100 - engine.player.radiation) / 100.0
+            if _rng.random() < preserve_chance:
+                inst.refund_charge(defn)
+                engine.messages.append([
+                    ("Charge preserved! ", (160, 255, 80)),
+                    (f"({int(preserve_chance * 100)}% chance)", (120, 200, 60)),
+                ])
+        # Set cooldown if ability defines one
+        cd = getattr(defn, '_cooldown', 0)
+        if cd > 0:
+            engine.ability_cooldowns[inst.ability_id] = cd
+    engine.targeting_ability_index = None
+    return result
 
 
 def _hatch_spider_egg(engine, tx: int, ty: int, pending: dict) -> bool:
